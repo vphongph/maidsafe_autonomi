@@ -177,7 +177,7 @@ impl Client {
     }
 
     // Upload chunks and retry failed uploads up to `RETRY_ATTEMPTS` times.
-    pub(crate) async fn upload_chunks_with_retries<'a>(
+    pub async fn upload_chunks_with_retries<'a>(
         &self,
         mut chunks: Vec<&'a Chunk>,
         receipt: &Receipt,

@@ -39,6 +39,17 @@ pub fn derive_vault_key(evm_sk_hex: &str) -> Result<VaultSecretKey, VaultKeyErro
     Ok(vault_sk)
 }
 
+/// Derives the vault secret key from a signature hex string
+pub fn vault_key_from_signature_hex(signature_hex: &str) -> Result<VaultSecretKey, VaultKeyError> {
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|e| VaultKeyError::FailedToGenerateVaultSecretKey(e.to_string()))?;
+
+    let blst_key = derive_secret_key_from_seed(&signature_bytes)?;
+    let vault_sk = blst_to_blsttc(&blst_key)?;
+
+    Ok(vault_sk)
+}
+
 /// Convert a blst secret key to a blsttc secret key and pray that endianness is the same
 pub(crate) fn blst_to_blsttc(sk: &BlstSecretKey) -> Result<bls::SecretKey, VaultKeyError> {
     let sk_bytes = sk.to_bytes();

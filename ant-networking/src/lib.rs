@@ -633,13 +633,13 @@ impl Network {
                 match kind {
                     RecordKind::Chunk
                     | RecordKind::ChunkWithPayment
-                    | RecordKind::TransactionWithPayment
+                    | RecordKind::LinkedListWithPayment
                     | RecordKind::RegisterWithPayment
                     | RecordKind::ScratchpadWithPayment => {
                         error!("Encountered a split record for {pretty_key:?} with unexpected RecordKind {kind:?}, skipping.");
                         continue;
                     }
-                    RecordKind::Transaction => {
+                    RecordKind::LinkedList => {
                         info!("For record {pretty_key:?}, we have a split record for a transaction attempt. Accumulating transactions");
 
                         match get_transactions_from_record(record) {
@@ -714,7 +714,7 @@ impl Network {
                 .collect::<Vec<LinkedList>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::Transaction)
+                value: try_serialize_record(&accumulated_transactions, RecordKind::LinkedList)
                     .map_err(|err| {
                         error!(
                             "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"

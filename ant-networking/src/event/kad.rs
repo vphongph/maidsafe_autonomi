@@ -416,7 +416,7 @@ impl SwarmDriver {
 
                         let bytes = try_serialize_record(
                             &accumulated_transactions,
-                            RecordKind::Transaction,
+                            RecordKind::LinkedList,
                         )?;
 
                         let new_accumulated_record = Record {

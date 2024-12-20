@@ -37,7 +37,7 @@ impl Network {
 
 pub fn get_transactions_from_record(record: &Record) -> Result<Vec<LinkedList>> {
     let header = RecordHeader::from_record(record)?;
-    if let RecordKind::Transaction = header.kind {
+    if let RecordKind::LinkedList = header.kind {
         let transactions = try_deserialize_record::<Vec<LinkedList>>(record)?;
         Ok(transactions)
     } else {
@@ -45,6 +45,6 @@ pub fn get_transactions_from_record(record: &Record) -> Result<Vec<LinkedList>> 
             "RecordKind mismatch while trying to retrieve transactions from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
-        Err(NetworkError::RecordKindMismatch(RecordKind::Transaction))
+        Err(NetworkError::RecordKindMismatch(RecordKind::LinkedList))
     }
 }

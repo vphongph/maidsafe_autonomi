@@ -123,19 +123,14 @@ pub enum NetworkError {
     #[error("Record header is incorrect")]
     InCorrectRecordHeader,
 
-    // ---------- Transfer Errors
-    #[error("Failed to get transaction: {0}")]
-    FailedToGetSpend(String),
-    #[error("Transfer is invalid: {0}")]
-    InvalidTransfer(String),
 
     // ---------- Chunk Errors
     #[error("Failed to verify the ChunkProof with the provided quorum")]
     FailedToVerifyChunkProof(NetworkAddress),
 
-    // ---------- Transaction Errors
-    #[error("Transaction not found: {0:?}")]
-    NoTransactionFoundInsideRecord(LinkedListAddress),
+    // ---------- LinkedList Errors
+    #[error("Linked list not found: {0:?}")]
+    NoLinkedListFoundInsideRecord(LinkedListAddress),
 
     // ---------- Store Error
     #[error("No Store Cost Responses")]

@@ -89,7 +89,7 @@ impl Client {
         let payees = proof.payees();
         let record = Record {
             key: NetworkAddress::from_transaction_address(address).to_record_key(),
-            value: try_serialize_record(&(proof, &transaction), RecordKind::TransactionWithPayment)
+            value: try_serialize_record(&(proof, &transaction), RecordKind::LinkedListWithPayment)
                 .map_err(|_| TransactionError::Serialization)?
                 .to_vec(),
             publisher: None,

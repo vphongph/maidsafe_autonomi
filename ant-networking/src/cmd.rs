@@ -663,13 +663,13 @@ impl SwarmDriver {
                         match record_header.kind {
                             RecordKind::Chunk => RecordType::Chunk,
                             RecordKind::Scratchpad => RecordType::Scratchpad,
-                            RecordKind::Transaction | RecordKind::Register => {
+                            RecordKind::LinkedList | RecordKind::Register => {
                                 let content_hash = XorName::from_content(&record.value);
                                 RecordType::NonChunk(content_hash)
                             }
                             RecordKind::ChunkWithPayment
                             | RecordKind::RegisterWithPayment
-                            | RecordKind::TransactionWithPayment
+                            | RecordKind::LinkedListWithPayment
                             | RecordKind::ScratchpadWithPayment => {
                                 error!("Record {record_key:?} with payment shall not be stored locally.");
                                 return Err(NetworkError::InCorrectRecordHeader);

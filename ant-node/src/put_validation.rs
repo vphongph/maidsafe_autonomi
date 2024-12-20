@@ -15,8 +15,8 @@ use ant_networking::NetworkError;
 use ant_protocol::storage::LinkedList;
 use ant_protocol::{
     storage::{
-        try_deserialize_record, try_serialize_record, Chunk, RecordHeader, RecordKind, RecordType,
-        Scratchpad, LinkedListAddress,
+        try_deserialize_record, try_serialize_record, Chunk, LinkedListAddress, RecordHeader,
+        RecordKind, RecordType, Scratchpad,
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
@@ -163,14 +163,14 @@ impl Node {
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::Transaction => {
+            RecordKind::LinkedList => {
                 // Transactions should always be paid for
                 error!("Transaction should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::TransactionWithPayment => {
+            RecordKind::LinkedListWithPayment => {
                 let (payment, transaction) =
                     try_deserialize_record::<(ProofOfPayment, LinkedList)>(&record)?;
 
@@ -321,7 +321,7 @@ impl Node {
         match record_header.kind {
             // A separate flow handles payment for chunks and registers
             RecordKind::ChunkWithPayment
-            | RecordKind::TransactionWithPayment
+            | RecordKind::LinkedListWithPayment
             | RecordKind::RegisterWithPayment
             | RecordKind::ScratchpadWithPayment => {
                 warn!("Prepaid record came with Payment, which should be handled in another flow");
@@ -352,7 +352,7 @@ impl Node {
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::Transaction => {
+            RecordKind::LinkedList => {
                 let record_key = record.key.clone();
                 let transactions = try_deserialize_record::<Vec<LinkedList>>(&record)?;
                 self.validate_merge_and_store_transactions(transactions, &record_key)
@@ -613,7 +613,7 @@ impl Node {
         // store the record into the local storage
         let record = Record {
             key: record_key.clone(),
-            value: try_serialize_record(&validated_transactions, RecordKind::Transaction)?.to_vec(),
+            value: try_serialize_record(&validated_transactions, RecordKind::LinkedList)?.to_vec(),
             publisher: None,
             expires: None,
         };
@@ -779,9 +779,9 @@ impl Node {
         // deserialize the record and get the transactions
         let local_header = RecordHeader::from_record(&local_record)?;
         let record_kind = local_header.kind;
-        if !matches!(record_kind, RecordKind::Transaction) {
+        if !matches!(record_kind, RecordKind::LinkedList) {
             error!("Found a {record_kind} when expecting to find Spend at {addr:?}");
-            return Err(NetworkError::RecordKindMismatch(RecordKind::Transaction).into());
+            return Err(NetworkError::RecordKindMismatch(RecordKind::LinkedList).into());
         }
         let local_transactions: Vec<LinkedList> = try_deserialize_record(&local_record)?;
         Ok(local_transactions)

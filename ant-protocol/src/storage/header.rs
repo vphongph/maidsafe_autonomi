@@ -34,8 +34,8 @@ pub struct RecordHeader {
 pub enum RecordKind {
     Chunk,
     ChunkWithPayment,
-    Transaction,
-    TransactionWithPayment,
+    LinkedList,
+    LinkedListWithPayment,
     Register,
     RegisterWithPayment,
     Scratchpad,
@@ -50,12 +50,12 @@ impl Serialize for RecordKind {
         match *self {
             Self::ChunkWithPayment => serializer.serialize_u32(0),
             Self::Chunk => serializer.serialize_u32(1),
-            Self::Transaction => serializer.serialize_u32(2),
+            Self::LinkedList => serializer.serialize_u32(2),
             Self::Register => serializer.serialize_u32(3),
             Self::RegisterWithPayment => serializer.serialize_u32(4),
             Self::Scratchpad => serializer.serialize_u32(5),
             Self::ScratchpadWithPayment => serializer.serialize_u32(6),
-            Self::TransactionWithPayment => serializer.serialize_u32(7),
+            Self::LinkedListWithPayment => serializer.serialize_u32(7),
         }
     }
 }
@@ -69,12 +69,12 @@ impl<'de> Deserialize<'de> for RecordKind {
         match num {
             0 => Ok(Self::ChunkWithPayment),
             1 => Ok(Self::Chunk),
-            2 => Ok(Self::Transaction),
+            2 => Ok(Self::LinkedList),
             3 => Ok(Self::Register),
             4 => Ok(Self::RegisterWithPayment),
             5 => Ok(Self::Scratchpad),
             6 => Ok(Self::ScratchpadWithPayment),
-            7 => Ok(Self::TransactionWithPayment),
+            7 => Ok(Self::LinkedListWithPayment),
             _ => Err(serde::de::Error::custom(
                 "Unexpected integer for RecordKind variant",
             )),
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(chunk.len(), RecordHeader::SIZE);
 
         let transaction = RecordHeader {
-            kind: RecordKind::Transaction,
+            kind: RecordKind::LinkedList,
         }
         .try_serialize()?;
         assert_eq!(transaction.len(), RecordHeader::SIZE);

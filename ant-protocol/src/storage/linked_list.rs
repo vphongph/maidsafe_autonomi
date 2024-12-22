@@ -22,7 +22,7 @@ pub struct LinkedList {
     pub owner: PublicKey,
     pub parents: Vec<PublicKey>,
     pub content: LinkedListContent,
-    pub outputs: Vec<(PublicKey, LinkedListContent)>,
+    pub outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
     /// signs the above 4 fields with the owners key
     pub signature: Signature,
 }
@@ -33,7 +33,7 @@ impl LinkedList {
         owner: PublicKey,
         parents: Vec<PublicKey>,
         content: LinkedListContent,
-        outputs: Vec<(PublicKey, LinkedListContent)>,
+        outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
         signing_key: &SecretKey,
     ) -> Self {
         let signature = signing_key.sign(Self::bytes_to_sign(&owner, &parents, &content, &outputs));
@@ -51,7 +51,7 @@ impl LinkedList {
         owner: PublicKey,
         parents: Vec<PublicKey>,
         content: LinkedListContent,
-        outputs: Vec<(PublicKey, LinkedListContent)>,
+        outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
         signature: Signature,
     ) -> Self {
         Self {
@@ -68,7 +68,7 @@ impl LinkedList {
         owner: &PublicKey,
         parents: &[PublicKey],
         content: &[u8],
-        outputs: &[(PublicKey, LinkedListContent)],
+        outputs: &Option<Vec<(PublicKey, LinkedListContent)>>,
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&owner.to_bytes());
@@ -83,12 +83,14 @@ impl LinkedList {
         bytes.extend_from_slice("content".as_bytes());
         bytes.extend_from_slice(content);
         bytes.extend_from_slice("outputs".as_bytes());
-        bytes.extend_from_slice(
-            &outputs
-                .iter()
-                .flat_map(|(p, c)| [&p.to_bytes(), c.as_slice()].concat())
-                .collect::<Vec<_>>(),
-        );
+        if let Some(outputs) = outputs {
+            bytes.extend_from_slice(
+                &outputs
+                    .iter()
+                    .flat_map(|(p, c)| [&p.to_bytes(), c.as_slice()].concat())
+                    .collect::<Vec<_>>(),
+            );
+        }
         bytes
     }
 

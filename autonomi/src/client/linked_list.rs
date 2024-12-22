@@ -53,7 +53,7 @@ impl Client {
         &self,
         address: LinkedListAddress,
     ) -> Result<Vec<LinkedList>, TransactionError> {
-        let transactions = self.network.get_transactions(address).await?;
+        let transactions = self.network.get_linked_list(address).await?;
 
         Ok(transactions)
     }
@@ -88,7 +88,7 @@ impl Client {
         // prepare the record for network storage
         let payees = proof.payees();
         let record = Record {
-            key: NetworkAddress::from_transaction_address(address).to_record_key(),
+            key: NetworkAddress::from_linked_list_address(address).to_record_key(),
             value: try_serialize_record(&(proof, &transaction), RecordKind::LinkedListWithPayment)
                 .map_err(|_| TransactionError::Serialization)?
                 .to_vec(),

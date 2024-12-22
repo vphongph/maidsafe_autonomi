@@ -15,9 +15,9 @@ use ant_protocol::{
 use libp2p::kad::{Quorum, Record};
 
 impl Network {
-    /// Gets Transactions at TransactionAddress from the Network.
-    pub async fn get_transactions(&self, address: LinkedListAddress) -> Result<Vec<LinkedList>> {
-        let key = NetworkAddress::from_transaction_address(address).to_record_key();
+    /// Gets LinkedList at LinkedListAddress from the Network.
+    pub async fn get_linked_list(&self, address: LinkedListAddress) -> Result<Vec<LinkedList>> {
+        let key = NetworkAddress::from_linked_list_address(address).to_record_key();
         let get_cfg = GetRecordCfg {
             get_quorum: Quorum::All,
             retry_strategy: Some(RetryStrategy::Quick),
@@ -31,18 +31,18 @@ impl Network {
             PrettyPrintRecordKey::from(&record.key)
         );
 
-        get_transactions_from_record(&record)
+        get_linked_list_from_record(&record)
     }
 }
 
-pub fn get_transactions_from_record(record: &Record) -> Result<Vec<LinkedList>> {
+pub fn get_linked_list_from_record(record: &Record) -> Result<Vec<LinkedList>> {
     let header = RecordHeader::from_record(record)?;
     if let RecordKind::LinkedList = header.kind {
         let transactions = try_deserialize_record::<Vec<LinkedList>>(record)?;
         Ok(transactions)
     } else {
         warn!(
-            "RecordKind mismatch while trying to retrieve transactions from record {:?}",
+            "RecordKind mismatch while trying to retrieve linked_list from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
         Err(NetworkError::RecordKindMismatch(RecordKind::LinkedList))

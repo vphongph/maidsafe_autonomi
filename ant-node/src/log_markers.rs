@@ -55,6 +55,9 @@ pub enum Marker<'a> {
     /// Valid scratchpad stored
     ValidScratchpadRecordPutFromClient(&'a PrettyPrintRecordKey<'a>),
 
+    /// Valid paid to us and royalty paid pointer stored
+    ValidPointerPutFromClient(&'a PrettyPrintRecordKey<'a>),
+
     /// Record rejected
     RecordRejected(&'a PrettyPrintRecordKey<'a>, &'a Error),
 

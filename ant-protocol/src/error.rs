@@ -8,6 +8,7 @@
 
 use crate::{NetworkAddress, PrettyPrintRecordKey};
 use ant_registers::RegisterAddress;
+use libp2p::kad::store;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -82,4 +83,16 @@ pub enum Error {
     // The record already exists at this node
     #[error("The record already exists, so do not charge for it: {0:?}")]
     RecordExists(PrettyPrintRecordKey<'static>),
+}
+
+impl From<Error> for store::Error {
+    fn from(_err: Error) -> Self {
+        store::Error::ValueTooLarge
+    }
+}
+
+impl From<store::Error> for Error {
+    fn from(_err: store::Error) -> Self {
+        Error::RecordParsingFailed
+    }
 }

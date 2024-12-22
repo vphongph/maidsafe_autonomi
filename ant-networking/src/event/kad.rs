@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    driver::PendingGetClosestType, get_quorum_value, get_transactions_from_record,
+    driver::PendingGetClosestType, get_linked_list_from_record, get_quorum_value,
     target_arch::Instant, GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver,
     CLOSE_GROUP_SIZE,
 };
@@ -399,7 +399,7 @@ impl SwarmDriver {
                     debug!("For record {pretty_key:?} task {query_id:?}, fetch completed with split record");
                     let mut accumulated_transactions = BTreeSet::new();
                     for (record, _) in result_map.values() {
-                        match get_transactions_from_record(record) {
+                        match get_linked_list_from_record(record) {
                             Ok(transactions) => {
                                 accumulated_transactions.extend(transactions);
                             }

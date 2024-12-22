@@ -8,7 +8,7 @@
 
 use ant_logging::LogBuilder;
 use ant_protocol::storage::LinkedList;
-use autonomi::{client::transactions::TransactionError, Client};
+use autonomi::{client::linked_list::TransactionError, Client};
 use eyre::Result;
 use test_utils::evm::get_funded_wallet;
 
@@ -21,7 +21,7 @@ async fn transaction_put() -> Result<()> {
 
     let key = bls::SecretKey::random();
     let content = [0u8; 32];
-    let transaction = LinkedList::new(key.public_key(), vec![], content, vec![], &key);
+    let transaction = LinkedList::new(key.public_key(), vec![], content, vec![].into(), &key);
 
     // estimate the cost of the transaction
     let cost = client.transaction_cost(key.clone()).await?;
@@ -41,7 +41,7 @@ async fn transaction_put() -> Result<()> {
 
     // try put another transaction with the same address
     let content2 = [1u8; 32];
-    let transaction2 = LinkedList::new(key.public_key(), vec![], content2, vec![], &key);
+    let transaction2 = LinkedList::new(key.public_key(), vec![], content2, vec![].into(), &key);
     let res = client.transaction_put(transaction2.clone(), &wallet).await;
 
     assert!(matches!(

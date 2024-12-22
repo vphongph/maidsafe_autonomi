@@ -149,7 +149,7 @@ impl Client {
         let client_pk = owner.public_key();
         let content_type = Default::default();
         let scratch = Scratchpad::new(client_pk, content_type);
-        let vault_xor = scratch.network_address().as_xorname().unwrap_or_default();
+        let vault_xor = scratch.address().xorname();
 
         // NB TODO: vault should be priced differently from other data
         let store_quote = self.get_store_quotes(std::iter::once(vault_xor)).await?;

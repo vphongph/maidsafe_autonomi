@@ -816,7 +816,7 @@ impl Network {
         key: RecordKey,
         data_type: u32,
         data_size: usize,
-    ) -> Result<(QuotingMetrics, bool)> {
+    ) -> Result<Option<(QuotingMetrics, bool)>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics {
             key,

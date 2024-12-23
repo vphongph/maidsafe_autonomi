@@ -105,7 +105,7 @@ pub enum LocalSwarmCmd {
         key: RecordKey,
         data_type: u32,
         data_size: usize,
-        sender: oneshot::Sender<(QuotingMetrics, bool)>,
+        sender: oneshot::Sender<Option<(QuotingMetrics, bool)>>,
     },
     /// Notify the node received a payment.
     PaymentReceived,
@@ -593,7 +593,7 @@ impl SwarmDriver {
                 ) = self.kbuckets_status();
                 let estimated_network_size =
                     Self::estimate_network_size(peers_in_non_full_buckets, num_of_full_buckets);
-                let (quoting_metrics, is_already_stored) = self
+                let Some((quoting_metrics, is_already_stored)) = self
                     .swarm
                     .behaviour_mut()
                     .kademlia
@@ -603,7 +603,11 @@ impl SwarmDriver {
                         data_type,
                         data_size,
                         Some(estimated_network_size as u64),
-                    );
+                    )
+                else {
+                    let _res = sender.send(None);
+                    return Ok(());
+                };
 
                 self.record_metrics(Marker::QuotingMetrics {
                     quoting_metrics: &quoting_metrics,
@@ -643,7 +647,7 @@ impl SwarmDriver {
                         .retain(|peer_addr| key_address.distance(peer_addr) < boundary_distance);
                 }
 
-                let _res = sender.send((quoting_metrics, is_already_stored));
+                let _res = sender.send(Some((quoting_metrics, is_already_stored)));
             }
             LocalSwarmCmd::PaymentReceived => {
                 cmd_string = "PaymentReceived";

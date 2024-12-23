@@ -121,13 +121,15 @@ impl UnifiedRecordStore {
         data_type: u32,
         data_size: usize,
         network_size: Option<u64>,
-    ) -> (QuotingMetrics, bool) {
+    ) -> Option<(QuotingMetrics, bool)> {
         match self {
             Self::Client(_) => {
                 warn!("Calling quoting metrics calculation at Client. This should not happen");
-                Default::default()
+                None
             }
-            Self::Node(store) => store.quoting_metrics(key, data_type, data_size, network_size),
+            Self::Node(store) => {
+                Some(store.quoting_metrics(key, data_type, data_size, network_size))
+            }
         }
     }
 

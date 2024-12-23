@@ -1,34 +1,31 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
 features = ["extension-module"]
-python-source = "python"
-module-name = "autonomi_client.autonomi_client"
+module-name = "autonomi_client"
 bindings = "pyo3"
-target-dir = "target/wheels"
 
 [project]
 name = "autonomi-client"
 dynamic = ["version"]
 description = "Autonomi client API"
-readme = "README.md"
+readme = "README_PYTHON.md"
 requires-python = ">=3.8"
 license = { text = "GPL-3.0" }
-keywords = ["safe", "network", "autonomi"]
 authors = [{ name = "MaidSafe Developers", email = "dev@maidsafe.net" }]
 classifiers = [
-    "Programming Language :: Python",
+    "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Rust",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 ]
-dependencies = [
-    "pip>=24.3.1",
-]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+python_files = ["test_*.py"]
+addopts = "-v -s"

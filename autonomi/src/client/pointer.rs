@@ -1,27 +1,14 @@
-// Copyright 2024 MaidSafe.net limited.
-//
-// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
-// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
-// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. Please review the Licences for the specific language governing
-// permissions and limitations relating to use of the SAFE Network Software.
-
-use crate::client::data::PayError;
 use crate::client::Client;
-use crate::client::ClientEvent;
-use crate::client::UploadSummary;
+use crate::client::data::PayError;
+use tracing::{debug, error, trace};
 
-use ant_evm::Amount;
-use ant_evm::AttoTokens;
-pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
-use bls::SecretKey;
-
-use ant_evm::{EvmWallet, EvmWalletError};
+use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{try_serialize_record, RecordKind, RetryStrategy},
+    storage::{Pointer, PointerAddress, RecordKind, RetryStrategy, try_serialize_record},
     NetworkAddress,
 };
+use bls::SecretKey;
 use libp2p::kad::{Quorum, Record};
 
 use super::data::CostError;
@@ -35,7 +22,7 @@ pub enum PointerError {
     #[error("Serialization error")]
     Serialization,
     #[error("Pointer could not be verified (corrupt)")]
-    FailedVerification,
+    Corrupt,
     #[error("Payment failure occurred during pointer creation.")]
     Pay(#[from] PayError),
     #[error("Failed to retrieve wallet payment")]
@@ -47,16 +34,25 @@ pub enum PointerError {
 }
 
 impl Client {
-    /// Fetches a Pointer from the network.
+    /// Get a pointer from the network
     pub async fn pointer_get(
         &self,
         address: PointerAddress,
     ) -> Result<Pointer, PointerError> {
-        let pointer = self.network.get_pointer(address).await?;
-        Ok(pointer)
+        let key = NetworkAddress::from_pointer_address(address).to_record_key();
+        let record = self.network.get_local_record(&key).await?;
+        
+        match record {
+            Some(record) => {
+                let (_, pointer): (Vec<u8>, Pointer) = rmp_serde::from_slice(&record.value)
+                    .map_err(|_| PointerError::Serialization)?;
+                Ok(pointer)
+            }
+            None => Err(PointerError::Corrupt),
+        }
     }
 
-    /// Stores a Pointer on the network with payment handling
+    /// Store a pointer on the network
     pub async fn pointer_put(
         &self,
         pointer: Pointer,
@@ -65,7 +61,7 @@ impl Client {
         let address = pointer.network_address();
 
         // pay for the pointer storage
-        let xor_name = address.0;
+        let xor_name = *address.xorname();
         debug!("Paying for pointer at address: {address:?}");
         let payment_proofs = self
             .pay(std::iter::once(xor_name), wallet)
@@ -75,7 +71,7 @@ impl Client {
             })?;
 
         // verify payment was successful
-        let (proof, price) = match payment_proofs.get(&xor_name) {
+        let (proof, _price) = match payment_proofs.get(&xor_name) {
             Some((proof, price)) => (proof, price),
             None => {
                 error!("Pointer at address: {address:?} was already paid for");
@@ -83,8 +79,8 @@ impl Client {
             }
         };
 
-        // prepare the record for network storage
         let payees = proof.payees();
+
         let record = Record {
             key: NetworkAddress::from_pointer_address(address).to_record_key(),
             value: try_serialize_record(&(proof, &pointer), RecordKind::PointerWithPayment)
@@ -98,25 +94,45 @@ impl Client {
             get_quorum: Quorum::Majority,
             retry_strategy: Some(RetryStrategy::default()),
             target_record: None,
+            expected_holders: Default::default(),
+            is_register: false,
         };
 
         let put_cfg = PutRecordCfg {
-            put_quorum: Quorum::Majority,
-            retry_strategy: Some(RetryStrategy::default()),
-            verification_kind: VerificationKind::Signature,
+            put_quorum: Quorum::All,
+            retry_strategy: None,
+            verification: Some((VerificationKind::Crdt, get_cfg)),
+            use_put_record_to: Some(payees),
         };
 
         // store the pointer on the network
+        debug!("Storing pointer at address {address:?} to the network");
         self.network
-            .put_record(record, put_cfg, get_cfg, payees)
-            .await?;
+            .put_record(record, &put_cfg)
+            .await
+            .inspect_err(|err| {
+                error!("Failed to put record - pointer {address:?} to the network: {err}")
+            })?;
 
         Ok(())
     }
 
     /// Calculate the cost of storing a pointer
     pub async fn pointer_cost(&self, key: SecretKey) -> Result<AttoTokens, PointerError> {
-        let cost = self.network.get_storage_cost(key).await?;
-        Ok(cost)
+        let pk = key.public_key();
+        trace!("Getting cost for pointer of {pk:?}");
+
+        let address = PointerAddress::from_owner(pk);
+        let xor = *address.xorname();
+        let store_quote = self.get_store_quotes(std::iter::once(xor)).await?;
+        let total_cost = AttoTokens::from_atto(
+            store_quote
+                .0
+                .values()
+                .map(|quote| quote.price())
+                .sum::<Amount>(),
+        );
+        debug!("Calculated the cost to create pointer of {pk:?} is {total_cost}");
+        Ok(total_cost)
     }
 }

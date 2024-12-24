@@ -1,9 +1,9 @@
-name: Build and Publish Python Package
+name: Build and Publish Python Client Package
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'autonomi-v*'
 
 # Add top-level permissions block
 permissions:
@@ -32,11 +32,12 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
+          working-directory: ./autonomi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.target }}-py${{ matrix.python-version }}
-          path: dist/*.whl
+          path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   windows:
@@ -60,11 +61,12 @@ jobs:
         with:
           args: --release --out dist
           sccache: 'true'
+          working-directory: ./autonomi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.target }}-py${{ matrix.python-version }}
-          path: dist/*.whl
+          path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   linux:
@@ -74,7 +76,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [x86_64, i686]
+        target: [x86_64]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -89,13 +91,17 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: auto
+          before-script-linux: |
+            rustup default stable
+            rustup component add rustfmt
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
+          working-directory: ./autonomi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}-py${{ matrix.python-version }}
-          path: dist/*.whl
+          path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   musllinux:
@@ -107,7 +113,6 @@ jobs:
       matrix:
         target:
           - x86_64-unknown-linux-musl
-          - i686-unknown-linux-musl
           - aarch64-unknown-linux-musl
           - armv7-unknown-linux-musleabihf
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
@@ -127,11 +132,12 @@ jobs:
           manylinux: musllinux_1_2
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
+          working-directory: ./autonomi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-musllinux-${{ matrix.target }}-py${{ matrix.python-version }}
-          path: dist/*.whl
+          path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   sdist:
@@ -142,16 +148,95 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare standalone package
+        run: |
+          # Create build directory structure
+          mkdir -p build/autonomi
+          cp -r autonomi/* build/autonomi/
+          
+          # First, copy all workspace members
+          for dir in ant-* test-utils evmlib; do
+            if [ -d "$dir" ]; then
+              echo "Copying $dir to build directory"
+              cp -r "$dir" "build/$dir"
+            fi
+          done
+          
+          # Create a new workspace Cargo.toml in the build directory
+          cat > build/Cargo.toml << EOL
+          [workspace]
+          resolver = "2"
+          members = [
+              "ant-bootstrap",
+              "ant-build-info",
+              "ant-cli",
+              "ant-evm",
+              "ant-logging",
+              "ant-metrics",
+              "ant-networking",
+              "ant-node",
+              "ant-node-manager",
+              "ant-node-rpc-client",
+              "ant-protocol",
+              "ant-registers",
+              "ant-service-management",
+              "ant-token-supplies",
+              "autonomi",
+              "evmlib",
+              "test-utils"
+          ]
+
+          [workspace.lints.rust]
+          arithmetic_overflow = "forbid"
+          mutable_transmutes = "forbid"
+          no_mangle_const_items = "forbid"
+          trivial_casts = "warn"
+          trivial_numeric_casts = "warn"
+          unsafe_code = "warn"
+          unknown_crate_types = "forbid"
+          unused_extern_crates = "warn"
+          unused_import_braces = "warn"
+
+          [workspace.lints.clippy]
+          clone_on_ref_ptr = "warn"
+          unicode_not_nfc = "warn"
+          uninlined_format_args = "warn"
+          unused_async = "warn"
+          unwrap_used = "warn"
+
+          [profile.dev]
+          debug = 0
+          strip = "debuginfo"
+
+          [workspace.metadata.release]
+          pre-release-commit-message = "chore(release): release commit, tags, deps and changelog updates"
+          publish = false
+          push = false
+          tag = false
+
+          [workspace.dependencies]
+          backtrace = "=0.3.71"
+          EOL
+          
+          # Update all dependency paths to be absolute
+          find build -name "Cargo.toml" -exec sed -i "s|path = \"\.\./|path = \"/home/runner/work/autonomi/autonomi/build/|g" {} \;
+          
+          # Display directory structure for debugging
+          echo "Contents of build directory:"
+          ls -la build/
+          echo "Contents of workspace Cargo.toml:"
+          cat build/Cargo.toml
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
+          working-directory: build/autonomi
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
           name: wheels
-          path: dist/*.tar.gz
+          path: build/autonomi/dist/*.tar.gz
           if-no-files-found: error
 
   release:

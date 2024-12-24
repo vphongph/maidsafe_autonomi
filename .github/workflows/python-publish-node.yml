@@ -3,7 +3,7 @@ name: Build and Publish Python Node Package
 on:
   push:
     tags:
-      - 'v*'
+      - 'ant-nodev*'
 
 # Add top-level permissions block
 permissions:

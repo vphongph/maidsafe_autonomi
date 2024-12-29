@@ -24,7 +24,11 @@ impl PointerAddress {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        bincode::serialize(self).expect("Failed to serialize PointerAddress")
+        rmp_serde::to_vec(self).expect("Failed to serialize PointerAddress")
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, rmp_serde::decode::Error> {
+        rmp_serde::from_slice(bytes)
     }
 }
 

@@ -17,6 +17,7 @@ mod error;
 mod event;
 mod external_address;
 mod fifo_register;
+mod linked_list;
 mod log_markers;
 #[cfg(feature = "open-metrics")]
 mod metrics;
@@ -26,7 +27,6 @@ mod record_store_api;
 mod relay_manager;
 mod replication_fetcher;
 pub mod target_arch;
-mod transactions;
 mod transport;
 
 use cmd::LocalSwarmCmd;
@@ -40,8 +40,8 @@ pub use self::{
     },
     error::{GetRecordError, NetworkError},
     event::{MsgResponder, NetworkEvent},
+    linked_list::get_linked_list_from_record,
     record_store::NodeRecordStore,
-    transactions::get_transactions_from_record,
 };
 #[cfg(feature = "open-metrics")]
 pub use metrics::service::MetricsRegistries;
@@ -52,7 +52,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
-    storage::{RecordType, RetryStrategy, Scratchpad},
+    storage::{Pointer, RecordType, RetryStrategy, Scratchpad},
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use futures::future::select_all;
@@ -75,7 +75,7 @@ use tokio::sync::{
 };
 use tokio::time::Duration;
 use {
-    ant_protocol::storage::Transaction,
+    ant_protocol::storage::LinkedList,
     ant_protocol::storage::{
         try_deserialize_record, try_serialize_record, RecordHeader, RecordKind,
     },
@@ -614,6 +614,7 @@ impl Network {
         let mut accumulated_transactions = HashSet::new();
         let mut collected_registers = Vec::new();
         let mut valid_scratchpad: Option<Scratchpad> = None;
+        let mut valid_pointer: Option<Pointer> = None;
 
         if results_count > 1 {
             let mut record_kind = None;
@@ -633,16 +634,17 @@ impl Network {
                 match kind {
                     RecordKind::Chunk
                     | RecordKind::ChunkWithPayment
-                    | RecordKind::TransactionWithPayment
+                    | RecordKind::LinkedListWithPayment
                     | RecordKind::RegisterWithPayment
+                    | RecordKind::PointerWithPayment
                     | RecordKind::ScratchpadWithPayment => {
                         error!("Encountered a split record for {pretty_key:?} with unexpected RecordKind {kind:?}, skipping.");
                         continue;
                     }
-                    RecordKind::Transaction => {
+                    RecordKind::LinkedList => {
                         info!("For record {pretty_key:?}, we have a split record for a transaction attempt. Accumulating transactions");
 
-                        match get_transactions_from_record(record) {
+                        match get_linked_list_from_record(record) {
                             Ok(transactions) => {
                                 accumulated_transactions.extend(transactions);
                             }
@@ -673,6 +675,28 @@ impl Network {
                             }
                         }
                     }
+                    RecordKind::Pointer => {
+                        info!("For record {pretty_key:?}, we have a split record for a pointer. Selecting the one with the highest count");
+                        let Ok(pointer) = try_deserialize_record::<Pointer>(record) else {
+                            error!(
+                                "Failed to deserialize pointer {pretty_key}. Skipping accumulation"
+                            );
+                            continue;
+                        };
+
+                        if !pointer.verify() {
+                            warn!("Rejecting Pointer for {pretty_key} PUT with invalid signature");
+                            continue;
+                        }
+
+                        if let Some(old) = &valid_pointer {
+                            if old.count() >= pointer.count() {
+                                info!("Rejecting Pointer for {pretty_key} with lower count than the previous one");
+                                continue;
+                            }
+                        }
+                        valid_pointer = Some(pointer);
+                    }
                     RecordKind::Scratchpad => {
                         info!("For record {pretty_key:?}, we have a split record for a scratchpad. Selecting the one with the highest count");
                         let Ok(scratchpad) = try_deserialize_record::<Scratchpad>(record) else {
@@ -684,23 +708,18 @@ impl Network {
 
                         if !scratchpad.is_valid() {
                             warn!(
-                                "Rejecting Scratchpad for {pretty_key} PUT with invalid signature during split record error"
+                                "Rejecting Scratchpad for {pretty_key} PUT with invalid signature"
                             );
                             continue;
                         }
 
                         if let Some(old) = &valid_scratchpad {
                             if old.count() >= scratchpad.count() {
-                                info!(
-                                    "Rejecting Scratchpad for {pretty_key} with lower count than the previous one"
-                                );
+                                info!("Rejecting Scratchpad for {pretty_key} with lower count than the previous one");
                                 continue;
-                            } else {
-                                valid_scratchpad = Some(scratchpad);
                             }
-                        } else {
-                            valid_scratchpad = Some(scratchpad);
                         }
+                        valid_scratchpad = Some(scratchpad);
                     }
                 }
             }
@@ -711,10 +730,10 @@ impl Network {
             info!("For record {pretty_key:?} task found split record for a transaction, accumulated and sending them as a single record");
             let accumulated_transactions = accumulated_transactions
                 .into_iter()
-                .collect::<Vec<Transaction>>();
+                .collect::<Vec<LinkedList>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::Transaction)
+                value: try_serialize_record(&accumulated_transactions, RecordKind::LinkedList)
                     .map_err(|err| {
                         error!(
                             "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"
@@ -751,18 +770,34 @@ impl Network {
                 expires: None,
             };
             return Ok(Some(record));
-        } else if let Some(scratchpad) = valid_scratchpad {
-            info!("Found a valid scratchpad for {pretty_key:?}, returning it");
+        } else if let Some(pointer) = valid_pointer {
+            info!("For record {pretty_key:?} task found a valid pointer, returning it.");
+            let record_value = try_serialize_record(&pointer, RecordKind::Pointer)
+                .map_err(|err| {
+                    error!("Error while serializing the pointer for {pretty_key:?}: {err:?}");
+                    NetworkError::from(err)
+                })?
+                .to_vec();
+
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&scratchpad, RecordKind::Scratchpad)
-                    .map_err(|err| {
-                        error!(
-                            "Error while serializing valid scratchpad for {pretty_key:?}: {err:?}"
-                        );
-                        NetworkError::from(err)
-                    })?
-                    .to_vec(),
+                value: record_value,
+                publisher: None,
+                expires: None,
+            };
+            return Ok(Some(record));
+        } else if let Some(scratchpad) = valid_scratchpad {
+            info!("For record {pretty_key:?} task found a valid scratchpad, returning it.");
+            let record_value = try_serialize_record(&scratchpad, RecordKind::Scratchpad)
+                .map_err(|err| {
+                    error!("Error while serializing the scratchpad for {pretty_key:?}: {err:?}");
+                    NetworkError::from(err)
+                })?
+                .to_vec();
+
+            let record = Record {
+                key: key.clone(),
+                value: record_value,
                 publisher: None,
                 expires: None,
             };

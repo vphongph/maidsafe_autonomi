@@ -6,7 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{storage::RegisterAddress, NetworkAddress, PrettyPrintRecordKey};
+use crate::{NetworkAddress, PrettyPrintRecordKey};
+use ant_registers::RegisterAddress;
+use libp2p::kad::store;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -14,7 +16,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Main error types for the SAFE protocol.
-#[derive(Error, Clone, PartialEq, Eq, Serialize, Deserialize, custom_debug::Debug)]
+#[derive(Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Error {
     // ---------- Misc errors
@@ -81,4 +83,16 @@ pub enum Error {
     // The record already exists at this node
     #[error("The record already exists, so do not charge for it: {0:?}")]
     RecordExists(PrettyPrintRecordKey<'static>),
+}
+
+impl From<Error> for store::Error {
+    fn from(_err: Error) -> Self {
+        store::Error::ValueTooLarge
+    }
+}
+
+impl From<store::Error> for Error {
+    fn from(_err: store::Error) -> Self {
+        Error::RecordParsingFailed
+    }
 }

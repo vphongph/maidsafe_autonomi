@@ -135,7 +135,7 @@ impl Scratchpad {
     pub fn to_xor_name_vec(&self) -> Vec<XorName> {
         [self.network_address()]
             .iter()
-            .filter_map(|f| f.as_xorname())
+            .filter_map(|f| Some(XorName::from_content(f.as_bytes().as_ref())))
             .collect::<Vec<XorName>>()
     }
 

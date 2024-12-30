@@ -9,20 +9,24 @@
 mod address;
 mod chunks;
 mod header;
+mod linked_list;
+pub mod pointer;
+pub use pointer::{Pointer, PointerTarget};
 mod scratchpad;
-mod transaction;
 
 use core::fmt;
 use exponential_backoff::Backoff;
 use std::{num::NonZeroUsize, time::Duration};
 
 pub use self::{
-    address::{ChunkAddress, RegisterAddress, ScratchpadAddress, TransactionAddress},
+    address::{ChunkAddress, LinkedListAddress, PointerAddress, ScratchpadAddress},
     chunks::Chunk,
     header::{try_deserialize_record, try_serialize_record, RecordHeader, RecordKind, RecordType},
+    linked_list::LinkedList,
     scratchpad::Scratchpad,
-    transaction::Transaction,
 };
+
+pub use ant_registers::RegisterAddress;
 
 /// A strategy that translates into a configuration for exponential backoff.
 /// The first retry is done after 2 seconds, after which the backoff is roughly doubled each time.

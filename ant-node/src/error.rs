@@ -48,6 +48,9 @@ pub enum Error {
     #[error("Scratchpad signature is invalid over the counter + content hash")]
     InvalidScratchpadSignature,
 
+    #[error("Invalid signature")]
+    InvalidSignature,
+
     // ---------- Payment Errors
     #[error("The content of the payment quote is invalid")]
     InvalidQuoteContent,

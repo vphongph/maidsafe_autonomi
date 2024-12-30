@@ -1,14 +1,17 @@
-## Python Bindings
+# Autonomi Python Bindings
 
 The Autonomi client library provides Python bindings for easy integration with Python applications.
 
-### Installation
+## Installation
+
+We recommend using `uv` for Python environment management:
 
 ```bash
-pip install autonomi-client
+uv venv
+uv pip install autonomi-client
 ```
 
-### Quick Start
+## Quick Start
 
 ```python
 from autonomi_client import Client, Wallet, PaymentOption
@@ -34,155 +37,180 @@ retrieved = client.data_get_public(addr)
 print(f"Retrieved: {retrieved.decode()}")
 ```
 
-### Available Modules
+## API Reference
 
-#### Core Components
+### Client
 
-- `Client`: Main interface to the Autonomi network
-  - `connect(peers: List[str])`: Connect to network nodes
-  - `data_put_public(data: bytes, payment: PaymentOption)`: Upload data
-  - `data_get_public(addr: str)`: Download data
-  - `data_put(data: bytes, payment: PaymentOption)`: Store private data
-  - `data_get(access: DataMapChunk)`: Retrieve private data
-  - `register_generate_key()`: Generate register key
+The main interface to interact with the Autonomi network.
 
-- `Wallet`: Ethereum wallet management
-  - `new(private_key: str)`: Create wallet from private key
-  - `address()`: Get wallet address
-  - `balance()`: Get current balance
+#### Connection Methods
 
-- `PaymentOption`: Payment configuration
-  - `wallet(wallet: Wallet)`: Create payment option from wallet
+- `connect(peers: List[str]) -> Client`
+  - Connect to network nodes
+  - `peers`: List of multiaddresses for initial network nodes
 
-#### Private Data
+#### Data Operations
 
-- `DataMapChunk`: Handle private data storage
-  - `from_hex(hex: str)`: Create from hex string
-  - `to_hex()`: Convert to hex string
-  - `address()`: Get short reference address
+- `data_put_public(data: bytes, payment: PaymentOption) -> str`
+  - Upload public data to the network
+  - Returns address where data is stored
 
-```python
-# Private data example
-access = client.data_put(secret_data, payment)
-print(f"Private data stored at: {access.to_hex()}")
-retrieved = client.data_get(access)
-```
+- `data_get_public(addr: str) -> bytes`
+  - Download public data from the network
+  - `addr`: Address returned from `data_put_public`
 
-#### Registers
+- `data_put(data: bytes, payment: PaymentOption) -> DataMapChunk`
+  - Store private (encrypted) data
+  - Returns access information for later retrieval
 
-- Register operations for mutable data
-  - `register_create(value: bytes, name: str, key: RegisterSecretKey, wallet: Wallet)`
-  - `register_get(address: str)`
-  - `register_update(register: Register, value: bytes, key: RegisterSecretKey)`
+- `data_get(access: DataMapChunk) -> bytes`
+  - Retrieve private data
+  - `access`: DataMapChunk from previous `data_put`
 
-```python
-# Register example
-key = client.register_generate_key()
-register = client.register_create(b"Initial value", "my_register", key, wallet)
-client.register_update(register, b"New value", key)
-```
+#### Pointer Operations
 
-#### Vaults
+- `pointer_get(address: str) -> Pointer`
+  - Retrieve pointer from network
+  - `address`: Hex-encoded pointer address
 
-- `VaultSecretKey`: Manage vault access
-  - `new()`: Generate new key
-  - `from_hex(hex: str)`: Create from hex string
-  - `to_hex()`: Convert to hex string
+- `pointer_put(pointer: Pointer, wallet: Wallet)`
+  - Store pointer on network
+  - Requires payment via wallet
 
-- `UserData`: User data management
-  - `new()`: Create new user data
-  - `add_file_archive(archive: str)`: Add file archive
-  - `add_private_file_archive(archive: str)`: Add private archive
-  - `file_archives()`: List archives
-  - `private_file_archives()`: List private archives
+- `pointer_cost(key: VaultSecretKey) -> str`
+  - Calculate pointer storage cost
+  - Returns cost in atto tokens
 
-```python
-# Vault example
-vault_key = VaultSecretKey.new()
-cost = client.vault_cost(vault_key)
-client.write_bytes_to_vault(data, payment, vault_key, content_type=1)
-data, content_type = client.fetch_and_decrypt_vault(vault_key)
-```
+#### Vault Operations
 
-#### Utility Functions
+- `vault_cost(key: VaultSecretKey) -> str`
+  - Calculate vault storage cost
 
-- `encrypt(data: bytes)`: Self-encrypt data
-- `hash_to_short_string(input: str)`: Generate short reference
+- `write_bytes_to_vault(data: bytes, payment: PaymentOption, key: VaultSecretKey, content_type: int) -> str`
+  - Write data to vault
+  - Returns vault address
 
-### Complete Examples
+- `fetch_and_decrypt_vault(key: VaultSecretKey) -> Tuple[bytes, int]`
+  - Retrieve vault data
+  - Returns (data, content_type)
 
-#### Data Management
+- `get_user_data_from_vault(key: VaultSecretKey) -> UserData`
+  - Get user data from vault
 
-```python
-def handle_data_operations(client, payment):
-    # Upload text
-    text_data = b"Hello, Safe Network!"
-    text_addr = client.data_put_public(text_data, payment)
-    
-    # Upload binary data
-    with open("image.jpg", "rb") as f:
-        image_data = f.read()
-        image_addr = client.data_put_public(image_data, payment)
-    
-    # Download and verify
-    downloaded = client.data_get_public(text_addr)
-    assert downloaded == text_data
-```
+- `put_user_data_to_vault(key: VaultSecretKey, payment: PaymentOption, user_data: UserData) -> str`
+  - Store user data in vault
+  - Returns vault address
 
-#### Private Data and Encryption
+### Wallet
 
-```python
-def handle_private_data(client, payment):
-    # Create and encrypt private data
-    secret = {"api_key": "secret_key"}
-    data = json.dumps(secret).encode()
-    
-    # Store privately
-    access = client.data_put(data, payment)
-    print(f"Access token: {access.to_hex()}")
-    
-    # Retrieve
-    retrieved = client.data_get(access)
-    secret = json.loads(retrieved.decode())
-```
+Ethereum wallet management for payments.
 
-#### Vault Management
+- `new(private_key: str) -> Wallet`
+  - Create wallet from private key
+  - `private_key`: 64-char hex string without '0x' prefix
 
-```python
-def handle_vault(client, payment):
-    # Create vault
-    vault_key = VaultSecretKey.new()
-    
-    # Store user data
-    user_data = UserData()
-    user_data.add_file_archive("archive_address")
-    
-    # Save to vault
-    cost = client.put_user_data_to_vault(vault_key, payment, user_data)
-    
-    # Retrieve
-    retrieved = client.get_user_data_from_vault(vault_key)
-    archives = retrieved.file_archives()
-```
+- `address() -> str`
+  - Get wallet's Ethereum address
 
-### Error Handling
+- `balance() -> str`
+  - Get wallet's token balance
 
-All operations can raise exceptions. It's recommended to use try-except blocks:
+- `balance_of_gas() -> str`
+  - Get wallet's gas balance
 
-```python
-try:
-    client = Client.connect(peers)
-    # ... operations ...
-except Exception as e:
-    print(f"Error: {e}")
-```
+### PaymentOption
 
-### Best Practices
+Configure payment methods.
 
-1. Always keep private keys secure
-2. Use error handling for all network operations
-3. Clean up resources when done
+- `wallet(wallet: Wallet) -> PaymentOption`
+  - Create payment option from wallet
+
+### Pointer
+
+Handle network pointers for referencing data.
+
+- `new(target: str) -> Pointer`
+  - Create new pointer
+  - `target`: Hex-encoded target address
+
+- `address() -> str`
+  - Get pointer's network address
+
+- `target() -> str`
+  - Get pointer's target address
+
+### VaultSecretKey
+
+Manage vault access keys.
+
+- `new() -> VaultSecretKey`
+  - Generate new key
+
+- `from_hex(hex: str) -> VaultSecretKey`
+  - Create from hex string
+
+- `to_hex() -> str`
+  - Convert to hex string
+
+### UserData
+
+Manage user data in vaults.
+
+- `new() -> UserData`
+  - Create new user data
+
+- `add_file_archive(archive: str) -> Optional[str]`
+  - Add file archive
+  - Returns archive ID if successful
+
+- `add_private_file_archive(archive: str) -> Optional[str]`
+  - Add private archive
+  - Returns archive ID if successful
+
+- `file_archives() -> List[Tuple[str, str]]`
+  - List archives as (id, address) pairs
+
+- `private_file_archives() -> List[Tuple[str, str]]`
+  - List private archives as (id, address) pairs
+
+### DataMapChunk
+
+Handle private data storage references.
+
+- `from_hex(hex: str) -> DataMapChunk`
+  - Create from hex string
+
+- `to_hex() -> str`
+  - Convert to hex string
+
+- `address() -> str`
+  - Get short reference address
+
+### Utility Functions
+
+- `encrypt(data: bytes) -> Tuple[bytes, List[bytes]]`
+  - Self-encrypt data
+  - Returns (data_map, chunks)
+
+## Examples
+
+See the `examples/` directory for complete examples:
+- `autonomi_example.py`: Basic data operations
+- `autonomi_pointers.py`: Working with pointers
+- `autonomi_vault.py`: Vault operations
+- `autonomi_private_data.py`: Private data handling
+- `autonomi_data_registers.py`: Using data registers
+- `autonomi_private_encryption.py`: Data encryption
+- `autonomi_advanced.py`: Advanced usage scenarios
+
+## Best Practices
+
+1. Always handle wallet private keys securely
+2. Check operation costs before executing
+3. Use appropriate error handling
 4. Monitor wallet balance for payments
 5. Use appropriate content types for vault storage
+6. Consider using pointers for updatable references
+7. Properly manage and backup vault keys
 
-For more examples, see the `examples/` directory in the repository.
+For more examples and detailed usage, see the examples in the repository.

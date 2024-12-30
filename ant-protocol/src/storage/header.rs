@@ -22,6 +22,8 @@ use xor_name::XorName;
 pub enum RecordType {
     Chunk,
     Scratchpad,
+    Pointer,
+    LinkedList,
     NonChunk(XorName),
 }
 
@@ -34,12 +36,14 @@ pub struct RecordHeader {
 pub enum RecordKind {
     Chunk,
     ChunkWithPayment,
-    Transaction,
-    TransactionWithPayment,
+    LinkedList,
+    LinkedListWithPayment,
     Register,
     RegisterWithPayment,
     Scratchpad,
     ScratchpadWithPayment,
+    Pointer,
+    PointerWithPayment,
 }
 
 impl Serialize for RecordKind {
@@ -50,12 +54,14 @@ impl Serialize for RecordKind {
         match *self {
             Self::ChunkWithPayment => serializer.serialize_u32(0),
             Self::Chunk => serializer.serialize_u32(1),
-            Self::Transaction => serializer.serialize_u32(2),
+            Self::LinkedList => serializer.serialize_u32(2),
             Self::Register => serializer.serialize_u32(3),
             Self::RegisterWithPayment => serializer.serialize_u32(4),
             Self::Scratchpad => serializer.serialize_u32(5),
             Self::ScratchpadWithPayment => serializer.serialize_u32(6),
-            Self::TransactionWithPayment => serializer.serialize_u32(7),
+            Self::LinkedListWithPayment => serializer.serialize_u32(7),
+            Self::Pointer => serializer.serialize_u32(8),
+            Self::PointerWithPayment => serializer.serialize_u32(9),
         }
     }
 }
@@ -69,12 +75,14 @@ impl<'de> Deserialize<'de> for RecordKind {
         match num {
             0 => Ok(Self::ChunkWithPayment),
             1 => Ok(Self::Chunk),
-            2 => Ok(Self::Transaction),
+            2 => Ok(Self::LinkedList),
             3 => Ok(Self::Register),
             4 => Ok(Self::RegisterWithPayment),
             5 => Ok(Self::Scratchpad),
             6 => Ok(Self::ScratchpadWithPayment),
-            7 => Ok(Self::TransactionWithPayment),
+            7 => Ok(Self::LinkedListWithPayment),
+            8 => Ok(Self::Pointer),
+            9 => Ok(Self::PointerWithPayment),
             _ => Err(serde::de::Error::custom(
                 "Unexpected integer for RecordKind variant",
             )),
@@ -184,7 +192,7 @@ mod tests {
         assert_eq!(chunk.len(), RecordHeader::SIZE);
 
         let transaction = RecordHeader {
-            kind: RecordKind::Transaction,
+            kind: RecordKind::LinkedList,
         }
         .try_serialize()?;
         assert_eq!(transaction.len(), RecordHeader::SIZE);
@@ -206,6 +214,45 @@ mod tests {
         }
         .try_serialize()?;
         assert_eq!(scratchpad_with_payment.len(), RecordHeader::SIZE);
+
+        let pointer = RecordHeader {
+            kind: RecordKind::Pointer,
+        }
+        .try_serialize()?;
+        assert_eq!(pointer.len(), RecordHeader::SIZE);
+
+        let pointer_with_payment = RecordHeader {
+            kind: RecordKind::PointerWithPayment,
+        }
+        .try_serialize()?;
+        assert_eq!(pointer_with_payment.len(), RecordHeader::SIZE);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_record_kind_serialization() -> Result<()> {
+        let kinds = vec![
+            RecordKind::Chunk,
+            RecordKind::ChunkWithPayment,
+            RecordKind::LinkedList,
+            RecordKind::LinkedListWithPayment,
+            RecordKind::Register,
+            RecordKind::RegisterWithPayment,
+            RecordKind::Scratchpad,
+            RecordKind::ScratchpadWithPayment,
+            RecordKind::Pointer,
+            RecordKind::PointerWithPayment,
+        ];
+
+        for kind in kinds {
+            let header = RecordHeader { kind };
+            let header2 = RecordHeader { kind };
+
+            let serialized = header.try_serialize()?;
+            let deserialized = RecordHeader::try_deserialize(&serialized)?;
+            assert_eq!(header2.kind, deserialized.kind);
+        }
 
         Ok(())
     }

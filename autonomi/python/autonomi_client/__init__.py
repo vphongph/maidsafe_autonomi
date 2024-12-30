@@ -1,4 +1,18 @@
-from .autonomi_client import Client, Wallet, PaymentOption, VaultSecretKey, UserData, DataMapChunk, encrypt
+from .autonomi_client import (
+    Client,
+    Wallet,
+    PaymentOption,
+    VaultSecretKey,
+    UserData,
+    DataMapChunk,
+    encrypt,
+    ChunkAddress,
+    PointerTarget,
+    Pointer,
+    PointerAddress,
+    SecretKey,
+    PublicKey,
+)
 
 __all__ = [
     "Client",
@@ -7,5 +21,11 @@ __all__ = [
     "VaultSecretKey",
     "UserData",
     "DataMapChunk",
-    "encrypt"
+    "encrypt",
+    "ChunkAddress",
+    "PointerTarget",
+    "Pointer",
+    "PointerAddress",
+    "SecretKey",
+    "PublicKey",
 ]

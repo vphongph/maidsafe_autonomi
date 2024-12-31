@@ -13,8 +13,8 @@ use crate::client::UploadSummary;
 
 use ant_evm::Amount;
 use ant_evm::AttoTokens;
-pub use ant_protocol::storage::LinkedList;
-use ant_protocol::storage::LinkedListAddress;
+pub use ant_protocol::storage::GraphEntry;
+use ant_protocol::storage::GraphEntryAddress;
 pub use bls::SecretKey;
 
 use ant_evm::{EvmWallet, EvmWalletError};
@@ -28,41 +28,41 @@ use libp2p::kad::{Quorum, Record};
 use super::data::CostError;
 
 #[derive(Debug, thiserror::Error)]
-pub enum TransactionError {
+pub enum GraphError {
     #[error("Cost error: {0}")]
     Cost(#[from] CostError),
     #[error("Network error")]
     Network(#[from] NetworkError),
     #[error("Serialization error")]
     Serialization,
-    #[error("Transaction could not be verified (corrupt)")]
+    #[error("Verification failed (corrupt)")]
     FailedVerification,
-    #[error("Payment failure occurred during transaction creation.")]
+    #[error("Payment failure occurred during creation.")]
     Pay(#[from] PayError),
     #[error("Failed to retrieve wallet payment")]
     Wallet(#[from] EvmWalletError),
     #[error("Received invalid quote from node, this node is possibly malfunctioning, try another node by trying another transaction name")]
     InvalidQuote,
-    #[error("Transaction already exists at this address: {0:?}")]
-    TransactionAlreadyExists(LinkedListAddress),
+    #[error("Entry already exists at this address: {0:?}")]
+    AlreadyExists(GraphEntryAddress),
 }
 
 impl Client {
     /// Fetches a Transaction from the network.
     pub async fn transaction_get(
         &self,
-        address: LinkedListAddress,
-    ) -> Result<Vec<LinkedList>, TransactionError> {
-        let transactions = self.network.get_linked_list(address).await?;
+        address: GraphEntryAddress,
+    ) -> Result<Vec<GraphEntry>, GraphError> {
+        let transactions = self.network.get_graph_entry(address).await?;
 
         Ok(transactions)
     }
 
     pub async fn transaction_put(
         &self,
-        transaction: LinkedList,
+        transaction: GraphEntry,
         wallet: &EvmWallet,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<(), GraphError> {
         let address = transaction.address();
 
         // pay for the transaction
@@ -81,16 +81,16 @@ impl Client {
             None => {
                 // transaction was skipped, meaning it was already paid for
                 error!("Transaction at address: {address:?} was already paid for");
-                return Err(TransactionError::TransactionAlreadyExists(address));
+                return Err(GraphError::AlreadyExists(address));
             }
         };
 
         // prepare the record for network storage
         let payees = proof.payees();
         let record = Record {
-            key: NetworkAddress::from_linked_list_address(address).to_record_key(),
-            value: try_serialize_record(&(proof, &transaction), RecordKind::LinkedListWithPayment)
-                .map_err(|_| TransactionError::Serialization)?
+            key: NetworkAddress::from_graph_entry_address(address).to_record_key(),
+            value: try_serialize_record(&(proof, &transaction), RecordKind::GraphEntryWithPayment)
+                .map_err(|_| GraphError::Serialization)?
                 .to_vec(),
             publisher: None,
             expires: None,
@@ -133,11 +133,11 @@ impl Client {
     }
 
     /// Get the cost to create a transaction
-    pub async fn transaction_cost(&self, key: SecretKey) -> Result<AttoTokens, TransactionError> {
+    pub async fn transaction_cost(&self, key: SecretKey) -> Result<AttoTokens, GraphError> {
         let pk = key.public_key();
         trace!("Getting cost for transaction of {pk:?}");
 
-        let address = LinkedListAddress::from_owner(pk);
+        let address = GraphEntryAddress::from_owner(pk);
         let xor = *address.xorname();
         let store_quote = self.get_store_quotes(std::iter::once(xor)).await?;
         let total_cost = AttoTokens::from_atto(

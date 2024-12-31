@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::storage::LinkedListAddress;
+use ant_protocol::storage::GraphEntryAddress;
 use ant_protocol::{messages::Response, storage::RecordKind, NetworkAddress, PrettyPrintRecordKey};
 use libp2p::{
     kad::{self, QueryId, Record},
@@ -123,14 +123,13 @@ pub enum NetworkError {
     #[error("Record header is incorrect")]
     InCorrectRecordHeader,
 
-
     // ---------- Chunk Errors
     #[error("Failed to verify the ChunkProof with the provided quorum")]
     FailedToVerifyChunkProof(NetworkAddress),
 
-    // ---------- LinkedList Errors
-    #[error("Linked list not found: {0:?}")]
-    NoLinkedListFoundInsideRecord(LinkedListAddress),
+    // ---------- Graph Errors
+    #[error("Graph entry not found: {0:?}")]
+    NoGraphEntryFoundInsideRecord(GraphEntryAddress),
 
     // ---------- Store Error
     #[error("No Store Cost Responses")]

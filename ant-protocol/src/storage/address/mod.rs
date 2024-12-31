@@ -1,9 +1,9 @@
 pub mod chunk;
-pub mod linked_list;
+pub mod graph;
 pub mod pointer_address;
 pub mod scratchpad;
 
 pub use chunk::ChunkAddress;
-pub use linked_list::LinkedListAddress;
+pub use graph::GraphEntryAddress;
 pub use pointer_address::PointerAddress;
 pub use scratchpad::ScratchpadAddress;

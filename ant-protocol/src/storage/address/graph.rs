@@ -12,9 +12,9 @@ use xor_name::XorName;
 
 /// Address of a transaction, is derived from the owner's public key
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub struct LinkedListAddress(pub XorName);
+pub struct GraphEntryAddress(pub XorName);
 
-impl LinkedListAddress {
+impl GraphEntryAddress {
     pub fn from_owner(owner: PublicKey) -> Self {
         Self(XorName::from_content(&owner.to_bytes()))
     }
@@ -32,7 +32,7 @@ impl LinkedListAddress {
     }
 }
 
-impl std::fmt::Debug for LinkedListAddress {
+impl std::fmt::Debug for GraphEntryAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "TransactionAddress({})", &self.to_hex()[0..6])
     }

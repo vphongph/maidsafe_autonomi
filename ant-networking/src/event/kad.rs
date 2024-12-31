@@ -7,12 +7,12 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    driver::PendingGetClosestType, get_linked_list_from_record, get_quorum_value,
+    driver::PendingGetClosestType, get_graph_entry_from_record, get_quorum_value,
     target_arch::Instant, GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver,
     CLOSE_GROUP_SIZE,
 };
 use ant_protocol::{
-    storage::{try_serialize_record, LinkedList, RecordKind},
+    storage::{try_serialize_record, GraphEntry, RecordKind},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use itertools::Itertools;
@@ -399,7 +399,7 @@ impl SwarmDriver {
                     debug!("For record {pretty_key:?} task {query_id:?}, fetch completed with split record");
                     let mut accumulated_transactions = BTreeSet::new();
                     for (record, _) in result_map.values() {
-                        match get_linked_list_from_record(record) {
+                        match get_graph_entry_from_record(record) {
                             Ok(transactions) => {
                                 accumulated_transactions.extend(transactions);
                             }
@@ -412,11 +412,11 @@ impl SwarmDriver {
                         info!("For record {pretty_key:?} task {query_id:?}, found split record for a transaction, accumulated and sending them as a single record");
                         let accumulated_transactions = accumulated_transactions
                             .into_iter()
-                            .collect::<Vec<LinkedList>>();
+                            .collect::<Vec<GraphEntry>>();
 
                         let bytes = try_serialize_record(
                             &accumulated_transactions,
-                            RecordKind::LinkedList,
+                            RecordKind::GraphEntry,
                         )?;
 
                         let new_accumulated_record = Record {

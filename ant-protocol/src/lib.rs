@@ -32,13 +32,12 @@ pub use error::Error;
 pub use error::Error as NetworkError;
 use storage::ScratchpadAddress;
 
-use self::storage::{ChunkAddress, LinkedListAddress, PointerAddress, RegisterAddress};
+use self::storage::{ChunkAddress, GraphEntryAddress, PointerAddress, RegisterAddress};
 
 /// Re-export of Bytes used throughout the protocol
 pub use bytes::Bytes;
 
 use ant_evm::U256;
-use hex;
 use libp2p::{
     kad::{KBucketDistance as Distance, KBucketKey as Key, RecordKey},
     multiaddr::Protocol,
@@ -96,7 +95,7 @@ pub enum NetworkAddress {
     /// The NetworkAddress is representing a ChunkAddress.
     ChunkAddress(ChunkAddress),
     /// The NetworkAddress is representing a TransactionAddress.
-    LinkedListAddress(LinkedListAddress),
+    GraphEntryAddress(GraphEntryAddress),
     /// The NetworkAddress is representing a RegisterAddress.
     RegisterAddress(RegisterAddress),
     /// The NetworkAddress is representing a ScratchpadAddress.
@@ -114,8 +113,8 @@ impl NetworkAddress {
     }
 
     /// Return a `NetworkAddress` representation of the `TransactionAddress`.
-    pub fn from_linked_list_address(transaction_address: LinkedListAddress) -> Self {
-        NetworkAddress::LinkedListAddress(transaction_address)
+    pub fn from_graph_entry_address(transaction_address: GraphEntryAddress) -> Self {
+        NetworkAddress::GraphEntryAddress(transaction_address)
     }
 
     /// Return a `NetworkAddress` representation of the `TransactionAddress`.
@@ -148,8 +147,8 @@ impl NetworkAddress {
         match self {
             NetworkAddress::PeerId(bytes) | NetworkAddress::RecordKey(bytes) => bytes.to_vec(),
             NetworkAddress::ChunkAddress(chunk_address) => chunk_address.xorname().0.to_vec(),
-            NetworkAddress::LinkedListAddress(linked_list_address) => {
-                linked_list_address.xorname().0.to_vec()
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
+                graph_entry_address.xorname().0.to_vec()
             }
             NetworkAddress::ScratchpadAddress(addr) => addr.xorname().0.to_vec(),
             NetworkAddress::RegisterAddress(register_address) => {
@@ -185,8 +184,8 @@ impl NetworkAddress {
             NetworkAddress::RegisterAddress(register_address) => {
                 RecordKey::new(&register_address.xorname())
             }
-            NetworkAddress::LinkedListAddress(linked_list_address) => {
-                RecordKey::new(linked_list_address.xorname())
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
+                RecordKey::new(graph_entry_address.xorname())
             }
             NetworkAddress::PointerAddress(pointer_address) => {
                 RecordKey::new(pointer_address.xorname())
@@ -228,7 +227,7 @@ impl Debug for NetworkAddress {
                     &chunk_address.to_hex()[0..6]
                 )
             }
-            NetworkAddress::LinkedListAddress(transaction_address) => {
+            NetworkAddress::GraphEntryAddress(transaction_address) => {
                 format!(
                     "NetworkAddress::TransactionAddress({} - ",
                     &transaction_address.to_hex()[0..6]
@@ -253,7 +252,7 @@ impl Debug for NetworkAddress {
                 )
             }
             NetworkAddress::RecordKey(bytes) => {
-                format!("NetworkAddress::RecordKey({:?} - ", bytes)
+                format!("NetworkAddress::RecordKey({bytes:?} - ")
             }
         };
 
@@ -270,7 +269,7 @@ impl Display for NetworkAddress {
             NetworkAddress::ChunkAddress(addr) => {
                 write!(f, "NetworkAddress::ChunkAddress({addr:?})")
             }
-            NetworkAddress::LinkedListAddress(addr) => {
+            NetworkAddress::GraphEntryAddress(addr) => {
                 write!(f, "NetworkAddress::TransactionAddress({addr:?})")
             }
             NetworkAddress::ScratchpadAddress(addr) => {
@@ -409,15 +408,15 @@ impl std::fmt::Debug for PrettyPrintRecordKey<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::LinkedListAddress;
+    use crate::storage::GraphEntryAddress;
     use crate::NetworkAddress;
     use bls::rand::thread_rng;
 
     #[test]
     fn verify_transaction_addr_is_actionable() {
         let xorname = xor_name::XorName::random(&mut thread_rng());
-        let transaction_addr = LinkedListAddress::new(xorname);
-        let net_addr = NetworkAddress::from_linked_list_address(transaction_addr);
+        let transaction_addr = GraphEntryAddress::new(xorname);
+        let net_addr = NetworkAddress::from_graph_entry_address(transaction_addr);
 
         let transaction_addr_hex = &transaction_addr.to_hex()[0..6]; // we only log the first 6 chars
         let net_addr_fmt = format!("{net_addr}");

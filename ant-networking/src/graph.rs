@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{driver::GetRecordCfg, Network, NetworkError, Result};
-use ant_protocol::storage::{LinkedList, LinkedListAddress};
+use ant_protocol::storage::{GraphEntry, GraphEntryAddress};
 use ant_protocol::{
     storage::{try_deserialize_record, RecordHeader, RecordKind, RetryStrategy},
     NetworkAddress, PrettyPrintRecordKey,
@@ -15,9 +15,9 @@ use ant_protocol::{
 use libp2p::kad::{Quorum, Record};
 
 impl Network {
-    /// Gets LinkedList at LinkedListAddress from the Network.
-    pub async fn get_linked_list(&self, address: LinkedListAddress) -> Result<Vec<LinkedList>> {
-        let key = NetworkAddress::from_linked_list_address(address).to_record_key();
+    /// Gets GraphEntry at GraphEntryAddress from the Network.
+    pub async fn get_graph_entry(&self, address: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
+        let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
         let get_cfg = GetRecordCfg {
             get_quorum: Quorum::All,
             retry_strategy: Some(RetryStrategy::Quick),
@@ -31,20 +31,20 @@ impl Network {
             PrettyPrintRecordKey::from(&record.key)
         );
 
-        get_linked_list_from_record(&record)
+        get_graph_entry_from_record(&record)
     }
 }
 
-pub fn get_linked_list_from_record(record: &Record) -> Result<Vec<LinkedList>> {
+pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>> {
     let header = RecordHeader::from_record(record)?;
-    if let RecordKind::LinkedList = header.kind {
-        let transactions = try_deserialize_record::<Vec<LinkedList>>(record)?;
+    if let RecordKind::GraphEntry = header.kind {
+        let transactions = try_deserialize_record::<Vec<GraphEntry>>(record)?;
         Ok(transactions)
     } else {
         warn!(
-            "RecordKind mismatch while trying to retrieve linked_list from record {:?}",
+            "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
-        Err(NetworkError::RecordKindMismatch(RecordKind::LinkedList))
+        Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry))
     }
 }

@@ -14,10 +14,7 @@ use evmlib::{
 };
 use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_arch = "wasm32"))]
 pub use std::time::SystemTime;
-#[cfg(target_arch = "wasm32")]
-pub use wasmtimer::std::SystemTime;
 use xor_name::XorName;
 
 /// The time in seconds that a quote is valid for

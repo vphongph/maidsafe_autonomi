@@ -14,7 +14,7 @@ use crate::client::files::get_relative_file_path_from_abs_file_and_folder_path;
 use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::client::Client;
 use ant_evm::EvmWallet;
-use ant_networking::target_arch::{Duration, SystemTime};
+use ant_networking::time::{Duration, SystemTime};
 use bytes::Bytes;
 use std::path::PathBuf;
 
@@ -164,7 +164,7 @@ impl Client {
 
             // re-do encryption to get the correct map xorname here
             // this code needs refactor
-            let now = ant_networking::target_arch::Instant::now();
+            let now = ant_networking::time::Instant::now();
             let (data_map_chunk, _) = crate::self_encryption::encrypt(file_bytes)?;
             tracing::debug!("Encryption took: {:.2?}", now.elapsed());
             let map_xor_name = *data_map_chunk.address().xorname();

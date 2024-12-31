@@ -215,7 +215,7 @@ impl Client {
         data: Bytes,
         payment_option: PaymentOption,
     ) -> Result<DataMapChunk, PutError> {
-        let now = ant_networking::target_arch::Instant::now();
+        let now = ant_networking::time::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;
         debug!("Encryption took: {:.2?}", now.elapsed());
 

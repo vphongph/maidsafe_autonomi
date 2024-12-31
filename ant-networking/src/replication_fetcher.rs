@@ -7,8 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 #![allow(clippy::mutable_key_type)]
 
-use crate::target_arch::spawn;
-use crate::{event::NetworkEvent, target_arch::Instant};
+use crate::time::spawn;
+use crate::{event::NetworkEvent, time::Instant};
 use ant_evm::U256;
 use ant_protocol::{
     convert_distance_to_u256, storage::RecordType, NetworkAddress, PrettyPrintRecordKey,

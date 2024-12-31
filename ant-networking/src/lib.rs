@@ -26,7 +26,7 @@ mod record_store;
 mod record_store_api;
 mod relay_manager;
 mod replication_fetcher;
-pub mod target_arch;
+pub mod time;
 mod transport;
 
 use cmd::LocalSwarmCmd;
@@ -45,7 +45,7 @@ pub use self::{
 };
 #[cfg(feature = "open-metrics")]
 pub use metrics::service::MetricsRegistries;
-pub use target_arch::{interval, sleep, spawn, Instant, Interval};
+pub use time::{interval, sleep, spawn, Instant, Interval};
 
 use self::{cmd::NetworkSwarmCmd, error::Result};
 use ant_evm::{PaymentQuote, QuotingMetrics};
@@ -592,7 +592,7 @@ impl Network {
 
             match backoff.next() {
                 Some(Some(duration)) => {
-                    crate::target_arch::sleep(duration).await;
+                    crate::time::sleep(duration).await;
                     debug!("Getting record from network of {pretty_key:?} via backoff...");
                 }
                 _ => break Err(err.into()),
@@ -873,7 +873,7 @@ impl Network {
 
             match backoff.next() {
                 Some(Some(duration)) => {
-                    crate::target_arch::sleep(duration).await;
+                    crate::time::sleep(duration).await;
                 }
                 _ => break Err(err),
             }

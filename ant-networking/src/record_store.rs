@@ -10,7 +10,7 @@
 use crate::cmd::LocalSwarmCmd;
 use crate::driver::MAX_PACKET_SIZE;
 use crate::send_local_swarm_cmd;
-use crate::target_arch::{spawn, Instant};
+use crate::time::{spawn, Instant};
 use crate::{event::NetworkEvent, log_markers::Marker};
 use aes_gcm_siv::{
     aead::{Aead, KeyInit},

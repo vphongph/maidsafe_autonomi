@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ant_networking::target_arch::{Duration, SystemTime, UNIX_EPOCH};
+use ant_networking::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
     client::{

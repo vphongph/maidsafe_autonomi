@@ -28,9 +28,6 @@ pub mod registers;
 #[cfg_attr(docsrs, doc(cfg(feature = "vault")))]
 pub mod vault;
 
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
-
 // private module with utility functions
 mod rate_limiter;
 mod utils;
@@ -188,7 +185,7 @@ impl Client {
 
         let network_clone = network.clone();
         let peers = peers.to_vec();
-        let _handle = ant_networking::target_arch::spawn(async move {
+        let _handle = ant_networking::time::spawn(async move {
             for addr in peers {
                 if let Err(err) = network_clone.dial(addr.clone()).await {
                     error!("Failed to dial addr={addr} with err: {err:?}");
@@ -198,7 +195,7 @@ impl Client {
 
         // Wait until we have added a few peers to our routing table.
         let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::target_arch::spawn(handle_event_receiver(event_receiver, sender));
+        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
         receiver.await.expect("sender should not close")?;
         debug!("Enough peers were added to our routing table, initialization complete");
 
@@ -236,7 +233,7 @@ impl Client {
         // Spawn task to dial to the given peers
         let network_clone = network.clone();
         let peers = peers.to_vec();
-        let _handle = ant_networking::target_arch::spawn(async move {
+        let _handle = ant_networking::time::spawn(async move {
             for addr in peers {
                 if let Err(err) = network_clone.dial(addr.clone()).await {
                     error!("Failed to dial addr={addr} with err: {err:?}");
@@ -246,7 +243,7 @@ impl Client {
         });
 
         let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::target_arch::spawn(handle_event_receiver(event_receiver, sender));
+        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
 
         receiver.await.expect("sender should not close")?;
         debug!("Client is connected to the network");
@@ -255,7 +252,7 @@ impl Client {
         // Seems the too many `initial dial`s could result in failure,
         // when startup quoting/upload tasks got started up immediatly.
         // Hence, put in a forced wait to allow `initial network discovery` to be completed.
-        ant_networking::target_arch::sleep(Duration::from_secs(5)).await;
+        ant_networking::time::sleep(Duration::from_secs(5)).await;
 
         Ok(Self {
             network,
@@ -296,7 +293,7 @@ fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEv
     let (network, event_receiver, swarm_driver) =
         network_builder.build_client().expect("mdns to succeed");
 
-    let _swarm_driver = ant_networking::target_arch::spawn(swarm_driver.run());
+    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run());
     debug!("Client swarm driver is running");
 
     (network, event_receiver)
@@ -311,8 +308,6 @@ async fn handle_event_receiver(
     let mut unsupported_protocols = vec![];
 
     let mut timeout_timer = interval(Duration::from_secs(CONNECT_TIMEOUT_SECS));
-
-    #[cfg(not(target_arch = "wasm32"))]
     timeout_timer.tick().await;
 
     loop {

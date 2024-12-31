@@ -41,6 +41,7 @@ uv.lock
 
 /vendor/
 
+
 # Node.js
 node_modules/
 

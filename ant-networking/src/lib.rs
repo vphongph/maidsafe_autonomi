@@ -17,7 +17,7 @@ mod error;
 mod event;
 mod external_address;
 mod fifo_register;
-mod linked_list;
+mod graph;
 mod log_markers;
 #[cfg(feature = "open-metrics")]
 mod metrics;
@@ -40,7 +40,7 @@ pub use self::{
     },
     error::{GetRecordError, NetworkError},
     event::{MsgResponder, NetworkEvent},
-    linked_list::get_linked_list_from_record,
+    graph::get_graph_entry_from_record,
     record_store::NodeRecordStore,
 };
 #[cfg(feature = "open-metrics")]
@@ -75,7 +75,7 @@ use tokio::sync::{
 };
 use tokio::time::Duration;
 use {
-    ant_protocol::storage::LinkedList,
+    ant_protocol::storage::GraphEntry,
     ant_protocol::storage::{
         try_deserialize_record, try_serialize_record, RecordHeader, RecordKind,
     },
@@ -634,17 +634,17 @@ impl Network {
                 match kind {
                     RecordKind::Chunk
                     | RecordKind::ChunkWithPayment
-                    | RecordKind::LinkedListWithPayment
+                    | RecordKind::GraphEntryWithPayment
                     | RecordKind::RegisterWithPayment
                     | RecordKind::PointerWithPayment
                     | RecordKind::ScratchpadWithPayment => {
                         error!("Encountered a split record for {pretty_key:?} with unexpected RecordKind {kind:?}, skipping.");
                         continue;
                     }
-                    RecordKind::LinkedList => {
+                    RecordKind::GraphEntry => {
                         info!("For record {pretty_key:?}, we have a split record for a transaction attempt. Accumulating transactions");
 
-                        match get_linked_list_from_record(record) {
+                        match get_graph_entry_from_record(record) {
                             Ok(transactions) => {
                                 accumulated_transactions.extend(transactions);
                             }
@@ -730,10 +730,10 @@ impl Network {
             info!("For record {pretty_key:?} task found split record for a transaction, accumulated and sending them as a single record");
             let accumulated_transactions = accumulated_transactions
                 .into_iter()
-                .collect::<Vec<LinkedList>>();
+                .collect::<Vec<GraphEntry>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::LinkedList)
+                value: try_serialize_record(&accumulated_transactions, RecordKind::GraphEntry)
                     .map_err(|err| {
                         error!(
                             "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"

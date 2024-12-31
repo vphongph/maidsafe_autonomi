@@ -664,14 +664,14 @@ impl SwarmDriver {
                             RecordKind::Chunk => RecordType::Chunk,
                             RecordKind::Scratchpad => RecordType::Scratchpad,
                             RecordKind::Pointer => RecordType::Pointer,
-                            RecordKind::LinkedList | RecordKind::Register => {
+                            RecordKind::GraphEntry | RecordKind::Register => {
                                 let content_hash = XorName::from_content(&record.value);
                                 RecordType::NonChunk(content_hash)
                             }
                             RecordKind::ChunkWithPayment
                             | RecordKind::RegisterWithPayment
                             | RecordKind::PointerWithPayment
-                            | RecordKind::LinkedListWithPayment
+                            | RecordKind::GraphEntryWithPayment
                             | RecordKind::ScratchpadWithPayment => {
                                 error!("Record {record_key:?} with payment shall not be stored locally.");
                                 return Err(NetworkError::InCorrectRecordHeader);

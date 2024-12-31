@@ -6,34 +6,34 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::address::LinkedListAddress;
+use super::address::GraphEntryAddress;
 use bls::SecretKey;
 use serde::{Deserialize, Serialize};
 
 // re-exports
 pub use bls::{PublicKey, Signature};
 
-/// Content of a transaction, limited to 32 bytes
-pub type LinkedListContent = [u8; 32];
+/// Content of a graph, limited to 32 bytes
+pub type GraphContent = [u8; 32];
 
-/// A generic Transaction on the Network
+/// A generic GraphEntry on the Network
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
-pub struct LinkedList {
+pub struct GraphEntry {
     pub owner: PublicKey,
     pub parents: Vec<PublicKey>,
-    pub content: LinkedListContent,
-    pub outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
+    pub content: GraphContent,
+    pub outputs: Option<Vec<(PublicKey, GraphContent)>>,
     /// signs the above 4 fields with the owners key
     pub signature: Signature,
 }
 
-impl LinkedList {
-    /// Create a new transaction, signing it with the provided secret key.
+impl GraphEntry {
+    /// Create a new graph entry, signing it with the provided secret key.
     pub fn new(
         owner: PublicKey,
         parents: Vec<PublicKey>,
-        content: LinkedListContent,
-        outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
+        content: GraphContent,
+        outputs: Option<Vec<(PublicKey, GraphContent)>>,
         signing_key: &SecretKey,
     ) -> Self {
         let signature = signing_key.sign(Self::bytes_to_sign(&owner, &parents, &content, &outputs));
@@ -46,12 +46,12 @@ impl LinkedList {
         }
     }
 
-    /// Create a new transaction, with the signature already calculated.
+    /// Create a new graph entry, with the signature already calculated.
     pub fn new_with_signature(
         owner: PublicKey,
         parents: Vec<PublicKey>,
-        content: LinkedListContent,
-        outputs: Option<Vec<(PublicKey, LinkedListContent)>>,
+        content: GraphContent,
+        outputs: Option<Vec<(PublicKey, GraphContent)>>,
         signature: Signature,
     ) -> Self {
         Self {
@@ -68,7 +68,7 @@ impl LinkedList {
         owner: &PublicKey,
         parents: &[PublicKey],
         content: &[u8],
-        outputs: &Option<Vec<(PublicKey, LinkedListContent)>>,
+        outputs: &Option<Vec<(PublicKey, GraphContent)>>,
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&owner.to_bytes());
@@ -94,8 +94,8 @@ impl LinkedList {
         bytes
     }
 
-    pub fn address(&self) -> LinkedListAddress {
-        LinkedListAddress::from_owner(self.owner)
+    pub fn address(&self) -> GraphEntryAddress {
+        GraphEntryAddress::from_owner(self.owner)
     }
 
     /// Get the bytes that the signature is calculated from.

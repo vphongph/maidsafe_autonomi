@@ -1,11 +1,11 @@
-use crate::client::Client;
 use crate::client::data::PayError;
+use crate::client::Client;
 use tracing::{debug, error, trace};
 
 use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{Pointer, PointerAddress, RecordKind, RetryStrategy, try_serialize_record},
+    storage::{try_serialize_record, Pointer, PointerAddress, RecordKind, RetryStrategy},
     NetworkAddress,
 };
 use bls::SecretKey;
@@ -35,13 +35,10 @@ pub enum PointerError {
 
 impl Client {
     /// Get a pointer from the network
-    pub async fn pointer_get(
-        &self,
-        address: PointerAddress,
-    ) -> Result<Pointer, PointerError> {
+    pub async fn pointer_get(&self, address: PointerAddress) -> Result<Pointer, PointerError> {
         let key = NetworkAddress::from_pointer_address(address).to_record_key();
         let record = self.network.get_local_record(&key).await?;
-        
+
         match record {
             Some(record) => {
                 let (_, pointer): (Vec<u8>, Pointer) = rmp_serde::from_slice(&record.value)

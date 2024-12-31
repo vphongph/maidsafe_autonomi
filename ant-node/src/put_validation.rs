@@ -12,10 +12,10 @@ use crate::{node::Node, Error, Marker, Result};
 use ant_evm::payment_vault::verify_data_payment;
 use ant_evm::{AttoTokens, ProofOfPayment};
 use ant_networking::NetworkError;
-use ant_protocol::storage::LinkedList;
+use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
     storage::{
-        try_deserialize_record, try_serialize_record, Chunk, LinkedListAddress, Pointer,
+        try_deserialize_record, try_serialize_record, Chunk, GraphEntryAddress, Pointer,
         RecordHeader, RecordKind, RecordType, Scratchpad,
     },
     NetworkAddress, PrettyPrintRecordKey,
@@ -163,19 +163,19 @@ impl Node {
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::LinkedList => {
+            RecordKind::GraphEntry => {
                 // Transactions should always be paid for
                 error!("Transaction should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::LinkedListWithPayment => {
+            RecordKind::GraphEntryWithPayment => {
                 let (payment, transaction) =
-                    try_deserialize_record::<(ProofOfPayment, LinkedList)>(&record)?;
+                    try_deserialize_record::<(ProofOfPayment, GraphEntry)>(&record)?;
 
                 // check if the deserialized value's TransactionAddress matches the record's key
-                let net_addr = NetworkAddress::from_linked_list_address(transaction.address());
+                let net_addr = NetworkAddress::from_graph_entry_address(transaction.address());
                 let key = net_addr.to_record_key();
                 let pretty_key = PrettyPrintRecordKey::from(&key);
                 if record.key != key {
@@ -349,7 +349,7 @@ impl Node {
                     }
                 }
 
-                let res = self.validate_and_store_pointer_record(pointer, key).await;
+                let res = self.validate_and_store_pointer_record(pointer, key);
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
                     Marker::ValidPointerPutFromClient(&PrettyPrintRecordKey::from(&record.key))
@@ -377,7 +377,7 @@ impl Node {
         match record_header.kind {
             // A separate flow handles payment for chunks and registers
             RecordKind::ChunkWithPayment
-            | RecordKind::LinkedListWithPayment
+            | RecordKind::GraphEntryWithPayment
             | RecordKind::RegisterWithPayment
             | RecordKind::ScratchpadWithPayment
             | RecordKind::PointerWithPayment => {
@@ -409,9 +409,9 @@ impl Node {
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::LinkedList => {
+            RecordKind::GraphEntry => {
                 let record_key = record.key.clone();
-                let transactions = try_deserialize_record::<Vec<LinkedList>>(&record)?;
+                let transactions = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
                 self.validate_merge_and_store_transactions(transactions, &record_key)
                     .await
             }
@@ -432,7 +432,7 @@ impl Node {
             RecordKind::Pointer => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
-                self.validate_and_store_pointer_record(pointer, key).await
+                self.validate_and_store_pointer_record(pointer, key)
             }
         }
     }
@@ -621,19 +621,19 @@ impl Node {
     /// If we already have a transaction at this address, the Vec is extended and stored.
     pub(crate) async fn validate_merge_and_store_transactions(
         &self,
-        transactions: Vec<LinkedList>,
+        transactions: Vec<GraphEntry>,
         record_key: &RecordKey,
     ) -> Result<()> {
         let pretty_key = PrettyPrintRecordKey::from(record_key);
         debug!("Validating transactions before storage at {pretty_key:?}");
 
         // only keep transactions that match the record key
-        let transactions_for_key: Vec<LinkedList> = transactions
+        let transactions_for_key: Vec<GraphEntry> = transactions
             .into_iter()
             .filter(|s| {
                 // get the record key for the transaction
                 let transaction_address = s.address();
-                let network_address = NetworkAddress::from_linked_list_address(transaction_address);
+                let network_address = NetworkAddress::from_graph_entry_address(transaction_address);
                 let transaction_record_key = network_address.to_record_key();
                 let transaction_pretty = PrettyPrintRecordKey::from(&transaction_record_key);
                 if &transaction_record_key != record_key {
@@ -653,7 +653,7 @@ impl Node {
         }
 
         // verify the transactions
-        let mut validated_transactions: BTreeSet<LinkedList> = transactions_for_key
+        let mut validated_transactions: BTreeSet<GraphEntry> = transactions_for_key
             .into_iter()
             .filter(|t| t.verify())
             .collect();
@@ -670,12 +670,12 @@ impl Node {
         // add local transactions to the validated transactions, turn to Vec
         let local_txs = self.get_local_transactions(addr).await?;
         validated_transactions.extend(local_txs.into_iter());
-        let validated_transactions: Vec<LinkedList> = validated_transactions.into_iter().collect();
+        let validated_transactions: Vec<GraphEntry> = validated_transactions.into_iter().collect();
 
         // store the record into the local storage
         let record = Record {
             key: record_key.clone(),
-            value: try_serialize_record(&validated_transactions, RecordKind::LinkedList)?.to_vec(),
+            value: try_serialize_record(&validated_transactions, RecordKind::GraphEntry)?.to_vec(),
             publisher: None,
             expires: None,
         };
@@ -826,9 +826,9 @@ impl Node {
 
     /// Get the local transactions for the provided `TransactionAddress`
     /// This only fetches the transactions from the local store and does not perform any network operations.
-    async fn get_local_transactions(&self, addr: LinkedListAddress) -> Result<Vec<LinkedList>> {
+    async fn get_local_transactions(&self, addr: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
         // get the local transactions
-        let record_key = NetworkAddress::from_linked_list_address(addr).to_record_key();
+        let record_key = NetworkAddress::from_graph_entry_address(addr).to_record_key();
         debug!("Checking for local transactions with key: {record_key:?}");
         let local_record = match self.network().get_local_record(&record_key).await? {
             Some(r) => r,
@@ -841,16 +841,16 @@ impl Node {
         // deserialize the record and get the transactions
         let local_header = RecordHeader::from_record(&local_record)?;
         let record_kind = local_header.kind;
-        if !matches!(record_kind, RecordKind::LinkedList) {
+        if !matches!(record_kind, RecordKind::GraphEntry) {
             error!("Found a {record_kind} when expecting to find Spend at {addr:?}");
-            return Err(NetworkError::RecordKindMismatch(RecordKind::LinkedList).into());
+            return Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry).into());
         }
-        let local_transactions: Vec<LinkedList> = try_deserialize_record(&local_record)?;
+        let local_transactions: Vec<GraphEntry> = try_deserialize_record(&local_record)?;
         Ok(local_transactions)
     }
 
     /// Validate and store a pointer record
-    pub(crate) async fn validate_and_store_pointer_record(
+    pub(crate) fn validate_and_store_pointer_record(
         &self,
         pointer: Pointer,
         key: RecordKey,

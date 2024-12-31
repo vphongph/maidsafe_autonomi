@@ -434,24 +434,17 @@ impl NodeRecordStore {
         key: &Key,
         encryption_details: &(Aes256GcmSiv, [u8; 4]),
     ) -> Option<Cow<'a, Record>> {
-        let mut record = Record {
-            key: key.clone(),
-            value: bytes,
-            publisher: None,
-            expires: None,
-        };
-
-        // if we're not encrypting, lets just return the record
-        if !cfg!(feature = "encrypt-records") {
-            return Some(Cow::Owned(record));
-        }
-
         let (cipher, nonce_starter) = encryption_details;
         let nonce = generate_nonce_for_record(nonce_starter, key);
 
-        match cipher.decrypt(&nonce, record.value.as_ref()) {
+        match cipher.decrypt(&nonce, bytes.as_slice()) {
             Ok(value) => {
-                record.value = value;
+                let record = Record {
+                    key: key.clone(),
+                    value,
+                    publisher: None,
+                    expires: None,
+                };
                 Some(Cow::Owned(record))
             }
             Err(error) => {
@@ -630,15 +623,11 @@ impl NodeRecordStore {
     }
 
     /// Prepare record bytes for storage
-    /// If feats are enabled, this will eg, encrypt the record for storage
+    /// This will encrypt the record for storage
     fn prepare_record_bytes(
         record: Record,
         encryption_details: (Aes256GcmSiv, [u8; 4]),
     ) -> Option<Vec<u8>> {
-        if !cfg!(feature = "encrypt-records") {
-            return Some(record.value);
-        }
-
         let (cipher, nonce_starter) = encryption_details;
         let nonce = generate_nonce_for_record(&nonce_starter, &record.key);
 
@@ -1144,8 +1133,10 @@ mod tests {
             ..Default::default()
         };
         let self_id = PeerId::random();
-        let (network_event_sender, _) = mpsc::channel(1);
-        let (swarm_cmd_sender, _) = mpsc::channel(1);
+
+        // Create channels with proper receivers
+        let (network_event_sender, _network_event_receiver) = mpsc::channel(1);
+        let (swarm_cmd_sender, mut swarm_cmd_receiver) = mpsc::channel(1);
 
         let mut store = NodeRecordStore::with_config(
             self_id,
@@ -1172,31 +1163,46 @@ mod tests {
             .put_verified(record.clone(), RecordType::Chunk)
             .is_ok());
 
-        // Mark as stored (simulating the CompletedWrite event)
-        store.mark_as_stored(record.key.clone(), RecordType::Chunk);
+        // Wait for the async write operation to complete
+        if let Some(cmd) = swarm_cmd_receiver.recv().await {
+            match cmd {
+                LocalSwarmCmd::AddLocalRecordAsStored { key, record_type } => {
+                    store.mark_as_stored(key, record_type);
+                }
+                _ => panic!("Unexpected command received"),
+            }
+        }
 
         // Verify the chunk is stored
         let stored_record = store.get(&record.key);
-        assert!(stored_record.is_some(), "Chunk should be stored");
+        assert!(stored_record.is_some(), "Chunk should be stored initially");
 
         // Sleep a while to let OS completes the flush to disk
-        sleep(Duration::from_secs(5)).await;
+        sleep(Duration::from_secs(1)).await;
 
-        // Restart the store with same encrypt_seed
+        // Create new channels for the restarted store
+        let (new_network_event_sender, _new_network_event_receiver) = mpsc::channel(1);
+        let (new_swarm_cmd_sender, _new_swarm_cmd_receiver) = mpsc::channel(1);
+
+        // Restart the store with same encrypt_seed but new channels
         drop(store);
         let store = NodeRecordStore::with_config(
             self_id,
             store_config,
-            network_event_sender.clone(),
-            swarm_cmd_sender.clone(),
+            new_network_event_sender,
+            new_swarm_cmd_sender,
         );
-
-        // Sleep a lit bit to let OS completes restoring
-        sleep(Duration::from_secs(1)).await;
 
         // Verify the record still exists
         let stored_record = store.get(&record.key);
-        assert!(stored_record.is_some(), "Chunk should be stored");
+        assert!(
+            stored_record.is_some(),
+            "Chunk should be stored after restart with same key"
+        );
+
+        // Create new channels for the different seed test
+        let (diff_network_event_sender, _diff_network_event_receiver) = mpsc::channel(1);
+        let (diff_swarm_cmd_sender, _diff_swarm_cmd_receiver) = mpsc::channel(1);
 
         // Restart the store with different encrypt_seed
         let self_id_diff = PeerId::random();
@@ -1208,25 +1214,16 @@ mod tests {
         let store_diff = NodeRecordStore::with_config(
             self_id_diff,
             store_config_diff,
-            network_event_sender,
-            swarm_cmd_sender,
+            diff_network_event_sender,
+            diff_swarm_cmd_sender,
         );
 
-        // Sleep a lit bit to let OS completes restoring (if has)
-        sleep(Duration::from_secs(1)).await;
-
-        // Verify the record existence, shall get removed when encryption enabled
-        if cfg!(feature = "encrypt-records") {
-            assert!(
-                store_diff.get(&record.key).is_none(),
-                "Chunk should be gone"
-            );
-        } else {
-            assert!(
-                store_diff.get(&record.key).is_some(),
-                "Chunk shall persists without encryption"
-            );
-        }
+        // When encryption is enabled, the record should be gone because it can't be decrypted
+        // with the different encryption seed
+        assert!(
+            store_diff.get(&record.key).is_none(),
+            "Chunk should be gone with different encryption key"
+        );
 
         Ok(())
     }
@@ -1557,7 +1554,7 @@ mod tests {
             // via NetworkEvent::CompletedWrite)
             store.mark_as_stored(record_key.clone(), RecordType::Chunk);
 
-            stored_records.push(record_key);
+            stored_records.push(record_key.clone());
             stored_records.sort_by(|a, b| {
                 let a = NetworkAddress::from_record_key(a);
                 let b = NetworkAddress::from_record_key(b);

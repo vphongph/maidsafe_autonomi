@@ -40,3 +40,9 @@ uv.lock
 *.swp
 
 /vendor/
+
+# Node.js
+node_modules/
+
+# MkDocs
+site/

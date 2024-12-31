@@ -15,7 +15,7 @@ pub mod quote;
 
 pub mod data;
 pub mod files;
-pub mod linked_list;
+pub mod graph;
 pub mod pointer;
 
 #[cfg(feature = "external-signer")]

@@ -1,4 +1,4 @@
-use crate::storage::{ChunkAddress, LinkedListAddress, PointerAddress, ScratchpadAddress};
+use crate::storage::{ChunkAddress, GraphEntryAddress, PointerAddress, ScratchpadAddress};
 use bls::{Error as BlsError, PublicKey, SecretKey, Signature};
 use hex::FromHexError;
 use rand::thread_rng;
@@ -31,7 +31,7 @@ pub struct Pointer {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PointerTarget {
     ChunkAddress(ChunkAddress),
-    LinkedListAddress(LinkedListAddress),
+    GraphEntryAddress(GraphEntryAddress),
     PointerAddress(PointerAddress),
     ScratchpadAddress(ScratchpadAddress),
 }
@@ -40,7 +40,7 @@ impl PointerTarget {
     pub fn xorname(&self) -> XorName {
         match self {
             PointerTarget::ChunkAddress(addr) => *addr.xorname(),
-            PointerTarget::LinkedListAddress(addr) => *addr.xorname(),
+            PointerTarget::GraphEntryAddress(addr) => *addr.xorname(),
             PointerTarget::PointerAddress(ptr) => *ptr.xorname(),
             PointerTarget::ScratchpadAddress(addr) => addr.xorname(),
         }
@@ -153,7 +153,7 @@ mod tests {
         let counter = 1;
         let mut rng = thread_rng();
         let target =
-            PointerTarget::LinkedListAddress(LinkedListAddress::new(XorName::random(&mut rng)));
+            PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
 
         // Create and sign pointer
         let pointer = Pointer::new(owner_pk, counter, target.clone(), &owner_sk);
@@ -172,7 +172,7 @@ mod tests {
         let counter = 1;
         let mut rng = thread_rng();
         let target =
-            PointerTarget::LinkedListAddress(LinkedListAddress::new(XorName::random(&mut rng)));
+            PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
 
         let pointer = Pointer::new(owner_pk, counter, target.clone(), &owner_sk);
         let xorname = pointer.xorname();
@@ -186,7 +186,7 @@ mod tests {
         let counter = 1;
         let mut rng = thread_rng();
         let target =
-            PointerTarget::LinkedListAddress(LinkedListAddress::new(XorName::random(&mut rng)));
+            PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
 
         let pointer = Pointer::new(owner_pk, counter, target, &owner_sk);
         let hex = pointer.encode_hex();

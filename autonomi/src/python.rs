@@ -192,14 +192,9 @@ impl Client {
         wallet: &Wallet,
     ) -> PyResult<()> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let pointer = RustPointer::new(
-            owner.inner.clone(),
-            counter,
-            target.inner.clone(),
-            &key.inner,
-        );
+        let pointer = RustPointer::new(owner.inner, counter, target.inner.clone(), &key.inner);
         rt.block_on(self.inner.pointer_put(pointer, &wallet.inner))
-            .map_err(|e| PyValueError::new_err(format!("Failed to put pointer: {}", e)))
+            .map_err(|e| PyValueError::new_err(format!("Failed to put pointer: {e}")))
     }
 
     fn pointer_cost(&self, key: &PySecretKey) -> PyResult<String> {
@@ -215,7 +210,7 @@ impl Client {
     fn pointer_address(&self, owner: &PyPublicKey, counter: u32) -> PyResult<String> {
         let mut rng = thread_rng();
         let pointer = RustPointer::new(
-            owner.inner.clone(),
+            owner.inner,
             counter,
             RustPointerTarget::ChunkAddress(ChunkAddress::new(XorName::random(&mut rng))),
             &RustSecretKey::random(),
@@ -237,7 +232,7 @@ impl PyPointerAddress {
     #[new]
     pub fn new(hex_str: String) -> PyResult<Self> {
         let bytes = hex::decode(&hex_str)
-            .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {e}")))?;
         let xorname = XorName::from_content(&bytes);
         Ok(Self {
             inner: RustPointerAddress::new(xorname),
@@ -267,12 +262,7 @@ impl PyPointer {
         key: &PySecretKey,
     ) -> PyResult<Self> {
         Ok(Self {
-            inner: RustPointer::new(
-                owner.inner.clone(),
-                counter,
-                target.inner.clone(),
-                &key.inner,
-            ),
+            inner: RustPointer::new(owner.inner, counter, target.inner.clone(), &key.inner),
         })
     }
 
@@ -291,7 +281,7 @@ impl PyPointer {
     #[getter]
     fn target(&self) -> PyPointerTarget {
         PyPointerTarget {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname().clone())),
+            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
     }
 }
@@ -322,7 +312,7 @@ impl PyPointerTarget {
     #[getter]
     fn target(&self) -> PyPointerTarget {
         PyPointerTarget {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname().clone())),
+            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
     }
 
@@ -338,7 +328,7 @@ impl PyPointerTarget {
     #[staticmethod]
     fn from_chunk_address(addr: &PyChunkAddress) -> Self {
         Self {
-            inner: RustPointerTarget::ChunkAddress(addr.inner.clone()),
+            inner: RustPointerTarget::ChunkAddress(addr.inner),
         }
     }
 }

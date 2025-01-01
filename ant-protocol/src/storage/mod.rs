@@ -8,8 +8,8 @@
 
 mod address;
 mod chunks;
+mod graph;
 mod header;
-mod linked_list;
 pub mod pointer;
 pub use pointer::{Pointer, PointerTarget};
 mod scratchpad;
@@ -19,10 +19,10 @@ use exponential_backoff::Backoff;
 use std::{num::NonZeroUsize, time::Duration};
 
 pub use self::{
-    address::{ChunkAddress, LinkedListAddress, PointerAddress, ScratchpadAddress},
+    address::{ChunkAddress, GraphEntryAddress, PointerAddress, ScratchpadAddress},
     chunks::Chunk,
+    graph::GraphEntry,
     header::{try_deserialize_record, try_serialize_record, RecordHeader, RecordKind, RecordType},
-    linked_list::LinkedList,
     scratchpad::Scratchpad,
 };
 

@@ -148,19 +148,19 @@ jobs:
       # This is most likely due to the setup and cocurrency issues of the tests.
       # As the `record_store` is used in a single thread style, get the test passing executed
       # and passing standalone is enough.
-      - name: Run network tests (with encrypt-records)
-        timeout-minutes: 25
-        run: cargo test --release --package ant-networking --features="open-metrics, encrypt-records" -- --skip can_store_after_restart
-
-      - name: Run network tests (with encrypt-records)
-        timeout-minutes: 5
-        run: cargo test --release --package ant-networking --features="open-metrics, encrypt-records" can_store_after_restart
-
-      - name: Run network tests (without encrypt-records)
+      - name: Run network tests
         timeout-minutes: 25
         run: cargo test --release --package ant-networking --features="open-metrics" -- --skip can_store_after_restart
 
-      - name: Run network tests (without encrypt-records)
+      - name: Run network tests
+        timeout-minutes: 5
+        run: cargo test --release --package ant-networking --features="open-metrics" can_store_after_restart
+
+      - name: Run network tests
+        timeout-minutes: 25
+        run: cargo test --release --package ant-networking --features="open-metrics" -- --skip can_store_after_restart
+
+      - name: Run network tests
         timeout-minutes: 5
         run: cargo test --release --package ant-networking --features="open-metrics" can_store_after_restart
 

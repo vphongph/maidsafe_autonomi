@@ -35,7 +35,7 @@ use std::{
 use tokio::sync::oneshot;
 use xor_name::XorName;
 
-use crate::target_arch::Instant;
+use crate::time::Instant;
 
 const MAX_CONTINUOUS_HDD_WRITE_ERROR: usize = 5;
 

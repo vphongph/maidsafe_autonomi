@@ -14,10 +14,7 @@ use evmlib::{
 };
 use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_arch = "wasm32"))]
 pub use std::time::SystemTime;
-#[cfg(target_arch = "wasm32")]
-pub use wasmtimer::std::SystemTime;
 use xor_name::XorName;
 
 /// The time in seconds that a quote is valid for
@@ -92,6 +89,9 @@ impl ProofOfPayment {
     pub fn verify_for(&self, peer_id: PeerId) -> bool {
         // make sure I am in the list of payees
         if !self.payees().contains(&peer_id) {
+            warn!("Payment does not contain node peer id");
+            debug!("Payment contains peer ids: {:?}", self.payees());
+            debug!("Node peer id: {:?}", peer_id);
             return false;
         }
 
@@ -105,6 +105,7 @@ impl ProofOfPayment {
                 }
             };
             if !quote.check_is_signed_by_claimed_peer(peer_id) {
+                warn!("Payment is not signed by claimed peer");
                 return false;
             }
         }
@@ -189,7 +190,7 @@ impl PaymentQuote {
         if let Ok(pub_key) = libp2p::identity::PublicKey::try_decode_protobuf(&self.pub_key) {
             Ok(PeerId::from(pub_key.clone()))
         } else {
-            error!("Cann't parse PublicKey from protobuf");
+            error!("Can't parse PublicKey from protobuf");
             Err(EvmError::InvalidQuotePublicKey)
         }
     }
@@ -199,7 +200,7 @@ impl PaymentQuote {
         let pub_key = if let Ok(pub_key) = PublicKey::try_decode_protobuf(&self.pub_key) {
             pub_key
         } else {
-            error!("Cann't parse PublicKey from protobuf");
+            error!("Can't parse PublicKey from protobuf");
             return false;
         };
 

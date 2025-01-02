@@ -41,7 +41,7 @@ impl Client {
 ///
 /// Returns the data map chunk and file chunks.
 pub fn encrypt_data(data: Bytes) -> Result<(Chunk, Vec<Chunk>), PutError> {
-    let now = ant_networking::target_arch::Instant::now();
+    let now = ant_networking::time::Instant::now();
     let result = encrypt(data)?;
 
     debug!("Encryption took: {:.2?}", now.elapsed());

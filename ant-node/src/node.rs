@@ -17,7 +17,7 @@ use ant_evm::RewardsAddress;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
 use ant_networking::{
-    target_arch::sleep, Instant, Network, NetworkBuilder, NetworkEvent, NodeIssue, SwarmDriver,
+    time::sleep, Instant, Network, NetworkBuilder, NetworkEvent, NodeIssue, SwarmDriver,
 };
 use ant_protocol::{
     convert_distance_to_u256,

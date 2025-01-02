@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::target_arch::interval;
+use crate::time::interval;
 use ant_protocol::CLOSE_GROUP_SIZE;
 use libp2p::PeerId;
 use prometheus_client::{

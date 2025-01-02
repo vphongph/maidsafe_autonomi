@@ -135,10 +135,6 @@ Deployer wallet private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efca
 Genesis wallet balance: (tokens: 20000000000000000000000000, gas: 9998998011366954730202)
 ```
 
-# WASM
-
-For documentation on WASM, see [./README_WASM.md].
-
 # Python
 
 For documentation on the Python bindings, see [./README_PYTHON.md].

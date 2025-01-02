@@ -7,9 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    driver::PendingGetClosestType, get_graph_entry_from_record, get_quorum_value,
-    target_arch::Instant, GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver,
-    CLOSE_GROUP_SIZE,
+    driver::PendingGetClosestType, get_graph_entry_from_record, get_quorum_value, time::Instant,
+    GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver, CLOSE_GROUP_SIZE,
 };
 use ant_protocol::{
     storage::{try_serialize_record, GraphEntry, RecordKind},

@@ -21,8 +21,8 @@ use crate::{
     record_store_api::UnifiedRecordStore,
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    target_arch::Interval,
-    target_arch::{interval, spawn, Instant},
+    time::Interval,
+    time::{interval, spawn, Instant},
     transport, GetRecordError, Network, NodeIssue, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
@@ -493,7 +493,6 @@ impl NetworkBuilder {
 
         let peer_id = PeerId::from(self.keypair.public());
         // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
-        #[cfg(not(target_arch = "wasm32"))]
         info!(
             "Process (PID: {}) with PeerId: {peer_id}",
             std::process::id()
@@ -689,11 +688,7 @@ impl NetworkBuilder {
             mdns,
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
         let swarm_config = libp2p::swarm::Config::with_tokio_executor()
-            .with_idle_connection_timeout(CONNECTION_KEEP_ALIVE_TIMEOUT);
-        #[cfg(target_arch = "wasm32")]
-        let swarm_config = libp2p::swarm::Config::with_wasm_executor()
             .with_idle_connection_timeout(CONNECTION_KEEP_ALIVE_TIMEOUT);
 
         let swarm = Swarm::new(transport, behaviour, peer_id, swarm_config);
@@ -1075,9 +1070,7 @@ impl SwarmDriver {
                     let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
                     info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
 
-                    // `Interval` ticks immediately for Tokio, but not for `wasmtimer`, which is used for wasm32.
                     *current_interval = interval(new_duration);
-                    #[cfg(not(target_arch = "wasm32"))]
                     current_interval.tick().await;
 
                     trace!("Bootstrap cache synced in {:?}", start.elapsed());

@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::Marker;
-use ant_networking::target_arch::Instant;
+use ant_networking::time::Instant;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
 use prometheus_client::{

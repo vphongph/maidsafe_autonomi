@@ -262,7 +262,7 @@ jobs:
 
       - name: Run network tests
         timeout-minutes: 25
-        run: cargo test --release --package ant-networking --features="open-metrics, encrypt-records"
+        run: cargo test --release --package ant-networking --features="open-metrics"
 
       - name: Run protocol tests
         timeout-minutes: 25

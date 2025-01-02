@@ -8,7 +8,7 @@
 
 use crate::{
     event::NodeEvent, multiaddr_get_ip, multiaddr_is_global, multiaddr_strip_p2p,
-    relay_manager::is_a_relayed_peer, target_arch::Instant, NetworkEvent, Result, SwarmDriver,
+    relay_manager::is_a_relayed_peer, time::Instant, NetworkEvent, Result, SwarmDriver,
 };
 use ant_protocol::version::{IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR};
 #[cfg(feature = "local")]

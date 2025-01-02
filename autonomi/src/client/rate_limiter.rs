@@ -1,4 +1,4 @@
-use ant_networking::target_arch::{sleep, Duration, Instant};
+use ant_networking::time::{sleep, Duration, Instant};
 
 pub struct RateLimiter {
     last_request_time: Option<Instant>,

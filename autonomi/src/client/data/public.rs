@@ -44,7 +44,7 @@ impl Client {
         data: Bytes,
         payment_option: PaymentOption,
     ) -> Result<DataAddr, PutError> {
-        let now = ant_networking::target_arch::Instant::now();
+        let now = ant_networking::time::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;
         let data_map_addr = data_map_chunk.address();
         debug!("Encryption took: {:.2?}", now.elapsed());
@@ -143,7 +143,7 @@ impl Client {
 
     /// Get the estimated cost of storing a piece of data.
     pub async fn data_cost(&self, data: Bytes) -> Result<AttoTokens, CostError> {
-        let now = ant_networking::target_arch::Instant::now();
+        let now = ant_networking::time::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;
 
         debug!("Encryption took: {:.2?}", now.elapsed());

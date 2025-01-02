@@ -193,7 +193,7 @@ impl Client {
 
         let record = if is_new {
             let receipt = self
-                .pay_for_content_addrs(scratch.to_xor_name_vec().into_iter(), payment_option)
+                .pay_for_content_addrs(std::iter::once(scratch.xorname()), payment_option)
                 .await
                 .inspect_err(|err| {
                     error!("Failed to pay for new vault at addr: {scratch_address:?} : {err}");

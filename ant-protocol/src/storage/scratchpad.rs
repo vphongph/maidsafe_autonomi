@@ -131,16 +131,8 @@ impl Scratchpad {
         NetworkAddress::ScratchpadAddress(self.address)
     }
 
-    /// Returns a VEC with the XOR name.
-    pub fn to_xor_name_vec(&self) -> Vec<XorName> {
-        [self.network_address()]
-            .iter()
-            .map(|f| XorName::from_content(f.as_bytes().as_ref()))
-            .collect::<Vec<XorName>>()
-    }
-
-    /// Returns the name.
-    pub fn name(&self) -> XorName {
+    /// Returns the xorname.
+    pub fn xorname(&self) -> XorName {
         self.address.xorname()
     }
 

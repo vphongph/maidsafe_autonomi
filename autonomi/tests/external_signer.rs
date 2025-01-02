@@ -147,7 +147,7 @@ async fn external_signer_put() -> eyre::Result<()> {
     assert!(is_new, "Scratchpad is not new");
 
     let scratch_addresses = if is_new {
-        scratch.to_xor_name_vec()
+        vec![scratch.xorname()]
     } else {
         vec![]
     };

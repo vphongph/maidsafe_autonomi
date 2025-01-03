@@ -6,8 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-#![cfg(feature = "fs")]
-
 use ant_logging::LogBuilder;
 use autonomi::Client;
 use eyre::Result;
@@ -76,7 +74,6 @@ fn compute_dir_sha256(dir: &str) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-#[cfg(feature = "vault")]
 #[tokio::test]
 async fn file_into_vault() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("file", false);

@@ -233,7 +233,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()
-                .error(ErrorKind::InvalidSubcommand, "No subcommand given")
+                .error(ErrorKind::MissingSubcommand, "Please provide a subcommand")
                 .exit();
         }
     }

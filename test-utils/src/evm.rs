@@ -10,12 +10,11 @@ use color_eyre::{
     eyre::{bail, Context},
     Result,
 };
-use evmlib::{utils::get_evm_network_from_env, wallet::Wallet, Network};
+use evmlib::{utils::local_evm_network_from_csv, wallet::Wallet, Network};
 use std::env;
 
 pub fn get_funded_wallet() -> evmlib::wallet::Wallet {
-    let network =
-        get_evm_network_from_env().expect("Failed to get EVM network from environment variables");
+    let network = local_evm_network_from_csv().expect("Failed to get local EVM network from CSV");
     if matches!(network, Network::ArbitrumOne) {
         panic!("You're trying to use ArbitrumOne network. Use a custom network for testing.");
     }
@@ -29,8 +28,8 @@ pub fn get_funded_wallet() -> evmlib::wallet::Wallet {
 }
 
 pub fn get_new_wallet() -> Result<Wallet> {
-    let network = get_evm_network_from_env()
-        .wrap_err("Failed to get EVM network from environment variables")?;
+    let network =
+        local_evm_network_from_csv().wrap_err("Failed to get local EVM network from CSV")?;
     if matches!(network, Network::ArbitrumOne) {
         bail!("You're trying to use ArbitrumOne network. Use a custom network for testing.");
     }

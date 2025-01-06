@@ -32,8 +32,8 @@ pub async fn cost(file: &str, peers: NetworkPeers) -> Result<()> {
 }
 
 pub async fn upload(file: &str, public: bool, peers: NetworkPeers) -> Result<()> {
-    let wallet = load_wallet()?;
     let mut client = crate::actions::connect_to_network(peers).await?;
+    let wallet = load_wallet(&client.evm_network)?;
     let event_receiver = client.enable_client_events();
     let (upload_summary_thread, upload_completed_tx) = collect_upload_summary(event_receiver);
 

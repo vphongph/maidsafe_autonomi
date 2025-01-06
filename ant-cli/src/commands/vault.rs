@@ -29,7 +29,7 @@ pub async fn cost(peers: NetworkPeers) -> Result<()> {
 
 pub async fn create(peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
-    let wallet = load_wallet()?;
+    let wallet = load_wallet(&client.evm_network)?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
 
     println!("Retrieving local user data...");
@@ -58,7 +58,7 @@ pub async fn create(peers: NetworkPeers) -> Result<()> {
 pub async fn sync(force: bool, peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
-    let wallet = load_wallet()?;
+    let wallet = load_wallet(&client.evm_network)?;
 
     println!("Fetching vault from network...");
     let net_user_data = client

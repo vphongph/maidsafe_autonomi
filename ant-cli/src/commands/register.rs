@@ -54,10 +54,10 @@ pub async fn cost(name: &str, peers: NetworkPeers) -> Result<()> {
 }
 
 pub async fn create(name: &str, value: &str, public: bool, peers: NetworkPeers) -> Result<()> {
-    let wallet = load_wallet()?;
     let register_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let mut client = crate::actions::connect_to_network(peers).await?;
+    let wallet = load_wallet(&client.evm_network)?;
     let event_receiver = client.enable_client_events();
     let (upload_summary_thread, upload_completed_tx) = collect_upload_summary(event_receiver);
 

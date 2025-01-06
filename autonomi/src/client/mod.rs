@@ -63,7 +63,8 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 pub struct Client {
     pub(crate) network: Network,
     pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
-    pub(crate) evm_network: EvmNetwork,
+    /// The EVM network to use for the client.
+    pub evm_network: EvmNetwork,
 }
 
 /// Configuration for [`Client::init_with_config`].
@@ -92,7 +93,7 @@ pub enum ConnectError {
     TimedOutWithIncompatibleProtocol(HashSet<String>, String),
 
     /// An error occurred while bootstrapping the client.
-    #[error("Failed to bootstrap the client")]
+    #[error("Failed to bootstrap the client: {0}")]
     Bootstrap(#[from] ant_bootstrap::Error),
 }
 
@@ -253,10 +254,6 @@ impl Client {
         debug!("All events to the clients are enabled");
 
         client_event_receiver
-    }
-
-    pub fn set_evm_network(&mut self, evm_network: EvmNetwork) {
-        self.evm_network = evm_network;
     }
 }
 

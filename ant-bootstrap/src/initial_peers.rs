@@ -53,7 +53,7 @@ pub struct PeersArgs {
     /// a bootstrap cache JSON file.
     #[clap(long, conflicts_with = "first", value_delimiter = ',')]
     pub network_contacts_url: Vec<String>,
-    /// Set to indicate this is a local network. You could also set the `local` feature flag to set this to true.
+    /// Set to indicate this is a local network.
     ///
     /// This would use mDNS for peer discovery.
     #[clap(long, conflicts_with = "network_contacts_url", default_value = "false")]

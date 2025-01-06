@@ -160,6 +160,7 @@ impl Client {
         let peers_args = PeersArgs {
             disable_mainnet_contacts: config.local,
             addrs: config.peers.unwrap_or_default(),
+            local: config.local,
             ..Default::default()
         };
 

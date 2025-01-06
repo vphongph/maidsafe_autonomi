@@ -125,20 +125,21 @@ impl Node {
                     // we eagerly retry replicaiton as it seems like other nodes are having trouble
                     // did not manage to get this scratchpad as yet.
                     Ok(_) | Err(Error::IgnoringOutdatedScratchpadPut) => {
+                        let content_hash = XorName::from_content(&record.value);
                         Marker::ValidScratchpadRecordPutFromClient(&PrettyPrintRecordKey::from(
                             &record_key,
                         ))
                         .log();
                         self.replicate_valid_fresh_record(
                             record_key.clone(),
-                            RecordType::Scratchpad,
+                            RecordType::NonChunk(content_hash),
                         );
 
                         // Notify replication_fetcher to mark the attempt as completed.
                         // Send the notification earlier to avoid it got skipped due to:
                         // the record becomes stored during the fetch because of other interleaved process.
                         self.network()
-                            .notify_fetch_completed(record_key, RecordType::Scratchpad);
+                            .notify_fetch_completed(record_key, RecordType::NonChunk(content_hash));
                     }
                     Err(_) => {}
                 }
@@ -552,14 +553,15 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network().put_local_record(record.clone());
 
         let pretty_key = PrettyPrintRecordKey::from(&scratchpad_key);
 
         self.record_metrics(Marker::ValidScratchpadRecordPutFromNetwork(&pretty_key));
 
         if is_client_put {
-            self.replicate_valid_fresh_record(scratchpad_key, RecordType::Scratchpad);
+            let content_hash = XorName::from_content(&record.value);
+            self.replicate_valid_fresh_record(scratchpad_key, RecordType::NonChunk(content_hash));
         }
 
         Ok(())

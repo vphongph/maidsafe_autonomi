@@ -70,7 +70,7 @@ jobs:
         shell: bash
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest=data-dir file upload --public "./the-test-data.zip" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local file upload --public "./the-test-data.zip" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -99,7 +99,7 @@ jobs:
           mkdir $ANT_DATA_PATH/client
           ls -l $ANT_DATA_PATH
           cp ./the-test-data.zip ./the-test-data_1.zip
-          ./target/release/ant --log-output-dest=data-dir file upload "./the-test-data_1.zip" > ./second_upload 2>&1
+          ./target/release/ant --log-output-dest=data-dir --local file upload "./the-test-data_1.zip" > ./second_upload 2>&1
         env:
           ANT_LOG: "all"
         timeout-minutes: 25
@@ -146,7 +146,7 @@ jobs:
         if: always()
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest=data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
+        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
         env:
           ANT_LOG: "v"
         timeout-minutes: 2

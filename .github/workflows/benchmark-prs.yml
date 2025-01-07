@@ -71,7 +71,7 @@ jobs:
 
       - name: Start a client instance to compare memory usage
         shell: bash
-        run: ./target/release/ant --log-output-dest=data-dir file upload "./the-test-data.zip"
+        run: ./target/release/ant --log-output-dest=data-dir --local file upload "./the-test-data.zip"
         env:
           ANT_LOG: "all"
         timeout-minutes: 5

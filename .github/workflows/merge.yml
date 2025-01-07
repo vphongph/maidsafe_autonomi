@@ -86,10 +86,6 @@ jobs:
         # resulting in an error when building docs.
         run: RUSTDOCFLAGS="--deny=warnings" cargo doc --no-deps --workspace --exclude=autonomi-cli
 
-      - name: Check local is not a default feature
-        shell: bash
-        run: if [[ ! $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].features.default[]? | select(. == "local")') ]]; then echo "local is not a default feature in any package."; else echo "local is a default feature in at least one package." && exit 1; fi
-
       - name: Clean out the target directory
         run: cargo clean
 
@@ -249,13 +245,13 @@ jobs:
         shell: pwsh
 
       - name: Get file cost
-        run: ./target/release/ant --log-output-dest=data-dir file cost "./resources"
+        run: ./target/release/ant --log-output-dest=data-dir --local file cost "./resources"
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest=data-dir file upload "./resources" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local file upload "./resources" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -275,16 +271,16 @@ jobs:
         shell: pwsh
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest=data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
+        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Generate register signing key
-        run: ./target/release/ant --log-output-dest=data-dir register generate-key
+        run: ./target/release/ant --log-output-dest=data-dir --local register generate-key
 
       - name: Create register (writeable by owner)
-        run: ./target/release/ant --log-output-dest=data-dir register create baobao 123 > ./register_create_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local register create baobao 123 > ./register_create_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
@@ -304,25 +300,25 @@ jobs:
         shell: pwsh
 
       - name: Get register
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Edit register
-        run: ./target/release/ant --log-output-dest=data-dir register edit ${{ env.REGISTER_ADDRESS }} 456
+        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.REGISTER_ADDRESS }} 456
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
 
       - name: Get register (after edit)
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Create Public Register (writeable by anyone)
-        run: ./target/release/ant --log-output-dest=data-dir register create bao 111 --public > ./register_public_create_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local register create bao 111 --public > ./register_public_create_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
@@ -342,13 +338,13 @@ jobs:
         shell: pwsh
 
       - name: Get Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Edit Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 222
+        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 222
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
@@ -361,19 +357,19 @@ jobs:
         run: ./target/release/ant --log-output-dest data-dir register generate-key
 
       - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: Edit Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 333
+        run: ./target/release/ant --log-output-dest data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 333
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
 
       - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -385,25 +381,25 @@ jobs:
         timeout-minutes: 2
 
       - name: file upload
-        run: ./target/release/ant --log-output-dest data-dir file upload random.txt
+        run: ./target/release/ant --log-output-dest data-dir --local file upload random.txt
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: create a local register
-        run: ./target/release/ant --log-output-dest data-dir register create sample_new_register 1234
+        run: ./target/release/ant --log-output-dest data-dir --local register create sample_new_register 1234
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: Estimate cost to create a vault
-        run: ./target/release/ant --log-output-dest data-dir vault cost
+        run: ./target/release/ant --log-output-dest data-dir --local vault cost
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: create a vault with existing user data as above
-        run: ./target/release/ant --log-output-dest data-dir vault create
+        run: ./target/release/ant --log-output-dest data-dir --local vault create
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -414,9 +410,9 @@ jobs:
           set -e
           for i in {1..50}; do
             dd if=/dev/urandom of=random_file_$i.bin bs=1M count=1 status=none
-            ./target/release/ant --log-output-dest data-dir file upload random_file_$i.bin --public
-            ./target/release/ant --log-output-dest data-dir file upload random_file_$i.bin
-            ./target/release/ant --log-output-dest data-dir register create $i random_file_$i.bin
+            ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin --public
+            ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin
+            ./target/release/ant --log-output-dest data-dir --local register create $i random_file_$i.bin
           done
         env:
           ANT_LOG: "v"
@@ -433,9 +429,9 @@ jobs:
               [System.IO.File]::WriteAllBytes($fileName, $byteArray)
 
               # Run autonomi commands
-              ./target/release/ant --log-output-dest data-dir file upload "random_file_$i.bin" --public
-              ./target/release/ant --log-output-dest data-dir file upload "random_file_$i.bin"
-              ./target/release/ant --log-output-dest data-dir register create $i "random_file_$i.bin"
+              ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin" --public
+              ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin"
+              ./target/release/ant --log-output-dest data-dir --local register create $i "random_file_$i.bin"
           }
         env:
           ANT_LOG: "v"
@@ -463,11 +459,11 @@ jobs:
           NUM_OF_PUBLIC_FILES_IN_VAULT=""
           NUM_OF_PRIVATE_FILES_IN_VAULT=""
 
-          ./target/release/ant --log-output-dest data-dir file list 2>&1 > file_list.txt
+          ./target/release/ant --log-output-dest data-dir --local file list 2>&1 > file_list.txt
 
           NUM_OF_PUBLIC_FILES=`cat file_list.txt | grep "public" | grep -o '[0-9]\+'`
           NUM_OF_PRIVATE_FILES=`cat file_list.txt | grep "private" | grep -o '[0-9]\+'`
-          ./target/release/ant --log-output-dest data-dir vault load 2>&1 > vault_data.txt
+          ./target/release/ant --log-output-dest data-dir --local vault load 2>&1 > vault_data.txt
 
           NUM_OF_PUBLIC_FILES_IN_VAULT=`cat vault_data.txt  | grep "public" | grep -o '[0-9]\+'`
           NUM_OF_PRIVATE_FILES_IN_VAULT=`cat vault_data.txt| grep "private" | grep -o '[0-9]\+'`
@@ -489,8 +485,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          ./target/release/ant --log-output-dest data-dir file list > file_list.txt 2>&1
-          ./target/release/ant --log-output-dest data-dir vault load > vault_data.txt 2>&1
+          ./target/release/ant --log-output-dest data-dir --local file list > file_list.txt 2>&1
+          ./target/release/ant --log-output-dest data-dir --local vault load > vault_data.txt 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -556,11 +552,11 @@ jobs:
           python3 -c "with open('random_1GB.bin', 'wb') as f: f.write(bytearray([0xff] * 1000 * 1024 * 1024))"
 
           ./target/release/ant --log-output-dest=data-dir file list
-          time ./target/release/ant --log-output-dest=data-dir file upload random_1MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_10MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_100MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_1GB.bin
-          ./target/release/ant --log-output-dest=data-dir vault sync
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_1MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_10MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_100MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_1GB.bin
+          ./target/release/ant --log-output-dest=data-dir --local vault sync
           rm -rf random*.bin
           rm -rf ${{ matrix.ant_path }}/autonomi
         env:

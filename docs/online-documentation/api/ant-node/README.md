@@ -123,12 +123,12 @@ The Ant Node provides a comprehensive API for running and managing nodes in the 
 
 === "Rust"
     ```rust
-    use ant_protocol::storage::RecordType;
+    use ant_protocol::storage::ValidationType;
 
     // Store data
     let key = "0123456789abcdef";  // Hex string
     let value = b"Hello, World!";
-    node.store_record(key, value, RecordType::Chunk)?;
+    node.store_record(key, value, ValidationType::Chunk)?;
 
     // Retrieve data
     let data = node.get_record(key)?;
@@ -230,7 +230,7 @@ The Ant Node provides a comprehensive API for running and managing nodes in the 
     ```rust
     use ant_node::error::Error;
 
-    match node.store_record(key, value, RecordType::Chunk) {
+    match node.store_record(key, value, ValidationType::Chunk) {
         Ok(_) => println!("Record stored successfully"),
         Err(Error::StorageFull) => println!("Storage is full"),
         Err(Error::InvalidKey) => println!("Invalid key format"),

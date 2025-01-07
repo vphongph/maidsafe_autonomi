@@ -17,7 +17,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics, U256};
 use ant_protocol::{
     convert_distance_to_u256,
     messages::{Cmd, Request, Response},
-    storage::{RecordHeader, RecordKind, RecordType},
+    storage::{RecordHeader, RecordKind, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
@@ -92,7 +92,7 @@ pub enum LocalSwarmCmd {
     },
     /// Get the Addresses of all the Records held locally
     GetAllLocalRecordAddresses {
-        sender: oneshot::Sender<HashMap<NetworkAddress, RecordType>>,
+        sender: oneshot::Sender<HashMap<NetworkAddress, ValidationType>>,
     },
     /// Get data from the local RecordStore
     GetLocalRecord {
@@ -120,7 +120,7 @@ pub enum LocalSwarmCmd {
     /// This should be done after the record has been stored to disk
     AddLocalRecordAsStored {
         key: RecordKey,
-        record_type: RecordType,
+        record_type: ValidationType,
     },
     /// Add a peer to the blocklist
     AddPeerToBlockList {
@@ -141,7 +141,7 @@ pub enum LocalSwarmCmd {
         quotes: Vec<(PeerId, PaymentQuote)>,
     },
     // Notify a fetch completion
-    FetchCompleted((RecordKey, RecordType)),
+    FetchCompleted((RecordKey, ValidationType)),
     /// Triggers interval repliation
     /// NOTE: This does result in outgoing messages, but is produced locally
     TriggerIntervalReplication,
@@ -661,13 +661,13 @@ impl SwarmDriver {
                 let record_type = match RecordHeader::from_record(&record) {
                     Ok(record_header) => {
                         match record_header.kind {
-                            RecordKind::Chunk => RecordType::Chunk,
+                            RecordKind::Chunk => ValidationType::Chunk,
                             RecordKind::GraphEntry
                             | RecordKind::Pointer
                             | RecordKind::Register
                             | RecordKind::Scratchpad => {
                                 let content_hash = XorName::from_content(&record.value);
-                                RecordType::NonChunk(content_hash)
+                                ValidationType::NonChunk(content_hash)
                             }
                             RecordKind::ChunkWithPayment
                             | RecordKind::RegisterWithPayment

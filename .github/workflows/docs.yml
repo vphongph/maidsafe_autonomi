@@ -3,16 +3,14 @@ on:
   push:
     branches:
       - main
-      - data_further_refactor
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
   deploy:
+    env:
+      GH_TOKEN: ${{ secrets.AUTONOMI_PAT }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

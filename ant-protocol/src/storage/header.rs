@@ -16,14 +16,11 @@ use std::fmt::Display;
 use xor_name::XorName;
 
 /// Indicates the type of the record content.
-/// Note for `Spend` and `Register`, using its content_hash (in `XorName` format)
-/// to indicate different content body.
+/// This is to be only used within the node instance to reflect different content version.
+/// Hence, only need to have two entries: Chunk and NonChunk.
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
 pub enum RecordType {
     Chunk,
-    Scratchpad,
-    Pointer,
-    GraphEntry,
     NonChunk(XorName),
 }
 

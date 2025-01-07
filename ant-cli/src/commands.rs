@@ -12,7 +12,7 @@ mod vault;
 mod wallet;
 
 use crate::opt::Opt;
-use clap::Subcommand;
+use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
 use color_eyre::Result;
 
 #[derive(Subcommand, Debug)]
@@ -230,6 +230,11 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             WalletCmd::Export => wallet::export(),
             WalletCmd::Balance => wallet::balance().await,
         },
-        None => Ok(()),
+        None => {
+            // If no subcommand is given, default to clap's error behaviour.
+            Opt::command()
+                .error(ErrorKind::MissingSubcommand, "Please provide a subcommand")
+                .exit();
+        }
     }
 }

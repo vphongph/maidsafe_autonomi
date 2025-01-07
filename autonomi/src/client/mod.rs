@@ -79,6 +79,9 @@ pub struct ClientConfig {
     ///
     /// If not provided, the client will use the default bootstrap peers.
     pub peers: Option<Vec<Multiaddr>>,
+
+    /// EVM network to use for quotations and payments.
+    pub evm_network: EvmNetwork,
 }
 
 /// Error returned by [`Client::init`].
@@ -136,6 +139,7 @@ impl Client {
         Self::init_with_config(ClientConfig {
             local,
             peers: Some(peers),
+            evm_network: Default::default(),
         })
         .await
     }

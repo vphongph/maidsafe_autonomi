@@ -222,7 +222,7 @@ impl Client {
         // Pay for all chunks
         let xor_names: Vec<_> = chunks.iter().map(|chunk| *chunk.name()).collect();
         info!("Paying for {} addresses", xor_names.len());
-        let receipt = self
+        let (receipt, skipped_payments) = self
             .pay_for_content_addrs(xor_names.into_iter(), payment_option)
             .await
             .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
@@ -244,7 +244,7 @@ impl Client {
             return Err(last_chunk_fail.1);
         }
 
-        let record_count = chunks.len();
+        let record_count = chunks.len() - skipped_payments;
 
         // Reporting
         if let Some(channel) = self.client_event_sender.as_ref() {
@@ -255,6 +255,7 @@ impl Client {
 
             let summary = UploadSummary {
                 record_count,
+                records_already_paid: skipped_payments,
                 tokens_spent,
             };
             if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {

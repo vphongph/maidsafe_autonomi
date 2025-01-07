@@ -83,6 +83,10 @@ pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<(
         println!("At address: {local_addr}");
         info!("Successfully uploaded: {file} at address: {local_addr}");
         println!("Number of chunks uploaded: {}", summary.record_count);
+        println!(
+            "Number of chunks already paid/uploaded: {}",
+            summary.records_already_paid
+        );
         println!("Total cost: {} AttoTokens", summary.tokens_spent);
     }
     info!("Summary for upload of file {file} at {local_addr:?}: {summary:?}");

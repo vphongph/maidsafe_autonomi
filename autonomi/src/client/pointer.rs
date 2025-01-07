@@ -60,7 +60,7 @@ impl Client {
         // pay for the pointer storage
         let xor_name = *address.xorname();
         debug!("Paying for pointer at address: {address:?}");
-        let payment_proofs = self
+        let (payment_proofs, _skipped_payments) = self
             .pay(std::iter::once(xor_name), wallet)
             .await
             .inspect_err(|err| {

@@ -27,6 +27,8 @@ use super::{
 };
 use crate::self_encryption::DataMapLevel;
 
+pub type AlreadyPaidAddressesCount = usize;
+
 impl Client {
     /// Fetch and decrypt all chunks in the data map.
     pub(crate) async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
@@ -164,7 +166,7 @@ impl Client {
         &self,
         content_addrs: impl Iterator<Item = XorName> + Clone,
         wallet: &EvmWallet,
-    ) -> Result<Receipt, PayError> {
+    ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
         let number_of_content_addrs = content_addrs.clone().count();
         let quotes = self.get_store_quotes(content_addrs).await?;
 
@@ -194,7 +196,7 @@ impl Client {
 
         let receipt = receipt_from_store_quotes(quotes);
 
-        Ok(receipt)
+        Ok((receipt, skipped_chunks))
     }
 }
 

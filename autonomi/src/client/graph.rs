@@ -68,7 +68,7 @@ impl Client {
         // pay for the transaction
         let xor_name = address.xorname();
         debug!("Paying for transaction at address: {address:?}");
-        let payment_proofs = self
+        let (payment_proofs, skipped_payments) = self
             .pay(std::iter::once(*xor_name), wallet)
             .await
             .inspect_err(|err| {
@@ -121,7 +121,8 @@ impl Client {
         // send client event
         if let Some(channel) = self.client_event_sender.as_ref() {
             let summary = UploadSummary {
-                record_count: 1,
+                record_count: 1usize.saturating_sub(skipped_payments),
+                records_already_paid: skipped_payments,
                 tokens_spent: price.as_atto(),
             };
             if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {

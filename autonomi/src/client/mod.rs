@@ -367,6 +367,10 @@ pub enum ClientEvent {
 /// Summary of an upload operation.
 #[derive(Debug, Clone)]
 pub struct UploadSummary {
+    /// Records that were uploaded to the network
     pub record_count: usize,
+    /// Records that were already paid for so were not re-uploaded
+    pub records_already_paid: usize,
+    /// Total cost of the upload
     pub tokens_spent: Amount,
 }

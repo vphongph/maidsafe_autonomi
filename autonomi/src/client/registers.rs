@@ -316,12 +316,12 @@ impl Client {
 
         let reg_xor = address.xorname();
         debug!("Paying for register at address: {address}");
-        let payment_proofs = self
+        let (payment_proofs, skipped_payments) = self
             .pay(std::iter::once(reg_xor), wallet)
             .await
             .inspect_err(|err| {
-                error!("Failed to pay for register at address: {address} : {err}")
-            })?;
+            error!("Failed to pay for register at address: {address} : {err}")
+        })?;
         let (proof, price) = if let Some((proof, price)) = payment_proofs.get(&reg_xor) {
             (proof, price)
         } else {
@@ -370,7 +370,8 @@ impl Client {
 
         if let Some(channel) = self.client_event_sender.as_ref() {
             let summary = UploadSummary {
-                record_count: 1,
+                record_count: 1usize.saturating_sub(skipped_payments),
+                records_already_paid: skipped_payments,
                 tokens_spent: price.as_atto(),
             };
             if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {

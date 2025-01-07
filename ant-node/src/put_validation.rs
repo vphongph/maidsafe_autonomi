@@ -16,7 +16,7 @@ use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
     storage::{
         try_deserialize_record, try_serialize_record, Chunk, GraphEntryAddress, Pointer,
-        RecordHeader, RecordKind, RecordType, Scratchpad,
+        RecordHeader, RecordKind, Scratchpad, ValidationType,
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
@@ -49,13 +49,13 @@ impl Node {
                     // if we're receiving this chunk PUT again, and we have been paid,
                     // we eagerly retry replicaiton as it seems like other nodes are having trouble
                     // did not manage to get this chunk as yet
-                    self.replicate_valid_fresh_record(record_key, RecordType::Chunk);
+                    self.replicate_valid_fresh_record(record_key, ValidationType::Chunk);
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network()
-                        .notify_fetch_completed(record.key.clone(), RecordType::Chunk);
+                        .notify_fetch_completed(record.key.clone(), ValidationType::Chunk);
 
                     debug!(
                         "Chunk with addr {:?} already exists: {already_exists}, payment extracted.",
@@ -75,13 +75,13 @@ impl Node {
                 if store_chunk_result.is_ok() {
                     Marker::ValidPaidChunkPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(record_key, RecordType::Chunk);
+                    self.replicate_valid_fresh_record(record_key, ValidationType::Chunk);
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network()
-                        .notify_fetch_completed(record.key.clone(), RecordType::Chunk);
+                        .notify_fetch_completed(record.key.clone(), ValidationType::Chunk);
                 }
 
                 store_chunk_result
@@ -132,14 +132,16 @@ impl Node {
                         .log();
                         self.replicate_valid_fresh_record(
                             record_key.clone(),
-                            RecordType::NonChunk(content_hash),
+                            ValidationType::NonChunk(content_hash),
                         );
 
                         // Notify replication_fetcher to mark the attempt as completed.
                         // Send the notification earlier to avoid it got skipped due to:
                         // the record becomes stored during the fetch because of other interleaved process.
-                        self.network()
-                            .notify_fetch_completed(record_key, RecordType::NonChunk(content_hash));
+                        self.network().notify_fetch_completed(
+                            record_key,
+                            ValidationType::NonChunk(content_hash),
+                        );
                     }
                     Err(_) => {}
                 }
@@ -213,7 +215,7 @@ impl Node {
                         .log();
                     self.replicate_valid_fresh_record(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
 
                     // Notify replication_fetcher to mark the attempt as completed.
@@ -221,7 +223,7 @@ impl Node {
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
@@ -258,7 +260,7 @@ impl Node {
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 } else {
                     warn!("Failed to store register update at {pretty_key:?}");
@@ -307,7 +309,7 @@ impl Node {
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
@@ -357,13 +359,13 @@ impl Node {
                         .log();
                     self.replicate_valid_fresh_record(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
@@ -561,7 +563,10 @@ impl Node {
 
         if is_client_put {
             let content_hash = XorName::from_content(&record.value);
-            self.replicate_valid_fresh_record(scratchpad_key, RecordType::NonChunk(content_hash));
+            self.replicate_valid_fresh_record(
+                scratchpad_key,
+                ValidationType::NonChunk(content_hash),
+            );
         }
 
         Ok(())
@@ -613,7 +618,7 @@ impl Node {
         // However, to avoid `looping of replication`, a `replicated in` register
         // shall not trigger any further replication out.
         if is_client_put {
-            self.replicate_valid_fresh_record(key, RecordType::NonChunk(content_hash));
+            self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash));
         }
 
         Ok(())
@@ -880,7 +885,7 @@ impl Node {
         self.network().put_local_record(record);
 
         let content_hash = XorName::from_content(&pointer.network_address().to_bytes());
-        self.replicate_valid_fresh_record(key, RecordType::NonChunk(content_hash));
+        self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash));
 
         Ok(())
     }

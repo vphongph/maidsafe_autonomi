@@ -4,11 +4,7 @@
 use crate::{NodeBuilder, RunningNode};
 use ant_evm::{EvmNetwork, RewardsAddress};
 use ant_networking::PutRecordCfg;
-use ant_protocol::{
-    node::get_antnode_root_dir,
-    storage::{ChunkAddress, RecordType},
-    NetworkAddress,
-};
+use ant_protocol::{node::get_antnode_root_dir, storage::ChunkAddress, NetworkAddress};
 use const_hex::FromHex;
 use libp2p::{
     identity::{Keypair, PeerId},
@@ -239,7 +235,7 @@ impl AntNode {
         self_: PyRef<Self>,
         key: String,
         value: Vec<u8>,
-        record_type: String,
+        _data_type: String,
     ) -> PyResult<()> {
         let node_guard = self_
             .node
@@ -249,12 +245,6 @@ impl AntNode {
             .runtime
             .try_lock()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
-
-        let _record_type = match record_type.to_lowercase().as_str() {
-            "chunk" => RecordType::Chunk,
-            "scratchpad" => RecordType::Scratchpad,
-            _ => return Err(PyValueError::new_err("Invalid record type. Must be one of: 'chunk', 'register', 'scratchpad', 'transaction'")),
-        };
 
         match (&*node_guard, &*rt_guard) {
             (Some(node), Some(rt)) => {

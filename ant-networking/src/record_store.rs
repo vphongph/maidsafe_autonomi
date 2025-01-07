@@ -820,14 +820,23 @@ impl RecordStore for NodeRecordStore {
         match RecordHeader::from_record(&record) {
             Ok(record_header) => {
                 match record_header.kind {
-                    RecordKind::ChunkWithPayment | RecordKind::RegisterWithPayment => {
+                    RecordKind::ChunkWithPayment
+                    | RecordKind::GraphEntryWithPayment
+                    | RecordKind::PointerWithPayment
+                    | RecordKind::RegisterWithPayment
+                    | RecordKind::ScratchpadWithPayment => {
                         debug!("Record {record_key:?} with payment shall always be processed.");
                     }
-                    _ => {
+                    // Shall not use wildcard, to avoid mis-match during enum update.
+                    RecordKind::Chunk
+                    | RecordKind::GraphEntry
+                    | RecordKind::Pointer
+                    | RecordKind::Register
+                    | RecordKind::Scratchpad => {
                         // Chunk with existing key do not to be stored again.
-                        // `Spend` or `Register` with same content_hash do not to be stored again,
-                        // otherwise shall be passed further to allow
-                        // double transaction to be detected or register op update.
+                        // Others with same content_hash do not to be stored again,
+                        // otherwise shall be passed further to allow different version of nonchunk
+                        // to be detected or updated.
                         match self.records.get(&record.key) {
                             Some((_addr, RecordType::Chunk)) => {
                                 debug!("Chunk {record_key:?} already exists.");

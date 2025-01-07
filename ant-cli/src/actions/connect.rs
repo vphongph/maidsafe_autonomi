@@ -6,13 +6,13 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use autonomi::Client;
+use crate::evm_network::get_evm_network;
+use crate::network::NetworkPeers;
+use autonomi::{Client, ClientConfig};
 use color_eyre::eyre::bail;
 use color_eyre::eyre::Result;
 use indicatif::ProgressBar;
 use std::time::Duration;
-
-use crate::network::NetworkPeers;
 
 pub async fn connect_to_network(peers: NetworkPeers) -> Result<Client> {
     let progress_bar = ProgressBar::new_spinner();
@@ -21,13 +21,25 @@ pub async fn connect_to_network(peers: NetworkPeers) -> Result<Client> {
     let new_style = progress_bar.style().tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈🔗");
     progress_bar.set_style(new_style);
 
-    let res = if peers.is_local() {
+    let local = peers.is_local();
+
+    let peers_opt = if local {
         progress_bar.set_message("Connecting to a local Autonomi Network...");
-        Client::init_local().await
+        None
     } else {
         progress_bar.set_message("Connecting to The Autonomi Network...");
-        Client::init_with_peers(peers.peers().to_vec()).await
+        Some(peers.peers().to_vec())
     };
+
+    let evm_network = get_evm_network(local)?;
+
+    let config = ClientConfig {
+        local,
+        peers: peers_opt,
+        evm_network,
+    };
+
+    let res = Client::init_with_config(config).await;
 
     match res {
         Ok(client) => {

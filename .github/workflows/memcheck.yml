@@ -100,6 +100,7 @@ jobs:
           ls -l $ANT_DATA_PATH
           cp ./the-test-data.zip ./the-test-data_1.zip
           ./target/release/ant --log-output-dest=data-dir file upload "./the-test-data_1.zip" > ./second_upload 2>&1
+          rg 'Total cost: 0 AttoTokens' ./second_upload -c --stats
         env:
           ANT_LOG: "all"
         timeout-minutes: 25

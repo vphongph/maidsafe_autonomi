@@ -6,9 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_evm::{utils::get_evm_network_from_env, EvmNetwork};
+use ant_evm::{utils::local_evm_network_from_csv, EvmNetwork};
 use clap::Subcommand;
-use color_eyre::{eyre::Result, Section};
+use color_eyre::Result;
 
 #[derive(Subcommand, Clone, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -46,13 +46,7 @@ impl TryInto<EvmNetwork> for EvmNetworkCommand {
             Self::EvmArbitrumOne => Ok(EvmNetwork::ArbitrumOne),
             Self::EvmArbitrumSepolia => Ok(EvmNetwork::ArbitrumSepolia),
             Self::EvmLocal => {
-                if !cfg!(feature = "local") {
-                    return Err(color_eyre::eyre::eyre!(
-                        "The 'local' feature flag is not enabled."
-                    ))
-                    .suggestion("Enable the 'local' feature flag to use the local EVM testnet.");
-                }
-                let network = get_evm_network_from_env()?;
+                let network = local_evm_network_from_csv()?;
                 Ok(network)
             }
             Self::EvmCustom {

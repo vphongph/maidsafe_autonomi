@@ -228,7 +228,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => wallet::balance().await,
+            WalletCmd::Balance => wallet::balance(peers.await?.is_local()).await,
         },
         None => {
             // If no subcommand is given, default to clap's error behaviour.

@@ -1,5 +1,5 @@
 use autonomi::{get_evm_network_from_env, local_evm_network_from_csv, Network};
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Context, Result};
 
 use std::sync::OnceLock;
 
@@ -12,7 +12,9 @@ pub(crate) fn get_evm_network(local: bool) -> Result<Network> {
 
     let res = match get_evm_network_from_env() {
         Ok(evm_network) => Ok(evm_network),
-        Err(_) if local => Ok(local_evm_network_from_csv()?),
+        Err(_) if local => {
+            Ok(local_evm_network_from_csv().wrap_err("Failed to get local EVM network")?)
+        }
         Err(_) => Ok(Default::default()),
     };
 

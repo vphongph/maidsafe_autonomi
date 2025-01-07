@@ -14,10 +14,9 @@ name = "antnode"
 path = "src/bin/antnode/main.rs"
 
 [features]
-default = ["metrics", "upnp", "open-metrics"]
+default = ["upnp", "open-metrics"]
 extension-module = ["pyo3/extension-module"]
 loud = ["ant-networking/loud"] # loud mode: print important messages to console
-metrics = []
 nightly = []
 open-metrics = ["ant-networking/open-metrics", "prometheus-client"]
 otlp = ["ant-logging/otlp"]
@@ -27,7 +26,7 @@ upnp = ["ant-networking/upnp"]
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.2" }
 ant-build-info = { path = "../ant-build-info", version = "0.1.22" }
 ant-evm = { path = "../ant-evm", version = "0.1.7" }
-ant-logging = { path = "../ant-logging", version = "0.2.43" }
+ant-logging = { path = "../ant-logging", version = "0.2.43", features = ["process-metrics"] }
 ant-networking = { path = "../ant-networking", version = "0.3.2" }
 ant-protocol = { path = "../ant-protocol", version = "0.3.2" }
 ant-registers = { path = "../ant-registers", version = "0.4.6" }

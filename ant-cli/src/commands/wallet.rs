@@ -6,10 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::evm_network::get_evm_network;
 use crate::wallet::fs::{select_wallet_private_key, store_private_key};
 use crate::wallet::input::request_password;
 use crate::wallet::DUMMY_NETWORK;
+use autonomi::get_evm_network;
 use autonomi::Wallet;
 use color_eyre::eyre::eyre;
 use color_eyre::Result;

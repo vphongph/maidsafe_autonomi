@@ -12,7 +12,6 @@ extern crate tracing;
 mod access;
 mod actions;
 mod commands;
-mod evm_network;
 mod opt;
 mod utils;
 mod wallet;

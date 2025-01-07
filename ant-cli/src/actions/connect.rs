@@ -6,9 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::evm_network::get_evm_network;
 use crate::network::NetworkPeers;
-use autonomi::{Client, ClientConfig};
+use autonomi::{get_evm_network, Client, ClientConfig};
 use color_eyre::eyre::bail;
 use color_eyre::eyre::Result;
 use indicatif::ProgressBar;

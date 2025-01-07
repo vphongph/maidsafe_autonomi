@@ -14,7 +14,7 @@ mod subcommands;
 
 use crate::subcommands::EvmNetworkCommand;
 use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};
-use ant_evm::{get_evm_network_from_env, local_evm_network_from_csv, EvmNetwork, RewardsAddress};
+use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
 use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver};
@@ -264,9 +264,8 @@ fn main() -> Result<()> {
 
     let evm_network: EvmNetwork = match opt.evm_network.as_ref() {
         Some(evm_network) => Ok(evm_network.clone().into()),
-        None => match get_evm_network_from_env() {
-            Ok(evm_network) => Ok(evm_network),
-            Err(_) if opt.peers.local => Ok(local_evm_network_from_csv()?),
+        None => match get_evm_network(opt.peers.local) {
+            Ok(net) => Ok(net),
             Err(_) => Err(eyre!(
                 "EVM network not specified. Please specify a network using the subcommand or by setting the `EVM_NETWORK` environment variable."
             )),

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_evm::{utils::local_evm_network_from_csv, EvmNetwork};
+use ant_evm::{get_evm_network, EvmNetwork};
 use clap::Subcommand;
 use color_eyre::Result;
 
@@ -50,7 +50,7 @@ impl TryInto<EvmNetwork> for EvmNetworkCommand {
             Self::EvmArbitrumSepolia => Ok(EvmNetwork::ArbitrumSepolia),
             Self::EvmArbitrumSepoliaTest => Ok(EvmNetwork::ArbitrumSepoliaTest),
             Self::EvmLocal => {
-                let network = local_evm_network_from_csv()?;
+                let network = get_evm_network(true)?;
                 Ok(network)
             }
             Self::EvmCustom {

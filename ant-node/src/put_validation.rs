@@ -15,7 +15,7 @@ use ant_networking::NetworkError;
 use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
     storage::{
-        try_deserialize_record, try_serialize_record, Chunk, GraphEntryAddress, Pointer,
+        try_deserialize_record, try_serialize_record, Chunk, DataTypes, GraphEntryAddress, Pointer,
         RecordHeader, RecordKind, Scratchpad, ValidationType,
     },
     NetworkAddress, PrettyPrintRecordKey,
@@ -30,7 +30,7 @@ impl Node {
         let record_header = RecordHeader::from_record(&record)?;
 
         match record_header.kind {
-            RecordKind::ChunkWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Chunk) => {
                 let record_key = record.key.clone();
                 let (payment, chunk) = try_deserialize_record::<(ProofOfPayment, Chunk)>(&record)?;
                 let already_exists = self
@@ -87,13 +87,13 @@ impl Node {
                 store_chunk_result
             }
 
-            RecordKind::Chunk => {
+            RecordKind::DataOnly(DataTypes::Chunk) => {
                 error!("Chunk should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::ScratchpadWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Scratchpad) => {
                 let record_key = record.key.clone();
                 let (payment, scratchpad) =
                     try_deserialize_record::<(ProofOfPayment, Scratchpad)>(&record)?;
@@ -148,7 +148,7 @@ impl Node {
 
                 store_scratchpad_result
             }
-            RecordKind::Scratchpad => {
+            RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 // make sure we already have this scratchpad locally, else reject it as first time upload needs payment
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
@@ -166,14 +166,14 @@ impl Node {
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::GraphEntry => {
+            RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 // Transactions should always be paid for
                 error!("Transaction should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::GraphEntryWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::GraphEntry) => {
                 let (payment, transaction) =
                     try_deserialize_record::<(ProofOfPayment, GraphEntry)>(&record)?;
 
@@ -228,7 +228,7 @@ impl Node {
                 }
                 res
             }
-            RecordKind::Register => {
+            RecordKind::DataOnly(DataTypes::Register) => {
                 let register = try_deserialize_record::<SignedRegister>(&record)?;
 
                 // make sure we already have this register locally
@@ -267,7 +267,7 @@ impl Node {
                 }
                 result
             }
-            RecordKind::RegisterWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Register) => {
                 let (payment, register) =
                     try_deserialize_record::<(ProofOfPayment, SignedRegister)>(&record)?;
 
@@ -314,14 +314,14 @@ impl Node {
                 }
                 res
             }
-            RecordKind::Pointer => {
+            RecordKind::DataOnly(DataTypes::Pointer) => {
                 // Pointers should always be paid for
                 error!("Pointer should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::PointerWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Pointer) => {
                 let (payment, pointer) =
                     try_deserialize_record::<(ProofOfPayment, Pointer)>(&record)?;
 
@@ -378,18 +378,14 @@ impl Node {
         debug!("Storing record which was replicated to us {:?}", record.key);
         let record_header = RecordHeader::from_record(&record)?;
         match record_header.kind {
-            // A separate flow handles payment for chunks and registers
-            RecordKind::ChunkWithPayment
-            | RecordKind::GraphEntryWithPayment
-            | RecordKind::RegisterWithPayment
-            | RecordKind::ScratchpadWithPayment
-            | RecordKind::PointerWithPayment => {
+            // A separate flow handles record with payment
+            RecordKind::DataWithPayment(_) => {
                 warn!("Prepaid record came with Payment, which should be handled in another flow");
                 Err(Error::UnexpectedRecordWithPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::Chunk => {
+            RecordKind::DataOnly(DataTypes::Chunk) => {
                 let chunk = try_deserialize_record::<Chunk>(&record)?;
 
                 let record_key = record.key.clone();
@@ -406,19 +402,19 @@ impl Node {
 
                 self.store_chunk(&chunk)
             }
-            RecordKind::Scratchpad => {
+            RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
                 self.validate_and_store_scratchpad_record(scratchpad, key, false)
                     .await
             }
-            RecordKind::GraphEntry => {
+            RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 let record_key = record.key.clone();
                 let transactions = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
                 self.validate_merge_and_store_transactions(transactions, &record_key)
                     .await
             }
-            RecordKind::Register => {
+            RecordKind::DataOnly(DataTypes::Register) => {
                 let register = try_deserialize_record::<SignedRegister>(&record)?;
 
                 // check if the deserialized value's RegisterAddress matches the record's key
@@ -432,7 +428,7 @@ impl Node {
                 }
                 self.validate_and_store_register(register, false).await
             }
-            RecordKind::Pointer => {
+            RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
                 self.validate_and_store_pointer_record(pointer, key)
@@ -487,7 +483,7 @@ impl Node {
 
         let record = Record {
             key,
-            value: try_serialize_record(&chunk, RecordKind::Chunk)?.to_vec(),
+            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))?.to_vec(),
             publisher: None,
             expires: None,
         };
@@ -551,7 +547,8 @@ impl Node {
 
         let record = Record {
             key: scratchpad_key.clone(),
-            value: try_serialize_record(&scratchpad, RecordKind::Scratchpad)?.to_vec(),
+            value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))?
+                .to_vec(),
             publisher: None,
             expires: None,
         };
@@ -600,7 +597,11 @@ impl Node {
         // store in kad
         let record = Record {
             key: key.clone(),
-            value: try_serialize_record(&updated_register, RecordKind::Register)?.to_vec(),
+            value: try_serialize_record(
+                &updated_register,
+                RecordKind::DataOnly(DataTypes::Register),
+            )?
+            .to_vec(),
             publisher: None,
             expires: None,
         };
@@ -682,7 +683,11 @@ impl Node {
         // store the record into the local storage
         let record = Record {
             key: record_key.clone(),
-            value: try_serialize_record(&validated_transactions, RecordKind::GraphEntry)?.to_vec(),
+            value: try_serialize_record(
+                &validated_transactions,
+                RecordKind::DataOnly(DataTypes::GraphEntry),
+            )?
+            .to_vec(),
             publisher: None,
             expires: None,
         };
@@ -848,9 +853,12 @@ impl Node {
         // deserialize the record and get the transactions
         let local_header = RecordHeader::from_record(&local_record)?;
         let record_kind = local_header.kind;
-        if !matches!(record_kind, RecordKind::GraphEntry) {
+        if !matches!(record_kind, RecordKind::DataOnly(DataTypes::GraphEntry)) {
             error!("Found a {record_kind} when expecting to find Spend at {addr:?}");
-            return Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry).into());
+            return Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(
+                DataTypes::GraphEntry,
+            ))
+            .into());
         }
         let local_transactions: Vec<GraphEntry> = try_deserialize_record(&local_record)?;
         Ok(local_transactions)
@@ -878,7 +886,8 @@ impl Node {
         // Store the pointer
         let record = Record {
             key: key.clone(),
-            value: try_serialize_record(&pointer, RecordKind::Pointer)?.to_vec(),
+            value: try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))?
+                .to_vec(),
             publisher: None,
             expires: None,
         };

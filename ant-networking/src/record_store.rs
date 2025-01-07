@@ -820,19 +820,11 @@ impl RecordStore for NodeRecordStore {
         match RecordHeader::from_record(&record) {
             Ok(record_header) => {
                 match record_header.kind {
-                    RecordKind::ChunkWithPayment
-                    | RecordKind::GraphEntryWithPayment
-                    | RecordKind::PointerWithPayment
-                    | RecordKind::RegisterWithPayment
-                    | RecordKind::ScratchpadWithPayment => {
+                    RecordKind::DataWithPayment(_) => {
                         debug!("Record {record_key:?} with payment shall always be processed.");
                     }
                     // Shall not use wildcard, to avoid mis-match during enum update.
-                    RecordKind::Chunk
-                    | RecordKind::GraphEntry
-                    | RecordKind::Pointer
-                    | RecordKind::Register
-                    | RecordKind::Scratchpad => {
+                    RecordKind::DataOnly(_) => {
                         // Chunk with existing key do not to be stored again.
                         // Others with same content_hash do not to be stored again,
                         // otherwise shall be passed further to allow different version of nonchunk
@@ -1003,7 +995,7 @@ mod tests {
 
     use ant_protocol::convert_distance_to_u256;
     use ant_protocol::storage::{
-        try_deserialize_record, try_serialize_record, Chunk, ChunkAddress, Scratchpad,
+        try_deserialize_record, try_serialize_record, Chunk, ChunkAddress, DataTypes, Scratchpad,
     };
     use assert_fs::{
         fixture::{PathChild, PathCreateDir},
@@ -1036,7 +1028,7 @@ mod tests {
         fn arbitrary(g: &mut Gen) -> ArbitraryRecord {
             let value = match try_serialize_record(
                 &(0..50).map(|_| rand::random::<u8>()).collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),
@@ -1162,7 +1154,7 @@ mod tests {
         // Create a record from the chunk
         let record = Record {
             key: NetworkAddress::ChunkAddress(chunk_address).to_record_key(),
-            value: try_serialize_record(&chunk, RecordKind::Chunk)?.to_vec(),
+            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))?.to_vec(),
             expires: None,
             publisher: None,
         };
@@ -1334,7 +1326,8 @@ mod tests {
         // Create a record from the scratchpad
         let record = Record {
             key: NetworkAddress::ScratchpadAddress(scratchpad_address).to_record_key(),
-            value: try_serialize_record(&scratchpad, RecordKind::Scratchpad)?.to_vec(),
+            value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))?
+                .to_vec(),
             expires: None,
             publisher: None,
         };
@@ -1424,7 +1417,7 @@ mod tests {
             let record_key = NetworkAddress::from_peer(PeerId::random()).to_record_key();
             let value = match try_serialize_record(
                 &(0..50).map(|_| rand::random::<u8>()).collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),
@@ -1547,7 +1540,7 @@ mod tests {
                 &(0..max_records)
                     .map(|_| rand::random::<u8>())
                     .collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),

@@ -262,16 +262,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let evm_network: EvmNetwork = if opt.peers.local {
-        println!("Running node in local mode");
-        local_evm_network_from_csv()?
-    } else {
-        opt.evm_network
-            .as_ref()
-            .cloned()
-            .map(|v| Ok(v.into()))
-            .unwrap_or_else(get_evm_network_from_env)?
-    };
+    let evm_network: EvmNetwork = match opt.evm_network.as_ref() {
+        Some(evm_network) => Ok(evm_network.clone().into()),
+        None => match get_evm_network_from_env() {
+            Ok(evm_network) => Ok(evm_network),
+            Err(_) if opt.peers.local => Ok(local_evm_network_from_csv()?),
+            Err(_) => Err(eyre!(
+                "EVM network not specified. Please specify a network using the subcommand or by setting the `EVM_NETWORK` environment variable."
+            )),
+        },
+    }?;
+
     println!("EVM network: {evm_network:?}");
 
     let node_socket_addr = SocketAddr::new(opt.ip, opt.port);

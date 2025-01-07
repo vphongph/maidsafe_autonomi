@@ -23,7 +23,7 @@ use ant_protocol::{
     convert_distance_to_u256,
     error::Error as ProtocolError,
     messages::{ChunkProof, CmdResponse, Nonce, Query, QueryResponse, Request, Response},
-    storage::RecordType,
+    storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use bytes::Bytes;
@@ -813,7 +813,7 @@ impl Node {
                     all_local_records
                         .iter()
                         .filter_map(|(addr, record_type)| {
-                            if *record_type == RecordType::Chunk {
+                            if *record_type == ValidationType::Chunk {
                                 Some(addr.clone())
                             } else {
                                 None
@@ -878,7 +878,7 @@ impl Node {
                 all_keys
                     .iter()
                     .filter_map(|(addr, record_type)| {
-                        if RecordType::Chunk == *record_type {
+                        if ValidationType::Chunk == *record_type {
                             Some(addr.clone())
                         } else {
                             None

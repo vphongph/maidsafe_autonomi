@@ -19,7 +19,7 @@ use xor_name::XorName;
 /// This is to be only used within the node instance to reflect different content version.
 /// Hence, only need to have two entries: Chunk and NonChunk.
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
-pub enum RecordType {
+pub enum ValidationType {
     Chunk,
     NonChunk(XorName),
 }

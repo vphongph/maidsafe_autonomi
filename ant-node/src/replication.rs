@@ -10,7 +10,7 @@ use crate::{error::Result, node::Node};
 use ant_networking::{GetRecordCfg, Network};
 use ant_protocol::{
     messages::{Cmd, Query, QueryResponse, Request, Response},
-    storage::RecordType,
+    storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
@@ -106,7 +106,7 @@ impl Node {
     pub(crate) fn replicate_valid_fresh_record(
         &self,
         paid_key: RecordKey,
-        record_type: RecordType,
+        record_type: ValidationType,
     ) {
         let network = self.network().clone();
 

@@ -9,7 +9,7 @@
 
 use crate::record_store::{ClientRecordStore, NodeRecordStore};
 use ant_evm::{QuotingMetrics, U256};
-use ant_protocol::{storage::RecordType, NetworkAddress};
+use ant_protocol::{storage::ValidationType, NetworkAddress};
 use libp2p::kad::{
     store::{RecordStore, Result},
     ProviderRecord, Record, RecordKey,
@@ -90,21 +90,23 @@ impl UnifiedRecordStore {
         }
     }
 
-    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, RecordType> {
+    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, ValidationType> {
         match self {
             Self::Client(store) => store.record_addresses(),
             Self::Node(store) => store.record_addresses(),
         }
     }
 
-    pub(crate) fn record_addresses_ref(&self) -> &HashMap<RecordKey, (NetworkAddress, RecordType)> {
+    pub(crate) fn record_addresses_ref(
+        &self,
+    ) -> &HashMap<RecordKey, (NetworkAddress, ValidationType)> {
         match self {
             Self::Client(store) => store.record_addresses_ref(),
             Self::Node(store) => store.record_addresses_ref(),
         }
     }
 
-    pub(crate) fn put_verified(&mut self, r: Record, record_type: RecordType) -> Result<()> {
+    pub(crate) fn put_verified(&mut self, r: Record, record_type: ValidationType) -> Result<()> {
         match self {
             Self::Client(store) => store.put_verified(r, record_type),
             Self::Node(store) => store.put_verified(r, record_type),
@@ -168,7 +170,7 @@ impl UnifiedRecordStore {
     /// Mark the record as stored in the store.
     /// This adds it to records set, so it can now be retrieved
     /// (to be done after writes are finalised)
-    pub(crate) fn mark_as_stored(&mut self, k: RecordKey, record_type: RecordType) {
+    pub(crate) fn mark_as_stored(&mut self, k: RecordKey, record_type: ValidationType) {
         match self {
             Self::Client(store) => store.mark_as_stored(k, record_type),
             Self::Node(store) => store.mark_as_stored(k, record_type),

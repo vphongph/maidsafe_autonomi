@@ -110,15 +110,15 @@ This creates a CSV file with the EVM network params in your data directory.
    `--rewards-address` _is the address where you will receive your node earnings on._
 
 ```bash
-cargo run --bin antctl --features local -- local run --build --clean --rewards-address <YOUR_ETHEREUM_ADDRESS>
+cargo run --bin antctl -- local run --build --clean --rewards-address <YOUR_ETHEREUM_ADDRESS>
 ```
 
-The EVM Network parameters are loaded from the CSV file in your data directory automatically when the `local` feature flag is enabled (`--features=local`).
+The EVM Network parameters are loaded from the CSV file in your data directory automatically when the `local` option is passed to the `antctl` command.
 
 ##### 4. Verify node status
 
 ```bash
-cargo run --bin antctl --features local -- status
+cargo run --bin antctl -- status
 ```
 
 The Antctl `run` command starts the node processes. The `status` command should show twenty-five

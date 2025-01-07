@@ -52,7 +52,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
-    storage::{Pointer, RecordType, RetryStrategy, Scratchpad},
+    storage::{Pointer, RetryStrategy, Scratchpad, ValidationType},
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use futures::future::select_all;
@@ -964,7 +964,7 @@ impl Network {
 
     /// Notify ReplicationFetch a fetch attempt is completed.
     /// (but it won't trigger any real writes to disk, say fetched an old version of register)
-    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: RecordType) {
+    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: ValidationType) {
         self.send_local_swarm_cmd(LocalSwarmCmd::FetchCompleted((key, record_type)))
     }
 
@@ -995,7 +995,7 @@ impl Network {
     /// Returns the Addresses of all the locally stored Records
     pub async fn get_all_local_record_addresses(
         &self,
-    ) -> Result<HashMap<NetworkAddress, RecordType>> {
+    ) -> Result<HashMap<NetworkAddress, ValidationType>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetAllLocalRecordAddresses { sender });
 

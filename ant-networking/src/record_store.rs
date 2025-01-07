@@ -19,7 +19,7 @@ use aes_gcm_siv::{
 use ant_evm::{QuotingMetrics, U256};
 use ant_protocol::{
     convert_distance_to_u256,
-    storage::{RecordHeader, RecordKind, RecordType},
+    storage::{RecordHeader, RecordKind, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use hkdf::Hkdf;
@@ -138,7 +138,7 @@ pub struct NodeRecordStore {
     /// The configuration of the store.
     config: NodeRecordStoreConfig,
     /// Main records store remains unchanged for compatibility
-    records: HashMap<Key, (NetworkAddress, RecordType)>,
+    records: HashMap<Key, (NetworkAddress, ValidationType)>,
     /// Additional index organizing records by distance
     records_by_distance: BTreeMap<U256, Key>,
     /// FIFO simple cache of records to reduce read times
@@ -218,7 +218,7 @@ impl NodeRecordStore {
     fn update_records_from_an_existing_store(
         config: &NodeRecordStoreConfig,
         encryption_details: &(Aes256GcmSiv, [u8; 4]),
-    ) -> HashMap<Key, (NetworkAddress, RecordType)> {
+    ) -> HashMap<Key, (NetworkAddress, ValidationType)> {
         let process_entry = |entry: &DirEntry| -> _ {
             let path = entry.path();
             if path.is_file() {
@@ -270,10 +270,10 @@ impl NodeRecordStore {
                 };
 
                 let record_type = match RecordHeader::is_record_of_type_chunk(&record) {
-                    Ok(true) => RecordType::Chunk,
+                    Ok(true) => ValidationType::Chunk,
                     Ok(false) => {
                         let xorname_hash = XorName::from_content(&record.value);
-                        RecordType::NonChunk(xorname_hash)
+                        ValidationType::NonChunk(xorname_hash)
                     }
                     Err(error) => {
                         warn!(
@@ -585,7 +585,7 @@ impl NodeRecordStore {
 
     /// Returns the set of `NetworkAddress::RecordKey` held by the store
     /// Use `record_addresses_ref` to get a borrowed type
-    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, RecordType> {
+    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, ValidationType> {
         self.records
             .iter()
             .map(|(_record_key, (addr, record_type))| (addr.clone(), record_type.clone()))
@@ -593,14 +593,14 @@ impl NodeRecordStore {
     }
 
     /// Returns the reference to the set of `NetworkAddress::RecordKey` held by the store
-    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, RecordType)> {
+    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, ValidationType)> {
         &self.records
     }
 
     /// The follow up to `put_verified`, this only registers the RecordKey
     /// in the RecordStore records set. After this it should be safe
     /// to return the record as stored.
-    pub(crate) fn mark_as_stored(&mut self, key: Key, record_type: RecordType) {
+    pub(crate) fn mark_as_stored(&mut self, key: Key, record_type: ValidationType) {
         let addr = NetworkAddress::from_record_key(&key);
         let distance = self.local_address.distance(&addr);
         let distance_u256 = convert_distance_to_u256(&distance);
@@ -648,7 +648,7 @@ impl NodeRecordStore {
     ///
     /// The record is marked as written to disk once `mark_as_stored` is called,
     /// this avoids us returning half-written data or registering it as stored before it is.
-    pub(crate) fn put_verified(&mut self, r: Record, record_type: RecordType) -> Result<()> {
+    pub(crate) fn put_verified(&mut self, r: Record, record_type: ValidationType) -> Result<()> {
         let key = &r.key;
         let record_key = PrettyPrintRecordKey::from(&r.key).into_owned();
         debug!("PUTting a verified Record: {record_key:?}");
@@ -838,11 +838,11 @@ impl RecordStore for NodeRecordStore {
                         // otherwise shall be passed further to allow different version of nonchunk
                         // to be detected or updated.
                         match self.records.get(&record.key) {
-                            Some((_addr, RecordType::Chunk)) => {
+                            Some((_addr, ValidationType::Chunk)) => {
                                 debug!("Chunk {record_key:?} already exists.");
                                 return Ok(());
                             }
-                            Some((_addr, RecordType::NonChunk(existing_content_hash))) => {
+                            Some((_addr, ValidationType::NonChunk(existing_content_hash))) => {
                                 let content_hash = XorName::from_content(&record.value);
                                 if content_hash == *existing_content_hash {
                                     debug!("A non-chunk record {record_key:?} with same content_hash {content_hash:?} already exists.");
@@ -938,7 +938,7 @@ impl RecordStore for NodeRecordStore {
 /// A place holder RecordStore impl for the client that does nothing
 #[derive(Default, Debug)]
 pub struct ClientRecordStore {
-    empty_record_addresses: HashMap<Key, (NetworkAddress, RecordType)>,
+    empty_record_addresses: HashMap<Key, (NetworkAddress, ValidationType)>,
 }
 
 impl ClientRecordStore {
@@ -946,19 +946,19 @@ impl ClientRecordStore {
         false
     }
 
-    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, RecordType> {
+    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, ValidationType> {
         HashMap::new()
     }
 
-    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, RecordType)> {
+    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, ValidationType)> {
         &self.empty_record_addresses
     }
 
-    pub(crate) fn put_verified(&mut self, _r: Record, _record_type: RecordType) -> Result<()> {
+    pub(crate) fn put_verified(&mut self, _r: Record, _record_type: ValidationType) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) fn mark_as_stored(&mut self, _r: Key, _t: RecordType) {}
+    pub(crate) fn mark_as_stored(&mut self, _r: Key, _t: ValidationType) {}
 }
 
 impl RecordStore for ClientRecordStore {
@@ -1093,12 +1093,12 @@ mod tests {
         let returned_record_key = returned_record.key.clone();
 
         assert!(store
-            .put_verified(returned_record, RecordType::Chunk)
+            .put_verified(returned_record, ValidationType::Chunk)
             .is_ok());
 
         // We must also mark the record as stored (which would be triggered after the async write in nodes
         // via NetworkEvent::CompletedWrite)
-        store.mark_as_stored(returned_record_key, RecordType::Chunk);
+        store.mark_as_stored(returned_record_key, ValidationType::Chunk);
 
         // loop over store.get max_iterations times to ensure async disk write had time to complete.
         let max_iterations = 10;
@@ -1169,7 +1169,7 @@ mod tests {
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), RecordType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk)
             .is_ok());
 
         // Wait for the async write operation to complete
@@ -1270,11 +1270,11 @@ mod tests {
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), RecordType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk)
             .is_ok());
 
         // Mark as stored (simulating the CompletedWrite event)
-        store.mark_as_stored(record.key.clone(), RecordType::Chunk);
+        store.mark_as_stored(record.key.clone(), ValidationType::Chunk);
 
         // Verify the chunk is stored
         let stored_record = store.get(&record.key);
@@ -1343,14 +1343,14 @@ mod tests {
         assert!(store
             .put_verified(
                 record.clone(),
-                RecordType::NonChunk(XorName::from_content(&record.value))
+                ValidationType::NonChunk(XorName::from_content(&record.value))
             )
             .is_ok());
 
         // Mark as stored (simulating the CompletedWrite event)
         store.mark_as_stored(
             record.key.clone(),
-            RecordType::NonChunk(XorName::from_content(&record.value)),
+            ValidationType::NonChunk(XorName::from_content(&record.value)),
         );
 
         // Verify the scratchpad is stored
@@ -1437,7 +1437,7 @@ mod tests {
             };
 
             // Will be stored anyway.
-            let succeeded = store.put_verified(record, RecordType::Chunk).is_ok();
+            let succeeded = store.put_verified(record, ValidationType::Chunk).is_ok();
 
             if !succeeded {
                 failed_records.push(record_key.clone());
@@ -1445,7 +1445,7 @@ mod tests {
             } else {
                 // We must also mark the record as stored (which would be triggered
                 // after the async write in nodes via NetworkEvent::CompletedWrite)
-                store.mark_as_stored(record_key.clone(), RecordType::Chunk);
+                store.mark_as_stored(record_key.clone(), ValidationType::Chunk);
 
                 println!("success sotred len: {:?} ", store.record_addresses().len());
                 stored_records_at_some_point.push(record_key.clone());
@@ -1499,7 +1499,7 @@ mod tests {
             // now for any stored data. It either shoudl still be stored OR further away than `most_distant_data`
             for data in stored_records_at_some_point {
                 let data_addr = NetworkAddress::from_record_key(&data);
-                if !sorted_stored_data.contains(&(&data_addr, &RecordType::Chunk)) {
+                if !sorted_stored_data.contains(&(&data_addr, &ValidationType::Chunk)) {
                     assert!(
                         self_address.distance(&data_addr)
                             > self_address.distance(most_distant_data),
@@ -1558,10 +1558,10 @@ mod tests {
                 publisher: None,
                 expires: None,
             };
-            assert!(store.put_verified(record, RecordType::Chunk).is_ok());
+            assert!(store.put_verified(record, ValidationType::Chunk).is_ok());
             // We must also mark the record as stored (which would be triggered after the async write in nodes
             // via NetworkEvent::CompletedWrite)
-            store.mark_as_stored(record_key.clone(), RecordType::Chunk);
+            store.mark_as_stored(record_key.clone(), ValidationType::Chunk);
 
             stored_records.push(record_key.clone());
             stored_records.sort_by(|a, b| {

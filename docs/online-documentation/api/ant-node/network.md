@@ -172,12 +172,12 @@ This page documents the network operations available in the Ant Node API.
 
 === "Rust"
     ```rust
-    use ant_node::storage::RecordType;
+    use ant_node::storage::ValidationType;
 
     // Store a record
     let key = "0123456789abcdef";  // Hex string
     let value = b"Hello, World!";
-    node.store_record(key, value, RecordType::Chunk)?;
+    node.store_record(key, value, ValidationType::Chunk)?;
 
     // Retrieve a record
     let data = node.get_record(key)?;

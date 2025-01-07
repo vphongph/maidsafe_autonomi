@@ -12,7 +12,7 @@ use crate::{
 };
 use ant_protocol::{
     messages::{CmdResponse, Request, Response},
-    storage::RecordType,
+    storage::ValidationType,
     NetworkAddress,
 };
 use libp2p::request_response::{self, Message};
@@ -159,7 +159,7 @@ impl SwarmDriver {
     fn add_keys_to_replication_fetcher(
         &mut self,
         sender: NetworkAddress,
-        incoming_keys: Vec<(NetworkAddress, RecordType)>,
+        incoming_keys: Vec<(NetworkAddress, ValidationType)>,
     ) {
         let holder = if let Some(peer_id) = sender.as_peer_id() {
             peer_id

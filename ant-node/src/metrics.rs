@@ -10,8 +10,9 @@ use crate::Marker;
 use ant_networking::time::Instant;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
+use ant_protocol::storage::DataTypes;
 use prometheus_client::{
-    encoding::{EncodeLabelSet, EncodeLabelValue},
+    encoding::EncodeLabelSet,
     metrics::{
         counter::Counter,
         family::Family,
@@ -47,14 +48,7 @@ pub(crate) struct NodeMetricsRecorder {
 
 #[derive(EncodeLabelSet, Hash, Clone, Eq, PartialEq, Debug)]
 struct PutRecordOk {
-    record_type: RecordType,
-}
-
-#[derive(EncodeLabelValue, Hash, Clone, Eq, PartialEq, Debug)]
-enum RecordType {
-    Chunk,
-    Register,
-    Spend,
+    record_type: DataTypes,
 }
 
 impl NodeMetricsRecorder {
@@ -157,7 +151,7 @@ impl NodeMetricsRecorder {
                 let _ = self
                     .put_record_ok
                     .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Chunk,
+                        record_type: DataTypes::Chunk,
                     })
                     .inc();
             }
@@ -166,7 +160,7 @@ impl NodeMetricsRecorder {
                 let _ = self
                     .put_record_ok
                     .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Register,
+                        record_type: DataTypes::Register,
                     })
                     .inc();
             }
@@ -175,7 +169,7 @@ impl NodeMetricsRecorder {
                 let _ = self
                     .put_record_ok
                     .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Spend,
+                        record_type: DataTypes::GraphEntry,
                     })
                     .inc();
             }

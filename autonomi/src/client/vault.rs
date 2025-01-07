@@ -19,7 +19,7 @@ use crate::client::Client;
 use ant_evm::{Amount, AttoTokens};
 use ant_networking::{GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::storage::{
-    try_serialize_record, RecordKind, RetryStrategy, Scratchpad, ScratchpadAddress,
+    try_serialize_record, DataTypes, RecordKind, RetryStrategy, Scratchpad, ScratchpadAddress,
 };
 use ant_protocol::Bytes;
 use ant_protocol::{storage::try_deserialize_record, NetworkAddress};
@@ -208,20 +208,23 @@ impl Client {
 
             Record {
                 key: scratch_key,
-                value: try_serialize_record(&(proof, scratch), RecordKind::ScratchpadWithPayment)
-                    .map_err(|_| {
-                        PutError::Serialization(
-                            "Failed to serialize scratchpad with payment".to_string(),
-                        )
-                    })?
-                    .to_vec(),
+                value: try_serialize_record(
+                    &(proof, scratch),
+                    RecordKind::DataWithPayment(DataTypes::Scratchpad),
+                )
+                .map_err(|_| {
+                    PutError::Serialization(
+                        "Failed to serialize scratchpad with payment".to_string(),
+                    )
+                })?
+                .to_vec(),
                 publisher: None,
                 expires: None,
             }
         } else {
             Record {
                 key: scratch_key,
-                value: try_serialize_record(&scratch, RecordKind::Scratchpad)
+                value: try_serialize_record(&scratch, RecordKind::DataOnly(DataTypes::Scratchpad))
                     .map_err(|_| {
                         PutError::Serialization("Failed to serialize scratchpad".to_string())
                     })?

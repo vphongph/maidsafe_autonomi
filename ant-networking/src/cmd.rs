@@ -17,7 +17,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics, U256};
 use ant_protocol::{
     convert_distance_to_u256,
     messages::{Cmd, Request, Response},
-    storage::{RecordHeader, RecordKind, ValidationType},
+    storage::{DataTypes, RecordHeader, RecordKind, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
@@ -661,19 +661,12 @@ impl SwarmDriver {
                 let record_type = match RecordHeader::from_record(&record) {
                     Ok(record_header) => {
                         match record_header.kind {
-                            RecordKind::Chunk => ValidationType::Chunk,
-                            RecordKind::GraphEntry
-                            | RecordKind::Pointer
-                            | RecordKind::Register
-                            | RecordKind::Scratchpad => {
+                            RecordKind::DataOnly(DataTypes::Chunk) => ValidationType::Chunk,
+                            RecordKind::DataOnly(_) => {
                                 let content_hash = XorName::from_content(&record.value);
                                 ValidationType::NonChunk(content_hash)
                             }
-                            RecordKind::ChunkWithPayment
-                            | RecordKind::RegisterWithPayment
-                            | RecordKind::PointerWithPayment
-                            | RecordKind::GraphEntryWithPayment
-                            | RecordKind::ScratchpadWithPayment => {
+                            RecordKind::DataWithPayment(_) => {
                                 error!("Record {record_key:?} with payment shall not be stored locally.");
                                 return Err(NetworkError::InCorrectRecordHeader);
                             }

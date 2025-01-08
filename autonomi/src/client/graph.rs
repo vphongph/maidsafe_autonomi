@@ -20,7 +20,7 @@ pub use bls::SecretKey;
 use ant_evm::{EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{try_serialize_record, RecordKind, RetryStrategy},
+    storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy},
     NetworkAddress,
 };
 use libp2p::kad::{Quorum, Record};
@@ -89,9 +89,12 @@ impl Client {
         let payees = proof.payees();
         let record = Record {
             key: NetworkAddress::from_graph_entry_address(address).to_record_key(),
-            value: try_serialize_record(&(proof, &transaction), RecordKind::GraphEntryWithPayment)
-                .map_err(|_| GraphError::Serialization)?
-                .to_vec(),
+            value: try_serialize_record(
+                &(proof, &transaction),
+                RecordKind::DataWithPayment(DataTypes::GraphEntry),
+            )
+            .map_err(|_| GraphError::Serialization)?
+            .to_vec(),
             publisher: None,
             expires: None,
         };

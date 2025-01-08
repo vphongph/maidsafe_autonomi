@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{driver::GetRecordCfg, Network, NetworkError, Result};
-use ant_protocol::storage::{GraphEntry, GraphEntryAddress};
+use ant_protocol::storage::{DataTypes, GraphEntry, GraphEntryAddress};
 use ant_protocol::{
     storage::{try_deserialize_record, RecordHeader, RecordKind, RetryStrategy},
     NetworkAddress, PrettyPrintRecordKey,
@@ -37,7 +37,7 @@ impl Network {
 
 pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>> {
     let header = RecordHeader::from_record(record)?;
-    if let RecordKind::GraphEntry = header.kind {
+    if let RecordKind::DataOnly(DataTypes::GraphEntry) = header.kind {
         let transactions = try_deserialize_record::<Vec<GraphEntry>>(record)?;
         Ok(transactions)
     } else {
@@ -45,6 +45,8 @@ pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>> {
             "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
-        Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry))
+        Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(
+            DataTypes::GraphEntry,
+        )))
     }
 }

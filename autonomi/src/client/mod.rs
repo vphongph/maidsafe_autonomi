@@ -207,7 +207,7 @@ impl Client {
         Ok(Self {
             network,
             client_event_sender: Arc::new(None),
-            evm_network: Default::default(),
+            evm_network: config.evm_network,
         })
     }
 

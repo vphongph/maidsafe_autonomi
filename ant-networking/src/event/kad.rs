@@ -11,7 +11,7 @@ use crate::{
     GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver, CLOSE_GROUP_SIZE,
 };
 use ant_protocol::{
-    storage::{try_serialize_record, GraphEntry, RecordKind},
+    storage::{try_serialize_record, DataTypes, GraphEntry, RecordKind},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use itertools::Itertools;
@@ -415,7 +415,7 @@ impl SwarmDriver {
 
                         let bytes = try_serialize_record(
                             &accumulated_transactions,
-                            RecordKind::GraphEntry,
+                            RecordKind::DataOnly(DataTypes::GraphEntry),
                         )?;
 
                         let new_accumulated_record = Record {

@@ -5,7 +5,9 @@ use tracing::{debug, error, trace};
 use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{try_serialize_record, Pointer, PointerAddress, RecordKind, RetryStrategy},
+    storage::{
+        try_serialize_record, DataTypes, Pointer, PointerAddress, RecordKind, RetryStrategy,
+    },
     NetworkAddress,
 };
 use bls::SecretKey;
@@ -80,9 +82,12 @@ impl Client {
 
         let record = Record {
             key: NetworkAddress::from_pointer_address(address).to_record_key(),
-            value: try_serialize_record(&(proof, &pointer), RecordKind::PointerWithPayment)
-                .map_err(|_| PointerError::Serialization)?
-                .to_vec(),
+            value: try_serialize_record(
+                &(proof, &pointer),
+                RecordKind::DataWithPayment(DataTypes::Pointer),
+            )
+            .map_err(|_| PointerError::Serialization)?
+            .to_vec(),
             publisher: None,
             expires: None,
         };

@@ -23,7 +23,8 @@ pub use self::{
     chunks::Chunk,
     graph::GraphEntry,
     header::{
-        try_deserialize_record, try_serialize_record, RecordHeader, RecordKind, ValidationType,
+        try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind,
+        ValidationType,
     },
     scratchpad::Scratchpad,
 };

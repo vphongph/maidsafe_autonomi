@@ -19,7 +19,7 @@ pub use bls::SecretKey as RegisterSecretKey;
 use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{try_deserialize_record, try_serialize_record, RecordKind, RetryStrategy},
+    storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordKind, RetryStrategy},
     NetworkAddress,
 };
 use ant_registers::Register as BaseRegister;
@@ -204,9 +204,12 @@ impl Client {
         // Prepare the record for network storage
         let record = Record {
             key: NetworkAddress::from_register_address(*register.address()).to_record_key(),
-            value: try_serialize_record(&signed_register, RecordKind::Register)
-                .map_err(|_| RegisterError::Serialization)?
-                .to_vec(),
+            value: try_serialize_record(
+                &signed_register,
+                RecordKind::DataOnly(DataTypes::Register),
+            )
+            .map_err(|_| RegisterError::Serialization)?
+            .to_vec(),
             publisher: None,
             expires: None,
         };
@@ -337,7 +340,7 @@ impl Client {
             key: NetworkAddress::from_register_address(*address).to_record_key(),
             value: try_serialize_record(
                 &(proof, &signed_register),
-                RecordKind::RegisterWithPayment,
+                RecordKind::DataWithPayment(DataTypes::Register),
             )
             .map_err(|_| RegisterError::Serialization)?
             .to_vec(),

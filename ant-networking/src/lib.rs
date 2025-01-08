@@ -52,7 +52,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
-    storage::{Pointer, RecordType, RetryStrategy, Scratchpad},
+    storage::{DataTypes, Pointer, RetryStrategy, Scratchpad, ValidationType},
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use futures::future::select_all;
@@ -632,16 +632,11 @@ impl Network {
                 }
 
                 match kind {
-                    RecordKind::Chunk
-                    | RecordKind::ChunkWithPayment
-                    | RecordKind::GraphEntryWithPayment
-                    | RecordKind::RegisterWithPayment
-                    | RecordKind::PointerWithPayment
-                    | RecordKind::ScratchpadWithPayment => {
+                    RecordKind::DataOnly(DataTypes::Chunk) | RecordKind::DataWithPayment(_) => {
                         error!("Encountered a split record for {pretty_key:?} with unexpected RecordKind {kind:?}, skipping.");
                         continue;
                     }
-                    RecordKind::GraphEntry => {
+                    RecordKind::DataOnly(DataTypes::GraphEntry) => {
                         info!("For record {pretty_key:?}, we have a split record for a transaction attempt. Accumulating transactions");
 
                         match get_graph_entry_from_record(record) {
@@ -653,7 +648,7 @@ impl Network {
                             }
                         }
                     }
-                    RecordKind::Register => {
+                    RecordKind::DataOnly(DataTypes::Register) => {
                         info!("For record {pretty_key:?}, we have a split record for a register. Accumulating registers");
                         let Ok(register) = try_deserialize_record::<SignedRegister>(record) else {
                             error!(
@@ -675,7 +670,7 @@ impl Network {
                             }
                         }
                     }
-                    RecordKind::Pointer => {
+                    RecordKind::DataOnly(DataTypes::Pointer) => {
                         info!("For record {pretty_key:?}, we have a split record for a pointer. Selecting the one with the highest count");
                         let Ok(pointer) = try_deserialize_record::<Pointer>(record) else {
                             error!(
@@ -697,7 +692,7 @@ impl Network {
                         }
                         valid_pointer = Some(pointer);
                     }
-                    RecordKind::Scratchpad => {
+                    RecordKind::DataOnly(DataTypes::Scratchpad) => {
                         info!("For record {pretty_key:?}, we have a split record for a scratchpad. Selecting the one with the highest count");
                         let Ok(scratchpad) = try_deserialize_record::<Scratchpad>(record) else {
                             error!(
@@ -733,7 +728,7 @@ impl Network {
                 .collect::<Vec<GraphEntry>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::GraphEntry)
+                value: try_serialize_record(&accumulated_transactions, RecordKind::DataOnly(DataTypes::GraphEntry))
                     .map_err(|err| {
                         error!(
                             "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"
@@ -754,14 +749,15 @@ impl Network {
                 acc
             });
 
-            let record_value = try_serialize_record(&signed_register, RecordKind::Register)
-                .map_err(|err| {
-                    error!(
+            let record_value =
+                try_serialize_record(&signed_register, RecordKind::DataOnly(DataTypes::Register))
+                    .map_err(|err| {
+                        error!(
                         "Error while serializing the merged register for {pretty_key:?}: {err:?}"
                     );
-                    NetworkError::from(err)
-                })?
-                .to_vec();
+                        NetworkError::from(err)
+                    })?
+                    .to_vec();
 
             let record = Record {
                 key: key.clone(),
@@ -772,12 +768,13 @@ impl Network {
             return Ok(Some(record));
         } else if let Some(pointer) = valid_pointer {
             info!("For record {pretty_key:?} task found a valid pointer, returning it.");
-            let record_value = try_serialize_record(&pointer, RecordKind::Pointer)
-                .map_err(|err| {
-                    error!("Error while serializing the pointer for {pretty_key:?}: {err:?}");
-                    NetworkError::from(err)
-                })?
-                .to_vec();
+            let record_value =
+                try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))
+                    .map_err(|err| {
+                        error!("Error while serializing the pointer for {pretty_key:?}: {err:?}");
+                        NetworkError::from(err)
+                    })?
+                    .to_vec();
 
             let record = Record {
                 key: key.clone(),
@@ -788,12 +785,15 @@ impl Network {
             return Ok(Some(record));
         } else if let Some(scratchpad) = valid_scratchpad {
             info!("For record {pretty_key:?} task found a valid scratchpad, returning it.");
-            let record_value = try_serialize_record(&scratchpad, RecordKind::Scratchpad)
-                .map_err(|err| {
-                    error!("Error while serializing the scratchpad for {pretty_key:?}: {err:?}");
-                    NetworkError::from(err)
-                })?
-                .to_vec();
+            let record_value =
+                try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))
+                    .map_err(|err| {
+                        error!(
+                            "Error while serializing the scratchpad for {pretty_key:?}: {err:?}"
+                        );
+                        NetworkError::from(err)
+                    })?
+                    .to_vec();
 
             let record = Record {
                 key: key.clone(),
@@ -964,7 +964,7 @@ impl Network {
 
     /// Notify ReplicationFetch a fetch attempt is completed.
     /// (but it won't trigger any real writes to disk, say fetched an old version of register)
-    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: RecordType) {
+    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: ValidationType) {
         self.send_local_swarm_cmd(LocalSwarmCmd::FetchCompleted((key, record_type)))
     }
 
@@ -995,7 +995,7 @@ impl Network {
     /// Returns the Addresses of all the locally stored Records
     pub async fn get_all_local_record_addresses(
         &self,
-    ) -> Result<HashMap<NetworkAddress, RecordType>> {
+    ) -> Result<HashMap<NetworkAddress, ValidationType>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetAllLocalRecordAddresses { sender });
 

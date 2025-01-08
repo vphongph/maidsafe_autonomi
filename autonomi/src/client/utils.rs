@@ -11,7 +11,7 @@ use ant_evm::{EvmWallet, ProofOfPayment};
 use ant_networking::{GetRecordCfg, PutRecordCfg, VerificationKind};
 use ant_protocol::{
     messages::ChunkProof,
-    storage::{try_serialize_record, Chunk, RecordKind, RetryStrategy},
+    storage::{try_serialize_record, Chunk, DataTypes, RecordKind, RetryStrategy},
 };
 use bytes::Bytes;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -112,7 +112,7 @@ impl Client {
 
         let key = chunk.network_address().to_record_key();
 
-        let record_kind = RecordKind::ChunkWithPayment;
+        let record_kind = RecordKind::DataWithPayment(DataTypes::Chunk);
         let record = Record {
             key: key.clone(),
             value: try_serialize_record(&(payment, chunk.clone()), record_kind)
@@ -135,9 +135,12 @@ impl Client {
                 is_register: false,
             };
 
-            let stored_on_node = try_serialize_record(&chunk, RecordKind::Chunk)
-                .map_err(|e| PutError::Serialization(format!("Failed to serialize chunk: {e:?}")))?
-                .to_vec();
+            let stored_on_node =
+                try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
+                    .map_err(|e| {
+                        PutError::Serialization(format!("Failed to serialize chunk: {e:?}"))
+                    })?
+                    .to_vec();
             let random_nonce = thread_rng().gen::<u64>();
             let expected_proof = ChunkProof::new(&stored_on_node, random_nonce);
 

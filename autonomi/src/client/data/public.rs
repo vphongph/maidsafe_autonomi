@@ -17,7 +17,7 @@ use crate::{self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
 use ant_networking::{GetRecordCfg, NetworkError};
 use ant_protocol::{
-    storage::{try_deserialize_record, Chunk, ChunkAddress, RecordHeader, RecordKind},
+    storage::{try_deserialize_record, Chunk, ChunkAddress, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
 };
 
@@ -130,7 +130,7 @@ impl Client {
             .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?;
         let header = RecordHeader::from_record(&record)?;
 
-        if let RecordKind::Chunk = header.kind {
+        if let Ok(true) = RecordHeader::is_record_of_type_chunk(&record) {
             let chunk: Chunk = try_deserialize_record(&record)?;
             Ok(chunk)
         } else {
@@ -138,7 +138,7 @@ impl Client {
                 "Record kind mismatch: expected Chunk, got {:?}",
                 header.kind
             );
-            Err(NetworkError::RecordKindMismatch(RecordKind::Chunk).into())
+            Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)).into())
         }
     }
 

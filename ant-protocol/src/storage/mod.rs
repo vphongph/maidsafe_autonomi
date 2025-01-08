@@ -22,7 +22,10 @@ pub use self::{
     address::{ChunkAddress, GraphEntryAddress, PointerAddress, ScratchpadAddress},
     chunks::Chunk,
     graph::GraphEntry,
-    header::{try_deserialize_record, try_serialize_record, RecordHeader, RecordKind, RecordType},
+    header::{
+        try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind,
+        ValidationType,
+    },
     scratchpad::Scratchpad,
 };
 

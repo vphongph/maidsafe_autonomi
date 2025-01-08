@@ -11,7 +11,7 @@ use crate::time::spawn;
 use crate::{event::NetworkEvent, time::Instant};
 use ant_evm::U256;
 use ant_protocol::{
-    convert_distance_to_u256, storage::RecordType, NetworkAddress, PrettyPrintRecordKey,
+    convert_distance_to_u256, storage::ValidationType, NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
     kad::{KBucketDistance as Distance, RecordKey, K_VALUE},
@@ -40,9 +40,9 @@ type ReplicationTimeout = Instant;
 pub(crate) struct ReplicationFetcher {
     self_peer_id: PeerId,
     // Pending entries that to be fetched from the target peer.
-    to_be_fetched: HashMap<(RecordKey, RecordType, PeerId), ReplicationTimeout>,
+    to_be_fetched: HashMap<(RecordKey, ValidationType, PeerId), ReplicationTimeout>,
     // Avoid fetching same chunk from different nodes AND carry out too many parallel tasks.
-    on_going_fetches: HashMap<(RecordKey, RecordType), (PeerId, ReplicationTimeout)>,
+    on_going_fetches: HashMap<(RecordKey, ValidationType), (PeerId, ReplicationTimeout)>,
     event_sender: mpsc::Sender<NetworkEvent>,
     /// Distance range that the incoming key shall be fetched
     distance_range: Option<U256>,
@@ -77,8 +77,8 @@ impl ReplicationFetcher {
     pub(crate) fn add_keys(
         &mut self,
         holder: PeerId,
-        incoming_keys: Vec<(NetworkAddress, RecordType)>,
-        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, RecordType)>,
+        incoming_keys: Vec<(NetworkAddress, ValidationType)>,
+        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
     ) -> Vec<(PeerId, RecordKey)> {
         // Pre-calculate self_address since it's used multiple times
         let self_address = NetworkAddress::from_peer(self.self_peer_id);
@@ -207,7 +207,7 @@ impl ReplicationFetcher {
     pub(crate) fn notify_about_new_put(
         &mut self,
         new_put: RecordKey,
-        record_type: RecordType,
+        record_type: ValidationType,
     ) -> Vec<(PeerId, RecordKey)> {
         self.to_be_fetched
             .retain(|(key, t, _), _| key != &new_put || t != &record_type);
@@ -222,7 +222,7 @@ impl ReplicationFetcher {
     pub(crate) fn notify_fetch_early_completed(
         &mut self,
         key_in: RecordKey,
-        record_type: RecordType,
+        record_type: ValidationType,
     ) -> Vec<(PeerId, RecordKey)> {
         self.to_be_fetched.retain(|(key, current_type, _), _| {
             if current_type == &record_type {
@@ -368,7 +368,7 @@ impl ReplicationFetcher {
     /// This checks the hash on transactions to ensure we pull in divergent transactions.
     fn remove_stored_keys(
         &mut self,
-        existing_keys: &HashMap<RecordKey, (NetworkAddress, RecordType)>,
+        existing_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
     ) {
         self.to_be_fetched.retain(|(key, t, _), _| {
             if let Some((_addr, record_type)) = existing_keys.get(key) {
@@ -412,7 +412,7 @@ impl ReplicationFetcher {
 #[cfg(test)]
 mod tests {
     use super::{ReplicationFetcher, FETCH_TIMEOUT, MAX_PARALLEL_FETCH};
-    use ant_protocol::{convert_distance_to_u256, storage::RecordType, NetworkAddress};
+    use ant_protocol::{convert_distance_to_u256, storage::ValidationType, NetworkAddress};
     use eyre::Result;
     use libp2p::{kad::RecordKey, PeerId};
     use std::{collections::HashMap, time::Duration};
@@ -430,7 +430,7 @@ mod tests {
         (0..MAX_PARALLEL_FETCH * 2).for_each(|_| {
             let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
             let key = NetworkAddress::from_record_key(&RecordKey::from(random_data));
-            incoming_keys.push((key, RecordType::Chunk));
+            incoming_keys.push((key, ValidationType::Chunk));
         });
 
         let keys_to_fetch =
@@ -444,7 +444,10 @@ mod tests {
         let key_2 = NetworkAddress::from_record_key(&RecordKey::from(random_data));
         let keys_to_fetch = replication_fetcher.add_keys(
             PeerId::random(),
-            vec![(key_1, RecordType::Chunk), (key_2, RecordType::Chunk)],
+            vec![
+                (key_1, ValidationType::Chunk),
+                (key_2, ValidationType::Chunk),
+            ],
             &locally_stored_keys,
         );
         assert!(keys_to_fetch.is_empty());
@@ -454,7 +457,7 @@ mod tests {
         let key = NetworkAddress::from_record_key(&RecordKey::from(random_data));
         let keys_to_fetch = replication_fetcher.add_keys(
             PeerId::random(),
-            vec![(key, RecordType::Chunk)],
+            vec![(key, ValidationType::Chunk)],
             &locally_stored_keys,
         );
         assert!(!keys_to_fetch.is_empty());
@@ -496,7 +499,7 @@ mod tests {
                 in_range_keys += 1;
             }
 
-            incoming_keys.push((key, RecordType::Chunk));
+            incoming_keys.push((key, ValidationType::Chunk));
         });
 
         let keys_to_fetch =

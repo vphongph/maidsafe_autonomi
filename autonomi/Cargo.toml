@@ -76,3 +76,5 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+# Adds snippets from the `examples` dir to items if relevant
+cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]

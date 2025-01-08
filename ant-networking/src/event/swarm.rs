@@ -292,16 +292,14 @@ impl SwarmDriver {
                 if self.local {
                     match *mdns_event {
                         mdns::Event::Discovered(list) => {
-                            if self.local {
-                                for (peer_id, addr) in list {
-                                    // The multiaddr does not contain the peer ID, so add it.
-                                    let addr = addr.with(Protocol::P2p(peer_id));
+                            for (peer_id, addr) in list {
+                                // The multiaddr does not contain the peer ID, so add it.
+                                let addr = addr.with(Protocol::P2p(peer_id));
 
-                                    info!(%addr, "mDNS node discovered and dialing");
+                                info!(%addr, "mDNS node discovered and dialing");
 
-                                    if let Err(err) = self.dial(addr.clone()) {
-                                        warn!(%addr, "mDNS node dial error: {err:?}");
-                                    }
+                                if let Err(err) = self.dial(addr.clone()) {
+                                    warn!(%addr, "mDNS node dial error: {err:?}");
                                 }
                             }
                         }

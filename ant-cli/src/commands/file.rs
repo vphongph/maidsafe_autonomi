@@ -76,13 +76,13 @@ pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<(
 
     // get summary
     let summary = upload_summary_thread.await?;
-    if summary.record_count == 0 {
+    if summary.records_paid == 0 {
         println!("All chunks already exist on the network.");
     } else {
         println!("Successfully uploaded: {file}");
         println!("At address: {local_addr}");
         info!("Successfully uploaded: {file} at address: {local_addr}");
-        println!("Number of chunks uploaded: {}", summary.record_count);
+        println!("Number of chunks uploaded: {}", summary.records_paid);
         println!(
             "Number of chunks already paid/uploaded: {}",
             summary.records_already_paid

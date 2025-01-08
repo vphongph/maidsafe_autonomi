@@ -121,7 +121,7 @@ impl Client {
         // send client event
         if let Some(channel) = self.client_event_sender.as_ref() {
             let summary = UploadSummary {
-                record_count: 1usize.saturating_sub(skipped_payments),
+                records_paid: 1usize.saturating_sub(skipped_payments),
                 records_already_paid: skipped_payments,
                 tokens_spent: price.as_atto(),
             };

@@ -244,7 +244,7 @@ impl Client {
             return Err(last_chunk_fail.1);
         }
 
-        let record_count = chunks.len() - skipped_payments;
+        let record_count = chunks.len().saturating_sub(skipped_payments);
 
         // Reporting
         if let Some(channel) = self.client_event_sender.as_ref() {
@@ -254,7 +254,7 @@ impl Client {
                 .sum::<Amount>();
 
             let summary = UploadSummary {
-                record_count,
+                records_paid: record_count,
                 records_already_paid: skipped_payments,
                 tokens_spent,
             };

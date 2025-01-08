@@ -97,7 +97,7 @@ impl Client {
                 .sum::<Amount>();
 
             let summary = UploadSummary {
-                record_count,
+                records_paid: record_count,
                 records_already_paid: skipped_payments,
                 tokens_spent,
             };

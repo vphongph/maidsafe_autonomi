@@ -276,9 +276,11 @@ impl Network {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetReplicateCandidates { data_addr, sender });
 
-        receiver
+        let candidate = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+
+        Ok(candidate)
     }
 
     /// Get the Chunk existence proof from the close nodes to the provided chunk address.
@@ -816,7 +818,7 @@ impl Network {
         key: RecordKey,
         data_type: u32,
         data_size: usize,
-    ) -> Result<Option<(QuotingMetrics, bool)>> {
+    ) -> Result<(QuotingMetrics, bool)> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics {
             key,
@@ -825,9 +827,10 @@ impl Network {
             sender,
         });
 
-        receiver
+        let quoting_metrics = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+        Ok(quoting_metrics)
     }
 
     /// Notify the node receicced a payment.
@@ -998,9 +1001,11 @@ impl Network {
             sender,
         });
 
-        receiver
+        let is_present = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+
+        Ok(is_present)
     }
 
     /// Returns the Addresses of all the locally stored Records
@@ -1010,9 +1015,10 @@ impl Network {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetAllLocalRecordAddresses { sender });
 
-        receiver
+        let addrs = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+        Ok(addrs)
     }
 
     /// Send `Request` to the given `PeerId` and await for the response. If `self` is the recipient,

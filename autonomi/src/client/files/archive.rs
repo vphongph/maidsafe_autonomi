@@ -166,6 +166,13 @@ impl Client {
         let bytes = archive
             .to_bytes()
             .map_err(|e| PutError::Serialization(format!("Failed to serialize archive: {e:?}")))?;
+
+        #[cfg(feature = "loud")]
+        println!(
+            "Uploading private archive referencing {} files",
+            archive.map().len()
+        );
+
         let result = self.data_put(bytes, payment_option).await;
         debug!("Uploaded private archive {archive:?} to the network and address is {result:?}");
         result

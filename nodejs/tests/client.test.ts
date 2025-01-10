@@ -7,18 +7,18 @@ describe('Client', () => {
         });
     });
 
-    describe('linkedListOperations', () => {
-        it('should throw not implemented error for linkedListGet', async () => {
+    describe('GarphEntryOperations', () => {
+        it('should throw not implemented error for GarphEntryGet', async () => {
             const client = await Client.connect({ peers: [] }).catch(() => null);
             if (!client) return;
-            await expect(client.linkedListGet('address')).rejects.toThrow('Not implemented');
+            await expect(client.GarphEntryGet('address')).rejects.toThrow('Not implemented');
         });
 
-        it('should throw not implemented error for linkedListPut', async () => {
+        it('should throw not implemented error for GarphEntryPut', async () => {
             const client = await Client.connect({ peers: [] }).catch(() => null);
             if (!client) return;
             await expect(
-                client.linkedListPut(
+                client.GarphEntryPut(
                     {
                         owner: 'owner',
                         counter: 0,

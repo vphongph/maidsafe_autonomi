@@ -1,9 +1,9 @@
-import { LinkedListOptions, PaymentOption } from './types';
-export declare class LinkedList {
+import { GarphEntryOptions, PaymentOption } from './types';
+export declare class GarphEntry {
     private nativeList;
     private constructor();
-    static create(address: string): Promise<LinkedList>;
+    static create(address: string): Promise<GarphEntry>;
     get(): Promise<any[]>;
-    put(options: LinkedListOptions, payment: PaymentOption): Promise<void>;
+    put(options: GarphEntryOptions, payment: PaymentOption): Promise<void>;
     getCost(key: string): Promise<string>;
 }

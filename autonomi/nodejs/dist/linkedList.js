@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LinkedList = void 0;
-class LinkedList {
+exports.GarphEntry = void 0;
+class GarphEntry {
     constructor(nativeList) {
         this.nativeList = nativeList;
     }
@@ -22,4 +22,4 @@ class LinkedList {
         throw new Error('Not implemented');
     }
 }
-exports.LinkedList = LinkedList;
+exports.GarphEntry = GarphEntry;

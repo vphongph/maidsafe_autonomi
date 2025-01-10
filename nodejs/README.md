@@ -42,7 +42,7 @@ async function example() {
 - Async/await API
 - Support for:
   - Public and private data operations
-  - Linked Lists
+  - Graph
   - Pointers
   - Vaults
   - User data management
@@ -66,12 +66,12 @@ dataPutPublic(data: Buffer, payment: PaymentOption): Promise<string>
 dataGetPublic(address: string): Promise<Buffer>
 ```
 
-#### Linked List Operations
+#### Graph Operations
 
 ```typescript
-linkedListGet(address: string): Promise<any[]>
-linkedListPut(options: LinkedListOptions, payment: PaymentOption): Promise<void>
-linkedListCost(key: string): Promise<string>
+GarphEntryGet(address: string): Promise<any[]>
+GarphEntryPut(options: GarphEntryOptions, payment: PaymentOption): Promise<void>
+GarphEntryCost(key: string): Promise<string>
 ```
 
 #### Pointer Operations

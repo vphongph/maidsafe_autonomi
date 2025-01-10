@@ -90,7 +90,7 @@ xor_name = "5.0.0"
 ant-protocol = { path = "../ant-protocol", version = "0.3.3", features = ["rpc"] }
 assert_fs = "1.0.0"
 evmlib = { path = "../evmlib", version = "0.1.8" }
-autonomi = { path = "../autonomi", version = "0.3.3", features = ["registers"] }
+autonomi = { path = "../autonomi", version = "0.3.3" }
 reqwest = { version = "0.12.2", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }

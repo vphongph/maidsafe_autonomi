@@ -352,6 +352,7 @@ impl NodeRecordStore {
         config: NodeRecordStoreConfig,
         network_event_sender: mpsc::Sender<NetworkEvent>,
         swarm_cmd_sender: mpsc::Sender<LocalSwarmCmd>,
+        #[cfg(feature = "open-metrics")] record_count_metric: Option<Gauge>,
     ) -> Self {
         info!("Using encryption_seed of {:?}", config.encryption_seed);
         let encryption_details = derive_aes256gcm_siv_from_seed(&config.encryption_seed);
@@ -390,7 +391,7 @@ impl NodeRecordStore {
             local_swarm_cmd_sender: swarm_cmd_sender,
             responsible_distance_range: None,
             #[cfg(feature = "open-metrics")]
-            record_count_metric: None,
+            record_count_metric,
             received_payment_count,
             encryption_details,
             timestamp,
@@ -401,14 +402,12 @@ impl NodeRecordStore {
 
         record_store.flush_historic_quoting_metrics();
 
-        record_store
-    }
+        #[cfg(feature = "open-metrics")]
+        if let Some(metric) = &record_store.record_count_metric {
+            let _ = metric.set(record_store.records.len() as i64);
+        }
 
-    /// Set the record_count_metric to report the number of records stored to the metrics server
-    #[cfg(feature = "open-metrics")]
-    pub fn set_record_count_metric(mut self, metric: Gauge) -> Self {
-        self.record_count_metric = Some(metric);
-        self
+        record_store
     }
 
     /// Returns the current distance ilog2 (aka bucket) range of CLOSE_GROUP nodes.
@@ -1088,6 +1087,8 @@ mod tests {
             Default::default(),
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // An initial unverified put should not write to disk
@@ -1166,6 +1167,8 @@ mod tests {
             store_config.clone(),
             network_event_sender.clone(),
             swarm_cmd_sender.clone(),
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a chunk
@@ -1218,6 +1221,8 @@ mod tests {
             store_config,
             new_network_event_sender,
             new_swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Verify the record still exists
@@ -1243,6 +1248,8 @@ mod tests {
             store_config_diff,
             diff_network_event_sender,
             diff_swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // When encryption is enabled, the record should be gone because it can't be decrypted
@@ -1271,6 +1278,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a chunk
@@ -1335,6 +1344,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a scratchpad
@@ -1426,6 +1437,8 @@ mod tests {
             store_config.clone(),
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
         // keep track of everything ever stored, to check missing at the end are further away
         let mut stored_records_at_some_point: Vec<RecordKey> = vec![];
@@ -1550,6 +1563,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         let mut stored_records: Vec<RecordKey> = vec![];
@@ -1634,6 +1649,8 @@ mod tests {
             store_config.clone(),
             network_event_sender.clone(),
             swarm_cmd_sender.clone(),
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         store.payment_received();
@@ -1646,6 +1663,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         assert_eq!(1, new_store.received_payment_count);

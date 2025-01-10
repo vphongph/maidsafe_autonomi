@@ -211,61 +211,6 @@ impl Client {
         })
     }
 
-    /// Connect to the network.
-    ///
-    /// This will timeout after [`CONNECT_TIMEOUT_SECS`] secs.
-    ///
-    /// ```no_run
-    /// # use autonomi::client::Client;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let peers = ["/ip4/127.0.0.1/udp/1234/quic-v1".parse()?];
-    /// #[allow(deprecated)]
-    /// let client = Client::connect(&peers).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[deprecated(
-        since = "0.2.4",
-        note = "Use [`Client::init`] or [`Client::init_with_config`] instead"
-    )]
-    pub async fn connect(peers: &[Multiaddr]) -> Result<Self, ConnectError> {
-        // Any global address makes the client non-local
-        let local = !peers.iter().any(multiaddr_is_global);
-
-        let (network, event_receiver) = build_client_and_run_swarm(local);
-
-        // Spawn task to dial to the given peers
-        let network_clone = network.clone();
-        let peers = peers.to_vec();
-        let _handle = ant_networking::time::spawn(async move {
-            for addr in peers {
-                if let Err(err) = network_clone.dial(addr.clone()).await {
-                    error!("Failed to dial addr={addr} with err: {err:?}");
-                    eprintln!("addr={addr} Failed to dial: {err:?}");
-                };
-            }
-        });
-
-        let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
-
-        receiver.await.expect("sender should not close")?;
-        debug!("Client is connected to the network");
-
-        // With the switch to the new bootstrap cache scheme,
-        // Seems the too many `initial dial`s could result in failure,
-        // when startup quoting/upload tasks got started up immediatly.
-        // Hence, put in a forced wait to allow `initial network discovery` to be completed.
-        ant_networking::time::sleep(Duration::from_secs(5)).await;
-
-        Ok(Self {
-            network,
-            client_event_sender: Arc::new(None),
-            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
-        })
-    }
-
     /// Receive events from the client.
     pub fn enable_client_events(&mut self) -> mpsc::Receiver<ClientEvent> {
         let (client_event_sender, client_event_receiver) =

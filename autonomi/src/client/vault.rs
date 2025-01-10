@@ -192,7 +192,7 @@ impl Client {
         info!("Writing to vault at {scratch_address:?}",);
 
         let record = if is_new {
-            let receipt = self
+            let (receipt, _skipped_payments) = self
                 .pay_for_content_addrs(std::iter::once(scratch.xorname()), payment_option)
                 .await
                 .inspect_err(|err| {

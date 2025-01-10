@@ -91,7 +91,7 @@ impl Default for ClientConfig {
             #[cfg(not(feature = "local"))]
             local: false,
             peers: None,
-            evm_network: Default::default(),
+            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
         }
     }
 }
@@ -151,7 +151,7 @@ impl Client {
         Self::init_with_config(ClientConfig {
             local,
             peers: Some(peers),
-            evm_network: Default::default(),
+            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
         })
         .await
     }
@@ -258,7 +258,7 @@ impl Client {
         Ok(Self {
             network,
             client_event_sender: Arc::new(None),
-            evm_network: Default::default(),
+            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
         })
     }
 
@@ -270,10 +270,6 @@ impl Client {
         debug!("All events to the clients are enabled");
 
         client_event_receiver
-    }
-
-    pub fn set_evm_network(&mut self, evm_network: EvmNetwork) {
-        self.evm_network = evm_network;
     }
 }
 
@@ -368,6 +364,10 @@ pub enum ClientEvent {
 /// Summary of an upload operation.
 #[derive(Debug, Clone)]
 pub struct UploadSummary {
-    pub record_count: usize,
+    /// Records that were uploaded to the network
+    pub records_paid: usize,
+    /// Records that were already paid for so were not re-uploaded
+    pub records_already_paid: usize,
+    /// Total cost of the upload
     pub tokens_spent: Amount,
 }

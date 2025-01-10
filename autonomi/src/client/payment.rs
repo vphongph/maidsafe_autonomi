@@ -5,6 +5,8 @@ use ant_evm::{AttoTokens, EncodedPeerId, EvmWallet, ProofOfPayment};
 use std::collections::HashMap;
 use xor_name::XorName;
 
+use super::utils::AlreadyPaidAddressesCount;
+
 /// Contains the proof of payments for each XOR address and the amount paid
 pub type Receipt = HashMap<XorName, (ProofOfPayment, AttoTokens)>;
 
@@ -65,13 +67,13 @@ impl Client {
         &self,
         content_addrs: impl Iterator<Item = XorName> + Clone,
         payment_option: PaymentOption,
-    ) -> Result<Receipt, PayError> {
+    ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
         match payment_option {
             PaymentOption::Wallet(wallet) => {
-                let receipt = self.pay(content_addrs, &wallet).await?;
-                Ok(receipt)
+                let (receipt, skipped) = self.pay(content_addrs, &wallet).await?;
+                Ok((receipt, skipped))
             }
-            PaymentOption::Receipt(receipt) => Ok(receipt),
+            PaymentOption::Receipt(receipt) => Ok((receipt, 0)),
         }
     }
 }

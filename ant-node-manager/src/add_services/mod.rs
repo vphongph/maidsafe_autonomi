@@ -78,16 +78,6 @@ pub async fn add_node(
         check_port_availability(port_option, &node_registry.nodes)?;
     }
 
-    let owner = match &options.owner {
-        Some(owner) => {
-            if owner.chars().any(|c| c.is_uppercase()) {
-                warn!("Owner name ({owner}) contains uppercase characters and will be converted to lowercase");
-            }
-            Some(owner.to_lowercase())
-        }
-        None => None,
-    };
-
     let antnode_file_name = options
         .antnode_src_path
         .file_name()
@@ -213,7 +203,6 @@ pub async fn add_node(
             network_id: options.network_id,
             node_ip: options.node_ip,
             node_port,
-            owner: owner.clone(),
             peers_args: options.peers_args.clone(),
             rewards_address: options.rewards_address,
             rpc_socket_addr,
@@ -254,7 +243,6 @@ pub async fn add_node(
                     rewards_address: options.rewards_address,
                     reward_balance: None,
                     rpc_socket_addr,
-                    owner: owner.clone(),
                     peer_id: None,
                     peers_args: options.peers_args.clone(),
                     pid: None,

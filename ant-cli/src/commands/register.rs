@@ -99,7 +99,7 @@ pub async fn create(name: &str, value: &str, public: bool, peers: NetworkPeers) 
     }
 
     let summary = upload_summary_thread.await?;
-    if summary.record_count == 0 {
+    if summary.records_paid == 0 {
         println!("✅ The register already exists on the network at address: {address}.");
         println!("No tokens were spent.");
     } else {

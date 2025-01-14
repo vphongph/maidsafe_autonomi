@@ -9,6 +9,7 @@
 use ant_logging::LogBuilder;
 use autonomi::Client;
 use eyre::Result;
+use serial_test::serial;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -20,6 +21,7 @@ use walkdir::WalkDir;
 // With a local evm network, and local network, run:
 // EVM_NETWORK=local cargo test --package autonomi --test fs
 #[tokio::test]
+#[serial]
 async fn dir_upload_download() -> Result<()> {
     let _log_appender_guard =
         LogBuilder::init_single_threaded_tokio_test("dir_upload_download", false);
@@ -75,6 +77,7 @@ fn compute_dir_sha256(dir: &str) -> Result<String> {
 }
 
 #[tokio::test]
+#[serial]
 async fn file_into_vault() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("file", false);
 

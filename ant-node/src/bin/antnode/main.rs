@@ -177,10 +177,6 @@ struct Opt {
     #[clap(long)]
     rpc: Option<SocketAddr>,
 
-    /// Specify the owner(readable discord user name).
-    #[clap(long)]
-    owner: Option<String>,
-
     #[cfg(feature = "open-metrics")]
     /// Specify the port for the OpenMetrics server.
     ///
@@ -312,8 +308,7 @@ fn main() -> Result<()> {
     if opt.peers.local {
         rt.spawn(init_metrics(std::process::id()));
     }
-    let initial_peres = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
-    debug!("Node's owner set to: {:?}", opt.owner);
+    let initial_peers = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
     let restart_options = rt.block_on(async move {
         let mut node_builder = NodeBuilder::new(
             keypair,
@@ -325,7 +320,7 @@ fn main() -> Result<()> {
             #[cfg(feature = "upnp")]
             opt.upnp,
         );
-        node_builder.initial_peers(initial_peres);
+        node_builder.initial_peers(initial_peers);
         node_builder.bootstrap_cache(bootstrap_cache);
         node_builder.is_behind_home_network(opt.home_network);
         #[cfg(feature = "open-metrics")]

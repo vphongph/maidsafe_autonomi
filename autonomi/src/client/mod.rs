@@ -71,8 +71,6 @@ pub struct Client {
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Whether we're expected to connect to a local network.
-    ///
-    /// If `local` feature is enabled, [`ClientConfig::default()`] will set this to `true`.
     pub local: bool,
 
     /// List of peers to connect to.
@@ -84,15 +82,15 @@ pub struct ClientConfig {
     pub evm_network: EvmNetwork,
 }
 
-// impl Default for ClientConfig {
-//     fn default() -> Self {
-//         Self {
-//             local: false,
-//             peers: None,
-//             evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
-//         }
-//     }
-// }
+impl ClientConfig {
+    fn local(peers: Option<Vec<Multiaddr>>) -> Self {
+        Self {
+            local: true,
+            peers,
+            evm_network: EvmNetwork::new(true).unwrap_or_default(),
+        }
+    }
+}
 
 /// Error returned by [`Client::init`].
 #[derive(Debug, thiserror::Error)]
@@ -122,11 +120,7 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        Self::init_with_config(ClientConfig {
-            local: true,
-            ..Default::default()
-        })
-        .await
+        Self::init_with_config(ClientConfig::local(None)).await
     }
 
     /// Initialize a client that bootstraps from a list of peers.

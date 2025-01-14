@@ -69,9 +69,9 @@ dataGetPublic(address: string): Promise<Buffer>
 #### Graph Operations
 
 ```typescript
-GarphEntryGet(address: string): Promise<any[]>
-GarphEntryPut(options: GarphEntryOptions, payment: PaymentOption): Promise<void>
-GarphEntryCost(key: string): Promise<string>
+GraphEntryGet(address: string): Promise<any[]>
+GraphEntryPut(options: GraphEntryOptions, payment: PaymentOption): Promise<void>
+GraphEntryCost(key: string): Promise<string>
 ```
 
 #### Pointer Operations

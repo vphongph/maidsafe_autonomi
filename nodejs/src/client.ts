@@ -1,4 +1,4 @@
-import { NetworkConfig, PaymentOption, GarphEntryOptions, PointerOptions, VaultOptions, UserData } from './types';
+import { NetworkConfig, PaymentOption, GraphEntryOptions, PointerOptions, VaultOptions, UserData } from './types';
 
 export class Client {
     private nativeClient: any; // Will be replaced with actual native binding type
@@ -29,7 +29,7 @@ export class Client {
         throw new Error('Not implemented');
     }
 
-    async graphEntryPut(options: GarphEntryOptions, payment: PaymentOption): Promise<void> {
+    async graphEntryPut(options: GraphEntryOptions, payment: PaymentOption): Promise<void> {
         // TODO: Implement native binding call
         throw new Error('Not implemented');
     }

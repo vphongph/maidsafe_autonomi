@@ -26,7 +26,7 @@ upnp = ["ant-networking/upnp"]
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.3" }
 ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
 ant-evm = { path = "../ant-evm", version = "0.1.8" }
-ant-logging = { path = "../ant-logging", version = "0.2.44" }
+ant-logging = { path = "../ant-logging", version = "0.2.44", features = [ "process-metrics" ] }
 ant-networking = { path = "../ant-networking", version = "0.3.3" }
 ant-protocol = { path = "../ant-protocol", version = "0.3.3" }
 ant-registers = { path = "../ant-registers", version = "0.4.7" }

@@ -99,7 +99,6 @@ jobs:
           mkdir $ANT_DATA_PATH/client
           ls -l $ANT_DATA_PATH
           ./target/release/ant --log-output-dest=data-dir --local file upload --public "./the-test-data.zip" > ./upload_output_second 2>&1
-          ./target/release/ant --log-output-dest=data-dir --local file upload --public "./the-test-data.zip" > ./upload_output_second 2>&1
           rg 'All chunks already exist on the network.' ./upload_output_second -c --stats
         env:
           ANT_LOG: "all"

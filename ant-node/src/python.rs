@@ -100,7 +100,6 @@ impl AntNode {
                 node_socket_addr,
                 local,
                 root_dir.unwrap_or_else(|| PathBuf::from(".")),
-                #[cfg(feature = "upnp")]
                 false,
             );
             node_builder.initial_peers(initial_peers);

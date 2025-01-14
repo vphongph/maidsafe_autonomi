@@ -41,7 +41,6 @@ type KBucketStatus = (usize, usize, usize, usize, Vec<(usize, usize, u32)>);
 /// NodeEvent enum
 #[derive(CustomDebug)]
 pub(super) enum NodeEvent {
-    #[cfg(feature = "upnp")]
     Upnp(libp2p::upnp::Event),
     MsgReceived(libp2p::request_response::Event<Request, Response>),
     Kademlia(libp2p::kad::Event),
@@ -52,7 +51,6 @@ pub(super) enum NodeEvent {
     Void(void::Void),
 }
 
-#[cfg(feature = "upnp")]
 impl From<libp2p::upnp::Event> for NodeEvent {
     fn from(event: libp2p::upnp::Event) -> Self {
         NodeEvent::Upnp(event)

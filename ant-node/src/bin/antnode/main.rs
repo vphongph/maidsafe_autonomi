@@ -84,7 +84,6 @@ struct Opt {
     home_network: bool,
 
     /// Try to use UPnP to open a port in the home router and allow incoming connections.
-    #[cfg(feature = "upnp")]
     #[clap(long, default_value_t = false)]
     upnp: bool,
 
@@ -317,7 +316,6 @@ fn main() -> Result<()> {
             node_socket_addr,
             opt.peers.local,
             root_dir,
-            #[cfg(feature = "upnp")]
             opt.upnp,
         );
         node_builder.initial_peers(initial_peers);

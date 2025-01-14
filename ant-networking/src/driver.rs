@@ -255,7 +255,6 @@ pub(super) struct NodeBehaviour {
     pub(super) identify: libp2p::identify::Behaviour,
     /// mDNS behaviour to use in local mode
     pub(super) mdns: Toggle<mdns::tokio::Behaviour>,
-    #[cfg(feature = "upnp")]
     pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
     pub(super) relay_server: libp2p::relay::Behaviour,
@@ -276,7 +275,6 @@ pub struct NetworkBuilder {
     #[cfg(feature = "open-metrics")]
     metrics_server_port: Option<u16>,
     request_timeout: Option<Duration>,
-    #[cfg(feature = "upnp")]
     upnp: bool,
 }
 
@@ -294,7 +292,6 @@ impl NetworkBuilder {
             #[cfg(feature = "open-metrics")]
             metrics_server_port: None,
             request_timeout: None,
-            #[cfg(feature = "upnp")]
             upnp: false,
         }
     }
@@ -332,7 +329,6 @@ impl NetworkBuilder {
         self.metrics_server_port = port;
     }
 
-    #[cfg(feature = "upnp")]
     pub fn upnp(&mut self, upnp: bool) {
         self.upnp = upnp;
     }
@@ -422,17 +418,10 @@ impl NetworkBuilder {
         };
 
         let listen_addr = self.listen_addr;
-        #[cfg(feature = "upnp")]
         let upnp = self.upnp;
 
-        let (network, events_receiver, mut swarm_driver) = self.build(
-            kad_cfg,
-            Some(store_cfg),
-            false,
-            ProtocolSupport::Full,
-            #[cfg(feature = "upnp")]
-            upnp,
-        )?;
+        let (network, events_receiver, mut swarm_driver) =
+            self.build(kad_cfg, Some(store_cfg), false, ProtocolSupport::Full, upnp)?;
 
         // Listen on the provided address
         let listen_socket_addr = listen_addr.ok_or(NetworkError::ListenAddressNotProvided)?;
@@ -464,14 +453,8 @@ impl NetworkBuilder {
             // How many nodes _should_ store data.
             .set_replication_factor(REPLICATION_FACTOR);
 
-        let (network, net_event_recv, driver) = self.build(
-            kad_cfg,
-            None,
-            true,
-            ProtocolSupport::Outbound,
-            #[cfg(feature = "upnp")]
-            false,
-        )?;
+        let (network, net_event_recv, driver) =
+            self.build(kad_cfg, None, true, ProtocolSupport::Outbound, false)?;
 
         Ok((network, net_event_recv, driver))
     }
@@ -483,7 +466,7 @@ impl NetworkBuilder {
         record_store_cfg: Option<NodeRecordStoreConfig>,
         is_client: bool,
         req_res_protocol: ProtocolSupport,
-        #[cfg(feature = "upnp")] upnp: bool,
+        upnp: bool,
     ) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
         let identify_protocol_str = IDENTIFY_PROTOCOL_STR
             .read()
@@ -656,7 +639,6 @@ impl NetworkBuilder {
             libp2p::identify::Behaviour::new(cfg)
         };
 
-        #[cfg(feature = "upnp")]
         let upnp = if !self.local && !is_client && upnp {
             debug!("Enabling UPnP port opening behavior");
             Some(libp2p::upnp::tokio::Behaviour::default())
@@ -682,7 +664,6 @@ impl NetworkBuilder {
             blocklist: libp2p::allow_block_list::Behaviour::default(),
             relay_client: relay_behaviour,
             relay_server,
-            #[cfg(feature = "upnp")]
             upnp,
             request_response,
             kademlia,

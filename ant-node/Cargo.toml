@@ -14,13 +14,12 @@ name = "antnode"
 path = "src/bin/antnode/main.rs"
 
 [features]
-default = ["upnp", "open-metrics"]
+default = ["open-metrics"]
 extension-module = ["pyo3/extension-module"]
 loud = ["ant-networking/loud"] # loud mode: print important messages to console
 nightly = []
 open-metrics = ["ant-networking/open-metrics", "prometheus-client"]
 otlp = ["ant-logging/otlp"]
-upnp = ["ant-networking/upnp"]
 
 [dependencies]
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.3" }

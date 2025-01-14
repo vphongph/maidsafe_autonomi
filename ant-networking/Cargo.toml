@@ -38,6 +38,7 @@ libp2p = { version = "0.54.1", features = [
     "tokio",
     "dns",
     "mdns",
+    "upnp",
     "kad",
     "macros",
     "request-response",

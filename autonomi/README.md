@@ -66,12 +66,12 @@ To run the tests, we can run a local network:
     cargo run --bin evm-testnet
     ```
 
-2. Run a local network with the `local` feature and use the local EVM node.
+2. Run a local network and use the local EVM node.
     ```sh
-    cargo run --bin antctl --features local -- local run --build --clean --rewards-address <ETHEREUM_ADDRESS> evm-local
+    cargo run --bin antctl -- local run --build --clean --rewards-address <ETHEREUM_ADDRESS> evm-local
     ```
 
-3. Then run the tests with the `local` feature and pass the EVM params again:
+3. Then run the tests and pass the EVM params again:
     ```sh
     EVM_NETWORK=local cargo test --package autonomi
     ```
@@ -80,10 +80,10 @@ To run the tests, we can run a local network:
 
 Using the hardcoded `Arbitrum One` option as an example, but you can also use the command flags of the steps above and point it to a live network.
 
-1. Run a local network with the `local` feature:
+1. Run a local network:
 
 ```sh
-cargo run --bin antctl --features local -- local run --build --clean --rewards-address <ETHEREUM_ADDRESS> evm-arbitrum-one
+cargo run --bin antctl -- local run --build --clean --rewards-address <ETHEREUM_ADDRESS> evm-arbitrum-one
 ```
 
 2. Then pass the private key of the wallet, and ensure it has enough gas and payment tokens on the network (in this case Arbitrum One):

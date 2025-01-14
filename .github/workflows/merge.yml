@@ -438,13 +438,13 @@ jobs:
         timeout-minutes: 25
 
       - name: sync the vault
-        run: ./target/release/ant --log-output-dest data-dir vault sync
+        run: ./target/release/ant --log-output-dest data-dir --local vault sync
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: load the vault from network
-        run: ./target/release/ant --log-output-dest data-dir vault load
+        run: ./target/release/ant --log-output-dest data-dir --local vault load
         env:
           ANT_LOG: "v"
         timeout-minutes: 2

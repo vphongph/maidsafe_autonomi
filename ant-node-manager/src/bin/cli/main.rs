@@ -191,15 +191,6 @@ pub enum SubCmd {
         /// services, which in this case would be 5. The range must also go from lower to higher.
         #[clap(long, value_parser = PortRange::parse)]
         node_port: Option<PortRange>,
-        /// Specify the owner for the node service.
-        ///
-        /// This is mainly used for the 'Beta Rewards' programme, for linking your Discord username
-        /// to the node.
-        ///
-        /// If the option is not used, the node will assign its own username and the service will
-        /// run as normal.
-        #[clap(long)]
-        owner: Option<String>,
         /// Provide a path for the antnode binary to be used by the service.
         ///
         /// Useful for creating the service using a custom built binary.
@@ -862,19 +853,6 @@ pub enum LocalSubCmd {
         node_version: Option<String>,
         #[command(flatten)]
         peers: PeersArgs,
-        /// Specify the owner for each node in the local network
-        ///
-        /// The argument exists to support testing scenarios.
-        #[clap(long, conflicts_with = "owner_prefix")]
-        owner: Option<String>,
-        /// Use this argument to launch each node in the network with an individual owner.
-        ///
-        /// Assigned owners will take the form "prefix_1", "prefix_2" etc., where "prefix" will be
-        /// replaced by the value specified by this argument.
-        ///
-        /// The argument exists to support testing scenarios.
-        #[clap(long, conflicts_with = "owner")]
-        owner_prefix: Option<String>,
         /// Specify a port for the RPC service(s).
         ///
         /// If not used, ports will be selected at random.
@@ -972,20 +950,6 @@ pub enum LocalSubCmd {
         /// The version and path arguments are mutually exclusive.
         #[clap(long, conflicts_with = "build")]
         node_version: Option<String>,
-        /// Specify the owner for each node in the local network
-        ///
-        /// The argument exists to support testing scenarios.
-        #[clap(long, conflicts_with = "owner_prefix")]
-        owner: Option<String>,
-        /// Use this argument to launch each node in the network with an individual owner.
-        ///
-        /// Assigned owners will take the form "prefix_1", "prefix_2" etc., where "prefix" will be
-        /// replaced by the value specified by this argument.
-        ///
-        /// The argument exists to support testing scenarios.
-        #[clap(long)]
-        #[clap(long, conflicts_with = "owner")]
-        owner_prefix: Option<String>,
         /// Specify a port for the RPC service(s).
         ///
         /// If not used, ports will be selected at random.
@@ -1083,7 +1047,6 @@ async fn main() -> Result<()> {
             network_id,
             node_ip,
             node_port,
-            owner,
             path,
             peers,
             rewards_address,
@@ -1111,7 +1074,6 @@ async fn main() -> Result<()> {
                 network_id,
                 node_ip,
                 node_port,
-                owner,
                 peers,
                 rewards_address,
                 rpc_address,
@@ -1223,8 +1185,6 @@ async fn main() -> Result<()> {
                 node_port,
                 node_version,
                 log_format,
-                owner,
-                owner_prefix,
                 peers,
                 rpc_port,
                 rewards_address,
@@ -1246,8 +1206,6 @@ async fn main() -> Result<()> {
                     node_port,
                     node_version,
                     log_format,
-                    owner,
-                    owner_prefix,
                     peers,
                     rpc_port,
                     rewards_address,
@@ -1269,8 +1227,6 @@ async fn main() -> Result<()> {
                 node_path,
                 node_port,
                 node_version,
-                owner,
-                owner_prefix,
                 rpc_port,
                 rewards_address,
                 evm_network,
@@ -1292,8 +1248,6 @@ async fn main() -> Result<()> {
                     node_port,
                     node_version,
                     log_format,
-                    owner,
-                    owner_prefix,
                     rpc_port,
                     rewards_address,
                     evm_network,

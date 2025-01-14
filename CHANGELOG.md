@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-01-14
+
+### Client
+
+#### Fixed
+
+- Remove `uploaded` timestamp from archive metadata to prevent unnecessary re-uploads when archive
+  contents remain unchanged. This ensures we do not charge when uploading the same file more than
+  once on `ant file upload`.
+- Switch from `HashMap` to `BTreeMap` for archive to ensure deterministic serialization, which also
+  prevents unnecessary re-uploads. As above, this facilitates the fix for the duplicate payment
+  issue.
+
+## 2025-01-09
+
+### Network
+
+#### Changed
+
+- Network discovery no longer queries the farthest full buckets. This significantly reduces the
+  number of messages as the network grows, resulting in fewer open connections and reduced resource
+  usage.
+
+## 2025-01-06
+
+### Network
+
+#### Changed
+
+- Memory and CPU metrics use more precise `f64` measurements
+
+### Client
+
+#### Fixed
+
+- Apply a timeout for EVM transactions. This fixes an issue where some uploads would freeze indefinitely.
+- The `ant` CLI was not selecting its network consistently from the environment variable.
+
 ## 2024-12-21
 
 ### Network

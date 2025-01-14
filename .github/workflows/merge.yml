@@ -533,7 +533,7 @@ jobs:
         timeout-minutes: 2
 
       - name: load an existing vault from the network
-        run: ./target/release/ant --log-output-dest=data-dir vault load
+        run: ./target/release/ant --log-output-dest data-dir --local vault load
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -551,7 +551,7 @@ jobs:
           # 1 GB
           python3 -c "with open('random_1GB.bin', 'wb') as f: f.write(bytearray([0xff] * 1000 * 1024 * 1024))"
 
-          ./target/release/ant --log-output-dest=data-dir file list
+          ./target/release/ant --log-output-dest=data-dir --local file list
           time ./target/release/ant --log-output-dest=data-dir --local file upload random_1MB.bin
           time ./target/release/ant --log-output-dest=data-dir --local file upload random_10MB.bin
           time ./target/release/ant --log-output-dest=data-dir --local file upload random_100MB.bin
@@ -1306,7 +1306,7 @@ jobs:
         shell: bash
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest data-dir file upload "./test_data_1.tar.gz" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest data-dir --local file upload "./test_data_1.tar.gz" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -1323,7 +1323,7 @@ jobs:
         shell: bash
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources > ./download_output 2>&1
+        run: ./target/release/ant --log-output-dest data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources > ./download_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 5

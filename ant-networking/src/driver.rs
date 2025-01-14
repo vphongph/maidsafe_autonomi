@@ -44,8 +44,6 @@ use ant_protocol::{
 use ant_registers::SignedRegister;
 use futures::future::Either;
 use futures::StreamExt;
-#[cfg(feature = "local")]
-use libp2p::mdns;
 use libp2p::{core::muxing::StreamMuxerBox, relay};
 use libp2p::{
     identity::Keypair,
@@ -58,6 +56,7 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
+use libp2p::{mdns, swarm::behaviour::toggle::Toggle};
 use libp2p::{swarm::SwarmEvent, Transport as _};
 #[cfg(feature = "open-metrics")]
 use prometheus_client::metrics::info::Info;
@@ -254,10 +253,10 @@ pub(super) struct NodeBehaviour {
     pub(super) blocklist:
         libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
     pub(super) identify: libp2p::identify::Behaviour,
-    #[cfg(feature = "local")]
-    pub(super) mdns: mdns::tokio::Behaviour,
+    /// mDNS behaviour to use in local mode
+    pub(super) mdns: Toggle<mdns::tokio::Behaviour>,
     #[cfg(feature = "upnp")]
-    pub(super) upnp: libp2p::swarm::behaviour::toggle::Toggle<libp2p::upnp::tokio::Behaviour>,
+    pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
     pub(super) relay_server: libp2p::relay::Behaviour,
     pub(super) kademlia: kad::Behaviour<UnifiedRecordStore>,
@@ -620,17 +619,21 @@ impl NetworkBuilder {
             }
         };
 
-        #[cfg(feature = "local")]
-        let mdns_config = mdns::Config {
-            // lower query interval to speed up peer discovery
-            // this increases traffic, but means we no longer have clients unable to connect
-            // after a few minutes
-            query_interval: Duration::from_secs(5),
-            ..Default::default()
-        };
+        let mdns = if self.local {
+            debug!("Enabling mDNS behavior (because of local mode)");
 
-        #[cfg(feature = "local")]
-        let mdns = mdns::tokio::Behaviour::new(mdns_config, peer_id)?;
+            let mdns_config = mdns::Config {
+                // lower query interval to speed up peer discovery this
+                // increases traffic, but means we no longer have clients
+                // unable to connect after a few minutes
+                query_interval: Duration::from_secs(5),
+                ..Default::default()
+            };
+            Some(mdns::tokio::Behaviour::new(mdns_config, peer_id)?)
+        } else {
+            None
+        }
+        .into(); // Into `Toggle<T>`
 
         let agent_version = if is_client {
             IDENTIFY_CLIENT_VERSION_STR
@@ -684,7 +687,6 @@ impl NetworkBuilder {
             request_response,
             kademlia,
             identify,
-            #[cfg(feature = "local")]
             mdns,
         };
 

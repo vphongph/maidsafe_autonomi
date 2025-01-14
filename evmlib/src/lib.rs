@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::common::Address;
-use crate::utils::get_evm_network_from_env;
+use crate::utils::get_evm_network;
 use alloy::primitives::address;
 use alloy::transports::http::reqwest;
 use serde::{Deserialize, Serialize};
@@ -104,8 +104,8 @@ impl std::fmt::Display for Network {
 }
 
 impl Network {
-    pub fn try_from_env() -> Result<Self, utils::Error> {
-        get_evm_network_from_env().inspect_err(|err| {
+    pub fn new(local: bool) -> Result<Self, utils::Error> {
+        get_evm_network(local).inspect_err(|err| {
             warn!("Failed to select EVM network from ENV: {err}");
         })
     }

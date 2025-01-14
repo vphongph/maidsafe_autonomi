@@ -1322,8 +1322,8 @@ pub(crate) fn send_network_swarm_cmd(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_network_sign_verify() -> eyre::Result<()> {
+    #[tokio::test]
+    async fn test_network_sign_verify() -> eyre::Result<()> {
         let (network, _, _) =
             NetworkBuilder::new(Keypair::generate_ed25519(), false).build_client()?;
         let msg = b"test message";

@@ -215,7 +215,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             VaultCmd::Cost => vault::cost(peers.await?).await,
             VaultCmd::Create => vault::create(peers.await?).await,
             VaultCmd::Load => vault::load(peers.await?).await,
-            VaultCmd::Sync { force } => vault::sync(peers.await?, force).await,
+            VaultCmd::Sync { force } => vault::sync(force, peers.await?).await,
         },
         Some(SubCmd::Wallet { command }) => match command {
             WalletCmd::Create {
@@ -228,7 +228,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => wallet::balance().await,
+            WalletCmd::Balance => wallet::balance(peers.await?.is_local()).await,
         },
         None => {
             // If no subcommand is given, default to clap's error behaviour.

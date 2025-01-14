@@ -63,15 +63,14 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 pub struct Client {
     pub(crate) network: Network,
     pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
-    pub(crate) evm_network: EvmNetwork,
+    /// The EVM network to use for the client.
+    pub evm_network: EvmNetwork,
 }
 
 /// Configuration for [`Client::init_with_config`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Whether we're expected to connect to a local network.
-    ///
-    /// If `local` feature is enabled, [`ClientConfig::default()`] will set this to `true`.
     pub local: bool,
 
     /// List of peers to connect to.
@@ -83,15 +82,12 @@ pub struct ClientConfig {
     pub evm_network: EvmNetwork,
 }
 
-impl Default for ClientConfig {
-    fn default() -> Self {
+impl ClientConfig {
+    fn local(peers: Option<Vec<Multiaddr>>) -> Self {
         Self {
-            #[cfg(feature = "local")]
             local: true,
-            #[cfg(not(feature = "local"))]
-            local: false,
-            peers: None,
-            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
+            peers,
+            evm_network: EvmNetwork::new(true).unwrap_or_default(),
         }
     }
 }
@@ -108,7 +104,7 @@ pub enum ConnectError {
     TimedOutWithIncompatibleProtocol(HashSet<String>, String),
 
     /// An error occurred while bootstrapping the client.
-    #[error("Failed to bootstrap the client")]
+    #[error("Failed to bootstrap the client: {0}")]
     Bootstrap(#[from] ant_bootstrap::Error),
 }
 
@@ -124,11 +120,7 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        Self::init_with_config(ClientConfig {
-            local: true,
-            ..Default::default()
-        })
-        .await
+        Self::init_with_config(ClientConfig::local(None)).await
     }
 
     /// Initialize a client that bootstraps from a list of peers.
@@ -151,7 +143,7 @@ impl Client {
         Self::init_with_config(ClientConfig {
             local,
             peers: Some(peers),
-            evm_network: EvmNetwork::try_from_env().unwrap_or_default(),
+            evm_network: EvmNetwork::new(local).unwrap_or_default(),
         })
         .await
     }
@@ -176,6 +168,7 @@ impl Client {
         let peers_args = PeersArgs {
             disable_mainnet_contacts: config.local,
             addrs: config.peers.unwrap_or_default(),
+            local: config.local,
             ..Default::default()
         };
 

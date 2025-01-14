@@ -14,8 +14,7 @@ mod subcommands;
 
 use crate::subcommands::EvmNetworkCommand;
 use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};
-use ant_evm::{get_evm_network_from_env, EvmNetwork, RewardsAddress};
-#[cfg(feature = "local")]
+use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
 use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver};
@@ -178,10 +177,6 @@ struct Opt {
     #[clap(long)]
     rpc: Option<SocketAddr>,
 
-    /// Specify the owner(readable discord user name).
-    #[clap(long)]
-    owner: Option<String>,
-
     #[cfg(feature = "open-metrics")]
     /// Specify the port for the OpenMetrics server.
     ///
@@ -263,12 +258,16 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let evm_network: EvmNetwork = opt
-        .evm_network
-        .as_ref()
-        .cloned()
-        .map(|v| Ok(v.into()))
-        .unwrap_or_else(get_evm_network_from_env)?;
+    let evm_network: EvmNetwork = match opt.evm_network.as_ref() {
+        Some(evm_network) => Ok(evm_network.clone().into()),
+        None => match get_evm_network(opt.peers.local) {
+            Ok(net) => Ok(net),
+            Err(_) => Err(eyre!(
+                "EVM network not specified. Please specify a network using the subcommand or by setting the `EVM_NETWORK` environment variable."
+            )),
+        },
+    }?;
+
     println!("EVM network: {evm_network:?}");
 
     let node_socket_addr = SocketAddr::new(opt.ip, opt.port);
@@ -306,10 +305,10 @@ fn main() -> Result<()> {
     // Create a tokio runtime per `run_node` attempt, this ensures
     // any spawned tasks are closed before we would attempt to run
     // another process with these args.
-    #[cfg(feature = "local")]
-    rt.spawn(init_metrics(std::process::id()));
-    let initial_peres = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
-    debug!("Node's owner set to: {:?}", opt.owner);
+    if opt.peers.local {
+        rt.spawn(init_metrics(std::process::id()));
+    }
+    let initial_peers = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
     let restart_options = rt.block_on(async move {
         let mut node_builder = NodeBuilder::new(
             keypair,
@@ -321,7 +320,7 @@ fn main() -> Result<()> {
             #[cfg(feature = "upnp")]
             opt.upnp,
         );
-        node_builder.initial_peers(initial_peres);
+        node_builder.initial_peers(initial_peers);
         node_builder.bootstrap_cache(bootstrap_cache);
         node_builder.is_behind_home_network(opt.home_network);
         #[cfg(feature = "open-metrics")]

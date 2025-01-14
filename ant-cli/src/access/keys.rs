@@ -9,7 +9,7 @@
 use crate::wallet::load_wallet_private_key;
 use autonomi::client::registers::RegisterSecretKey;
 use autonomi::client::vault::VaultSecretKey;
-use autonomi::{get_evm_network_from_env, Wallet};
+use autonomi::{Network, Wallet};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
 use std::env;
@@ -22,11 +22,10 @@ const REGISTER_SIGNING_KEY_ENV: &str = "REGISTER_SIGNING_KEY";
 const REGISTER_SIGNING_KEY_FILE: &str = "register_signing_key";
 
 /// EVM wallet
-pub fn load_evm_wallet_from_env() -> Result<Wallet> {
+pub fn load_evm_wallet_from_env(evm_network: &Network) -> Result<Wallet> {
     let secret_key =
         get_secret_key_from_env().wrap_err("The secret key is required to perform this action")?;
-    let network = get_evm_network_from_env()?;
-    let wallet = Wallet::new_from_private_key(network, &secret_key)
+    let wallet = Wallet::new_from_private_key(evm_network.clone(), &secret_key)
         .wrap_err("Failed to load EVM wallet from key")?;
     Ok(wallet)
 }

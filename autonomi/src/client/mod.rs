@@ -21,11 +21,7 @@ pub mod pointer;
 #[cfg(feature = "external-signer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "external-signer")))]
 pub mod external_signer;
-#[cfg(feature = "registers")]
-#[cfg_attr(docsrs, doc(cfg(feature = "registers")))]
 pub mod registers;
-#[cfg(feature = "vault")]
-#[cfg_attr(docsrs, doc(cfg(feature = "vault")))]
 pub mod vault;
 
 // private module with utility functions
@@ -67,15 +63,14 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 pub struct Client {
     pub(crate) network: Network,
     pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
-    pub(crate) evm_network: EvmNetwork,
+    /// The EVM network to use for the client.
+    pub evm_network: EvmNetwork,
 }
 
 /// Configuration for [`Client::init_with_config`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Whether we're expected to connect to a local network.
-    ///
-    /// If `local` feature is enabled, [`ClientConfig::default()`] will set this to `true`.
     pub local: bool,
 
     /// List of peers to connect to.
@@ -87,15 +82,12 @@ pub struct ClientConfig {
     pub evm_network: EvmNetwork,
 }
 
-impl Default for ClientConfig {
-    fn default() -> Self {
+impl ClientConfig {
+    fn local(peers: Option<Vec<Multiaddr>>) -> Self {
         Self {
-            #[cfg(feature = "local")]
             local: true,
-            #[cfg(not(feature = "local"))]
-            local: false,
-            peers: None,
-            evm_network: Default::default(),
+            peers,
+            evm_network: EvmNetwork::new(true).unwrap_or_default(),
         }
     }
 }
@@ -112,7 +104,7 @@ pub enum ConnectError {
     TimedOutWithIncompatibleProtocol(HashSet<String>, String),
 
     /// An error occurred while bootstrapping the client.
-    #[error("Failed to bootstrap the client")]
+    #[error("Failed to bootstrap the client: {0}")]
     Bootstrap(#[from] ant_bootstrap::Error),
 }
 
@@ -128,11 +120,7 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        Self::init_with_config(ClientConfig {
-            local: true,
-            ..Default::default()
-        })
-        .await
+        Self::init_with_config(ClientConfig::local(None)).await
     }
 
     /// Initialize a client that bootstraps from a list of peers.
@@ -155,7 +143,7 @@ impl Client {
         Self::init_with_config(ClientConfig {
             local,
             peers: Some(peers),
-            evm_network: Default::default(),
+            evm_network: EvmNetwork::new(local).unwrap_or_default(),
         })
         .await
     }
@@ -180,6 +168,7 @@ impl Client {
         let peers_args = PeersArgs {
             disable_mainnet_contacts: config.local,
             addrs: config.peers.unwrap_or_default(),
+            local: config.local,
             ..Default::default()
         };
 
@@ -211,61 +200,6 @@ impl Client {
         })
     }
 
-    /// Connect to the network.
-    ///
-    /// This will timeout after [`CONNECT_TIMEOUT_SECS`] secs.
-    ///
-    /// ```no_run
-    /// # use autonomi::client::Client;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let peers = ["/ip4/127.0.0.1/udp/1234/quic-v1".parse()?];
-    /// #[allow(deprecated)]
-    /// let client = Client::connect(&peers).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[deprecated(
-        since = "0.2.4",
-        note = "Use [`Client::init`] or [`Client::init_with_config`] instead"
-    )]
-    pub async fn connect(peers: &[Multiaddr]) -> Result<Self, ConnectError> {
-        // Any global address makes the client non-local
-        let local = !peers.iter().any(multiaddr_is_global);
-
-        let (network, event_receiver) = build_client_and_run_swarm(local);
-
-        // Spawn task to dial to the given peers
-        let network_clone = network.clone();
-        let peers = peers.to_vec();
-        let _handle = ant_networking::time::spawn(async move {
-            for addr in peers {
-                if let Err(err) = network_clone.dial(addr.clone()).await {
-                    error!("Failed to dial addr={addr} with err: {err:?}");
-                    eprintln!("addr={addr} Failed to dial: {err:?}");
-                };
-            }
-        });
-
-        let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
-
-        receiver.await.expect("sender should not close")?;
-        debug!("Client is connected to the network");
-
-        // With the switch to the new bootstrap cache scheme,
-        // Seems the too many `initial dial`s could result in failure,
-        // when startup quoting/upload tasks got started up immediatly.
-        // Hence, put in a forced wait to allow `initial network discovery` to be completed.
-        ant_networking::time::sleep(Duration::from_secs(5)).await;
-
-        Ok(Self {
-            network,
-            client_event_sender: Arc::new(None),
-            evm_network: Default::default(),
-        })
-    }
-
     /// Receive events from the client.
     pub fn enable_client_events(&mut self) -> mpsc::Receiver<ClientEvent> {
         let (client_event_sender, client_event_receiver) =
@@ -274,10 +208,6 @@ impl Client {
         debug!("All events to the clients are enabled");
 
         client_event_receiver
-    }
-
-    pub fn set_evm_network(&mut self, evm_network: EvmNetwork) {
-        self.evm_network = evm_network;
     }
 }
 

@@ -85,7 +85,6 @@ pub struct InstallNodeServiceCtxBuilder {
     pub metrics_port: Option<u16>,
     pub node_ip: Option<Ipv4Addr>,
     pub node_port: Option<u16>,
-    pub owner: Option<String>,
     pub peers_args: PeersArgs,
     pub rewards_address: RewardsAddress,
     pub rpc_socket_addr: SocketAddr,
@@ -131,10 +130,6 @@ impl InstallNodeServiceCtxBuilder {
         if let Some(metrics_port) = self.metrics_port {
             args.push(OsString::from("--metrics-server-port"));
             args.push(OsString::from(metrics_port.to_string()));
-        }
-        if let Some(owner) = self.owner {
-            args.push(OsString::from("--owner"));
-            args.push(OsString::from(owner));
         }
         if let Some(log_files) = self.max_archived_log_files {
             args.push(OsString::from("--max-archived-log-files"));
@@ -193,7 +188,6 @@ pub struct AddNodeServiceOptions {
     pub network_id: Option<u8>,
     pub node_ip: Option<Ipv4Addr>,
     pub node_port: Option<PortRange>,
-    pub owner: Option<String>,
     pub peers_args: PeersArgs,
     pub rewards_address: RewardsAddress,
     pub rpc_address: Option<Ipv4Addr>,
@@ -327,7 +321,6 @@ mod tests {
             network_id: None,
             node_ip: None,
             node_port: None,
-            owner: None,
             peers_args: PeersArgs::default(),
             rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")
                 .unwrap(),
@@ -363,7 +356,6 @@ mod tests {
             network_id: None,
             node_ip: None,
             node_port: None,
-            owner: None,
             peers_args: PeersArgs::default(),
             rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")
                 .unwrap(),
@@ -400,7 +392,6 @@ mod tests {
             network_id: Some(5),
             node_ip: None,
             node_port: None,
-            owner: None,
             peers_args: PeersArgs::default(),
             rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")
                 .unwrap(),
@@ -490,7 +481,6 @@ mod tests {
         builder.node_ip = Some(Ipv4Addr::new(192, 168, 1, 1));
         builder.node_port = Some(12345);
         builder.metrics_port = Some(9090);
-        builder.owner = Some("test-owner".to_string());
         builder.peers_args.addrs = vec![
             "/ip4/127.0.0.1/tcp/8080".parse().unwrap(),
             "/ip4/192.168.1.1/tcp/8081".parse().unwrap(),
@@ -531,8 +521,6 @@ mod tests {
             "12345",
             "--metrics-server-port",
             "9090",
-            "--owner",
-            "test-owner",
             "--max-archived-log-files",
             "10",
             "--max-log-files",

@@ -12,5 +12,4 @@ mod progress_bar;
 
 pub use connect::connect_to_network;
 pub use download::download;
-
 pub use progress_bar::get_progress_bar;

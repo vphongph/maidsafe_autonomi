@@ -6,26 +6,42 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use autonomi::Multiaddr;
-use autonomi::{get_evm_network_from_env, Client};
+use crate::network::NetworkPeers;
+use autonomi::{get_evm_network, Client, ClientConfig};
 use color_eyre::eyre::bail;
 use color_eyre::eyre::Result;
 use indicatif::ProgressBar;
 use std::time::Duration;
 
-pub async fn connect_to_network(peers: Vec<Multiaddr>) -> Result<Client> {
+pub async fn connect_to_network(peers: NetworkPeers) -> Result<Client> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
     progress_bar.set_message("Connecting to The Autonomi Network...");
     let new_style = progress_bar.style().tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈🔗");
     progress_bar.set_style(new_style);
 
-    progress_bar.set_message("Connecting to The Autonomi Network...");
+    let local = peers.is_local();
 
-    match Client::init_with_peers(peers).await {
-        Ok(mut client) => {
-            let evm_network = get_evm_network_from_env()?;
-            client.set_evm_network(evm_network);
+    let peers_opt = if local {
+        progress_bar.set_message("Connecting to a local Autonomi Network...");
+        None
+    } else {
+        progress_bar.set_message("Connecting to The Autonomi Network...");
+        Some(peers.peers().to_vec())
+    };
+
+    let evm_network = get_evm_network(local)?;
+
+    let config = ClientConfig {
+        local,
+        peers: peers_opt,
+        evm_network,
+    };
+
+    let res = Client::init_with_config(config).await;
+
+    match res {
+        Ok(client) => {
             info!("Connected to the Network");
             progress_bar.finish_with_message("Connected to the Network");
             Ok(client)

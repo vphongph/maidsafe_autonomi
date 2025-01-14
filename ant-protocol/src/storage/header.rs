@@ -107,9 +107,9 @@ impl<'de> Deserialize<'de> for RecordKind {
                 Ok(Self::DataWithPayment(data_type))
             }
         } else {
-            Err(serde::de::Error::custom(
+            Err(serde::de::Error::custom(format!(
                 "Unexpected index {num} for RecordKind variant",
-            ))
+            )))
         }
     }
 }

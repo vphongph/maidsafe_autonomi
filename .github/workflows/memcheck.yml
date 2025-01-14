@@ -115,7 +115,7 @@ jobs:
       - name: Start the restart node again
         run: |
           ./target/release/antnode \
-            --root-dir-type PARESTART_TEST_NODE_DATA_PATH \
+            --root-dir $RESTART_TEST_NODE_DATA_PATH \
             --log-output-dest $RESTART_TEST_NODE_DATA_PATH \
             --local \
             --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" &

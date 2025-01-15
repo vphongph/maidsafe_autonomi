@@ -21,28 +21,28 @@ async fn transaction_put() -> Result<()> {
 
     let key = bls::SecretKey::random();
     let content = [0u8; 32];
-    let transaction = GraphEntry::new(key.public_key(), vec![], content, vec![].into(), &key);
+    let transaction = GraphEntry::new(key.public_key(), vec![], content, vec![], &key);
 
     // estimate the cost of the transaction
-    let cost = client.transaction_cost(key.clone()).await?;
+    let cost = client.graph_entry_cost(key.clone()).await?;
     println!("transaction cost: {cost}");
 
     // put the transaction
-    client.transaction_put(transaction.clone(), &wallet).await?;
+    client.graph_entry_put(transaction.clone(), &wallet).await?;
     println!("transaction put 1");
 
     // wait for the transaction to be replicated
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the transaction is stored
-    let txs = client.transaction_get(transaction.address()).await?;
+    let txs = client.graph_entry_get(transaction.address()).await?;
     assert_eq!(txs, vec![transaction.clone()]);
     println!("transaction got 1");
 
     // try put another transaction with the same address
     let content2 = [1u8; 32];
-    let transaction2 = GraphEntry::new(key.public_key(), vec![], content2, vec![].into(), &key);
-    let res = client.transaction_put(transaction2.clone(), &wallet).await;
+    let transaction2 = GraphEntry::new(key.public_key(), vec![], content2, vec![], &key);
+    let res = client.graph_entry_put(transaction2.clone(), &wallet).await;
 
     assert!(matches!(
         res,

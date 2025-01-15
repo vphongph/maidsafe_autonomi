@@ -48,8 +48,8 @@ pub enum GraphError {
 }
 
 impl Client {
-    /// Fetches a Transaction from the network.
-    pub async fn transaction_get(
+    /// Fetches a GraphEntry from the network.
+    pub async fn graph_entry_get(
         &self,
         address: GraphEntryAddress,
     ) -> Result<Vec<GraphEntry>, GraphError> {
@@ -58,12 +58,13 @@ impl Client {
         Ok(transactions)
     }
 
-    pub async fn transaction_put(
+    /// Puts a GraphEntry to the network.
+    pub async fn graph_entry_put(
         &self,
-        transaction: GraphEntry,
+        entry: GraphEntry,
         wallet: &EvmWallet,
     ) -> Result<(), GraphError> {
-        let address = transaction.address();
+        let address = entry.address();
 
         // pay for the transaction
         let xor_name = address.xorname();
@@ -80,7 +81,7 @@ impl Client {
             Some((proof, price)) => (proof, price),
             None => {
                 // transaction was skipped, meaning it was already paid for
-                error!("Transaction at address: {address:?} was already paid for");
+                error!("GraphEntry at address: {address:?} was already paid for");
                 return Err(GraphError::AlreadyExists(address));
             }
         };
@@ -90,7 +91,7 @@ impl Client {
         let record = Record {
             key: NetworkAddress::from_graph_entry_address(address).to_record_key(),
             value: try_serialize_record(
-                &(proof, &transaction),
+                &(proof, &entry),
                 RecordKind::DataWithPayment(DataTypes::GraphEntry),
             )
             .map_err(|_| GraphError::Serialization)?
@@ -136,10 +137,10 @@ impl Client {
         Ok(())
     }
 
-    /// Get the cost to create a transaction
-    pub async fn transaction_cost(&self, key: SecretKey) -> Result<AttoTokens, GraphError> {
+    /// Get the cost to create a GraphEntry
+    pub async fn graph_entry_cost(&self, key: SecretKey) -> Result<AttoTokens, GraphError> {
         let pk = key.public_key();
-        trace!("Getting cost for transaction of {pk:?}");
+        trace!("Getting cost for GraphEntry of {pk:?}");
 
         let address = GraphEntryAddress::from_owner(pk);
         let xor = *address.xorname();
@@ -151,7 +152,7 @@ impl Client {
                 .map(|quote| quote.price())
                 .sum::<Amount>(),
         );
-        debug!("Calculated the cost to create transaction of {pk:?} is {total_cost}");
+        debug!("Calculated the cost to create GraphEntry of {pk:?} is {total_cost}");
         Ok(total_cost)
     }
 }

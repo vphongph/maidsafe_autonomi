@@ -6,9 +6,9 @@ It runs on Linux, macOS and Windows.
 
 ## Installation
 
-The latest version can be installed via [safeup](https://github.com/maidsafe/safeup):
+The latest version can be installed via [antup](https://github.com/maidsafe/antup):
 ```
-safeup antctl
+antup antctl
 ```
 
 A binary can also be obtained for your platform from the releases in this repository.

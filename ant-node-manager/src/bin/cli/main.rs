@@ -787,7 +787,7 @@ pub enum LocalSubCmd {
     Join {
         /// Set to build the antnode and faucet binaries.
         ///
-        /// This option requires the command run from the root of the safe_network repository.
+        /// This option requires the command run from the root of the autonomi repository.
         #[clap(long)]
         build: bool,
         /// The number of nodes to run.
@@ -883,7 +883,7 @@ pub enum LocalSubCmd {
     Run {
         /// Set to build the antnode and faucet binaries.
         ///
-        /// This option requires the command run from the root of the safe_network repository.
+        /// This option requires the command run from the root of the autonomi repository.
         #[clap(long)]
         build: bool,
         /// Set to remove the client data directory and kill any existing local network.

@@ -356,7 +356,7 @@ faucet             -                                                    RUNNING 
 
 So by default, 25 node processes have been launched, along with a faucet. The faucet dispenses tokens for use when uploading files. We can now run `safe` commands against the local network.
 
-The most common scenario for using a local network is for development, but you can also use it to exercise a lot of features locally. For more details, please see the 'Using a Local Network' section of the [main README](https://github.com/maidsafe/autonomi/tree/node-man-readme?tab=readme-ov-file#using-a-local-network).
+The most common scenario for using a local network is for development, but you can also use it to exercise a lot of features locally. For more details, please see the 'Using a Local Network' section of the [main README](../README.md#using-a-local-network).
 
 Once you've finished, run `antctl local kill` to dispose the local network.
 

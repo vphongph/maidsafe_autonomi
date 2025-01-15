@@ -1364,18 +1364,18 @@ fn parse_environment_variables(env_var: &str) -> Result<(String, String)> {
 async fn configure_winsw(verbosity: VerbosityLevel) -> Result<()> {
     use ant_node_manager::config::get_node_manager_path;
 
-    // If the node manager was installed using `safeup`, it would have put the winsw.exe binary at
+    // If the node manager was installed using `antup`, it would have put the winsw.exe binary at
     // `C:\Users\<username>\autonomi\winsw.exe`, sitting it alongside the other safe-related binaries.
     //
     // However, if the node manager has been obtained by other means, we can put winsw.exe
     // alongside the directory where the services are defined. This prevents creation of what would
     // seem like a random `autonomi` directory in the user's home directory.
-    let safeup_winsw_path = dirs_next::home_dir()
+    let antup_winsw_path = dirs_next::home_dir()
         .ok_or_else(|| eyre!("Could not obtain user home directory"))?
         .join("autonomi")
         .join("winsw.exe");
-    if safeup_winsw_path.exists() {
-        ant_node_manager::helpers::configure_winsw(&safeup_winsw_path, verbosity).await?;
+    if antup_winsw_path.exists() {
+        ant_node_manager::helpers::configure_winsw(&antup_winsw_path, verbosity).await?;
     } else {
         ant_node_manager::helpers::configure_winsw(
             &get_node_manager_path()?.join("winsw.exe"),

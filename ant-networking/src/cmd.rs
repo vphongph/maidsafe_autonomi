@@ -103,6 +103,8 @@ pub enum LocalSwarmCmd {
     /// Returns the quoting metrics and whether the record at `key` is already stored locally
     GetLocalQuotingMetrics {
         key: RecordKey,
+        data_type: u32,
+        data_size: usize,
         sender: oneshot::Sender<(QuotingMetrics, bool)>,
     },
     /// Notify the node received a payment.
@@ -575,7 +577,12 @@ impl SwarmDriver {
                 cmd_string = "TriggerIntervalReplication";
                 self.try_interval_replication()?;
             }
-            LocalSwarmCmd::GetLocalQuotingMetrics { key, sender } => {
+            LocalSwarmCmd::GetLocalQuotingMetrics {
+                key,
+                data_type,
+                data_size,
+                sender,
+            } => {
                 cmd_string = "GetLocalQuotingMetrics";
                 let (
                     _index,
@@ -591,7 +598,12 @@ impl SwarmDriver {
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .quoting_metrics(&key, Some(estimated_network_size as u64));
+                    .quoting_metrics(
+                        &key,
+                        data_type,
+                        data_size,
+                        Some(estimated_network_size as u64),
+                    );
 
                 self.record_metrics(Marker::QuotingMetrics {
                     quoting_metrics: &quoting_metrics,

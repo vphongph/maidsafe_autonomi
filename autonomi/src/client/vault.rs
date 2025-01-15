@@ -151,8 +151,13 @@ impl Client {
         let scratch = Scratchpad::new(client_pk, content_type);
         let vault_xor = scratch.address().xorname();
 
-        // NB TODO: vault should be priced differently from other data
-        let store_quote = self.get_store_quotes(std::iter::once(vault_xor)).await?;
+        // TODO: define default size of Scratchpad
+        let store_quote = self
+            .get_store_quotes(
+                DataTypes::Scratchpad.get_index(),
+                std::iter::once((vault_xor, 256)),
+            )
+            .await?;
 
         let total_cost = AttoTokens::from_atto(
             store_quote
@@ -193,7 +198,11 @@ impl Client {
 
         let record = if is_new {
             let (receipt, _skipped_payments) = self
-                .pay_for_content_addrs(std::iter::once(scratch.xorname()), payment_option)
+                .pay_for_content_addrs(
+                    DataTypes::Scratchpad.get_index(),
+                    std::iter::once((scratch.xorname(), scratch.payload_size())),
+                    payment_option,
+                )
                 .await
                 .inspect_err(|err| {
                     error!("Failed to pay for new vault at addr: {scratch_address:?} : {err}");

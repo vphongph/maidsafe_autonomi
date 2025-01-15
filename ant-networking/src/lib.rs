@@ -378,6 +378,8 @@ impl Network {
     pub async fn get_store_quote_from_network(
         &self,
         record_address: NetworkAddress,
+        data_type: u32,
+        data_size: usize,
         ignore_peers: Vec<PeerId>,
     ) -> Result<Vec<(PeerId, PaymentQuote)>> {
         // The requirement of having at least CLOSE_GROUP_SIZE
@@ -400,6 +402,8 @@ impl Network {
         // Client shall decide whether to carry out storage verification or not.
         let request = Request::Query(Query::GetStoreQuote {
             key: record_address.clone(),
+            data_type,
+            data_size,
             nonce: None,
             difficulty: 0,
         });
@@ -810,9 +814,16 @@ impl Network {
     pub async fn get_local_quoting_metrics(
         &self,
         key: RecordKey,
+        data_type: u32,
+        data_size: usize,
     ) -> Result<(QuotingMetrics, bool)> {
         let (sender, receiver) = oneshot::channel();
-        self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics { key, sender });
+        self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics {
+            key,
+            data_type,
+            data_size,
+            sender,
+        });
 
         receiver
             .await

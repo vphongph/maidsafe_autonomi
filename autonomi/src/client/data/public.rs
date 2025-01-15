@@ -51,16 +51,20 @@ impl Client {
         info!("Uploading datamap chunk to the network at: {data_map_addr:?}");
 
         let map_xor_name = *data_map_chunk.address().xorname();
-        let mut xor_names = vec![map_xor_name];
+        let mut xor_names = vec![(map_xor_name, data_map_chunk.serialised_size())];
 
         for chunk in &chunks {
-            xor_names.push(*chunk.name());
+            xor_names.push((*chunk.name(), chunk.serialised_size()));
         }
 
         // Pay for all chunks + data map chunk
         info!("Paying for {} addresses", xor_names.len());
         let (receipt, skipped_payments) = self
-            .pay_for_content_addrs(xor_names.into_iter(), payment_option)
+            .pay_for_content_addrs(
+                DataTypes::Chunk.get_index(),
+                xor_names.into_iter(),
+                payment_option,
+            )
             .await
             .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
 
@@ -145,15 +149,15 @@ impl Client {
     /// Get the estimated cost of storing a piece of data.
     pub async fn data_cost(&self, data: Bytes) -> Result<AttoTokens, CostError> {
         let now = ant_networking::time::Instant::now();
-        let (data_map_chunk, chunks) = encrypt(data)?;
+        let (data_map_chunks, chunks) = encrypt(data)?;
 
         debug!("Encryption took: {:.2?}", now.elapsed());
 
-        let map_xor_name = *data_map_chunk.address().xorname();
-        let mut content_addrs = vec![map_xor_name];
+        let map_xor_name = *data_map_chunks.address().xorname();
+        let mut content_addrs = vec![(map_xor_name, data_map_chunks.serialised_size())];
 
         for chunk in &chunks {
-            content_addrs.push(*chunk.name());
+            content_addrs.push((*chunk.name(), chunk.serialised_size()));
         }
 
         info!(
@@ -162,7 +166,7 @@ impl Client {
         );
 
         let store_quote = self
-            .get_store_quotes(content_addrs.into_iter())
+            .get_store_quotes(DataTypes::Chunk.get_index(), content_addrs.into_iter())
             .await
             .inspect_err(|err| error!("Error getting store quotes: {err:?}"))?;
 

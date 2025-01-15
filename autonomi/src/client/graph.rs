@@ -70,7 +70,11 @@ impl Client {
         let xor_name = address.xorname();
         debug!("Paying for transaction at address: {address:?}");
         let (payment_proofs, skipped_payments) = self
-            .pay(std::iter::once(*xor_name), wallet)
+            .pay(
+                DataTypes::GraphEntry.get_index(),
+                std::iter::once((*xor_name, entry.bytes_for_signature().len())),
+                wallet,
+            )
             .await
             .inspect_err(|err| {
                 error!("Failed to pay for transaction at address: {address:?} : {err}")
@@ -144,7 +148,13 @@ impl Client {
 
         let address = GraphEntryAddress::from_owner(pk);
         let xor = *address.xorname();
-        let store_quote = self.get_store_quotes(std::iter::once(xor)).await?;
+        // TODO: define default size of GraphEntry
+        let store_quote = self
+            .get_store_quotes(
+                DataTypes::GraphEntry.get_index(),
+                std::iter::once((xor, 512)),
+            )
+            .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote
                 .0

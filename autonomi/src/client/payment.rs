@@ -65,12 +65,13 @@ impl From<Receipt> for PaymentOption {
 impl Client {
     pub(crate) async fn pay_for_content_addrs(
         &self,
-        content_addrs: impl Iterator<Item = XorName> + Clone,
+        data_type: u32,
+        content_addrs: impl Iterator<Item = (XorName, usize)> + Clone,
         payment_option: PaymentOption,
     ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
         match payment_option {
             PaymentOption::Wallet(wallet) => {
-                let (receipt, skipped) = self.pay(content_addrs, &wallet).await?;
+                let (receipt, skipped) = self.pay(data_type, content_addrs, &wallet).await?;
                 Ok((receipt, skipped))
             }
             PaymentOption::Receipt(receipt) => Ok((receipt, 0)),

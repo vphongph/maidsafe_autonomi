@@ -261,8 +261,13 @@ impl Client {
         let reg_xor = register.address().xorname();
 
         // get cost to store register
-        // NB TODO: register should be priced differently from other data
-        let store_quote = self.get_store_quotes(std::iter::once(reg_xor)).await?;
+        // TODO: define default size of Register
+        let store_quote = self
+            .get_store_quotes(
+                DataTypes::Register.get_index(),
+                std::iter::once((reg_xor, 256)),
+            )
+            .await?;
 
         let total_cost = AttoTokens::from_atto(
             store_quote
@@ -320,11 +325,16 @@ impl Client {
         let reg_xor = address.xorname();
         debug!("Paying for register at address: {address}");
         let (payment_proofs, skipped_payments) = self
-            .pay(std::iter::once(reg_xor), wallet)
+            // TODO: define Register default size for pricing
+            .pay(
+                DataTypes::Register.get_index(),
+                std::iter::once((reg_xor, 256)),
+                wallet,
+            )
             .await
             .inspect_err(|err| {
-            error!("Failed to pay for register at address: {address} : {err}")
-        })?;
+                error!("Failed to pay for register at address: {address} : {err}")
+            })?;
         let (proof, price) = if let Some((proof, price)) = payment_proofs.get(&reg_xor) {
             (proof, price)
         } else {

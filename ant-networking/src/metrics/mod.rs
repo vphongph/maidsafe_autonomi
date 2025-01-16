@@ -246,11 +246,12 @@ impl NetworkMetricsRecorder {
 
         let pid = Pid::from_u32(std::process::id());
         let process_refresh_kind = ProcessRefreshKind::everything().without_disk_usage();
-        let mut system = System::new_all();
+        let mut system = System::new();
         let physical_core_count = system.physical_core_count();
 
         tokio::spawn(async move {
             loop {
+                system.refresh_cpu();
                 system.refresh_process_specifics(pid, process_refresh_kind);
                 if let (Some(process), Some(core_count)) =
                     (system.process(pid), physical_core_count)

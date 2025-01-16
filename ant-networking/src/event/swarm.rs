@@ -119,8 +119,7 @@ impl SwarmDriver {
                     metrics_recorder.record(&(*event));
                 }
                 event_string = "identify";
-
-                self.handle_identify_event(*event)?;
+                self.handle_identify_event(*event);
             }
             #[cfg(feature = "local")]
             SwarmEvent::Behaviour(NodeEvent::Mdns(mdns_event)) => {

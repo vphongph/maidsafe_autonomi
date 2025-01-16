@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 use ant_evm::{Amount, EvmWalletError};
 use ant_networking::NetworkError;
-use ant_protocol::storage::Chunk;
+use ant_protocol::storage::{Chunk, DataTypes};
 use ant_protocol::NetworkAddress;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -220,10 +220,17 @@ impl Client {
         debug!("Encryption took: {:.2?}", now.elapsed());
 
         // Pay for all chunks
-        let xor_names: Vec<_> = chunks.iter().map(|chunk| *chunk.name()).collect();
+        let xor_names: Vec<_> = chunks
+            .iter()
+            .map(|chunk| (*chunk.name(), chunk.serialised_size()))
+            .collect();
         info!("Paying for {} addresses", xor_names.len());
         let (receipt, skipped_payments) = self
-            .pay_for_content_addrs(xor_names.into_iter(), payment_option)
+            .pay_for_content_addrs(
+                DataTypes::Chunk.get_index(),
+                xor_names.into_iter(),
+                payment_option,
+            )
             .await
             .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
 

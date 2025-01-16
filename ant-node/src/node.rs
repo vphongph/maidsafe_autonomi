@@ -574,6 +574,8 @@ impl Node {
         let resp: QueryResponse = match query {
             Query::GetStoreQuote {
                 key,
+                data_type,
+                data_size,
                 nonce,
                 difficulty,
             } => {
@@ -581,8 +583,9 @@ impl Node {
                 let record_key = key.to_record_key();
                 let self_id = network.peer_id();
 
-                let maybe_quoting_metrics =
-                    network.get_local_quoting_metrics(record_key.clone()).await;
+                let maybe_quoting_metrics = network
+                    .get_local_quoting_metrics(record_key.clone(), data_type, data_size)
+                    .await;
 
                 let storage_proofs = if let Some(nonce) = nonce {
                     Self::respond_x_closest_record_proof(

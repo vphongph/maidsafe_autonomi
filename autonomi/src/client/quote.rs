@@ -55,12 +55,15 @@ impl StoreQuote {
 impl Client {
     pub async fn get_store_quotes(
         &self,
-        content_addrs: impl Iterator<Item = XorName>,
+        data_type: u32,
+        content_addrs: impl Iterator<Item = (XorName, usize)>,
     ) -> Result<StoreQuote, CostError> {
         // get all quotes from nodes
         let futures: Vec<_> = content_addrs
             .into_iter()
-            .map(|content_addr| fetch_store_quote_with_retries(&self.network, content_addr))
+            .map(|(content_addr, data_size)| {
+                fetch_store_quote_with_retries(&self.network, content_addr, data_type, data_size)
+            })
             .collect();
 
         let raw_quotes_per_addr = futures::future::try_join_all(futures).await?;
@@ -149,10 +152,14 @@ impl Client {
 async fn fetch_store_quote(
     network: &Network,
     content_addr: XorName,
+    data_type: u32,
+    data_size: usize,
 ) -> Result<Vec<(PeerId, PaymentQuote)>, NetworkError> {
     network
         .get_store_quote_from_network(
             NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr)),
+            data_type,
+            data_size,
             vec![],
         )
         .await
@@ -162,11 +169,13 @@ async fn fetch_store_quote(
 async fn fetch_store_quote_with_retries(
     network: &Network,
     content_addr: XorName,
+    data_type: u32,
+    data_size: usize,
 ) -> Result<(XorName, Vec<(PeerId, PaymentQuote)>), CostError> {
     let mut retries = 0;
 
     loop {
-        match fetch_store_quote(network, content_addr).await {
+        match fetch_store_quote(network, content_addr, data_type, data_size).await {
             Ok(quote) => {
                 if quote.len() < CLOSE_GROUP_SIZE {
                     retries += 1;

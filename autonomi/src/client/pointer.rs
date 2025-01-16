@@ -63,7 +63,12 @@ impl Client {
         let xor_name = *address.xorname();
         debug!("Paying for pointer at address: {address:?}");
         let (payment_proofs, _skipped_payments) = self
-            .pay(std::iter::once(xor_name), wallet)
+            // TODO: define Pointer default size for pricing
+            .pay(
+                DataTypes::Pointer.get_index(),
+                std::iter::once((xor_name, 128)),
+                wallet,
+            )
             .await
             .inspect_err(|err| {
                 error!("Failed to pay for pointer at address: {address:?} : {err}")
@@ -126,7 +131,10 @@ impl Client {
 
         let address = PointerAddress::from_owner(pk);
         let xor = *address.xorname();
-        let store_quote = self.get_store_quotes(std::iter::once(xor)).await?;
+        // TODO: define default size of Pointer
+        let store_quote = self
+            .get_store_quotes(DataTypes::Pointer.get_index(), std::iter::once((xor, 128)))
+            .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote
                 .0

@@ -23,6 +23,10 @@ pub enum Query {
     GetStoreQuote {
         /// The Address of the record to be stored.
         key: NetworkAddress,
+        /// DataTypes as represented as its `index`
+        data_type: u32,
+        /// Data size of the record
+        data_size: usize,
         /// The random nonce that nodes use to produce the Proof (i.e., hash(record+nonce))
         /// Set to None if no need to carry out storage check.
         nonce: Option<Nonce>,
@@ -101,10 +105,15 @@ impl std::fmt::Display for Query {
         match self {
             Query::GetStoreQuote {
                 key,
+                data_type,
+                data_size,
                 nonce,
                 difficulty,
             } => {
-                write!(f, "Query::GetStoreQuote({key:?} {nonce:?} {difficulty})")
+                write!(
+                    f,
+                    "Query::GetStoreQuote({key:?} {data_type} {data_size} {nonce:?} {difficulty})"
+                )
             }
             Query::GetReplicatedRecord { key, requester } => {
                 write!(f, "Query::GetReplicatedRecord({requester:?} {key:?})")

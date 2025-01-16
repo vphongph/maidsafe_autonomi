@@ -167,11 +167,12 @@ impl Client {
     /// Pay for the chunks and get the proof of payment.
     pub(crate) async fn pay(
         &self,
-        content_addrs: impl Iterator<Item = XorName> + Clone,
+        data_type: u32,
+        content_addrs: impl Iterator<Item = (XorName, usize)> + Clone,
         wallet: &EvmWallet,
     ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
         let number_of_content_addrs = content_addrs.clone().count();
-        let quotes = self.get_store_quotes(content_addrs).await?;
+        let quotes = self.get_store_quotes(data_type, content_addrs).await?;
 
         // Make sure nobody else can use the wallet while we are paying
         debug!("Waiting for wallet lock");

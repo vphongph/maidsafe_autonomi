@@ -714,6 +714,8 @@ impl NodeRecordStore {
     pub(crate) fn quoting_metrics(
         &self,
         key: &Key,
+        data_type: u32,
+        data_size: usize,
         network_size: Option<u64>,
     ) -> (QuotingMetrics, bool) {
         let records_stored = self.records.len();
@@ -725,6 +727,8 @@ impl NodeRecordStore {
         };
 
         let mut quoting_metrics = QuotingMetrics {
+            data_type,
+            data_size,
             close_records_stored: records_stored,
             max_records: self.config.max_records,
             received_payment_count: self.received_payment_count,

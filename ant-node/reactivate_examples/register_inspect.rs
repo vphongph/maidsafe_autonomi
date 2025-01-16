@@ -66,7 +66,7 @@
 //     //
 //     // The only want to avoid unwanted creation of a Register seems to
 //     // be to supply an empty wallet.
-//     // TODO Follow the issue about this: https://github.com/maidsafe/safe_network/issues/1308
+//     // TODO Follow the issue about this: https://github.com/maidsafe/autonomi/issues/1308
 //     let root_dir = dirs_next::data_dir()
 //         .ok_or_else(|| eyre!("could not obtain data directory path".to_string()))?
 //         .join("autonomi")

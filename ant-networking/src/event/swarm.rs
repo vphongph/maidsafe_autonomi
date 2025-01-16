@@ -12,6 +12,7 @@ use crate::{
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::version::{IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR};
+use itertools::Itertools;
 #[cfg(feature = "open-metrics")]
 use libp2p::metrics::Recorder;
 use libp2p::{
@@ -63,12 +64,21 @@ impl SwarmDriver {
                 info!(?event, "relay client event");
 
                 if let libp2p::relay::client::Event::ReservationReqAccepted {
-                    relay_peer_id, ..
+                    relay_peer_id,
+                    renewal,
+                    ..
                 } = *event
                 {
-                    if let Some(relay_manager) = self.relay_manager.as_mut() {
-                        relay_manager
-                            .on_successful_reservation_by_client(&relay_peer_id, &mut self.swarm);
+                    if !renewal {
+                        if let Some(relay_manager) = self.relay_manager.as_mut() {
+                            relay_manager.on_successful_reservation_by_client(
+                                &relay_peer_id,
+                                &mut self.swarm,
+                                &self.live_connected_peers,
+                            );
+                        }
+                    } else {
+                        info!("Relay reservation was renewed with {relay_peer_id:?}");
                     }
                 }
             }
@@ -338,6 +348,13 @@ impl SwarmDriver {
                         // just for future reference.
                         warn!("External address manager is not enabled for a public node. This should not happen.");
                     }
+                }
+
+                if tracing::level_enabled!(tracing::Level::DEBUG) {
+                    let all_external_addresses = self.swarm.external_addresses().collect_vec();
+                    let all_listeners = self.swarm.listeners().collect_vec();
+                    debug!("All our listeners: {all_listeners:?}");
+                    debug!("All our external addresses: {all_external_addresses:?}");
                 }
 
                 self.send_event(NetworkEvent::NewListenAddr(address.clone()));

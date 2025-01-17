@@ -153,6 +153,10 @@ pub enum LocalSwarmCmd {
     AddNetworkDensitySample {
         distance: Distance,
     },
+    /// Send peer scores (collected from storage challenge) to replication_fetcher
+    NotifyPeerScores {
+        peer_scores: Vec<(PeerId, bool)>,
+    },
 }
 
 /// Commands to send to the Swarm
@@ -311,6 +315,9 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::AddNetworkDensitySample { distance } => {
                 write!(f, "LocalSwarmCmd::AddNetworkDensitySample({distance:?})")
+            }
+            LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
+                write!(f, "LocalSwarmCmd::NotifyPeerScores({peer_scores:?})")
             }
         }
     }
@@ -936,6 +943,10 @@ impl SwarmDriver {
             LocalSwarmCmd::AddNetworkDensitySample { distance } => {
                 cmd_string = "AddNetworkDensitySample";
                 self.network_density_samples.add(distance);
+            }
+            LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
+                cmd_string = "NotifyPeerScores";
+                self.replication_fetcher.add_peer_scores(peer_scores);
             }
         }
 

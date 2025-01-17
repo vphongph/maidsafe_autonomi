@@ -1004,6 +1004,10 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::AddNetworkDensitySample { distance })
     }
 
+    pub fn notify_peer_scores(&self, peer_scores: Vec<(PeerId, bool)>) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerScores { peer_scores })
+    }
+
     /// Helper to send NetworkSwarmCmd
     fn send_network_swarm_cmd(&self, cmd: NetworkSwarmCmd) {
         send_network_swarm_cmd(self.network_swarm_cmd_sender().clone(), cmd);

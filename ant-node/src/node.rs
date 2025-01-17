@@ -922,19 +922,25 @@ impl Node {
             });
         }
 
+        let mut peer_scores = vec![];
         while let Some(res) = tasks.join_next().await {
             match res {
                 Ok((peer_id, score)) => {
-                    if score < MIN_ACCEPTABLE_HEALTHY_SCORE {
+                    let is_healthy = score < MIN_ACCEPTABLE_HEALTHY_SCORE;
+                    if !is_healthy {
                         info!("Peer {peer_id:?} failed storage challenge with low score {score}/{MIN_ACCEPTABLE_HEALTHY_SCORE}.");
                         // TODO: shall the challenge failure immediately triggers the node to be removed?
                         network.record_node_issues(peer_id, NodeIssue::FailedChunkProofCheck);
                     }
+                    peer_scores.push((peer_id, is_healthy));
                 }
                 Err(e) => {
                     info!("StorageChallenge task completed with error {e:?}");
                 }
             }
+        }
+        if !peer_scores.is_empty() {
+            network.notify_peer_scores(peer_scores);
         }
 
         info!(

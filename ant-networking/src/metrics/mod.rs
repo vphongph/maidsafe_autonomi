@@ -46,6 +46,7 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
     pub(crate) records_stored: Gauge,
+    pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
 
     // quoting metrics
     relevant_records: Gauge,
@@ -85,6 +86,12 @@ impl NetworkMetricsRecorder {
             "records_stored",
             "The number of records stored locally",
             records_stored.clone(),
+        );
+        let relay_reservation_health = Gauge::<f64, AtomicU64>::default();
+        sub_registry.register(
+            "relay_reservation_health",
+            "The average health of all the relay reservation connections. Value is between 0-1",
+            relay_reservation_health.clone(),
         );
 
         let connected_peers = Gauge::default();
@@ -221,6 +228,7 @@ impl NetworkMetricsRecorder {
             estimated_network_size,
             connected_peers,
             open_connections,
+            relay_reservation_health,
             peers_in_routing_table,
             relevant_records,
             max_records,

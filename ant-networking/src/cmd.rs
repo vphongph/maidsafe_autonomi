@@ -157,6 +157,11 @@ pub enum LocalSwarmCmd {
     NotifyPeerScores {
         peer_scores: Vec<(PeerId, bool)>,
     },
+    /// Add fresh replicate records into replication_fetcher
+    AddFreshReplicateRecords {
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType)>,
+    },
 }
 
 /// Commands to send to the Swarm
@@ -318,6 +323,12 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
                 write!(f, "LocalSwarmCmd::NotifyPeerScores({peer_scores:?})")
+            }
+            LocalSwarmCmd::AddFreshReplicateRecords { holder, keys } => {
+                write!(
+                    f,
+                    "LocalSwarmCmd::AddFreshReplicateRecords({holder:?}, {keys:?})"
+                )
             }
         }
     }
@@ -947,6 +958,10 @@ impl SwarmDriver {
             LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
                 cmd_string = "NotifyPeerScores";
                 self.replication_fetcher.add_peer_scores(peer_scores);
+            }
+            LocalSwarmCmd::AddFreshReplicateRecords { holder, keys } => {
+                cmd_string = "AddFreshReplicateRecords";
+                self.add_keys_to_replication_fetcher(holder, keys, true);
             }
         }
 

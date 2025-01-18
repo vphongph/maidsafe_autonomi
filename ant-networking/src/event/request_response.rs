@@ -48,6 +48,21 @@ impl SwarmDriver {
 
                             self.add_keys_to_replication_fetcher(holder, keys, false)?;
                         }
+                        Request::Cmd(ant_protocol::messages::Cmd::FreshReplicate {
+                            holder,
+                            keys,
+                        }) => {
+                            let response = Response::Cmd(
+                                ant_protocol::messages::CmdResponse::FreshReplicate(Ok(())),
+                            );
+
+                            self.queue_network_swarm_cmd(NetworkSwarmCmd::SendResponse {
+                                resp: response,
+                                channel: MsgResponder::FromPeer(channel),
+                            });
+
+                            self.send_event(NetworkEvent::FreshReplicateToFetch { holder, keys });
+                        }
                         Request::Cmd(ant_protocol::messages::Cmd::PeerConsideredAsBad {
                             detected_by,
                             bad_peer,
@@ -156,7 +171,7 @@ impl SwarmDriver {
         Ok(())
     }
 
-    fn add_keys_to_replication_fetcher(
+    pub(crate) fn add_keys_to_replication_fetcher(
         &mut self,
         sender: NetworkAddress,
         incoming_keys: Vec<(NetworkAddress, ValidationType)>,

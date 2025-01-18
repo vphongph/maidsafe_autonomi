@@ -988,6 +988,14 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::TriggerIntervalReplication)
     }
 
+    pub fn add_fresh_records_to_the_replication_fetcher(
+        &self,
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType)>,
+    ) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::AddFreshReplicateRecords { holder, keys })
+    }
+
     pub fn record_node_issues(&self, peer_id: PeerId, issue: NodeIssue) {
         self.send_local_swarm_cmd(LocalSwarmCmd::RecordNodeIssue { peer_id, issue });
     }

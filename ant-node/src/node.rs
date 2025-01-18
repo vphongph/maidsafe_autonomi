@@ -540,6 +540,10 @@ impl Node {
                     quotes_verification(&network, quotes).await;
                 });
             }
+            NetworkEvent::FreshReplicateToFetch { holder, keys } => {
+                event_header = "FreshReplicateToFetch";
+                self.fresh_replicate_to_fetch(holder, keys);
+            }
         }
 
         trace!(

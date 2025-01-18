@@ -20,11 +20,12 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 
-use ant_evm::PaymentQuote;
+use ant_evm::{PaymentQuote, ProofOfPayment};
 #[cfg(feature = "open-metrics")]
 use ant_protocol::CLOSE_GROUP_SIZE;
 use ant_protocol::{
     messages::{Query, Request, Response},
+    storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey,
 };
 #[cfg(feature = "open-metrics")]
@@ -143,6 +144,11 @@ pub enum NetworkEvent {
     FailedToFetchHolders(BTreeSet<PeerId>),
     /// Quotes to be verified
     QuoteVerification { quotes: Vec<(PeerId, PaymentQuote)> },
+    /// Fresh replicate to fetch
+    FreshReplicateToFetch {
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType, Option<ProofOfPayment>)>,
+    },
 }
 
 /// Terminate node for the following reason
@@ -199,6 +205,12 @@ impl Debug for NetworkEvent {
                     f,
                     "NetworkEvent::QuoteVerification({} quotes)",
                     quotes.len()
+                )
+            }
+            NetworkEvent::FreshReplicateToFetch { holder, keys } => {
+                write!(
+                    f,
+                    "NetworkEvent::FreshReplicateToFetch({holder:?}, {keys:?})"
                 )
             }
         }

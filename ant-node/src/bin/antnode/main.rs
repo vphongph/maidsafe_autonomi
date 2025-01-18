@@ -427,7 +427,7 @@ You can check your reward balance by running:
         const JITTER_MIN_S: u64 = 1;
         const JITTER_MAX_S: u64 = 15;
 
-        let mut sys = System::new_all();
+        let mut sys = System::new();
 
         let mut high_cpu_count: u8 = 0;
 

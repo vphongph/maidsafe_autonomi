@@ -127,7 +127,12 @@ impl Node {
                 // So that when the replicate target asking for the copy,
                 // the node can have a higher chance to respond.
                 let store_scratchpad_result = self
-                    .validate_and_store_scratchpad_record(scratchpad, record_key.clone(), true)
+                    .validate_and_store_scratchpad_record(
+                        scratchpad,
+                        record_key.clone(),
+                        true,
+                        Some(payment),
+                    )
                     .await;
 
                 match store_scratchpad_result {
@@ -140,11 +145,6 @@ impl Node {
                             &record_key,
                         ))
                         .log();
-                        self.replicate_valid_fresh_record(
-                            record_key.clone(),
-                            ValidationType::NonChunk(content_hash),
-                            Some(payment),
-                        );
 
                         // Notify replication_fetcher to mark the attempt as completed.
                         // Send the notification earlier to avoid it got skipped due to:
@@ -174,7 +174,7 @@ impl Node {
                 }
 
                 // store the scratchpad
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, true, None)
                     .await
             }
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
@@ -278,16 +278,11 @@ impl Node {
                     }
                 }
 
-                let res = self.validate_and_store_pointer_record(pointer, key);
+                let res = self.validate_and_store_pointer_record(pointer, key, true, Some(payment));
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
                     Marker::ValidPointerPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(
-                        record.key.clone(),
-                        ValidationType::NonChunk(content_hash),
-                        Some(payment),
-                    );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     self.network().notify_fetch_completed(
@@ -332,7 +327,7 @@ impl Node {
             RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, false, None)
                     .await
             }
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
@@ -344,7 +339,7 @@ impl Node {
             RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
-                self.validate_and_store_pointer_record(pointer, key)
+                self.validate_and_store_pointer_record(pointer, key, false, None)
             }
         }
     }
@@ -425,6 +420,7 @@ impl Node {
         scratchpad: Scratchpad,
         record_key: RecordKey,
         is_client_put: bool,
+        payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
         let addr = scratchpad.address();
@@ -478,7 +474,7 @@ impl Node {
             self.replicate_valid_fresh_record(
                 scratchpad_key,
                 ValidationType::NonChunk(content_hash),
-                None,
+                payment,
             );
         }
 
@@ -684,6 +680,8 @@ impl Node {
         &self,
         pointer: Pointer,
         key: RecordKey,
+        is_client_put: bool,
+        payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
         if !pointer.verify() {
@@ -706,11 +704,12 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network().put_local_record(record.clone());
 
-        let content_hash = XorName::from_content(&pointer.network_address().to_bytes());
-        // PointData update doesn't have payment attached.
-        self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash), None);
+        if is_client_put {
+            let content_hash = XorName::from_content(&record.value);
+            self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash), payment);
+        }
 
         Ok(())
     }

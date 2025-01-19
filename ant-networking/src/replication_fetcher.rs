@@ -331,6 +331,7 @@ impl ReplicationFetcher {
     ) -> Vec<(PeerId, NetworkAddress, ValidationType)> {
         match self.is_peer_trustworthy(holder) {
             Some(true) => {
+                debug!("Replication source {holder:?} is trustworthy.");
                 let new_incoming_keys =
                     self.in_range_new_keys(holder, incoming_keys, locally_stored_keys);
                 new_incoming_keys
@@ -338,8 +339,12 @@ impl ReplicationFetcher {
                     .map(|(addr, val_type)| (*holder, addr, val_type))
                     .collect()
             }
-            Some(false) => vec![],
+            Some(false) => {
+                debug!("Replication source {holder:?} is not trustworthy.");
+                vec![]
+            }
             None => {
+                debug!("Not having enough network knowledge, using majority scheme instead.");
                 // Whenever we had enough scoring knowledge of peers,
                 // we shall no longer use the `majority copies` approach.
                 // This can prevent malicious neighbouring farming targeting existing nodes.
@@ -372,6 +377,10 @@ impl ReplicationFetcher {
     ) -> Vec<(PeerId, NetworkAddress, ValidationType)> {
         let mut majorities = vec![];
         for addr_val_type in incoming_keys {
+            debug!(
+                "adding record {:?} from holder {holder:?} into initial accumulator",
+                addr_val_type.0
+            );
             let peers = self
                 .initial_replicates
                 .entry(addr_val_type.clone())
@@ -384,6 +393,7 @@ impl ReplicationFetcher {
 
         let mut result = vec![];
         for addr_val_type in majorities {
+            debug!("Accumulated majorities: {:?}", addr_val_type.0);
             if let Some(peers) = self.initial_replicates.remove(&addr_val_type) {
                 for peer in peers {
                     result.push((peer, addr_val_type.0.clone(), addr_val_type.1.clone()));
@@ -449,7 +459,8 @@ impl ReplicationFetcher {
         }
 
         if !out_of_range_keys.is_empty() {
-            info!("Among {total_incoming_keys} incoming replications from {holder:?}, found {} out of range", out_of_range_keys.len());
+            info!("Among {total_incoming_keys} incoming replications from {holder:?}, {} new records and {} out of range",
+                new_incoming_keys.len(), out_of_range_keys.len());
         }
 
         new_incoming_keys

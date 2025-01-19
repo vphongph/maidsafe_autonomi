@@ -185,7 +185,7 @@ impl SwarmDriver {
         };
 
         debug!(
-            "Received replication list from {holder:?} of {} keys",
+            "Received replication list from {holder:?} of {} keys is_fresh_replicate {is_fresh_replicate:?}",
             incoming_keys.len()
         );
 

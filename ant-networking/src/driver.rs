@@ -1103,14 +1103,14 @@ impl SwarmDriver {
     /// get closest k_value the peers from our local RoutingTable. Contains self.
     /// Is sorted for closeness to self.
     pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<PeerId> {
-        let self_peer_id = self.self_peer_id.into();
+        let k_bucket_key = NetworkAddress::from_peer(self.self_peer_id).as_kbucket_key();
 
         // get closest peers from buckets, sorted by increasing distance to us
         let peers = self
             .swarm
             .behaviour_mut()
             .kademlia
-            .get_closest_local_peers(&self_peer_id)
+            .get_closest_local_peers(&k_bucket_key)
             // Map KBucketKey<PeerId> to PeerId.
             .map(|key| key.into_preimage());
 

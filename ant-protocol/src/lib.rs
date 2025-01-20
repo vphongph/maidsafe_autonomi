@@ -17,7 +17,7 @@ pub mod messages;
 pub mod node;
 /// RPC commands to node
 pub mod node_rpc;
-/// Storage types for transactions, chunks and registers.
+/// Storage types for GraphEntry and Chunk
 pub mod storage;
 /// Network versioning
 pub mod version;
@@ -32,7 +32,7 @@ pub use error::Error;
 pub use error::Error as NetworkError;
 use storage::ScratchpadAddress;
 
-use self::storage::{ChunkAddress, GraphEntryAddress, PointerAddress, RegisterAddress};
+use self::storage::{ChunkAddress, GraphEntryAddress, PointerAddress};
 
 /// Re-export of Bytes used throughout the protocol
 pub use bytes::Bytes;
@@ -96,8 +96,6 @@ pub enum NetworkAddress {
     ChunkAddress(ChunkAddress),
     /// The NetworkAddress is representing a TransactionAddress.
     GraphEntryAddress(GraphEntryAddress),
-    /// The NetworkAddress is representing a RegisterAddress.
-    RegisterAddress(RegisterAddress),
     /// The NetworkAddress is representing a ScratchpadAddress.
     ScratchpadAddress(ScratchpadAddress),
     /// The NetworkAddress is representing a PointerAddress.
@@ -120,11 +118,6 @@ impl NetworkAddress {
     /// Return a `NetworkAddress` representation of the `TransactionAddress`.
     pub fn from_scratchpad_address(address: ScratchpadAddress) -> Self {
         NetworkAddress::ScratchpadAddress(address)
-    }
-
-    /// Return a `NetworkAddress` representation of the `RegisterAddress`.
-    pub fn from_register_address(register_address: RegisterAddress) -> Self {
-        NetworkAddress::RegisterAddress(register_address)
     }
 
     /// Return a `NetworkAddress` representation of the `PeerId` by encapsulating its bytes.
@@ -151,9 +144,6 @@ impl NetworkAddress {
                 graph_entry_address.xorname().0.to_vec()
             }
             NetworkAddress::ScratchpadAddress(addr) => addr.xorname().0.to_vec(),
-            NetworkAddress::RegisterAddress(register_address) => {
-                register_address.xorname().0.to_vec()
-            }
             NetworkAddress::PointerAddress(pointer_address) => pointer_address.0.to_vec(),
         }
     }
@@ -181,9 +171,6 @@ impl NetworkAddress {
         match self {
             NetworkAddress::RecordKey(bytes) => RecordKey::new(bytes),
             NetworkAddress::ChunkAddress(chunk_address) => RecordKey::new(chunk_address.xorname()),
-            NetworkAddress::RegisterAddress(register_address) => {
-                RecordKey::new(&register_address.xorname())
-            }
             NetworkAddress::GraphEntryAddress(graph_entry_address) => {
                 RecordKey::new(graph_entry_address.xorname())
             }
@@ -239,12 +226,6 @@ impl Debug for NetworkAddress {
                     &scratchpad_address.to_hex()[0..6]
                 )
             }
-            NetworkAddress::RegisterAddress(register_address) => {
-                format!(
-                    "NetworkAddress::RegisterAddress({} - ",
-                    &register_address.to_hex()[0..6]
-                )
-            }
             NetworkAddress::PointerAddress(pointer_address) => {
                 format!(
                     "NetworkAddress::PointerAddress({} - ",
@@ -274,9 +255,6 @@ impl Display for NetworkAddress {
             }
             NetworkAddress::ScratchpadAddress(addr) => {
                 write!(f, "NetworkAddress::ScratchpadAddress({addr:?})")
-            }
-            NetworkAddress::RegisterAddress(addr) => {
-                write!(f, "NetworkAddress::RegisterAddress({addr:?})")
             }
             NetworkAddress::RecordKey(key) => {
                 write!(f, "NetworkAddress::RecordKey({})", hex::encode(key))

@@ -132,7 +132,6 @@ impl Client {
                 retry_strategy: Some(RetryStrategy::Balanced),
                 target_record: None,
                 expected_holders: Default::default(),
-                is_register: false,
             };
 
             let stored_on_node =

@@ -168,15 +168,6 @@ jobs:
         timeout-minutes: 25
         run: cargo test --release --package ant-logging
 
-      - name: Run register tests
-        timeout-minutes: 25
-        run: cargo test --release --package ant-registers
-        env:
-          # this will speed up PR merge flows, while giving us a modicum
-          # of proptesting
-          # we do many more runs on the nightly run
-          PROPTEST_CASES: 50
-
   e2e:
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     name: E2E tests
@@ -276,104 +267,6 @@ jobs:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: Generate register signing key
-        run: ./target/release/ant --log-output-dest=data-dir --local register generate-key
-
-      - name: Create register (writeable by owner)
-        run: ./target/release/ant --log-output-dest=data-dir --local register create baobao 123 > ./register_create_output 2>&1
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: parse register address (unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          REGISTER_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_create_output)
-          echo "REGISTER_ADDRESS=$REGISTER_ADDRESS" >> $GITHUB_ENV
-        shell: bash
-
-      - name: parse register address (win)
-        if: matrix.os == 'windows-latest'
-        run: |
-          $REGISTER_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_create_output
-          echo "REGISTER_ADDRESS=$REGISTER_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        shell: pwsh
-
-      - name: Get register
-        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 5
-
-      - name: Edit register
-        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.REGISTER_ADDRESS }} 456
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: Get register (after edit)
-        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 5
-
-      - name: Create Public Register (writeable by anyone)
-        run: ./target/release/ant --log-output-dest=data-dir --local register create bao 111 --public > ./register_public_create_output 2>&1
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 5
-
-      - name: parse public register address (unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          PUBLIC_REGISTER_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output)
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" >> $GITHUB_ENV
-        shell: bash
-
-      - name: parse public register address (win)
-        if: matrix.os == 'windows-latest'
-        run: |
-          $PUBLIC_REGISTER_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        shell: pwsh
-
-      - name: Get Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 5
-
-      - name: Edit Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 222
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: Delete current register signing key
-        shell: bash
-        run: rm -rf ${{ matrix.ant_path }}/client
-
-      - name: Generate new register signing key
-        run: ./target/release/ant --log-output-dest data-dir register generate-key
-
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 2
-
-      - name: Edit Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 333
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 2
-
       - name: create local user file
         run: echo random > random.txt
         env:
@@ -382,12 +275,6 @@ jobs:
 
       - name: file upload
         run: ./target/release/ant --log-output-dest data-dir --local file upload random.txt
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 2
-
-      - name: create a local register
-        run: ./target/release/ant --log-output-dest data-dir --local register create sample_new_register 1234
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -412,7 +299,6 @@ jobs:
             dd if=/dev/urandom of=random_file_$i.bin bs=1M count=1 status=none
             ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin --public
             ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin
-            ./target/release/ant --log-output-dest data-dir --local register create $i random_file_$i.bin
           done
         env:
           ANT_LOG: "v"
@@ -431,7 +317,6 @@ jobs:
               # Run autonomi commands
               ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin" --public
               ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin"
-              ./target/release/ant --log-output-dest data-dir --local register create $i "random_file_$i.bin"
           }
         env:
           ANT_LOG: "v"

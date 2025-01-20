@@ -34,14 +34,13 @@ use ant_evm::{PaymentQuote, U256};
 use ant_protocol::{
     convert_distance_to_u256,
     messages::{ChunkProof, Nonce, Request, Response},
-    storage::{try_deserialize_record, RetryStrategy},
+    storage::RetryStrategy,
     version::{
         get_network_id, IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_NODE_VERSION_STR,
         IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR,
     },
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey,
 };
-use ant_registers::SignedRegister;
 use futures::future::Either;
 use futures::StreamExt;
 use libp2p::{core::muxing::StreamMuxerBox, relay};
@@ -150,37 +149,12 @@ pub struct GetRecordCfg {
     pub target_record: Option<Record>,
     /// Logs if the record was not fetched from the provided set of peers.
     pub expected_holders: HashSet<PeerId>,
-    /// For register record, only root value shall be checked, not the entire content.
-    pub is_register: bool,
 }
 
 impl GetRecordCfg {
     pub fn does_target_match(&self, record: &Record) -> bool {
         if let Some(ref target_record) = self.target_record {
-            if self.is_register {
-                let pretty_key = PrettyPrintRecordKey::from(&target_record.key);
-
-                let fetched_register = match try_deserialize_record::<SignedRegister>(record) {
-                    Ok(fetched_register) => fetched_register,
-                    Err(err) => {
-                        error!("When try to deserialize register from fetched record {pretty_key:?}, have error {err:?}");
-                        return false;
-                    }
-                };
-                let target_register = match try_deserialize_record::<SignedRegister>(target_record)
-                {
-                    Ok(target_register) => target_register,
-                    Err(err) => {
-                        error!("When try to deserialize register from target record {pretty_key:?}, have error {err:?}");
-                        return false;
-                    }
-                };
-
-                target_register.base_register() == fetched_register.base_register()
-                    && target_register.ops() == fetched_register.ops()
-            } else {
-                target_record == record
-            }
+            target_record == record
         } else {
             // Not have target_record to check with
             true

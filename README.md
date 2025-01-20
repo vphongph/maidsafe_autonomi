@@ -74,8 +74,6 @@ The Autonomi network uses `quic` as the default transport protocol.
   networking layer, built atop libp2p which allows nodes and clients to communicate.
 - [Protocol](https://github.com/maidsafe/autonomi/blob/main/ant-protocol/README.md) The protocol
   used by the autonomi network.
-- [Registers](https://github.com/maidsafe/autonomi/blob/main/ant-registers/README.md) The
-  registers crate, used for the Register CRDT data type on the network.
 - [Bootstrap](https://github.com/maidsafe/autonomi/blob/main/ant-bootstrap/README.md)
   The network bootstrap cache or: how the network layer discovers bootstrap peers.
 - [Build Info](https://github.com/maidsafe/autonomi/blob/main/ant-build-info/README.md) Small

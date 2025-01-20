@@ -108,7 +108,6 @@ impl Client {
             retry_strategy: Some(RetryStrategy::default()),
             target_record: None,
             expected_holders: Default::default(),
-            is_register: false,
         };
         let put_cfg = PutRecordCfg {
             put_quorum: Quorum::All,

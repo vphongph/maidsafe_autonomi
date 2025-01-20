@@ -46,12 +46,6 @@ pub enum QueryResponse {
     ///
     /// [`GetReplicatedRecord`]: crate::messages::Query::GetReplicatedRecord
     GetReplicatedRecord(Result<(NetworkAddress, Bytes)>),
-    // ===== RegisterRecord =====
-    //
-    /// Response to [`GetRegisterRecord`]
-    ///
-    /// [`GetRegisterRecord`]: crate::messages::Query::GetRegisterRecord
-    GetRegisterRecord(Result<(NetworkAddress, Bytes)>),
     // ===== ChunkExistenceProof =====
     //
     /// Response to [`GetChunkExistenceProof`]
@@ -111,19 +105,6 @@ impl Debug for QueryResponse {
                 }
                 Err(err) => {
                     write!(f, "GetReplicatedRecord(Err({err:?}))")
-                }
-            },
-            QueryResponse::GetRegisterRecord(result) => match result {
-                Ok((holder, data)) => {
-                    write!(
-                        f,
-                        "GetRegisterRecord(Ok((holder: {:?}, datalen: {:?})))",
-                        holder,
-                        data.len()
-                    )
-                }
-                Err(err) => {
-                    write!(f, "GetRegisterRecord(Err({err:?}))")
                 }
             },
             QueryResponse::GetChunkExistenceProof(proofs) => {

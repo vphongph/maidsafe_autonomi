@@ -35,25 +35,15 @@
 //!
 //! # Data types
 //!
-//! This API gives access to two fundamental types on the network: chunks and
-//! registers.
+//! This API gives access to two fundamental types on the network: Chunks and GraphEntry.
 //!
 //! When we upload data, it's split into chunks using self-encryption, yielding
 //! a 'data map' allowing us to reconstruct the data again. Any two people that
 //! upload the exact same data will get the same data map, as all chunks are
 //! content-addressed and self-encryption is deterministic.
 //!
-//! Registers can keep small values pointing to data. This value can be updated
-//! and the history is kept. Multiple values can exist side by side in case of
-//! concurrency, but should converge to a single value eventually.
-//!
 //! # Features
 //!
-//! - `fs`: Up/download files and directories from filesystem
-//! - `registers`: Operate on register datatype
-//! - `vault`: Operate on Vault datatype
-//! - `full`: All of above
-//! - `local`: Discover local peers using mDNS. Useful for development.
 //! - `loud`: Print debug information to stdout
 
 // docs.rs generation will enable unstable `doc_cfg` feature

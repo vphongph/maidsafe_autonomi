@@ -25,8 +25,6 @@ The `error.rs` file contains the definitions for various errors that can occur w
   - Example: `Result::Err(Error::ChunkNotFound(chunk_address))`
 - `ChunkNotStored(XorName)`: Indicates that a chunk was not stored.
   - Example: `Result::Err(Error::ChunkNotStored(xor_name))`
-- `RegisterNotFound(Box<RegisterAddress>)`: Indicates that a register was not found.
-  - Example: `Result::Err(Error::RegisterNotFound(register_address))`
 
 ## Messages
 

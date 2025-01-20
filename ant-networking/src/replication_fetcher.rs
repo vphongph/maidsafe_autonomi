@@ -200,10 +200,6 @@ impl ReplicationFetcher {
     // Notify the replication fetcher about a newly added Record to the node.
     // The corresponding key can now be removed from the replication fetcher.
     // Also returns the next set of keys that has to be fetched from the peer/network.
-    //
-    // Note: for Register, which different content (i.e. record_type) bearing same record_key
-    //       remove `on_going_fetches` entry bearing same `record_key` only,
-    //       to avoid false FetchFailed alarm against the peer.
     pub(crate) fn notify_about_new_put(
         &mut self,
         new_put: RecordKey,
@@ -218,7 +214,7 @@ impl ReplicationFetcher {
         self.next_keys_to_fetch()
     }
 
-    // An early completion of a fetch means the target is an old version record (Register or Spend).
+    // An early completion of a fetch means the target is an old version record
     pub(crate) fn notify_fetch_early_completed(
         &mut self,
         key_in: RecordKey,

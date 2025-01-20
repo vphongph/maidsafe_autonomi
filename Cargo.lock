@@ -989,7 +989,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
- "sysinfo",
  "tempfile",
  "test-utils",
  "thiserror 1.0.69",

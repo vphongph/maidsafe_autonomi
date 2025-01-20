@@ -50,7 +50,7 @@ use libp2p::{identity::Keypair, Multiaddr};
 use payment::PayError;
 use quote::CostError;
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -280,7 +280,12 @@ fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEv
     // TODO: Think about handling the mDNS error here.
     let (network, event_receiver, swarm_driver) = network_builder.build_client();
 
-    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run());
+    // TODO: Implement graceful SwarmDriver shutdown for client.
+    // Create a shutdown signal channel
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run(shutdown_rx));
+
     debug!("Client swarm driver is running");
 
     (network, event_receiver)

@@ -449,8 +449,11 @@ impl ReplicationFetcher {
         // Filter out those out_of_range ones among the incoming_keys.
         if let Some(ref distance_range) = self.distance_range {
             new_incoming_keys.retain(|(addr, _record_type)| {
-                let is_in_range =
-                    convert_distance_to_u256(&self_address.distance(addr)) <= *distance_range;
+                let distance = convert_distance_to_u256(&self_address.distance(addr));
+                debug!(
+                    "Distance to target {addr:?} is {distance:?}, against range {distance_range:?}"
+                );
+                let is_in_range = distance <= *distance_range;
                 if !is_in_range {
                     out_of_range_keys.push(addr.clone());
                 }

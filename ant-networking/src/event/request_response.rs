@@ -208,9 +208,16 @@ impl SwarmDriver {
             .kademlia
             .store_mut()
             .record_addresses_ref()?;
-        let keys_to_fetch =
-            self.replication_fetcher
-                .add_keys(holder, incoming_keys, all_keys, is_fresh_replicate);
+        let keys_to_fetch = self.replication_fetcher.add_keys(
+            holder,
+            incoming_keys,
+            all_keys,
+            is_fresh_replicate,
+            closest_k_peers
+                .iter()
+                .map(|peer_id| NetworkAddress::from_peer(*peer_id))
+                .collect(),
+        );
         if keys_to_fetch.is_empty() {
             debug!("no waiting keys to fetch from the network");
         } else {

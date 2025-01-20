@@ -94,7 +94,7 @@ pub enum NetworkAddress {
     PeerId(Bytes),
     /// The NetworkAddress is representing a ChunkAddress.
     ChunkAddress(ChunkAddress),
-    /// The NetworkAddress is representing a TransactionAddress.
+    /// The NetworkAddress is representing a GraphEntryAddress.
     GraphEntryAddress(GraphEntryAddress),
     /// The NetworkAddress is representing a ScratchpadAddress.
     ScratchpadAddress(ScratchpadAddress),
@@ -110,12 +110,12 @@ impl NetworkAddress {
         NetworkAddress::ChunkAddress(chunk_address)
     }
 
-    /// Return a `NetworkAddress` representation of the `TransactionAddress`.
-    pub fn from_graph_entry_address(transaction_address: GraphEntryAddress) -> Self {
-        NetworkAddress::GraphEntryAddress(transaction_address)
+    /// Return a `NetworkAddress` representation of the `GraphEntryAddress`.
+    pub fn from_graph_entry_address(graph_entry_address: GraphEntryAddress) -> Self {
+        NetworkAddress::GraphEntryAddress(graph_entry_address)
     }
 
-    /// Return a `NetworkAddress` representation of the `TransactionAddress`.
+    /// Return a `NetworkAddress` representation of the `GraphEntryAddress`.
     pub fn from_scratchpad_address(address: ScratchpadAddress) -> Self {
         NetworkAddress::ScratchpadAddress(address)
     }
@@ -214,10 +214,10 @@ impl Debug for NetworkAddress {
                     &chunk_address.to_hex()[0..6]
                 )
             }
-            NetworkAddress::GraphEntryAddress(transaction_address) => {
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
                 format!(
-                    "NetworkAddress::TransactionAddress({} - ",
-                    &transaction_address.to_hex()[0..6]
+                    "NetworkAddress::GraphEntryAddress({} - ",
+                    &graph_entry_address.to_hex()[0..6]
                 )
             }
             NetworkAddress::ScratchpadAddress(scratchpad_address) => {
@@ -251,7 +251,7 @@ impl Display for NetworkAddress {
                 write!(f, "NetworkAddress::ChunkAddress({addr:?})")
             }
             NetworkAddress::GraphEntryAddress(addr) => {
-                write!(f, "NetworkAddress::TransactionAddress({addr:?})")
+                write!(f, "NetworkAddress::GraphEntryAddress({addr:?})")
             }
             NetworkAddress::ScratchpadAddress(addr) => {
                 write!(f, "NetworkAddress::ScratchpadAddress({addr:?})")
@@ -391,14 +391,14 @@ mod tests {
     use bls::rand::thread_rng;
 
     #[test]
-    fn verify_transaction_addr_is_actionable() {
+    fn verify_graph_entry_addr_is_actionable() {
         let xorname = xor_name::XorName::random(&mut thread_rng());
-        let transaction_addr = GraphEntryAddress::new(xorname);
-        let net_addr = NetworkAddress::from_graph_entry_address(transaction_addr);
+        let graph_entry_addr = GraphEntryAddress::new(xorname);
+        let net_addr = NetworkAddress::from_graph_entry_address(graph_entry_addr);
 
-        let transaction_addr_hex = &transaction_addr.to_hex()[0..6]; // we only log the first 6 chars
+        let graph_entry_addr_hex = &graph_entry_addr.to_hex()[0..6]; // we only log the first 6 chars
         let net_addr_fmt = format!("{net_addr}");
 
-        assert!(net_addr_fmt.contains(transaction_addr_hex));
+        assert!(net_addr_fmt.contains(graph_entry_addr_hex));
     }
 }

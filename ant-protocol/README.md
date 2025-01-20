@@ -69,7 +69,7 @@ The `storage` module handles the storage aspects of the protocol.
 ### API Calls
 
 - `ChunkAddress`: Address of a chunk in the network.
-- `TransactionAddress`: Address of a Transaction in the network.
+- `GraphEntryAddress`: Address of a Transaction in the network.
 - `Header`: Header information for storage items.
 
 ## Protobuf Definitions

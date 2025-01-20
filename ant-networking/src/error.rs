@@ -45,7 +45,7 @@ pub enum GetRecordError {
     RecordNotFound,
     // Avoid logging the whole `Record` content by accident.
     /// The split record error will be handled at the network layer.
-    /// For transactions, it accumulates the transactions
+    /// For GraphEntry, it accumulates them
     #[error("Split Record has {} different copies", result_map.len())]
     SplitRecord {
         result_map: HashMap<XorName, (Record, HashSet<PeerId>)>,

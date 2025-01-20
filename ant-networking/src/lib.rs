@@ -644,18 +644,18 @@ impl Network {
             }
         }
 
-        // Return the accumulated transactions as a single record
+        // Return the accumulated GraphEntries as a single record
         if accumulated_graphentries.len() > 1 {
-            info!("For record {pretty_key:?} task found split record for a transaction, accumulated and sending them as a single record");
-            let accumulated_transactions = accumulated_graphentries
+            info!("For record {pretty_key:?} task found split record for a GraphEntry, accumulated and sending them as a single record");
+            let accumulated_graphentries = accumulated_graphentries
                 .into_iter()
                 .collect::<Vec<GraphEntry>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::DataOnly(DataTypes::GraphEntry))
+                value: try_serialize_record(&accumulated_graphentries, RecordKind::DataOnly(DataTypes::GraphEntry))
                     .map_err(|err| {
                         error!(
-                            "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"
+                            "Error while serializing the accumulated GraphEntries for {pretty_key:?}: {err:?}"
                         );
                         NetworkError::from(err)
                     })?
@@ -773,7 +773,7 @@ impl Network {
                 Err(err) => err,
             };
 
-            // FIXME: Skip if we get a permanent error during verification, e.g., DoubleSpendAttempt
+            // FIXME: Skip if we get a permanent error during verification
             warn!("Failed to PUT record with key: {pretty_key:?} to network (retry via backoff) with error: {err:?}");
 
             match backoff.next() {

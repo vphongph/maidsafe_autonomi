@@ -361,7 +361,7 @@ impl ReplicationFetcher {
     }
 
     /// Remove keys that we hold already and no longer need to be replicated.
-    /// This checks the hash on transactions to ensure we pull in divergent transactions.
+    /// This checks the hash on GraphEntry to ensure we pull in divergent GraphEntry.
     fn remove_stored_keys(
         &mut self,
         existing_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,

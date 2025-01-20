@@ -173,44 +173,44 @@ impl Node {
                 ))
             }
             RecordKind::DataWithPayment(DataTypes::GraphEntry) => {
-                let (payment, transaction) =
+                let (payment, graph_entry) =
                     try_deserialize_record::<(ProofOfPayment, GraphEntry)>(&record)?;
 
-                // check if the deserialized value's TransactionAddress matches the record's key
-                let net_addr = NetworkAddress::from_graph_entry_address(transaction.address());
+                // check if the deserialized value's GraphEntryAddress matches the record's key
+                let net_addr = NetworkAddress::from_graph_entry_address(graph_entry.address());
                 let key = net_addr.to_record_key();
                 let pretty_key = PrettyPrintRecordKey::from(&key);
                 if record.key != key {
                     warn!(
-                        "Record's key {pretty_key:?} does not match with the value's TransactionAddress, ignoring PUT."
+                        "Record's key {pretty_key:?} does not match with the value's GraphEntryAddress, ignoring PUT."
                     );
                     return Err(Error::RecordKeyMismatch);
                 }
 
                 let already_exists = self.validate_key_and_existence(&net_addr, &key).await?;
 
-                // The transaction may already exist during the replication.
-                // The payment shall get deposit to self even the transaction already presents.
-                // However, if the transaction is already present, the incoming one shall be
+                // The GraphEntry may already exist during the replication.
+                // The payment shall get deposit to self even the GraphEntry already presents.
+                // However, if the GraphEntry is already present, the incoming one shall be
                 // appended with the existing one, if content is different.
                 if let Err(err) = self
                     .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
                     .await
                 {
                     if already_exists {
-                        debug!("Payment of the incoming exists transaction {pretty_key:?} having error {err:?}");
+                        debug!("Payment of the incoming existing GraphEntry {pretty_key:?} having error {err:?}");
                     } else {
-                        error!("Payment of the incoming non-exist transaction {pretty_key:?} having error {err:?}");
+                        error!("Payment of the incoming new GraphEntry {pretty_key:?} having error {err:?}");
                         return Err(err);
                     }
                 }
 
                 let res = self
-                    .validate_merge_and_store_graphentries(vec![transaction], &key)
+                    .validate_merge_and_store_graphentries(vec![graph_entry], &key)
                     .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
-                    Marker::ValidTransactionPutFromClient(&PrettyPrintRecordKey::from(&record.key))
+                    Marker::ValidGraphEntryPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
                     self.replicate_valid_fresh_record(
                         record.key.clone(),
@@ -323,8 +323,8 @@ impl Node {
             }
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 let record_key = record.key.clone();
-                let transactions = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
-                self.validate_merge_and_store_graphentries(transactions, &record_key)
+                let graph_entries = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
+                self.validate_merge_and_store_graphentries(graph_entries, &record_key)
                     .await
             }
             RecordKind::DataOnly(DataTypes::Pointer) => {

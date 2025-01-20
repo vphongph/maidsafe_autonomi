@@ -37,8 +37,8 @@ impl Network {
 pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>> {
     let header = RecordHeader::from_record(record)?;
     if let RecordKind::DataOnly(DataTypes::GraphEntry) = header.kind {
-        let transactions = try_deserialize_record::<Vec<GraphEntry>>(record)?;
-        Ok(transactions)
+        let entry = try_deserialize_record::<Vec<GraphEntry>>(record)?;
+        Ok(entry)
     } else {
         warn!(
             "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",

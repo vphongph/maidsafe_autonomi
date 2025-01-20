@@ -904,7 +904,6 @@ dependencies = [
  "ant-build-info",
  "ant-evm",
  "ant-protocol",
- "ant-registers",
  "assert_fs",
  "async-trait",
  "blsttc",
@@ -946,7 +945,6 @@ dependencies = [
  "ant-logging",
  "ant-networking",
  "ant-protocol",
- "ant-registers",
  "ant-service-management",
  "assert_fs",
  "async-trait",
@@ -1067,7 +1065,6 @@ version = "0.3.3"
 dependencies = [
  "ant-build-info",
  "ant-evm",
- "ant-registers",
  "blsttc",
  "bytes",
  "color-eyre",
@@ -1090,23 +1087,6 @@ dependencies = [
  "tonic 0.6.2",
  "tonic-build",
  "tracing",
- "xor_name",
-]
-
-[[package]]
-name = "ant-registers"
-version = "0.4.7"
-dependencies = [
- "blsttc",
- "crdts",
- "eyre",
- "hex",
- "proptest",
- "rand 0.8.5",
- "rmp-serde",
- "serde",
- "thiserror 1.0.69",
- "tiny-keccak",
  "xor_name",
 ]
 
@@ -1576,7 +1556,6 @@ dependencies = [
  "ant-logging",
  "ant-networking",
  "ant-protocol",
- "ant-registers",
  "bip39",
  "blst",
  "blstrs 0.7.1",

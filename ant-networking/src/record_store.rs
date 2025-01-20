@@ -48,9 +48,9 @@ use tokio::sync::mpsc;
 use walkdir::{DirEntry, WalkDir};
 use xor_name::XorName;
 
-// A transaction record is at the size of 4KB roughly.
+// A GraphEntry record is at the size of 4KB roughly.
 // Given chunk record is maxed at size of 4MB.
-// During Beta phase, it's almost one transaction per chunk,
+// During Beta phase, it's almost one GraphEntry per chunk,
 // which makes the average record size is around 2MB.
 // Given we are targeting node size to be 32GB,
 // this shall allow around 16K records.

@@ -53,9 +53,9 @@ impl Client {
         &self,
         address: GraphEntryAddress,
     ) -> Result<Vec<GraphEntry>, GraphError> {
-        let transactions = self.network.get_graph_entry(address).await?;
+        let graph_entries = self.network.get_graph_entry(address).await?;
 
-        Ok(transactions)
+        Ok(graph_entries)
     }
 
     /// Puts a GraphEntry to the network.
@@ -66,9 +66,9 @@ impl Client {
     ) -> Result<(), GraphError> {
         let address = entry.address();
 
-        // pay for the transaction
+        // pay for the graph entry
         let xor_name = address.xorname();
-        debug!("Paying for transaction at address: {address:?}");
+        debug!("Paying for graph entry at address: {address:?}");
         let (payment_proofs, skipped_payments) = self
             .pay(
                 DataTypes::GraphEntry.get_index(),
@@ -77,14 +77,14 @@ impl Client {
             )
             .await
             .inspect_err(|err| {
-                error!("Failed to pay for transaction at address: {address:?} : {err}")
+                error!("Failed to pay for graph entry at address: {address:?} : {err}")
             })?;
 
-        // make sure the transaction was paid for
+        // make sure the graph entry was paid for
         let (proof, price) = match payment_proofs.get(xor_name) {
             Some((proof, price)) => (proof, price),
             None => {
-                // transaction was skipped, meaning it was already paid for
+                // graph entry was skipped, meaning it was already paid for
                 error!("GraphEntry at address: {address:?} was already paid for");
                 return Err(GraphError::AlreadyExists(address));
             }
@@ -108,7 +108,6 @@ impl Client {
             retry_strategy: Some(RetryStrategy::default()),
             target_record: None,
             expected_holders: Default::default(),
-            is_register: false,
         };
         let put_cfg = PutRecordCfg {
             put_quorum: Quorum::All,
@@ -118,12 +117,12 @@ impl Client {
         };
 
         // put the record to the network
-        debug!("Storing transaction at address {address:?} to the network");
+        debug!("Storing GraphEntry at address {address:?} to the network");
         self.network
             .put_record(record, &put_cfg)
             .await
             .inspect_err(|err| {
-                error!("Failed to put record - transaction {address:?} to the network: {err}")
+                error!("Failed to put record - GraphEntry {address:?} to the network: {err}")
             })?;
 
         // send client event

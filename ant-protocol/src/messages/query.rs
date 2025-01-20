@@ -46,17 +46,6 @@ pub enum Query {
         /// Key of the record to be fetched
         key: NetworkAddress,
     },
-    /// Retrieve a specific register record from a specific peer.
-    ///
-    /// This should eventually lead to a [`GetRegisterRecord`] response.
-    ///
-    /// [`GetRegisterRecord`]: super::QueryResponse::GetRegisterRecord
-    GetRegisterRecord {
-        /// Sender of the query
-        requester: NetworkAddress,
-        /// Key of the register record to be fetched
-        key: NetworkAddress,
-    },
     /// Get the proof that the chunk with the given NetworkAddress exists with the requested node.
     GetChunkExistenceProof {
         /// The Address of the chunk that we are trying to verify.
@@ -93,7 +82,6 @@ impl Query {
             // and the destination shall be decided by the requester already.
             Query::GetStoreQuote { key, .. }
             | Query::GetReplicatedRecord { key, .. }
-            | Query::GetRegisterRecord { key, .. }
             | Query::GetChunkExistenceProof { key, .. }
             | Query::GetClosestPeers { key, .. } => key.clone(),
         }
@@ -117,9 +105,6 @@ impl std::fmt::Display for Query {
             }
             Query::GetReplicatedRecord { key, requester } => {
                 write!(f, "Query::GetReplicatedRecord({requester:?} {key:?})")
-            }
-            Query::GetRegisterRecord { key, requester } => {
-                write!(f, "Query::GetRegisterRecord({requester:?} {key:?})")
             }
             Query::GetChunkExistenceProof {
                 key,

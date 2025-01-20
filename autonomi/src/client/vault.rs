@@ -88,7 +88,6 @@ impl Client {
             retry_strategy: None,
             target_record: None,
             expected_holders: HashSet::new(),
-            is_register: false,
         };
 
         let pad = match self
@@ -254,7 +253,6 @@ impl Client {
                     retry_strategy: None,
                     target_record: None,
                     expected_holders: HashSet::new(),
-                    is_register: false,
                 },
             )),
         };

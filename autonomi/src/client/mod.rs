@@ -21,7 +21,6 @@ pub mod pointer;
 #[cfg(feature = "external-signer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "external-signer")))]
 pub mod external_signer;
-pub mod registers;
 pub mod vault;
 
 // private module with utility functions

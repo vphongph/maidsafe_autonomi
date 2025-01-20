@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "ant-bootstrap"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -807,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "ant-logging"
-version = "0.2.44"
+version = "0.2.45"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "ant-networking"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",

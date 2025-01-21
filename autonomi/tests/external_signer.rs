@@ -6,7 +6,7 @@ use ant_evm::{QuoteHash, TxHash};
 use ant_logging::LogBuilder;
 use ant_protocol::storage::DataTypes;
 use autonomi::client::external_signer::encrypt_data;
-use autonomi::client::files::archive::{Metadata, PrivateArchive};
+use autonomi::client::files::{archive_private::PrivateArchive, Metadata};
 use autonomi::client::payment::{receipt_from_store_quotes, Receipt};
 use autonomi::client::quote::StoreQuote;
 use autonomi::client::vault::user_data::USER_DATA_VAULT_CONTENT_IDENTIFIER;

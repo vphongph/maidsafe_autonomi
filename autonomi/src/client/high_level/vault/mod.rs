@@ -12,35 +12,18 @@ pub mod user_data;
 pub use key::{derive_vault_key, VaultSecretKey};
 pub use user_data::UserData;
 
-use super::data::CostError;
-use crate::client::data::PutError;
+use crate::client::datatypes::scratchpad::{Scratchpad, ScratchpadError};
 use crate::client::payment::PaymentOption;
-use crate::client::Client;
-use ant_evm::{Amount, AttoTokens};
-use ant_networking::{GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, VerificationKind};
-use ant_protocol::storage::{
-    try_serialize_record, DataTypes, RecordKind, RetryStrategy, Scratchpad, ScratchpadAddress,
-};
+use crate::client::quote::CostError;
+use crate::client::{Client, PutError};
+use ant_evm::AttoTokens;
+use ant_networking::{GetRecordCfg, PutRecordCfg, VerificationKind};
+use ant_protocol::storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy};
 use ant_protocol::Bytes;
-use ant_protocol::{storage::try_deserialize_record, NetworkAddress};
 use libp2p::kad::{Quorum, Record};
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use tracing::info;
-
-#[derive(Debug, thiserror::Error)]
-pub enum VaultError {
-    #[error("Could not generate Vault secret key from entropy: {0:?}")]
-    Bls(#[from] bls::Error),
-    #[error("Scratchpad found at {0:?} was not a valid record.")]
-    CouldNotDeserializeVaultScratchPad(ScratchpadAddress),
-    #[error("Protocol: {0}")]
-    Protocol(#[from] ant_protocol::Error),
-    #[error("Network: {0}")]
-    Network(#[from] NetworkError),
-    #[error("Vault not found")]
-    Missing,
-}
 
 /// The content type of the vault data
 /// The number is used to determine the type of the contents of the bytes contained in a vault
@@ -56,6 +39,14 @@ pub fn app_name_to_vault_content_type<T: Hash>(s: T) -> VaultContentType {
     hasher.finish()
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum VaultError {
+    #[error("Vault error: {0}")]
+    Scratchpad(#[from] ScratchpadError),
+    #[error("Protocol: {0}")]
+    Protocol(#[from] ant_protocol::Error),
+}
+
 impl Client {
     /// Retrieves and returns a decrypted vault if one exists.
     /// Returns the content type of the bytes in the vault
@@ -64,109 +55,17 @@ impl Client {
         secret_key: &VaultSecretKey,
     ) -> Result<(Bytes, VaultContentType), VaultError> {
         info!("Fetching and decrypting vault...");
-        let pad = self.get_vault_from_network(secret_key).await?;
+        let pad = self.scratchpad_get(secret_key).await?;
 
         let data = pad.decrypt_data(secret_key)?;
         debug!("vault data is successfully fetched and decrypted");
         Ok((data, pad.data_encoding()))
     }
 
-    /// Gets the vault Scratchpad from a provided client public key
-    async fn get_vault_from_network(
-        &self,
-        secret_key: &VaultSecretKey,
-    ) -> Result<Scratchpad, VaultError> {
-        let client_pk = secret_key.public_key();
-
-        let scratch_address = ScratchpadAddress::new(client_pk);
-        let network_address = NetworkAddress::from_scratchpad_address(scratch_address);
-        info!("Fetching vault from network at {network_address:?}",);
-        let scratch_key = network_address.to_record_key();
-
-        let get_cfg = GetRecordCfg {
-            get_quorum: Quorum::Majority,
-            retry_strategy: None,
-            target_record: None,
-            expected_holders: HashSet::new(),
-        };
-
-        let pad = match self
-            .network
-            .get_record_from_network(scratch_key.clone(), &get_cfg)
-            .await
-        {
-            Ok(record) => {
-                debug!("Got scratchpad for {scratch_key:?}");
-                try_deserialize_record::<Scratchpad>(&record)
-                    .map_err(|_| VaultError::CouldNotDeserializeVaultScratchPad(scratch_address))?
-            }
-            Err(NetworkError::GetRecordError(GetRecordError::SplitRecord { result_map })) => {
-                debug!("Got multiple scratchpads for {scratch_key:?}");
-                let mut pads = result_map
-                    .values()
-                    .map(|(record, _)| try_deserialize_record::<Scratchpad>(record))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| VaultError::CouldNotDeserializeVaultScratchPad(scratch_address))?;
-
-                // take the latest versions
-                pads.sort_by_key(|s| s.count());
-                let max_version = pads.last().map(|p| p.count()).unwrap_or_else(|| {
-                    error!("Got empty scratchpad vector for {scratch_key:?}");
-                    u64::MAX
-                });
-                let latest_pads: Vec<_> = pads
-                    .into_iter()
-                    .filter(|s| s.count() == max_version)
-                    .collect();
-
-                // make sure we only have one of latest version
-                let pad = match &latest_pads[..] {
-                    [one] => one,
-                    [multi, ..] => {
-                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version, returning the first one");
-                        multi
-                    }
-                    [] => {
-                        error!("Got empty scratchpad vector for {scratch_key:?}");
-                        return Err(VaultError::Missing);
-                    }
-                };
-                pad.to_owned()
-            }
-            Err(e) => {
-                warn!("Failed to fetch vault {network_address:?} from network: {e}");
-                return Err(e)?;
-            }
-        };
-
-        Ok(pad)
-    }
-
     /// Get the cost of creating a new vault
     pub async fn vault_cost(&self, owner: &VaultSecretKey) -> Result<AttoTokens, CostError> {
         info!("Getting cost for vault");
-        let client_pk = owner.public_key();
-        let content_type = Default::default();
-        let scratch = Scratchpad::new(client_pk, content_type);
-        let vault_xor = scratch.address().xorname();
-
-        // TODO: define default size of Scratchpad
-        let store_quote = self
-            .get_store_quotes(
-                DataTypes::Scratchpad.get_index(),
-                std::iter::once((vault_xor, 256)),
-            )
-            .await?;
-
-        let total_cost = AttoTokens::from_atto(
-            store_quote
-                .0
-                .values()
-                .map(|quote| quote.price())
-                .sum::<Amount>(),
-        );
-
-        Ok(total_cost)
+        self.scratchpad_cost(owner).await
     }
 
     /// Put data into the client's VaultPacket
@@ -278,7 +177,7 @@ impl Client {
     ) -> Result<(Scratchpad, bool), PutError> {
         let client_pk = secret_key.public_key();
 
-        let pad_res = self.get_vault_from_network(secret_key).await;
+        let pad_res = self.scratchpad_get(secret_key).await;
         let mut is_new = true;
 
         let scratch = if let Ok(existing_data) = pad_res {

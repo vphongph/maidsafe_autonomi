@@ -6,22 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use ant_protocol::storage::DataTypes;
 use bytes::Bytes;
-use libp2p::kad::Quorum;
-use std::collections::HashSet;
 
-use crate::client::payment::{PaymentOption, Receipt};
-use crate::client::utils::process_tasks_with_max_concurrency;
-use crate::client::{ClientEvent, UploadSummary};
+use crate::client::payment::PaymentOption;
+use crate::client::quote::CostError;
+use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
 use crate::{self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
-use ant_networking::{GetRecordCfg, NetworkError};
-use ant_protocol::{
-    storage::{try_deserialize_record, Chunk, ChunkAddress, DataTypes, RecordHeader, RecordKind},
-    NetworkAddress,
-};
 
-use super::*;
+use super::DataAddr;
 
 impl Client {
     /// Fetch a blob of data from the network
@@ -113,38 +107,6 @@ impl Client {
         Ok(map_xor_name)
     }
 
-    /// Get a raw chunk from the network.
-    pub async fn chunk_get(&self, addr: ChunkAddr) -> Result<Chunk, GetError> {
-        info!("Getting chunk: {addr:?}");
-
-        let key = NetworkAddress::from_chunk_address(ChunkAddress::new(addr)).to_record_key();
-        debug!("Fetching chunk from network at: {key:?}");
-        let get_cfg = GetRecordCfg {
-            get_quorum: Quorum::One,
-            retry_strategy: None,
-            target_record: None,
-            expected_holders: HashSet::new(),
-        };
-
-        let record = self
-            .network
-            .get_record_from_network(key, &get_cfg)
-            .await
-            .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?;
-        let header = RecordHeader::from_record(&record)?;
-
-        if let Ok(true) = RecordHeader::is_record_of_type_chunk(&record) {
-            let chunk: Chunk = try_deserialize_record(&record)?;
-            Ok(chunk)
-        } else {
-            error!(
-                "Record kind mismatch: expected Chunk, got {:?}",
-                header.kind
-            );
-            Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)).into())
-        }
-    }
-
     /// Get the estimated cost of storing a piece of data.
     pub async fn data_cost(&self, data: Bytes) -> Result<AttoTokens, CostError> {
         let now = ant_networking::time::Instant::now();
@@ -178,65 +140,5 @@ impl Client {
         );
 
         Ok(total_cost)
-    }
-
-    // Upload chunks and retry failed uploads up to `RETRY_ATTEMPTS` times.
-    pub async fn upload_chunks_with_retries<'a>(
-        &self,
-        mut chunks: Vec<&'a Chunk>,
-        receipt: &Receipt,
-    ) -> Vec<(&'a Chunk, PutError)> {
-        let mut current_attempt: usize = 1;
-
-        loop {
-            let mut upload_tasks = vec![];
-            for chunk in chunks {
-                let self_clone = self.clone();
-                let address = *chunk.address();
-
-                let Some((proof, _)) = receipt.get(chunk.name()) else {
-                    debug!("Chunk at {address:?} was already paid for so skipping");
-                    continue;
-                };
-
-                upload_tasks.push(async move {
-                    self_clone
-                        .chunk_upload_with_payment(chunk, proof.clone())
-                        .await
-                        .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
-                        // Return chunk reference too, to re-use it next attempt/iteration
-                        .map_err(|err| (chunk, err))
-                });
-            }
-            let uploads =
-                process_tasks_with_max_concurrency(upload_tasks, *CHUNK_UPLOAD_BATCH_SIZE).await;
-
-            // Check for errors.
-            let total_uploads = uploads.len();
-            let uploads_failed: Vec<_> = uploads.into_iter().filter_map(|up| up.err()).collect();
-            info!(
-                "Uploaded {} chunks out of {total_uploads}",
-                total_uploads - uploads_failed.len()
-            );
-
-            // All uploads succeeded.
-            if uploads_failed.is_empty() {
-                return vec![];
-            }
-
-            // Max retries reached.
-            if current_attempt > RETRY_ATTEMPTS {
-                return uploads_failed;
-            }
-
-            tracing::info!(
-                "Retrying putting {} failed chunks (attempt {current_attempt}/3)",
-                uploads_failed.len()
-            );
-
-            // Re-iterate over the failed chunks
-            chunks = uploads_failed.into_iter().map(|(chunk, _)| chunk).collect();
-            current_attempt += 1;
-        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::client::data::PutError;
+use crate::client::PutError;
 use crate::self_encryption::encrypt;
 use crate::Client;
 use ant_evm::QuotePayment;

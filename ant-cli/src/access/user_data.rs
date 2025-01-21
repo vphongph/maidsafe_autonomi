@@ -10,7 +10,8 @@ use std::collections::HashMap;
 
 use autonomi::client::{
     address::{addr_to_str, str_to_addr},
-    files::{archive::PrivateArchiveAccess, archive_public::ArchiveAddr},
+    files::archive_private::PrivateArchiveAccess,
+    files::archive_public::ArchiveAddr,
     vault::UserData,
 };
 use color_eyre::eyre::Result;

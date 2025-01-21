@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::{data::CostError, Client};
+use super::Client;
 use crate::client::rate_limiter::RateLimiter;
 use ant_evm::payment_vault::get_market_price;
 use ant_evm::{Amount, EvmNetwork, PaymentQuote, QuotePayment, QuotingMetrics};
@@ -50,6 +50,23 @@ impl StoreQuote {
         }
         quote_payments
     }
+}
+
+/// Errors that can occur during the cost calculation.
+#[derive(Debug, thiserror::Error)]
+pub enum CostError {
+    #[error("Failed to self-encrypt data.")]
+    SelfEncryption(#[from] crate::self_encryption::Error),
+    #[error("Could not get store quote for: {0:?} after several retries")]
+    CouldNotGetStoreQuote(XorName),
+    #[error("Could not get store costs: {0:?}")]
+    CouldNotGetStoreCosts(NetworkError),
+    #[error("Not enough node quotes for {0:?}, got: {1:?} and need at least {2:?}")]
+    NotEnoughNodeQuotes(XorName, usize, usize),
+    #[error("Failed to serialize {0}")]
+    Serialization(String),
+    #[error("Market price error: {0:?}")]
+    MarketPriceError(#[from] ant_evm::payment_vault::error::Error),
 }
 
 impl Client {

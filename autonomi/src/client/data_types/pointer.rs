@@ -1,19 +1,15 @@
-use crate::client::data::PayError;
-use crate::client::Client;
-use tracing::{debug, error, trace};
-
+use crate::client::{payment::PayError, quote::CostError, Client};
 use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
-    storage::{
-        try_serialize_record, DataTypes, Pointer, PointerAddress, RecordKind, RetryStrategy,
-    },
+    storage::{try_serialize_record, DataTypes, PointerAddress, RecordKind, RetryStrategy},
     NetworkAddress,
 };
 use bls::SecretKey;
 use libp2p::kad::{Quorum, Record};
+use tracing::{debug, error, trace};
 
-use super::data::CostError;
+pub use ant_protocol::storage::Pointer;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PointerError {
@@ -56,7 +52,7 @@ impl Client {
         &self,
         pointer: Pointer,
         wallet: &EvmWallet,
-    ) -> Result<(), PointerError> {
+    ) -> Result<PointerAddress, PointerError> {
         let address = pointer.network_address();
 
         // pay for the pointer storage
@@ -120,7 +116,7 @@ impl Client {
                 error!("Failed to put record - pointer {address:?} to the network: {err}")
             })?;
 
-        Ok(())
+        Ok(address)
     }
 
     /// Calculate the cost of storing a pointer

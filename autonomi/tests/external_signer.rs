@@ -6,7 +6,7 @@ use ant_evm::{QuoteHash, TxHash};
 use ant_logging::LogBuilder;
 use ant_protocol::storage::DataTypes;
 use autonomi::client::external_signer::encrypt_data;
-use autonomi::client::files::archive::{Metadata, PrivateArchive};
+use autonomi::client::files::{archive_private::PrivateArchive, Metadata};
 use autonomi::client::payment::{receipt_from_store_quotes, Receipt};
 use autonomi::client::quote::StoreQuote;
 use autonomi::client::vault::user_data::USER_DATA_VAULT_CONTENT_IDENTIFIER;
@@ -149,7 +149,7 @@ async fn external_signer_put() -> eyre::Result<()> {
     );
 
     let (scratch, is_new) = client
-        .get_or_create_scratchpad(&vault_key, *USER_DATA_VAULT_CONTENT_IDENTIFIER)
+        .get_or_create_scratchpad(&vault_key.public_key(), *USER_DATA_VAULT_CONTENT_IDENTIFIER)
         .await?;
 
     assert!(is_new, "Scratchpad is not new");

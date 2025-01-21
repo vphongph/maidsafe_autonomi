@@ -6,26 +6,23 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::client::data::PayError;
+use crate::client::payment::PayError;
+use crate::client::quote::CostError;
 use crate::client::Client;
 use crate::client::ClientEvent;
 use crate::client::UploadSummary;
 
-use ant_evm::Amount;
-use ant_evm::AttoTokens;
-pub use ant_protocol::storage::GraphEntry;
-use ant_protocol::storage::GraphEntryAddress;
-pub use bls::SecretKey;
-
-use ant_evm::{EvmWallet, EvmWalletError};
+use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
+use ant_protocol::storage::GraphEntryAddress;
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy},
     NetworkAddress,
 };
 use libp2p::kad::{Quorum, Record};
 
-use super::data::CostError;
+pub use ant_protocol::storage::GraphEntry;
+pub use bls::SecretKey;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {

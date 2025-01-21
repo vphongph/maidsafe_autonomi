@@ -138,8 +138,8 @@ pub enum PutError {
     Serialization(String),
     #[error("A wallet error occurred.")]
     Wallet(#[from] ant_evm::EvmError),
-    #[error("The vault owner key does not match the client's public key")]
-    VaultBadOwner,
+    #[error("The owner key does not match the client's public key")]
+    ScratchpadBadOwner,
     #[error("Payment unexpectedly invalid for {0:?}")]
     PaymentUnexpectedlyInvalid(NetworkAddress),
     #[error("The payment proof contains no payees.")]

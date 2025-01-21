@@ -807,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1590,7 +1590,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "autonomi"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "alloy",
  "ant-bootstrap",

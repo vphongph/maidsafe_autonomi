@@ -17,7 +17,9 @@ use crate::{self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
 use ant_networking::{GetRecordCfg, NetworkError};
 use ant_protocol::{
-    storage::{try_deserialize_record, Chunk, ChunkAddress, RecordHeader, RecordKind},
+    storage::{
+        try_deserialize_record, Chunk, ChunkAddress, RecordHeader, RecordKind, RetryStrategy,
+    },
     NetworkAddress,
 };
 
@@ -116,7 +118,7 @@ impl Client {
         debug!("Fetching chunk from network at: {key:?}");
         let get_cfg = GetRecordCfg {
             get_quorum: Quorum::One,
-            retry_strategy: None,
+            retry_strategy: Some(RetryStrategy::Balanced),
             target_record: None,
             expected_holders: HashSet::new(),
             is_register: false,

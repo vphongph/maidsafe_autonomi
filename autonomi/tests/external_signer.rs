@@ -149,7 +149,7 @@ async fn external_signer_put() -> eyre::Result<()> {
     );
 
     let (scratch, is_new) = client
-        .get_or_create_scratchpad(&vault_key, *USER_DATA_VAULT_CONTENT_IDENTIFIER)
+        .get_or_create_scratchpad(&vault_key.public_key(), *USER_DATA_VAULT_CONTENT_IDENTIFIER)
         .await?;
 
     assert!(is_new, "Scratchpad is not new");

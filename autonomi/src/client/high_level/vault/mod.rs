@@ -51,7 +51,8 @@ impl Client {
         secret_key: &VaultSecretKey,
     ) -> Result<(Bytes, VaultContentType), VaultError> {
         info!("Fetching and decrypting vault...");
-        let pad = self.scratchpad_get(secret_key).await?;
+        let public_key = secret_key.public_key();
+        let pad = self.scratchpad_get(&public_key).await?;
 
         let data = pad.decrypt_data(secret_key)?;
         debug!("vault data is successfully fetched and decrypted");
@@ -76,8 +77,9 @@ impl Client {
         secret_key: &VaultSecretKey,
         content_type: VaultContentType,
     ) -> Result<AttoTokens, PutError> {
+        let public_key = secret_key.public_key();
         let (mut scratch, is_new) = self
-            .get_or_create_scratchpad(secret_key, content_type)
+            .get_or_create_scratchpad(&public_key, content_type)
             .await?;
 
         let _ = scratch.update_and_sign(data, secret_key);

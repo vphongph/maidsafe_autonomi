@@ -16,11 +16,11 @@ use ant_protocol::{
     storage::{try_deserialize_record, DataTypes, ScratchpadAddress},
     NetworkAddress,
 };
-use bls::SecretKey;
 use libp2p::kad::{Quorum, Record};
 use std::collections::HashSet;
 
 pub use ant_protocol::storage::Scratchpad;
+pub use bls::{PublicKey, SecretKey};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScratchpadError {
@@ -37,11 +37,9 @@ impl Client {
     /// It is stored at the owner's public key
     pub async fn scratchpad_get(
         &self,
-        secret_key: &SecretKey,
+        public_key: &PublicKey,
     ) -> Result<Scratchpad, ScratchpadError> {
-        let client_pk = secret_key.public_key();
-
-        let scratch_address = ScratchpadAddress::new(client_pk);
+        let scratch_address = ScratchpadAddress::new(*public_key);
         let network_address = NetworkAddress::from_scratchpad_address(scratch_address);
         info!("Fetching scratchpad from network at {network_address:?}",);
         let scratch_key = network_address.to_record_key();
@@ -111,12 +109,10 @@ impl Client {
     /// Returns the scratchpad along with a boolean indicating if that scratchpad is new or not
     pub async fn get_or_create_scratchpad(
         &self,
-        secret_key: &SecretKey,
+        public_key: &PublicKey,
         content_type: u64,
     ) -> Result<(Scratchpad, bool), PutError> {
-        let client_pk = secret_key.public_key();
-
-        let pad_res = self.scratchpad_get(secret_key).await;
+        let pad_res = self.scratchpad_get(public_key).await;
         let mut is_new = true;
 
         let scratch = if let Ok(existing_data) = pad_res {
@@ -129,14 +125,14 @@ impl Client {
 
             is_new = false;
 
-            if existing_data.owner() != &client_pk {
+            if existing_data.owner() != public_key {
                 return Err(PutError::ScratchpadBadOwner);
             }
 
             existing_data
         } else {
             trace!("new scratchpad creation");
-            Scratchpad::new(client_pk, content_type)
+            Scratchpad::new(*public_key, content_type)
         };
 
         Ok((scratch, is_new))

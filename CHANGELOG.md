@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-01-21
+
+### Client
+
+#### Changed
+
+- Use balanced retry strategy for downloading chunks. Sometimes it would be possible we wouldn't
+  find a chunk if we tried to retrieve it on the first attempt, so as with uploads, we will use a
+  balanced retry strategy for downloads. This should make the `ant file download` command more
+  robust.
+
 ## 2025-01-20
 
 ### Client

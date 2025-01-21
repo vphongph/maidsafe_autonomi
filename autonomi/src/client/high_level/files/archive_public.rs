@@ -140,7 +140,7 @@ impl Client {
     /// Create simple archive containing `file.txt` pointing to random XOR name.
     ///
     /// ```no_run
-    /// # use autonomi::{Client, client::{data::DataAddr, files::{archive::Metadata, archive_public::{PublicArchive, ArchiveAddr}}}};
+    /// # use autonomi::{Client, client::{data::DataAddr, files::{Metadata, archive_public::{PublicArchive, ArchiveAddr}}}};
     /// # use std::path::PathBuf;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {

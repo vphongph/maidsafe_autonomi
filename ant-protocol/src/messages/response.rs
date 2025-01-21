@@ -130,6 +130,8 @@ pub enum CmdResponse {
     //
     /// Response to replication cmd
     Replicate(Result<()>),
+    /// Response to fresh replication cmd
+    FreshReplicate(Result<()>),
     //
     // ===== PeerConsideredAsBad =====
     //

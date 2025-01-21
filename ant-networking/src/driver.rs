@@ -1103,23 +1103,22 @@ impl SwarmDriver {
     /// get closest k_value the peers from our local RoutingTable. Contains self.
     /// Is sorted for closeness to self.
     pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<PeerId> {
-        let self_peer_id = self.self_peer_id.into();
+        let k_bucket_key = NetworkAddress::from_peer(self.self_peer_id).as_kbucket_key();
 
         // get closest peers from buckets, sorted by increasing distance to us
-        let peers = self
+        let peers: Vec<_> = self
             .swarm
             .behaviour_mut()
             .kademlia
-            .get_closest_local_peers(&self_peer_id)
+            .get_closest_local_peers(&k_bucket_key)
             // Map KBucketKey<PeerId> to PeerId.
-            .map(|key| key.into_preimage());
+            .map(|key| key.into_preimage())
+            // Limit ourselves to K_VALUE (20) peers.
+            .take(K_VALUE.get() - 1)
+            .collect();
 
         // Start with our own PeerID and chain the closest.
-        std::iter::once(self.self_peer_id)
-            .chain(peers)
-            // Limit ourselves to K_VALUE (20) peers.
-            .take(K_VALUE.get())
-            .collect()
+        std::iter::once(self.self_peer_id).chain(peers).collect()
     }
 
     /// Dials the given multiaddress. If address contains a peer ID, simultaneous

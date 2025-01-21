@@ -988,6 +988,14 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::TriggerIntervalReplication)
     }
 
+    pub fn add_fresh_records_to_the_replication_fetcher(
+        &self,
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType)>,
+    ) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::AddFreshReplicateRecords { holder, keys })
+    }
+
     pub fn record_node_issues(&self, peer_id: PeerId, issue: NodeIssue) {
         self.send_local_swarm_cmd(LocalSwarmCmd::RecordNodeIssue { peer_id, issue });
     }
@@ -1002,6 +1010,10 @@ impl Network {
 
     pub fn add_network_density_sample(&self, distance: KBucketDistance) {
         self.send_local_swarm_cmd(LocalSwarmCmd::AddNetworkDensitySample { distance })
+    }
+
+    pub fn notify_peer_scores(&self, peer_scores: Vec<(PeerId, bool)>) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerScores { peer_scores })
     }
 
     /// Helper to send NetworkSwarmCmd

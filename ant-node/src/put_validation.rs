@@ -39,7 +39,10 @@ impl Node {
                 // Validate the payment and that we received what we asked.
                 // This stores any payments to disk
                 let payment_res = self
-                    .payment_for_us_exists_and_is_still_valid(&chunk.network_address(), payment)
+                    .payment_for_us_exists_and_is_still_valid(
+                        &chunk.network_address(),
+                        payment.clone(),
+                    )
                     .await;
 
                 // Now that we've taken any money passed to us, regardless of the payment's validity,
@@ -48,7 +51,11 @@ impl Node {
                     // if we're receiving this chunk PUT again, and we have been paid,
                     // we eagerly retry replicaiton as it seems like other nodes are having trouble
                     // did not manage to get this chunk as yet
-                    self.replicate_valid_fresh_record(record_key, ValidationType::Chunk);
+                    self.replicate_valid_fresh_record(
+                        record_key,
+                        ValidationType::Chunk,
+                        Some(payment),
+                    );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
@@ -74,7 +81,11 @@ impl Node {
                 if store_chunk_result.is_ok() {
                     Marker::ValidPaidChunkPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(record_key, ValidationType::Chunk);
+                    self.replicate_valid_fresh_record(
+                        record_key,
+                        ValidationType::Chunk,
+                        Some(payment),
+                    );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
@@ -105,7 +116,7 @@ impl Node {
                 let payment_res = self
                     .payment_for_us_exists_and_is_still_valid(
                         &scratchpad.network_address(),
-                        payment,
+                        payment.clone(),
                     )
                     .await;
 
@@ -116,7 +127,12 @@ impl Node {
                 // So that when the replicate target asking for the copy,
                 // the node can have a higher chance to respond.
                 let store_scratchpad_result = self
-                    .validate_and_store_scratchpad_record(scratchpad, record_key.clone(), true)
+                    .validate_and_store_scratchpad_record(
+                        scratchpad,
+                        record_key.clone(),
+                        true,
+                        Some(payment),
+                    )
                     .await;
 
                 match store_scratchpad_result {
@@ -129,10 +145,6 @@ impl Node {
                             &record_key,
                         ))
                         .log();
-                        self.replicate_valid_fresh_record(
-                            record_key.clone(),
-                            ValidationType::NonChunk(content_hash),
-                        );
 
                         // Notify replication_fetcher to mark the attempt as completed.
                         // Send the notification earlier to avoid it got skipped due to:
@@ -162,7 +174,7 @@ impl Node {
                 }
 
                 // store the scratchpad
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, true, None)
                     .await
             }
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
@@ -194,7 +206,7 @@ impl Node {
                 // However, if the GraphEntry is already present, the incoming one shall be
                 // appended with the existing one, if content is different.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
+                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment.clone())
                     .await
                 {
                     if already_exists {
@@ -215,6 +227,7 @@ impl Node {
                     self.replicate_valid_fresh_record(
                         record.key.clone(),
                         ValidationType::NonChunk(content_hash),
+                        Some(payment),
                     );
 
                     // Notify replication_fetcher to mark the attempt as completed.
@@ -254,7 +267,7 @@ impl Node {
                 // The pointer may already exist during the replication.
                 // The payment shall get deposit to self even if the pointer already exists.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
+                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment.clone())
                     .await
                 {
                     if already_exists {
@@ -265,15 +278,11 @@ impl Node {
                     }
                 }
 
-                let res = self.validate_and_store_pointer_record(pointer, key);
+                let res = self.validate_and_store_pointer_record(pointer, key, true, Some(payment));
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
                     Marker::ValidPointerPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(
-                        record.key.clone(),
-                        ValidationType::NonChunk(content_hash),
-                    );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     self.network().notify_fetch_completed(
@@ -318,7 +327,7 @@ impl Node {
             RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, false, None)
                     .await
             }
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
@@ -330,14 +339,14 @@ impl Node {
             RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
-                self.validate_and_store_pointer_record(pointer, key)
+                self.validate_and_store_pointer_record(pointer, key, false, None)
             }
         }
     }
 
     /// Check key is valid compared to the network name, and if we already have this data or not.
     /// returns true if data already exists locally
-    async fn validate_key_and_existence(
+    pub(crate) async fn validate_key_and_existence(
         &self,
         address: &NetworkAddress,
         expected_record_key: &RecordKey,
@@ -411,6 +420,7 @@ impl Node {
         scratchpad: Scratchpad,
         record_key: RecordKey,
         is_client_put: bool,
+        payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
         let addr = scratchpad.address();
@@ -459,9 +469,12 @@ impl Node {
 
         if is_client_put {
             let content_hash = XorName::from_content(&record.value);
+            // ScratchPad update is a special upload that without payment,
+            // but must have an existing copy to update.
             self.replicate_valid_fresh_record(
                 scratchpad_key,
                 ValidationType::NonChunk(content_hash),
+                payment,
             );
         }
 
@@ -548,7 +561,7 @@ impl Node {
     }
 
     /// Perform validations on the provided `Record`.
-    async fn payment_for_us_exists_and_is_still_valid(
+    pub(crate) async fn payment_for_us_exists_and_is_still_valid(
         &self,
         address: &NetworkAddress,
         payment: ProofOfPayment,
@@ -667,6 +680,8 @@ impl Node {
         &self,
         pointer: Pointer,
         key: RecordKey,
+        is_client_put: bool,
+        payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
         if !pointer.verify() {
@@ -689,10 +704,12 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network().put_local_record(record.clone());
 
-        let content_hash = XorName::from_content(&pointer.network_address().to_bytes());
-        self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash));
+        if is_client_put {
+            let content_hash = XorName::from_content(&record.value);
+            self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash), payment);
+        }
 
         Ok(())
     }

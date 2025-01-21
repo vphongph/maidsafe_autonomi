@@ -46,7 +46,22 @@ impl SwarmDriver {
                                 channel: MsgResponder::FromPeer(channel),
                             });
 
-                            self.add_keys_to_replication_fetcher(holder, keys)?;
+                            self.add_keys_to_replication_fetcher(holder, keys, false)?;
+                        }
+                        Request::Cmd(ant_protocol::messages::Cmd::FreshReplicate {
+                            holder,
+                            keys,
+                        }) => {
+                            let response = Response::Cmd(
+                                ant_protocol::messages::CmdResponse::FreshReplicate(Ok(())),
+                            );
+
+                            self.queue_network_swarm_cmd(NetworkSwarmCmd::SendResponse {
+                                resp: response,
+                                channel: MsgResponder::FromPeer(channel),
+                            });
+
+                            self.send_event(NetworkEvent::FreshReplicateToFetch { holder, keys });
                         }
                         Request::Cmd(ant_protocol::messages::Cmd::PeerConsideredAsBad {
                             detected_by,
@@ -156,10 +171,11 @@ impl SwarmDriver {
         Ok(())
     }
 
-    fn add_keys_to_replication_fetcher(
+    pub(crate) fn add_keys_to_replication_fetcher(
         &mut self,
         sender: NetworkAddress,
         incoming_keys: Vec<(NetworkAddress, ValidationType)>,
+        is_fresh_replicate: bool,
     ) -> Result<(), NetworkError> {
         let holder = if let Some(peer_id) = sender.as_peer_id() {
             peer_id
@@ -169,7 +185,7 @@ impl SwarmDriver {
         };
 
         debug!(
-            "Received replication list from {holder:?} of {} keys",
+            "Received replication list from {holder:?} of {} keys is_fresh_replicate {is_fresh_replicate:?}",
             incoming_keys.len()
         );
 
@@ -192,9 +208,16 @@ impl SwarmDriver {
             .kademlia
             .store_mut()
             .record_addresses_ref()?;
-        let keys_to_fetch = self
-            .replication_fetcher
-            .add_keys(holder, incoming_keys, all_keys);
+        let keys_to_fetch = self.replication_fetcher.add_keys(
+            holder,
+            incoming_keys,
+            all_keys,
+            is_fresh_replicate,
+            closest_k_peers
+                .iter()
+                .map(|peer_id| NetworkAddress::from_peer(*peer_id))
+                .collect(),
+        );
         if keys_to_fetch.is_empty() {
             debug!("no waiting keys to fetch from the network");
         } else {

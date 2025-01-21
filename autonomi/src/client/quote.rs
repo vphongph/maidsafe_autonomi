@@ -98,7 +98,7 @@ impl Client {
 
             // FIXME: find better way to deal with paid content addrs and feedback to the user
             // assume that content addr is already paid for and uploaded
-            if raw_quotes.is_empty() {
+            if raw_quotes.len() <= CLOSE_GROUP_SIZE / 2 {
                 debug!("content_addr: {content_addr} is already paid for. No need to fetch market price.");
                 continue;
             }

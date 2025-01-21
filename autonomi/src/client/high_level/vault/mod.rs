@@ -12,7 +12,7 @@ pub mod user_data;
 pub use key::{derive_vault_key, VaultSecretKey};
 pub use user_data::UserData;
 
-use crate::client::datatypes::scratchpad::{Scratchpad, ScratchpadError};
+use crate::client::data_types::scratchpad::{Scratchpad, ScratchpadError};
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::{Client, PutError};

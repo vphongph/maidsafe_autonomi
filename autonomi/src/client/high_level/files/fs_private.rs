@@ -19,7 +19,7 @@ use super::{get_relative_file_path_from_abs_file_and_folder_path, FILE_UPLOAD_BA
 use super::{DownloadError, UploadError};
 
 use crate::client::Client;
-use crate::client::{datatypes::chunk::DataMapChunk, utils::process_tasks_with_max_concurrency};
+use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_max_concurrency};
 use ant_evm::EvmWallet;
 use bytes::Bytes;
 use std::path::PathBuf;

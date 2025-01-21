@@ -14,11 +14,11 @@
 /// - GraphEntry
 /// - Pointer
 /// - Scratchpad
-pub mod datatypes;
-pub use datatypes::chunk;
-pub use datatypes::graph;
-pub use datatypes::pointer;
-pub use datatypes::scratchpad;
+pub mod data_types;
+pub use data_types::chunk;
+pub use data_types::graph;
+pub use data_types::pointer;
+pub use data_types::scratchpad;
 
 /// High-level types built on top of the basic Network data types.
 /// Includes data, files and personnal data vaults

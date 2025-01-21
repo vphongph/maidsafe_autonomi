@@ -15,7 +15,7 @@ use ant_networking::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
     client::{
-        datatypes::chunk::DataMapChunk, high_level::files::RenameError, payment::PaymentOption,
+        data_types::chunk::DataMapChunk, high_level::files::RenameError, payment::PaymentOption,
         GetError, PutError,
     },
     Client,

@@ -10,7 +10,7 @@ use ant_evm::Amount;
 use ant_protocol::storage::DataTypes;
 use bytes::Bytes;
 
-use crate::client::datatypes::chunk::DataMapChunk;
+use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::payment::PaymentOption;
 use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
 use crate::{self_encryption::encrypt, Client};
@@ -128,7 +128,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::datatypes::chunk::Chunk;
+    use crate::client::data_types::chunk::Chunk;
 
     #[test]
     fn test_hex() {

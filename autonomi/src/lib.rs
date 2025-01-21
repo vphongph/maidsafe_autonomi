@@ -56,10 +56,10 @@ pub mod client;
 pub mod self_encryption;
 
 // The Network data types
-pub use client::datatypes::chunk;
-pub use client::datatypes::graph;
-pub use client::datatypes::pointer;
-pub use client::datatypes::scratchpad;
+pub use client::data_types::chunk;
+pub use client::data_types::graph;
+pub use client::data_types::pointer;
+pub use client::data_types::scratchpad;
 
 /// The high-level data types
 pub use client::data;
@@ -81,8 +81,8 @@ pub use libp2p::Multiaddr;
 
 #[doc(inline)]
 pub use client::{
-    datatypes::chunk::Chunk, datatypes::graph::GraphEntry, datatypes::pointer::Pointer,
-    datatypes::scratchpad::Scratchpad, files::archive_private::PrivateArchive,
+    data_types::chunk::Chunk, data_types::graph::GraphEntry, data_types::pointer::Pointer,
+    data_types::scratchpad::Scratchpad, files::archive_private::PrivateArchive,
     files::archive_public::PublicArchive, files::Metadata, Client, ClientConfig,
 };
 

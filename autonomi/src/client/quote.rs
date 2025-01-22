@@ -217,7 +217,7 @@ async fn fetch_store_quote_with_retries(
         }
         // Shall have a sleep between retries to avoid choking the network.
         // This shall be rare to happen though.
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
 

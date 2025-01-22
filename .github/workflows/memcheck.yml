@@ -114,7 +114,11 @@ jobs:
 
       - name: Start the restart node again
         run: |
-          ./target/release/antnode --root-dir $RESTART_TEST_NODE_DATA_PATH --log-output-dest $RESTART_TEST_NODE_DATA_PATH --local --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" &
+          ./target/release/antnode \
+            --root-dir $RESTART_TEST_NODE_DATA_PATH \
+            --log-output-dest $RESTART_TEST_NODE_DATA_PATH \
+            --local \
+            --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" &
           sleep 10
         env:
           ANT_LOG: "all"
@@ -156,6 +160,22 @@ jobs:
         timeout-minutes: 1
         continue-on-error: true
         run: pgrep antnode | wc -l
+        if: always()
+
+      - name: confirm opened FDs
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          fd_cap="30"
+          pids=$(pgrep antnode)
+          for pid in $pids; do
+            fd_count=$(ls /proc/$pid/fd | wc -l)
+            echo "Process $pid - File Descriptors: $fd_count"
+            if (( $(echo "$fd_count > $fd_cap" | bc -l) )); then
+              echo "Process $pid holding FD exceeded threshold: $fd_cap"
+              exit 1
+            fi
+          done
         if: always()
 
       - name: Stop the local network and upload logs

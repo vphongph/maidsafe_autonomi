@@ -53,19 +53,22 @@ impl SwarmDriver {
         let now = Instant::now();
 
         // Find the farthest bucket that is not full. This is used to skip refreshing the RT of farthest full buckets.
-        let mut farthest_unfilled_bucket = 0;
+        let mut first_filled_bucket = 0;
+        // unfilled kbuckets will not be returned, hence the value shall be:
+        //   * first_filled_kbucket.ilog2() - 1
         for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
             let Some(ilog2) = kbucket.range().0.ilog2() else {
                 continue;
             };
-            if kbucket.num_entries() < K_VALUE.get() && ilog2 > farthest_unfilled_bucket {
-                farthest_unfilled_bucket = ilog2;
+            if kbucket.num_entries() >= K_VALUE.get() {
+                first_filled_bucket = ilog2;
+                break;
             }
         }
-        let farthest_unfilled_bucket = if farthest_unfilled_bucket == 0 {
+        let farthest_unfilled_bucket = if first_filled_bucket == 0 {
             None
         } else {
-            Some(farthest_unfilled_bucket)
+            Some(first_filled_bucket - 1)
         };
 
         let addrs = self.network_discovery.candidates(farthest_unfilled_bucket);

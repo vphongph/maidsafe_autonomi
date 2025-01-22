@@ -203,7 +203,7 @@ impl Client {
 
     /// Initialize the client with the given configuration.
     ///
-    /// This will block until [`CLOSE_GROUP_SIZE`] have been added to the routing table.
+    /// This will block until `CLOSE_GROUP_SIZE` have been added to the routing table.
     ///
     /// See [`ClientConfig`].
     ///
@@ -267,7 +267,7 @@ impl Client {
 fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEvent>) {
     let mut network_builder = NetworkBuilder::new(Keypair::generate_ed25519(), local);
 
-    if let Ok(mut config) = BootstrapCacheConfig::default_config() {
+    if let Ok(mut config) = BootstrapCacheConfig::default_config(local) {
         if local {
             config.disable_cache_writing = true;
         }
@@ -278,8 +278,7 @@ fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEv
 
     // TODO: Re-export `Receiver<T>` from `ant-networking`. Else users need to keep their `tokio` dependency in sync.
     // TODO: Think about handling the mDNS error here.
-    let (network, event_receiver, swarm_driver) =
-        network_builder.build_client().expect("mdns to succeed");
+    let (network, event_receiver, swarm_driver) = network_builder.build_client();
 
     let _swarm_driver = ant_networking::time::spawn(swarm_driver.run());
     debug!("Client swarm driver is running");

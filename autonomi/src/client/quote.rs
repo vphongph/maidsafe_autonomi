@@ -240,7 +240,7 @@ async fn get_market_price_with_rate_limiter_and_retries(
                 break Ok(amounts);
             }
             Err(err) => {
-                if err.to_string().contains("429") && retries < MAX_RETRIES {
+                if retries < MAX_RETRIES {
                     retries += 1;
                     interval_in_ms *= retries * 2;
                     error!("Error while fetching quote market price: {err:?}, retry #{retries}");

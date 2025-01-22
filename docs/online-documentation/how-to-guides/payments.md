@@ -15,40 +15,10 @@ When storing data on the Autonomi network, you need to pay for the storage space
 
 The simplest way to pay for put operations is to use an EVM wallet:
 
-```python
-# Python
-from autonomi import Client, PaymentOption
-from autonomi.evm import EvmWallet
+.
 
-# Initialize client
-client = Client()
-
-# Create or load a wallet
-wallet = EvmWallet.create()  # or load from private key
-payment = PaymentOption.from_wallet(wallet)
-
-# Put data with wallet payment
-data = b"Hello, World!"
-address = client.data_put_public(data, payment)
-```
-
-```typescript
-// Node.js
-import { Client, PaymentOption } from '@autonomi/client';
-import { EvmWallet } from '@autonomi/evm';
-
-// Initialize client
-const client = new Client();
-
-// Create or load a wallet
-const wallet = EvmWallet.create();  // or load from private key
-const payment = PaymentOption.fromWallet(wallet);
-
-// Put data with wallet payment
-const data = Buffer.from("Hello, World!");
-const address = await client.dataPutPublic(data, payment);
-```
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 // Rust
 use autonomi::{Client, PaymentOption};
@@ -65,11 +35,9 @@ let payment = wallet.into();  // Converts to PaymentOption
 let data = b"Hello, World!".to_vec();
 let address = client.data_put_public(data.into(), payment).await?;
 ```
+{% endtab %}
 
-### Using Pre-paid Receipts
-
-For better efficiency when doing multiple put operations, you can pre-pay for storage and reuse the receipt:
-
+{% tab title="Python" %}
 ```python
 # Python
 from autonomi import Client, PaymentOption
@@ -77,21 +45,18 @@ from autonomi.evm import EvmWallet
 
 # Initialize client
 client = Client()
-wallet = EvmWallet.create()
 
-# Get receipt for multiple operations
-data1 = b"First piece of data"
-data2 = b"Second piece of data"
+# Create or load a wallet
+wallet = EvmWallet.create()  # or load from private key
+payment = PaymentOption.from_wallet(wallet)
 
-# Create payment receipt
-receipt = client.create_payment_receipt([data1, data2], wallet)
-payment = PaymentOption.from_receipt(receipt)
-
-# Use receipt for puts
-addr1 = client.data_put_public(data1, payment)
-addr2 = client.data_put_public(data2, payment)
+# Put data with wallet payment
+data = b"Hello, World!"
+address = client.data_put_public(data, payment)
 ```
+{% endtab %}
 
+{% tab title="Node.js" %}
 ```typescript
 // Node.js
 import { Client, PaymentOption } from '@autonomi/client';
@@ -99,21 +64,28 @@ import { EvmWallet } from '@autonomi/evm';
 
 // Initialize client
 const client = new Client();
-const wallet = EvmWallet.create();
 
-// Get receipt for multiple operations
-const data1 = Buffer.from("First piece of data");
-const data2 = Buffer.from("Second piece of data");
+// Create or load a wallet
+const wallet = EvmWallet.create();  // or load from private key
+const payment = PaymentOption.fromWallet(wallet);
 
-// Create payment receipt
-const receipt = await client.createPaymentReceipt([data1, data2], wallet);
-const payment = PaymentOption.fromReceipt(receipt);
-
-// Use receipt for puts
-const addr1 = await client.dataPutPublic(data1, payment);
-const addr2 = await client.dataPutPublic(data2, payment);
+// Put data with wallet payment
+const data = Buffer.from("Hello, World!");
+const address = await client.dataPutPublic(data, payment);
 ```
+{% endtab %}
+{% endtabs %}
 
+### .
+
+### Using Pre-paid Receipts
+
+For better efficiency when doing multiple put operations, you can pre-pay for storage and reuse the receipt:
+
+.
+
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 // Rust
 use autonomi::{Client, PaymentOption};
@@ -138,6 +110,60 @@ let payment = receipt.into();  // Converts to PaymentOption
 let addr1 = client.data_put_public(data1.into(), payment.clone()).await?;
 let addr2 = client.data_put_public(data2.into(), payment).await?;
 ```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Python
+from autonomi import Client, PaymentOption
+from autonomi.evm import EvmWallet
+
+# Initialize client
+client = Client()
+wallet = EvmWallet.create()
+
+# Get receipt for multiple operations
+data1 = b"First piece of data"
+data2 = b"Second piece of data"
+
+# Create payment receipt
+receipt = client.create_payment_receipt([data1, data2], wallet)
+payment = PaymentOption.from_receipt(receipt)
+
+# Use receipt for puts
+addr1 = client.data_put_public(data1, payment)
+addr2 = client.data_put_public(data2, payment)
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```typescript
+// Node.js
+import { Client, PaymentOption } from '@autonomi/client';
+import { EvmWallet } from '@autonomi/evm';
+
+// Initialize client
+const client = new Client();
+const wallet = EvmWallet.create();
+
+// Get receipt for multiple operations
+const data1 = Buffer.from("First piece of data");
+const data2 = Buffer.from("Second piece of data");
+
+// Create payment receipt
+const receipt = await client.createPaymentReceipt([data1, data2], wallet);
+const payment = PaymentOption.fromReceipt(receipt);
+
+// Use receipt for puts
+const addr1 = await client.dataPutPublic(data1, payment);
+const addr2 = await client.dataPutPublic(data2, payment);
+```
+{% endtab %}
+{% endtabs %}
+
+### .
+
+
 
 ## Cost Calculation
 
@@ -148,51 +174,40 @@ The cost of storing data depends on several factors:
 * Storage duration
 * Current network conditions
 
-You can calculate the cost before performing a put operation:
+You can calculate the cost before performing a PUT operation:
 
-```python
-# Python
-cost = client.calculate_storage_cost(data)
-print(f"Storage will cost {cost} tokens")
-```
-
-```typescript
-// Node.js
-const cost = await client.calculateStorageCost(data);
-console.log(`Storage will cost ${cost} tokens`);
-```
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 // Rust
 let cost = client.calculate_storage_cost(&data).await?;
 println!("Storage will cost {} tokens", cost);
 ```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Python
+cost = client.calculate_storage_cost(data)
+print(f"Storage will cost {cost} tokens")
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```typescript
+// Node.js
+const cost = await client.calculateStorageCost(data);
+console.log(`Storage will cost ${cost} tokens`);
+```
+{% endtab %}
+{% endtabs %}
 
 ## Token Management
 
 Before you can pay for storage, you need to ensure your wallet has sufficient tokens and has approved the payment contract to spend them:
 
-```python
-# Python
-# Check balance
-balance = wallet.get_balance()
-
-# Approve tokens if needed
-if not wallet.has_approved_tokens():
-    wallet.approve_tokens()
-```
-
-```typescript
-// Node.js
-// Check balance
-const balance = await wallet.getBalance();
-
-// Approve tokens if needed
-if (!await wallet.hasApprovedTokens()) {
-    await wallet.approveTokens();
-}
-```
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 // Rust
 // Check balance
@@ -203,6 +218,33 @@ if !wallet.has_approved_tokens().await? {
     wallet.approve_tokens().await?;
 }
 ```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Python
+# Check balance
+balance = wallet.get_balance()
+
+# Approve tokens if needed
+if not wallet.has_approved_tokens():
+    wallet.approve_tokens()
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```typescript
+// Node.js
+// Check balance
+const balance = await wallet.getBalance();
+
+// Approve tokens if needed
+if (!await wallet.hasApprovedTokens()) {
+    await wallet.approveTokens();
+}
+```
+{% endtab %}
+{% endtabs %}
 
 ## Error Handling
 
@@ -215,33 +257,8 @@ Common payment-related errors you might encounter:
 
 Example error handling:
 
-```python
-# Python
-try:
-    address = client.data_put_public(data, payment)
-except InsufficientBalance:
-    print("Not enough tokens in wallet")
-except TokenNotApproved:
-    print("Need to approve token spending")
-except PaymentError as e:
-    print(f"Payment failed: {e}")
-```
-
-```typescript
-// Node.js
-try {
-    const address = await client.dataPutPublic(data, payment);
-} catch (e) {
-    if (e instanceof InsufficientBalance) {
-        console.log("Not enough tokens in wallet");
-    } else if (e instanceof TokenNotApproved) {
-        console.log("Need to approve token spending");
-    } else {
-        console.log(`Payment failed: ${e}`);
-    }
-}
-```
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 // Rust
 match client.data_put_public(data.into(), payment).await {
@@ -259,6 +276,39 @@ match client.data_put_public(data.into(), payment).await {
     }
 }
 ```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Python
+try:
+    address = client.data_put_public(data, payment)
+except InsufficientBalance:
+    print("Not enough tokens in wallet")
+except TokenNotApproved:
+    print("Need to approve token spending")
+except PaymentError as e:
+    print(f"Payment failed: {e}")
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```typescript
+// Node.js
+try {
+    const address = await client.dataPutPublic(data, payment);
+} catch (e) {
+    if (e instanceof InsufficientBalance) {
+        console.log("Not enough tokens in wallet");
+    } else if (e instanceof TokenNotApproved) {
+        console.log("Need to approve token spending");
+    } else {
+        console.log(`Payment failed: ${e}`);
+    }
+}
+```
+{% endtab %}
+{% endtabs %}
 
 ## Best Practices
 

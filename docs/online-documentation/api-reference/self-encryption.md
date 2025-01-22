@@ -1,12 +1,23 @@
-# Self Encryption API Reference
+# Self Encryption
 
 A file content self-encryptor that provides convergent encryption on file-based data. It produces a `DataMap` type and several chunks of encrypted data. Each chunk is up to 1MB in size and has an index and a name (SHA3-256 hash of the content), allowing chunks to be self-validating.
 
 ## Installation
 
-\=== "Python" `bash pip install self-encryption`
+{% tabs %}
+{% tab title="Rust" %}
+```toml
+[dependencies]
+self_encryption = "0.31.0"
+```
+{% endtab %}
 
-\=== "Rust" `toml [dependencies] self_encryption = "0.31.0"`
+{% tab title="Python" %}
+```bash
+pip install self-encryption
+```
+{% endtab %}
+{% endtabs %}
 
 ## Core Concepts
 
@@ -24,31 +35,12 @@ Holds the information required to recover the content of the encrypted file, sto
 
 ### Streaming File Encryption
 
-\=== "Python" \`\`\`python from self\_encryption import streaming\_encrypt\_from\_file, ChunkStore from pathlib import Path from typing import Optional
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use self_encryption::{streaming_encrypt_from_file, ChunkStore};
+use std::path::Path;
 
-````
-# Implement your chunk store
-class MyChunkStore(ChunkStore):
-    def put(self, name: bytes, data: bytes) -> None:
-        # Store the chunk
-        pass
-        
-    def get(self, name: bytes) -> Optional[bytes]:
-        # Retrieve the chunk
-        pass
-
-# Create chunk store instance
-store = MyChunkStore()
-
-# Encrypt file using streaming
-file_path = Path("my_file.txt")
-data_map = streaming_encrypt_from_file(file_path, store)
-```
-````
-
-\=== "Rust" \`\`\`rust use self\_encryption::{streaming\_encrypt\_from\_file, ChunkStore}; use std::path::Path;
-
-````
 // Implement your chunk store
 struct MyChunkStore {
     // Your storage implementation
@@ -58,7 +50,7 @@ impl ChunkStore for MyChunkStore {
     fn put(&mut self, name: &[u8], data: &[u8]) -> Result<(), Error> {
         // Store the chunk
     }
-    
+
     fn get(&self, name: &[u8]) -> Result<Vec<u8>, Error> {
         // Retrieve the chunk
     }
@@ -71,51 +63,69 @@ let store = MyChunkStore::new();
 let file_path = Path::new("my_file.txt");
 let data_map = streaming_encrypt_from_file(file_path, store).await?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from self_encryption import streaming_encrypt_from_file, ChunkStore
+from pathlib import Path
+from typing import Optional
+
+# Implement your chunk store
+class MyChunkStore(ChunkStore):
+    def put(self, name: bytes, data: bytes) -> None:
+        # Store the chunk
+        pass
+
+    def get(self, name: bytes) -> Optional[bytes]:
+        # Retrieve the chunk
+        pass
+
+# Create chunk store instance
+store = MyChunkStore()
+
+# Encrypt file using streaming
+file_path = Path("my_file.txt")
+data_map = streaming_encrypt_from_file(file_path, store)
+```
+{% endtab %}
+{% endtabs %}
 
 ### Streaming File Decryption
 
-\=== "Python" \`\`\`python from self\_encryption import streaming\_decrypt\_from\_storage from pathlib import Path
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use self_encryption::streaming_decrypt_from_storage;
+use std::path::Path;
 
-````
-# Decrypt to file using streaming
-output_path = Path("decrypted_file.txt")
-streaming_decrypt_from_storage(data_map, store, output_path)
-```
-````
-
-\=== "Rust" \`\`\`rust use self\_encryption::streaming\_decrypt\_from\_storage; use std::path::Path;
-
-````
 // Decrypt to file using streaming
 let output_path = Path::new("decrypted_file.txt");
 streaming_decrypt_from_storage(&data_map, store, output_path).await?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from self_encryption import streaming_decrypt_from_storage
+from pathlib import Path
+
+# Decrypt to file using streaming
+output_path = Path("decrypted_file.txt")
+streaming_decrypt_from_storage(data_map, store, output_path)
+```
+{% endtab %}
+{% endtabs %}
 
 ## In-Memory Operations (Small Files)
 
 ### Basic Encryption/Decryption
 
-\=== "Python" \`\`\`python from self\_encryption import encrypt, decrypt
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use self_encryption::{encrypt, decrypt};
 
-````
-# Encrypt bytes in memory
-data = b"Small data to encrypt"
-data_map, encrypted_chunks = encrypt(data)
-
-# Decrypt using retrieval function
-def get_chunk(name: bytes) -> bytes:
-    # Retrieve chunk by name from your storage
-    return chunk_data
-
-decrypted = decrypt(data_map, get_chunk)
-```
-````
-
-\=== "Rust" \`\`\`rust use self\_encryption::{encrypt, decrypt};
-
-````
 // Encrypt bytes in memory
 let data = b"Small data to encrypt";
 let (data_map, encrypted_chunks) = encrypt(data)?;
@@ -129,30 +139,35 @@ let decrypted = decrypt(
     }
 )?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from self_encryption import encrypt, decrypt
+
+# Encrypt bytes in memory
+data = b"Small data to encrypt"
+data_map, encrypted_chunks = encrypt(data)
+
+# Decrypt using retrieval function
+def get_chunk(name: bytes) -> bytes:
+    # Retrieve chunk by name from your storage
+    return chunk_data
+
+decrypted = decrypt(data_map, get_chunk)
+```
+{% endtab %}
+{% endtabs %}
 
 ## Chunk Store Implementations
 
 ### In-Memory Store
 
-\=== "Python" \`\`\`python from self\_encryption import ChunkStore from typing import Dict, Optional
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use std::collections::HashMap;
 
-````
-class MemoryStore(ChunkStore):
-    def __init__(self):
-        self.chunks: Dict[bytes, bytes] = {}
-
-    def put(self, name: bytes, data: bytes) -> None:
-        self.chunks[name] = data
-        
-    def get(self, name: bytes) -> Optional[bytes]:
-        return self.chunks.get(name)
-```
-````
-
-\=== "Rust" \`\`\`rust use std::collections::HashMap;
-
-````
 struct MemoryStore {
     chunks: HashMap<Vec<u8>, Vec<u8>>,
 }
@@ -162,7 +177,7 @@ impl ChunkStore for MemoryStore {
         self.chunks.insert(name.to_vec(), data.to_vec());
         Ok(())
     }
-    
+
     fn get(&self, name: &[u8]) -> Result<Vec<u8>, Error> {
         self.chunks.get(name)
             .cloned()
@@ -170,34 +185,34 @@ impl ChunkStore for MemoryStore {
     }
 }
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from self_encryption import ChunkStore
+from typing import Dict, Optional
+
+class MemoryStore(ChunkStore):
+    def __init__(self):
+        self.chunks: Dict[bytes, bytes] = {}
+
+    def put(self, name: bytes, data: bytes) -> None:
+        self.chunks[name] = data
+
+    def get(self, name: bytes) -> Optional[bytes]:
+        return self.chunks.get(name)
+```
+{% endtab %}
+{% endtabs %}
 
 ### Disk-Based Store
 
-\=== "Python" \`\`\`python from pathlib import Path from typing import Optional import os
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use std::path::PathBuf;
+use std::fs;
 
-````
-class DiskStore(ChunkStore):
-    def __init__(self, root_dir: Path):
-        self.root_dir = root_dir
-        self.root_dir.mkdir(parents=True, exist_ok=True)
-
-    def put(self, name: bytes, data: bytes) -> None:
-        path = self.root_dir / name.hex()
-        path.write_bytes(data)
-        
-    def get(self, name: bytes) -> Optional[bytes]:
-        path = self.root_dir / name.hex()
-        try:
-            return path.read_bytes()
-        except FileNotFoundError:
-            return None
-```
-````
-
-\=== "Rust" \`\`\`rust use std::path::PathBuf; use std::fs;
-
-````
 struct DiskStore {
     root_dir: PathBuf,
 }
@@ -208,7 +223,7 @@ impl ChunkStore for DiskStore {
         fs::write(path, data)?;
         Ok(())
     }
-    
+
     fn get(&self, name: &[u8]) -> Result<Vec<u8>, Error> {
         let path = self.root_dir.join(hex::encode(name));
         fs::read(path).map_err(|_| Error::NoSuchChunk)
@@ -223,7 +238,32 @@ impl DiskStore {
     }
 }
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from pathlib import Path
+from typing import Optional
+import os
+
+class DiskStore(ChunkStore):
+    def __init__(self, root_dir: Path):
+        self.root_dir = root_dir
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+
+    def put(self, name: bytes, data: bytes) -> None:
+        path = self.root_dir / name.hex()
+        path.write_bytes(data)
+
+    def get(self, name: bytes) -> Optional[bytes]:
+        path = self.root_dir / name.hex()
+        try:
+            return path.read_bytes()
+        except FileNotFoundError:
+            return None
+```
+{% endtab %}
+{% endtabs %}
 
 ## Error Handling
 

@@ -14,7 +14,7 @@ That's it! Everything else needed will be built from source.
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/dirvine/autonomi
+git clone https://github.com/maidsafe/autonomi
 cd autonomi
 ```
 
@@ -84,50 +84,8 @@ The local EVM network exposes an RPC endpoint at `http://localhost:8545` with:
 
 ### Interacting with the Network
 
-#### JavaScript/TypeScript
-
-```typescript
-import { ethers } from 'ethers';
-
-// Connect to local network
-const provider = new ethers.JsonRpcProvider('http://localhost:8545');
-const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-
-// Get contract instances
-const paymentVault = new ethers.Contract(
-  PAYMENT_VAULT_ADDRESS,
-  PAYMENT_VAULT_ABI,
-  wallet
-);
-
-// Interact with contracts
-await paymentVault.getQuote([metrics]);
-await paymentVault.payForQuotes(payments);
-```
-
-#### Python
-
-```python
-from web3 import Web3
-from eth_account import Account
-
-# Connect to local network
-w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
-account = Account.from_key(PRIVATE_KEY)
-
-# Get contract instances
-payment_vault = w3.eth.contract(
-    address=PAYMENT_VAULT_ADDRESS,
-    abi=PAYMENT_VAULT_ABI
-)
-
-# Interact with contracts
-payment_vault.functions.getQuote([metrics]).call()
-payment_vault.functions.payForQuotes(payments).transact()
-```
-
-#### Rust
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 use ethers::prelude::*;
 
@@ -146,6 +104,50 @@ let payment_vault = PaymentVault::new(
 payment_vault.get_quote(metrics).call().await?;
 payment_vault.pay_for_quotes(payments).send().await?;
 ```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from web3 import Web3
+from eth_account import Account
+
+# Connect to local network
+w3 = Web3(Web3.HTTPProvider('http://localhost:8545'))
+account = Account.from_key(PRIVATE_KEY)
+
+# Get contract instances
+payment_vault = w3.eth.contract(
+    address=PAYMENT_VAULT_ADDRESS,
+    abi=PAYMENT_VAULT_ABI
+)
+
+# Interact with contracts
+payment_vault.functions.getQuote([metrics]).call()
+payment_vault.functions.payForQuotes(payments).transact()
+```
+{% endtab %}
+
+{% tab title="TypeScript/JavaScript" %}
+```typescript
+import { ethers } from 'ethers';
+
+// Connect to local network
+const provider = new ethers.JsonRpcProvider('http://localhost:8545');
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+
+// Get contract instances
+const paymentVault = new ethers.Contract(
+  PAYMENT_VAULT_ADDRESS,
+  PAYMENT_VAULT_ABI,
+  wallet
+);
+
+// Interact with contracts
+await paymentVault.getQuote([metrics]);
+await paymentVault.payForQuotes(payments);v
+```
+{% endtab %}
+{% endtabs %}
 
 ## Environment Variables
 
@@ -200,8 +202,8 @@ tail -f "$NODE_DATA_DIR/node.log" | grep "payment"
 
 #### Node Debugging
 
-Using `rust-lldb`:
-
+{% tabs %}
+{% tab title="Rust-lldb" %}
 ```bash
 # Start node with debugger
 rust-lldb target/debug/antnode -- --features test
@@ -213,9 +215,9 @@ bt                              # Backtrace
 p variable                      # Print variable
 c                              # Continue
 ```
+{% endtab %}
 
-Using `rust-gdb`:
-
+{% tab title="rust-gdb" %}
 ```bash
 # Start node with debugger
 rust-gdb target/debug/antnode -- --features test
@@ -227,6 +229,8 @@ backtrace                           # Show backtrace
 print variable                      # Examine variable
 continue                            # Continue execution
 ```
+{% endtab %}
+{% endtabs %}
 
 #### Network Monitoring
 

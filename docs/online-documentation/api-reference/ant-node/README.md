@@ -1,24 +1,58 @@
-# Ant Node API Reference
+# Node API
 
 The Ant Node provides a comprehensive API for running and managing nodes in the Autonomi network. This documentation covers both the Python bindings and the Rust implementation.
 
 ## Installation
 
-\=== "Python" \`\`\`bash # Install using uv (recommended) curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh uv pip install maturin uv pip install antnode
-
-````
-# Or using pip
-pip install antnode
+{% tabs %}
+{% tab title="Rust" %}
+```toml
+# Add to Cargo.toml
+[dependencies]
+ant-node = "0.3.2"
 ```
-````
+{% endtab %}
 
-\=== "Rust" `toml # Add to Cargo.toml [dependencies] ant-node = "0.3.2"`
+{% tab title="Python" %}
+```bash
+# Install using uv (recommended)
+curl -LsSf <https://astral.sh/uv/install.sh> | sh
+uv pip install maturin
+uv pip install antnode
+
+# Or using pip
+pip install antnode.
+```
+{% endtab %}
+{% endtabs %}
 
 ## Basic Usage
 
-\=== "Python" \`\`\`python from antnode import AntNode
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::{NodeBuilder, NodeEvent};
+use ant_evm::RewardsAddress;
+use libp2p::Multiaddr;
 
-````
+// Create and start a node
+let node = NodeBuilder::new()
+    .rewards_address(rewards_address)
+    .evm_network(evm_network)
+    .ip(ip)
+    .port(port)
+    .initial_peers(initial_peers)
+    .local(false)
+    .root_dir(None)
+    .home_network(false)
+    .build()?;
+```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from antnode import AntNode
+
 # Create and start a node
 node = AntNode()
 node.run(
@@ -34,48 +68,19 @@ node.run(
     home_network=False
 )
 ```
-````
-
-\=== "Rust" \`\`\`rust use ant\_node::{NodeBuilder, NodeEvent}; use ant\_evm::RewardsAddress; use libp2p::Multiaddr;
-
-````
-// Create and start a node
-let node = NodeBuilder::new()
-    .rewards_address(rewards_address)
-    .evm_network(evm_network)
-    .ip(ip)
-    .port(port)
-    .initial_peers(initial_peers)
-    .local(false)
-    .root_dir(None)
-    .home_network(false)
-    .build()?;
-```
-````
+{% endtab %}
+{% endtabs %}
 
 ## Core Features
 
 ### Node Information
 
-\=== "Python" \`\`\`python # Get node's peer ID peer\_id = node.peer\_id()
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+// Get node's peer ID
+let peer_id = node.peer_id();
 
-````
-# Get current rewards address
-address = node.get_rewards_address()
-
-# Get routing table information
-kbuckets = node.get_kbuckets()
-for distance, peers in kbuckets:
-    print(f"Distance {distance}: {len(peers)} peers")
-
-# Get all stored record addresses
-records = node.get_all_record_addresses()
-```
-````
-
-\=== "Rust" \`\`\`rust // Get node's peer ID let peer\_id = node.peer\_id();
-
-````
 // Get current rewards address
 let address = node.rewards_address();
 
@@ -88,27 +93,34 @@ for (distance, peers) in kbuckets {
 // Get all stored record addresses
 let records = node.get_all_record_addresses()?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Get node's peer ID
+peer_id = node.peer_id()
+
+# Get current rewards address
+address = node.get_rewards_address()
+
+# Get routing table information
+kbuckets = node.get_kbuckets()
+for distance, peers in kbuckets:
+    print(f"Distance {distance}: {len(peers)} peers")
+
+# Get all stored record addresses
+records = node.get_all_record_addresses()
+```
+{% endtab %}
+{% endtabs %}
 
 ### Storage Operations
 
-\=== "Python" \`\`\`python # Store data key = "0123456789abcdef" # Hex string value = b"Hello, World!" node.store\_record(key, value, "chunk")
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_protocol::storage::ValidationType;
 
-````
-# Retrieve data
-data = node.get_record(key)
-
-# Delete data
-success = node.delete_record(key)
-
-# Get total storage size
-size = node.get_stored_records_size()
-```
-````
-
-\=== "Rust" \`\`\`rust use ant\_protocol::storage::ValidationType;
-
-````
 // Store data
 let key = "0123456789abcdef";  // Hex string
 let value = b"Hello, World!";
@@ -123,33 +135,62 @@ let success = node.delete_record(key)?;
 // Get total storage size
 let size = node.get_stored_records_size()?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Store data
+key = "0123456789abcdef"  # Hex string
+value = b"Hello, World!"
+node.store_record(key, value, "chunk")
+
+# Retrieve data
+data = node.get_record(key)
+
+# Delete data
+success = node.delete_record(key)
+
+# Get total storage size
+size = node.get_stored_records_size()
+```
+{% endtab %}
+{% endtabs %}
 
 ### Directory Management
 
-\=== "Python" \`\`\`python # Get various directory paths root\_dir = node.get\_root\_dir() logs\_dir = node.get\_logs\_dir() data\_dir = node.get\_data\_dir()
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+// Get various directory paths
+let root_dir = node.root_dir();
+let logs_dir = node.logs_dir();
+let data_dir = node.data_dir();
 
-````
-# Get default directory for a specific peer
-default_dir = AntNode.get_default_root_dir(peer_id)
-```
-````
-
-\=== "Rust" \`\`\`rust // Get various directory paths let root\_dir = node.root\_dir(); let logs\_dir = node.logs\_dir(); let data\_dir = node.data\_dir();
-
-````
 // Get default directory for a specific peer
 let default_dir = Node::get_default_root_dir(peer_id)?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Get various directory paths
+root_dir = node.get_root_dir()
+logs_dir = node.get_logs_dir()
+data_dir = node.get_data_dir()
+
+# Get default directory for a specific peer
+default_dir = AntNode.get_default_root_dir(peer_id)
+```
+{% endtab %}
+{% endtabs %}
 
 ## Event Handling
 
-\=== "Python" `python # Event handling is automatic in Python bindings # Events are logged and can be monitored through the logging system`
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::{NodeEvent, NodeEventsReceiver};
 
-\=== "Rust" \`\`\`rust use ant\_node::{NodeEvent, NodeEventsReceiver};
-
-````
 // Get event receiver
 let mut events: NodeEventsReceiver = node.event_receiver();
 
@@ -169,7 +210,15 @@ while let Ok(event) = events.recv().await {
     }
 }
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+# Event handling is automatic in Python bindings
+# Events are logged and can be monitored through the logging system
+```
+{% endtab %}
+{% endtabs %}
 
 ## Configuration Options
 
@@ -191,11 +240,11 @@ while let Ok(event) = events.recv().await {
 
 ## Error Handling
 
-\=== "Python" `python try: node.store_record(key, value, "chunk") except Exception as e: print(f"Error storing record: {e}")`
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::error::Error;
 
-\=== "Rust" \`\`\`rust use ant\_node::error::Error;
-
-````
 match node.store_record(key, value, ValidationType::Chunk) {
     Ok(_) => println!("Record stored successfully"),
     Err(Error::StorageFull) => println!("Storage is full"),
@@ -203,7 +252,17 @@ match node.store_record(key, value, ValidationType::Chunk) {
     Err(e) => println!("Other error: {}", e),
 }
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+try:
+    node.store_record(key, value, "chunk")
+except Exception as e:
+    print(f"Error storing record: {e}")
+```
+{% endtab %}
+{% endtabs %}
 
 ## Best Practices
 

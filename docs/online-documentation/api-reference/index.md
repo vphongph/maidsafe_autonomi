@@ -26,7 +26,7 @@ The [Ant Node API](ant-node/) allows you to run and manage nodes in the Autonomi
 
 ### BLS Threshold Crypto
 
-The [BLS Threshold Crypto API](blsttc/) implements BLS (Boneh-Lynn-Shacham) threshold signatures, providing:
+The [BLS Threshold Crypto API](blsttc.md) implements BLS (Boneh-Lynn-Shacham) threshold signatures, providing:
 
 * Secret key generation and sharing
 * Signature creation and verification
@@ -35,7 +35,7 @@ The [BLS Threshold Crypto API](blsttc/) implements BLS (Boneh-Lynn-Shacham) thre
 
 ### Self Encryption
 
-The [Self Encryption API](self-encryption/) implements content-based encryption, offering:
+The [Self Encryption API](self-encryption.md) implements content-based encryption, offering:
 
 * Data-derived encryption
 * Content deduplication

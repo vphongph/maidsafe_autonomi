@@ -10,53 +10,79 @@ Autonomi is a decentralised data and communications platform designed to provide
 
 * [Installation Guide](getting-started/installation.md)
 * Core Concepts:
-  * [Data Types](guides/data_types.md) - Understanding the fundamental data structures
-  * [Client Modes](guides/client_modes.md) - Different operational modes of the client
-  * [Data Storage](guides/data_storage.md) - How data is stored and retrieved
-  * [Local Network Setup](guides/local_network.md) - Setting up a local development environment
+  * [Data Types](core-concepts/data_types.md) - Understanding the fundamental data structures
+  * [Client Modes](core-concepts/client_modes.md) - Different operational modes of the client
+  * [Data Storage](core-concepts/data_storage.md) - How data is stored and retrieved
+  * [Local Network Setup](how-to-guides/local_network.md) - Setting up a local development environment
 
 ### API References
 
-* [Autonomi Client](api/autonomi-client/) - Core client library for network operations
-* [Ant Node](api/ant-node/) - Node implementation for network participation
-* [BLS Threshold Crypto](api/blsttc/) - Threshold cryptography implementation
-* [Self Encryption](api/self-encryption/) - Content-based encryption library
-* Developer Resources:
+* [Autonomi Client](api-reference/autonomi-client/) - Core client library for network operations
+* [Ant Node](api-reference/ant-node/) - Node implementation for network participation
+* [BLS Threshold Crypto](api-reference/blsttc.md) - Threshold cryptography implementation
+* [Self Encryption](api-reference/self-encryption.md) - Content-based encryption library
+* Low-level [Rust Crate API Reference](https://docs.rs/autonomi/latest/autonomi/)
 
 ## Language Support
 
 Autonomi provides client libraries for multiple languages:
 
-\=== "Node.js" \`\`\`typescript import { Client } from 'autonomi';
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use autonomi::Client;
 
-````
-const client = new Client();
-await client.connect();
+let client = Client::new()?;
 ```
-````
+{% endtab %}
 
-\=== "Python" \`\`\`python from autonomi import Client
+{% tab title="Python" %}
+```python
+from autonomi import Client
 
-````
 client = Client()
 await client.connect()
 ```
-````
+{% endtab %}
 
-\=== "Rust" \`\`\`rust use autonomi::Client;
+{% tab title="Node.js" %}
+```typescript
+import { Client } from 'autonomi';
 
-````
-let client = Client::new()?;
+const client = new Client();
+await client.connect();
 ```
-````
+{% endtab %}
+{% endtabs %}
 
 ## Building from Source
 
-\=== "Python (using Maturin & uv)" \`\`\`bash # Install build dependencies curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh uv pip install maturin
-
-````
+{% tabs %}
+{% tab title="Rust" %}
+```rust
 # Clone the repository
-git clone https://github.com/dirvine/autonomi.git
+git clone <https://github.com/maidsafe/autonomi.git>
+cd autonomi
+
+# Build the project
+cargo build --release
+
+# Run tests
+cargo test --all-features
+
+# Install locally
+cargo install --path .
+```
+{% endtab %}
+
+{% tab title="Python (using Maturin & uv)" %}
+```python
+# Install build dependencies
+curl -LsSf <https://astral.sh/uv/install.sh> | sh
+uv pip install maturin
+
+# Clone the repository
+git clone https://github.com/maidsafe/autonomi.git
 cd autonomi
 
 # Create and activate virtual environment
@@ -72,13 +98,15 @@ maturin develop
 # Install dependencies
 uv pip install -r requirements.txt
 ```
-````
+{% endtab %}
 
-\=== "Node.js" \`\`\`bash # Install build dependencies npm install -g node-gyp
+{% tab title="Node.js" %}
+```typescript
+# Install build dependencies
+npm install -g node-gyp
 
-````
 # Clone the repository
-git clone https://github.com/dirvine/autonomi.git
+git clone https://github.com/maidsafe/autonomi.git
 cd autonomi
 
 # Build the Node.js bindings
@@ -89,21 +117,8 @@ npm run build
 # Link for local development
 npm link
 ```
-````
-
-\=== "Rust" \`\`\`bash # Clone the repository git clone [https://github.com/dirvine/autonomi.git](https://github.com/dirvine/autonomi.git) cd autonomi
-
-````
-# Build the project
-cargo build --release
-
-# Run tests
-cargo test --all-features
-
-# Install locally
-cargo install --path .
-```
-````
+{% endtab %}
+{% endtabs %}
 
 ## Contributing
 
@@ -119,9 +134,3 @@ For more details, see our [Contributing Guide](https://github.com/dirvine/autono
 ## Getting Help
 
 * [GitHub Issues](https://github.com/dirvine/autonomi/issues)
-* API References:
-  * [Autonomi Client](api/autonomi-client/)
-  * [Ant Node](api/ant-node/)
-  * [BLS Threshold Crypto](api/blsttc/)
-  * [Self Encryption](api/self-encryption/)
-* [Testing Guide](guides/testing_guide.md)

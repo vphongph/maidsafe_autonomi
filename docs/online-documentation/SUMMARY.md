@@ -1,24 +1,34 @@
 # Table of contents
 
 * [Autonomi Documentation](README.md)
-* [api](api/README.md)
-  * [API Reference Overview](api/index.md)
-  * [Ant Node API Reference](api/ant-node/README.md)
-    * [Node Configuration](api/ant-node/configuration.md)
-    * [Network Operations](api/ant-node/network.md)
-  * [Autonomi API Documentation](api/autonomi-client/README.md)
-    * [Data Types Reference](api/autonomi-client/data_types.md)
-    * [Error Handling Reference](api/autonomi-client/errors.md)
-  * [BLS Threshold Crypto API Reference](api/blsttc/README.md)
-  * [Self Encryption API Reference](api/self-encryption/README.md)
-* [getting-started](getting-started/README.md)
-  * [Installation Guide](getting-started/installation.md)
-* [guides](guides/README.md)
-  * [Client Modes Guide](guides/client_modes.md)
-  * [Data Storage Guide](guides/data_storage.md)
-  * [Data Types Guide](guides/data_types.md)
-  * [EVM Integration Guide](guides/evm_integration.md)
-  * [Local Development Environment](guides/local_development.md)
-  * [Local Network Setup Guide](guides/local_network.md)
-  * [Payments Guide](guides/payments.md)
-  * [Testing Guide](guides/testing_guide.md)
+
+## Getting Started
+
+* [Installation Guide](getting-started/installation.md)
+
+## Core Concepts
+
+* [Data Types Guide](core-concepts/data_types.md)
+* [Client Modes Guide](core-concepts/client_modes.md)
+* [Data Storage](core-concepts/data_storage.md)
+
+## How To Guides
+
+* [Local Network Setup Guide](how-to-guides/local_network.md)
+* [Local Development Environment](how-to-guides/local_development.md)
+* [EVM Integration Guide](how-to-guides/evm_integration.md)
+* [Testing Guide](how-to-guides/testing_guide.md)
+* [Payments Guide](how-to-guides/payments.md)
+
+## API Reference
+
+* [API Reference Overview](api-reference/index.md)
+* [Client API](api-reference/autonomi-client/README.md)
+  * [Data Types Reference](api-reference/autonomi-client/data_types.md)
+  * [Error Handling Reference](api-reference/autonomi-client/errors.md)
+* [Node API](api-reference/ant-node/README.md)
+  * [Node Configuration](api-reference/ant-node/configuration.md)
+  * [Network Operations](api-reference/ant-node/network.md)
+* [BLS Threshold Crypto](api-reference/blsttc.md)
+* [Self Encryption](api-reference/self-encryption.md)
+* [Rust Crate API Reference](https://docs.rs/autonomi/latest/autonomi/)

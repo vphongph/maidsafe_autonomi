@@ -1,4 +1,4 @@
-# Data Storage Guide
+# Data Storage
 
 This guide explains how Autonomi handles data storage, including self-encryption and scratchpad features.
 
@@ -15,57 +15,68 @@ Self-encryption is a core feature that provides secure data storage by splitting
 
 ### Usage Examples
 
-\=== "Node.js" \`\`\`typescript import { Client } from '@autonomi/client';
+\`
 
-````
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use autonomi::{Client, Bytes, Result};
+
+async fn store_encrypted_data(data: Bytes) -> Result<()> {
+    let client = Client::new()?;
+
+    // Data is automatically self-encrypted when stored
+    let address = client.data_put_public(data).await?;
+    println!("Data stored at: {}", address);
+
+    // Retrieve and decrypt data
+    let retrieved = client.data_get_public(&address).await?;
+    println!("Data retrieved successfully");
+
+    Ok(())
+}
+```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from autonomi import Client
+
+async def store_encrypted_data(data: bytes):
+    client = Client()
+
+    # Data is automatically self-encrypted when stored
+    address = await client.data_put_public(data)
+    print(f"Data stored at: {address}")
+
+    # Retrieve and decrypt data
+    retrieved = await client.data_get_public(address)
+    print("Data retrieved successfully")
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```rust
+import { Client } from '@autonomi/client';
+
 async function storeEncryptedData(data: Uint8Array) {
     const client = new Client();
-    
+
     // Data is automatically self-encrypted when stored
     const address = await client.data_put_public(data);
     console.log(`Data stored at: ${address}`);
-    
+
     // Retrieve and decrypt data
     const retrieved = await client.data_get_public(address);
     console.log('Data retrieved successfully');
 }
 ```
-````
+{% endtab %}
+{% endtabs %}
 
-\=== "Python" \`\`\`python from autonomi import Client
+\`
 
-````
-async def store_encrypted_data(data: bytes):
-    client = Client()
-    
-    # Data is automatically self-encrypted when stored
-    address = await client.data_put_public(data)
-    print(f"Data stored at: {address}")
-    
-    # Retrieve and decrypt data
-    retrieved = await client.data_get_public(address)
-    print("Data retrieved successfully")
-```
-````
 
-\=== "Rust" \`\`\`rust use autonomi::{Client, Bytes, Result};
-
-````
-async fn store_encrypted_data(data: Bytes) -> Result<()> {
-    let client = Client::new()?;
-    
-    // Data is automatically self-encrypted when stored
-    let address = client.data_put_public(data).await?;
-    println!("Data stored at: {}", address);
-    
-    // Retrieve and decrypt data
-    let retrieved = client.data_get_public(&address).await?;
-    println!("Data retrieved successfully");
-    
-    Ok(())
-}
-```
-````
 
 ## Scratchpad
 
@@ -81,83 +92,88 @@ Scratchpad provides a mutable storage location for encrypted data with versionin
 
 ### Usage Examples
 
-\=== "Node.js" \`\`\`typescript import { Client, Scratchpad } from '@autonomi/client';
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use autonomi::{Client, Scratchpad, SecretKey, Bytes, Result};
 
-````
+async fn use_scratchpad() -> Result<()> {
+    let client = Client::new()?;
+    let secret_key = SecretKey::random();
+
+    // Create or get existing scratchpad
+    let (mut scratchpad, is_new) = client
+        .get_or_create_scratchpad(&secret_key, 42)
+        .await?;
+
+    // Update scratchpad data
+    let data = Bytes::from("Hello World");
+    scratchpad.update_and_sign(data, &secret_key);
+
+    // Store updated scratchpad
+    client.put_scratchpad(&scratchpad).await?;
+
+    // Read scratchpad data
+    let retrieved = client.get_scratchpad(scratchpad.address()).await?;
+    let decrypted = retrieved.decrypt_data(&secret_key)?;
+    println!("Data: {}", String::from_utf8_lossy(&decrypted));
+
+    Ok(())
+}
+```
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from autonomi import Client, Scratchpad
+
+async def use_scratchpad():
+    client = Client()
+    secret_key = client.generate_secret_key()
+
+    # Create or get existing scratchpad
+    scratchpad, is_new = await client.get_or_create_scratchpad(
+        secret_key,
+        42  # content type
+    )
+
+    # Update scratchpad data
+    data = b"Hello World"
+    await client.update_scratchpad(scratchpad, data, secret_key)
+
+    # Read scratchpad data
+    retrieved = await client.get_scratchpad(scratchpad.address)
+    decrypted = await client.decrypt_scratchpad(retrieved, secret_key)
+    print(decrypted.decode())
+```
+{% endtab %}
+
+{% tab title="Node.js" %}
+```rust
+import { Client, Scratchpad } from '@autonomi/client';
+
 async function useScratchpad() {
     const client = new Client();
     const secretKey = await client.generate_secret_key();
-    
+
     // Create or get existing scratchpad
     const [scratchpad, isNew] = await client.get_or_create_scratchpad(
         secretKey,
         42 // content type
     );
-    
+
     // Update scratchpad data
     const data = new TextEncoder().encode('Hello World');
     await client.update_scratchpad(scratchpad, data, secretKey);
-    
+
     // Read scratchpad data
     const retrieved = await client.get_scratchpad(scratchpad.address);
     const decrypted = await client.decrypt_scratchpad(retrieved, secretKey);
     console.log(new TextDecoder().decode(decrypted));
 }
 ```
-````
-
-\=== "Python" \`\`\`python from autonomi import Client, Scratchpad
-
-````
-async def use_scratchpad():
-    client = Client()
-    secret_key = client.generate_secret_key()
-    
-    # Create or get existing scratchpad
-    scratchpad, is_new = await client.get_or_create_scratchpad(
-        secret_key,
-        42  # content type
-    )
-    
-    # Update scratchpad data
-    data = b"Hello World"
-    await client.update_scratchpad(scratchpad, data, secret_key)
-    
-    # Read scratchpad data
-    retrieved = await client.get_scratchpad(scratchpad.address)
-    decrypted = await client.decrypt_scratchpad(retrieved, secret_key)
-    print(decrypted.decode())
-```
-````
-
-\=== "Rust" \`\`\`rust use autonomi::{Client, Scratchpad, SecretKey, Bytes, Result};
-
-````
-async fn use_scratchpad() -> Result<()> {
-    let client = Client::new()?;
-    let secret_key = SecretKey::random();
-    
-    // Create or get existing scratchpad
-    let (mut scratchpad, is_new) = client
-        .get_or_create_scratchpad(&secret_key, 42)
-        .await?;
-    
-    // Update scratchpad data
-    let data = Bytes::from("Hello World");
-    scratchpad.update_and_sign(data, &secret_key);
-    
-    // Store updated scratchpad
-    client.put_scratchpad(&scratchpad).await?;
-    
-    // Read scratchpad data
-    let retrieved = client.get_scratchpad(scratchpad.address()).await?;
-    let decrypted = retrieved.decrypt_data(&secret_key)?;
-    println!("Data: {}", String::from_utf8_lossy(&decrypted));
-    
-    Ok(())
-}
-```
-````
+{% endtab %}
+{% endtabs %}
 
 ### Best Practices
 

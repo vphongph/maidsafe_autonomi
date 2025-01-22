@@ -6,44 +6,24 @@ This page documents the configuration options for running an Ant Node.
 
 ### Network Configuration
 
-\=== "Python" \`\`\`python from antnode import NodeConfig
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::{NodeConfig, RewardsAddress};
+use std::path::PathBuf;
 
-````
-config = NodeConfig(
-    # Network settings
-    ip="0.0.0.0",              # IP address to listen on
-    port=12000,                # Port to listen on
-    evm_network="arbitrum_sepolia",  # EVM network to use
-    rewards_address="0x...",   # EVM wallet address for rewards
-    
-    # Node settings
-    local=False,               # Run in local mode
-    home_network=False,        # Node is behind NAT
-    root_dir=None,             # Custom root directory
-    
-    # Network peers
-    initial_peers=[            # Bootstrap peers
-        "/ip4/142.93.37.4/udp/40184/quic-v1/p2p/12D3KooWPC8q7QGZsmuTtCYxZ2s3FPXPZcS8LVKkayXkVFkqDEQB",
-    ]
-)
-```
-````
-
-\=== "Rust" \`\`\`rust use ant\_node::{NodeConfig, RewardsAddress}; use std::path::PathBuf;
-
-````
 let config = NodeConfig::builder()
     // Network settings
     .ip("0.0.0.0")
     .port(12000)
     .evm_network("arbitrum_sepolia")
     .rewards_address(RewardsAddress::new("0x..."))
-    
+
     // Node settings
     .local(false)
     .home_network(false)
     .root_dir(Some(PathBuf::from("/path/to/data")))
-    
+
     // Network peers
     .initial_peers(vec![
         "/ip4/142.93.37.4/udp/40184/quic-v1/p2p/12D3KooWPC8q7QGZsmuTtCYxZ2s3FPXPZcS8LVKkayXkVFkqDEQB"
@@ -52,29 +32,41 @@ let config = NodeConfig::builder()
     ])
     .build()?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from antnode import NodeConfig
+
+config = NodeConfig(
+    # Network settings
+    ip="0.0.0.0",              # IP address to listen on
+    port=12000,                # Port to listen on
+    evm_network="arbitrum_sepolia",  # EVM network to use
+    rewards_address="0x...",   # EVM wallet address for rewards
+
+    # Node settings
+    local=False,               # Run in local mode
+    home_network=False,        # Node is behind NAT
+    root_dir=None,             # Custom root directory
+
+    # Network peers
+    initial_peers=[            # Bootstrap peers
+        "/ip4/142.93.37.4/udp/40184/quic-v1/p2p/12D3KooWPC8q7QGZsmuTtCYxZ2s3FPXPZcS8LVKkayXkVFkqDEQB",
+    ]
+)
+```
+{% endtab %}
+{% endtabs %}
 
 ### Storage Configuration
 
-\=== "Python" \`\`\`python from antnode import StorageConfig
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::StorageConfig;
+use std::path::PathBuf;
 
-````
-storage_config = StorageConfig(
-    max_size=1024 * 1024 * 1024,  # 1GB max storage
-    min_free_space=1024 * 1024,    # 1MB min free space
-    cleanup_interval=3600,          # Cleanup every hour
-    backup_enabled=True,
-    backup_interval=86400,          # Daily backups
-    backup_path="/path/to/backups"
-)
-
-config.storage = storage_config
-```
-````
-
-\=== "Rust" \`\`\`rust use ant\_node::StorageConfig; use std::path::PathBuf;
-
-````
 let storage_config = StorageConfig::builder()
     .max_size(1024 * 1024 * 1024)  // 1GB max storage
     .min_free_space(1024 * 1024)    // 1MB min free space
@@ -86,7 +78,25 @@ let storage_config = StorageConfig::builder()
 
 config.storage = storage_config;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from antnode import StorageConfig
+
+storage_config = StorageConfig(
+    max_size=1024 * 1024 * 1024,  # 1GB max storage
+    min_free_space=1024 * 1024,    # 1MB min free space
+    cleanup_interval=3600,          # Cleanup every hour
+    backup_enabled=True,
+    backup_interval=86400,          # Daily backups
+    backup_path="/path/to/backups"
+)
+
+config.storage = storage_config
+```
+{% endtab %}
+{% endtabs %}
 
 ### Network Types
 
@@ -160,21 +170,25 @@ storage:
 
 Load the configuration file:
 
-\=== "Python" \`\`\`python from antnode import load\_config
+{% tabs %}
+{% tab title="Rust" %}
+```rust
+use ant_node::config::load_config;
 
-````
-config = load_config("config.yaml")
-node = AntNode(config)
-```
-````
-
-\=== "Rust" \`\`\`rust use ant\_node::config::load\_config;
-
-````
 let config = load_config("config.yaml")?;
 let node = Node::new(config)?;
 ```
-````
+{% endtab %}
+
+{% tab title="Python" %}
+```python
+from antnode import load_config
+
+config = load_config("config.yaml")
+node = AntNode(config)
+```
+{% endtab %}
+{% endtabs %}
 
 ## Best Practices
 

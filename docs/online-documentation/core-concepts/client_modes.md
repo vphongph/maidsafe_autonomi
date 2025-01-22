@@ -13,8 +13,8 @@ Autonomi clients can operate in two modes:
 
 A read-only client allows you to browse and read data from the network without needing a wallet or making payments.
 
-### Rust
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 use autonomi::Client;
 
@@ -29,9 +29,22 @@ assert!(client.wallet().is_none());
 let data = client.get_bytes(address).await?;
 let file = client.get_file(file_map, "output.txt").await?;
 ```
+{% endtab %}
 
-### TypeScript/JavaScript
+{% tab title="Python" %}
+```python
+from autonomi import Client
 
+# Initialize a read-only client
+client = Client.new()
+
+# Read operations
+data = client.get_bytes("safe://example_address")
+file = client.get_file(file_map, "output.txt")
+```
+{% endtab %}
+
+{% tab title="Typescript/JavaScript" %}
 ```typescript
 import { Client } from '@autonomi/client';
 
@@ -45,26 +58,15 @@ const client = await Client.connect({
 const data = await client.dataGetPublic(address);
 const list = await client.GraphEntryGet(listAddress);
 ```
-
-### Python
-
-```python
-from autonomi import Client
-
-# Initialize a read-only client
-client = Client.new()
-
-# Read operations
-data = client.get_bytes("safe://example_address")
-file = client.get_file(file_map, "output.txt")
-```
+{% endtab %}
+{% endtabs %}
 
 ## Upgrading to Read-Write Mode
 
 You can upgrade a read-only client to read-write mode by adding a wallet. This enables write operations like storing data or updating graphs.
 
-### Rust
-
+{% tabs %}
+{% tab title="Rust" %}
 ```rust
 use autonomi::{Client, EvmWallet};
 
@@ -80,9 +82,27 @@ client.upgrade_to_read_write(wallet)?;
 // Now write operations are available
 let address = client.store_bytes(data).await?;
 ```
+{% endtab %}
 
-### TypeScript/JavaScript
+{% tab title="Python" %}
+```python
+from autonomi import Client, Wallet
 
+# Start with a read-only client
+client = Client.new()
+
+# Create or import a wallet
+wallet = Wallet.from_private_key("your_private_key")
+
+# Upgrade to read-write mode
+client.upgrade_to_read_write(wallet)
+
+# Now write operations are available
+address = client.store_bytes(b"Hello World")
+```
+{% endtab %}
+
+{% tab title="Typescript/JavaScript" %}
 ```typescript
 import { Client } from '@autonomi/client';
 
@@ -103,24 +123,8 @@ const address = await client.dataPutPublic(
     { type: 'wallet', wallet: client.wallet }
 );
 ```
-
-### Python
-
-```python
-from autonomi import Client, Wallet
-
-# Start with a read-only client
-client = Client.new()
-
-# Create or import a wallet
-wallet = Wallet.from_private_key("your_private_key")
-
-# Upgrade to read-write mode
-client.upgrade_to_read_write(wallet)
-
-# Now write operations are available
-address = client.store_bytes(b"Hello World")
-```
+{% endtab %}
+{% endtabs %}
 
 ## Write Operations
 

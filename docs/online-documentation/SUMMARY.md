@@ -1,6 +1,6 @@
 # Table of contents
 
-* [Autonomi Documentation](README.md)
+* [Developer Documentation](README.md)
 
 ## Getting Started
 

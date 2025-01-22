@@ -397,7 +397,7 @@ impl Network {
 
         if close_nodes.is_empty() {
             error!("Can't get store_cost of {record_address:?}, as all close_nodes are ignored");
-            return Err(NetworkError::NoStoreCostResponses);
+            return Err(NetworkError::NotEnoughPeersForStoreCostRequest);
         }
 
         // Client shall decide whether to carry out storage verification or not.
@@ -415,6 +415,8 @@ impl Network {
         // consider data to be already paid for if 1/2 of the close nodes already have it
         let mut peer_already_have_it = 0;
         let enough_peers_already_have_it = close_nodes.len() / 2;
+
+        let mut peers_returned_error = 0;
 
         // loop over responses
         let mut all_quotes = vec![];
@@ -456,11 +458,21 @@ impl Network {
                 }
                 Err(err) => {
                     error!("Got an error while requesting quote from peer {peer:?}: {err}");
+                    peers_returned_error += 1;
                 }
                 _ => {
                     error!("Got an unexpected response while requesting quote from peer {peer:?}: {response:?}");
+                    peers_returned_error += 1;
                 }
             }
+        }
+
+        if quotes_to_pay.is_empty() {
+            error!(
+                "Could not fetch any quotes. {} peers returned an error.",
+                peers_returned_error
+            );
+            return Err(NetworkError::NoStoreCostResponses);
         }
 
         Ok(quotes_to_pay)

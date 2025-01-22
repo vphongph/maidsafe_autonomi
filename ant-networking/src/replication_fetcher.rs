@@ -466,15 +466,18 @@ impl ReplicationFetcher {
                     "Distance to target {addr:?} is {distance:?}, against range {distance_range:?}"
                 );
                 let mut is_in_range = distance <= *distance_range;
-                if !is_in_range {
+                // For middle-range records, they could be farther than distance_range,
+                // but still supposed to be held by the closest group to us.
+                if !is_in_range && distance - *distance_range < *distance_range {
                     closest_k_peers.sort_by_key(|key| key.distance(addr));
                     let closest_group: HashSet<_> = closest_k_peers.iter().take(CLOSE_GROUP_SIZE).collect();
                     if closest_group.contains(&self_address) {
                         debug!("Record {addr:?} has a far distance but still among {CLOSE_GROUP_SIZE} closest within {} neighbourd.", closest_k_peers.len());
                         is_in_range = true;
-                    } else {
-                        out_of_range_keys.push(addr.clone());
                     }
+                }
+                if !is_in_range {
+                    out_of_range_keys.push(addr.clone());
                 }
                 is_in_range
             });
@@ -687,8 +690,8 @@ mod tests {
         // Set distance range
         let distance_target = NetworkAddress::from_peer(PeerId::random());
         let distance_range = self_address.distance(&distance_target);
-        let distance_256 = convert_distance_to_u256(&distance_range);
-        replication_fetcher.set_replication_distance_range(distance_256);
+        let distance_range_256 = convert_distance_to_u256(&distance_range);
+        replication_fetcher.set_replication_distance_range(distance_range_256);
 
         let mut closest_k_peers = vec![];
         (0..19).for_each(|_| {
@@ -703,9 +706,11 @@ mod tests {
             let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
             let key = NetworkAddress::from_record_key(&RecordKey::from(random_data));
 
-            if key.distance(&self_address) <= distance_range {
+            let distance = key.distance(&self_address);
+            let distance_256 = convert_distance_to_u256(&distance);
+            if distance <= distance_range {
                 in_range_keys += 1;
-            } else {
+            } else if distance_256 - distance_range_256 < distance_range_256 {
                 closest_k_peers_include_self.sort_by_key(|addr| key.distance(addr));
                 let closest_group: HashSet<_> = closest_k_peers_include_self
                     .iter()

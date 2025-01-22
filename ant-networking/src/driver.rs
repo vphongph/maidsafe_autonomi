@@ -43,6 +43,7 @@ use ant_protocol::{
 };
 use futures::future::Either;
 use futures::StreamExt;
+#[cfg(feature = "upnp")]
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::{core::muxing::StreamMuxerBox, relay};
 use libp2p::{

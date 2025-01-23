@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::spawn::node::NodeSpawner;
+use crate::spawn::node_spawner::NodeSpawner;
 use crate::RunningNode;
 use ant_evm::{EvmNetwork, RewardsAddress};
 use libp2p::Multiaddr;

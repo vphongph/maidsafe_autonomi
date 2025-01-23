@@ -6,5 +6,5 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-pub mod network;
-pub mod node;
+pub mod network_spawner;
+pub mod node_spawner;

@@ -14,14 +14,15 @@ use crate::client::UploadSummary;
 
 use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
-use ant_protocol::storage::GraphEntryAddress;
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy},
     NetworkAddress,
 };
+use bls::PublicKey;
 use libp2p::kad::{Quorum, Record};
 
 pub use ant_protocol::storage::GraphEntry;
+pub use ant_protocol::storage::GraphEntryAddress;
 pub use bls::SecretKey;
 
 #[derive(Debug, thiserror::Error)]
@@ -42,6 +43,8 @@ pub enum GraphError {
     InvalidQuote,
     #[error("Entry already exists at this address: {0:?}")]
     AlreadyExists(GraphEntryAddress),
+    #[error("Graph forked! Multiple entries found at this address: {0:?}")]
+    Fork(Vec<GraphEntry>),
 }
 
 impl Client {
@@ -49,10 +52,12 @@ impl Client {
     pub async fn graph_entry_get(
         &self,
         address: GraphEntryAddress,
-    ) -> Result<Vec<GraphEntry>, GraphError> {
+    ) -> Result<GraphEntry, GraphError> {
         let graph_entries = self.network.get_graph_entry(address).await?;
-
-        Ok(graph_entries)
+        match &graph_entries[..] {
+            [entry] => Ok(entry.clone()),
+            multiple => Err(GraphError::Fork(multiple.to_vec())),
+        }
     }
 
     /// Puts a GraphEntry to the network.
@@ -60,7 +65,7 @@ impl Client {
         &self,
         entry: GraphEntry,
         wallet: &EvmWallet,
-    ) -> Result<(), GraphError> {
+    ) -> Result<(AttoTokens, GraphEntryAddress), GraphError> {
         let address = entry.address();
 
         // pay for the graph entry
@@ -86,6 +91,7 @@ impl Client {
                 return Err(GraphError::AlreadyExists(address));
             }
         };
+        let total_cost = *price;
 
         // prepare the record for network storage
         let payees = proof.payees();
@@ -134,15 +140,13 @@ impl Client {
             }
         }
 
-        Ok(())
+        Ok((total_cost, address))
     }
 
     /// Get the cost to create a GraphEntry
-    pub async fn graph_entry_cost(&self, key: SecretKey) -> Result<AttoTokens, GraphError> {
-        let pk = key.public_key();
-        trace!("Getting cost for GraphEntry of {pk:?}");
-
-        let address = GraphEntryAddress::from_owner(pk);
+    pub async fn graph_entry_cost(&self, key: PublicKey) -> Result<AttoTokens, GraphError> {
+        trace!("Getting cost for GraphEntry of {key:?}");
+        let address = GraphEntryAddress::from_owner(key);
         let xor = *address.xorname();
         // TODO: define default size of GraphEntry
         let store_quote = self
@@ -158,7 +162,7 @@ impl Client {
                 .map(|quote| quote.price())
                 .sum::<Amount>(),
         );
-        debug!("Calculated the cost to create GraphEntry of {pk:?} is {total_cost}");
+        debug!("Calculated the cost to create GraphEntry of {key:?} is {total_cost}");
         Ok(total_cost)
     }
 }

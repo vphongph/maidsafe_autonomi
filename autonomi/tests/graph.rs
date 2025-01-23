@@ -7,8 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_logging::LogBuilder;
-use ant_protocol::storage::GraphEntry;
-use autonomi::{client::graph::GraphError, Client};
+use autonomi::{
+    client::graph::{GraphEntry, GraphError},
+    Client,
+};
 use eyre::Result;
 use test_utils::evm::get_funded_wallet;
 
@@ -24,7 +26,7 @@ async fn graph_entry_put() -> Result<()> {
     let graph_entry = GraphEntry::new(key.public_key(), vec![], content, vec![], &key);
 
     // estimate the cost of the graph_entry
-    let cost = client.graph_entry_cost(key.clone()).await?;
+    let cost = client.graph_entry_cost(key.public_key()).await?;
     println!("graph_entry cost: {cost}");
 
     // put the graph_entry
@@ -36,7 +38,7 @@ async fn graph_entry_put() -> Result<()> {
 
     // check that the graph_entry is stored
     let txs = client.graph_entry_get(graph_entry.address()).await?;
-    assert_eq!(txs, vec![graph_entry.clone()]);
+    assert_eq!(txs, graph_entry.clone());
     println!("graph_entry got 1");
 
     // try put another graph_entry with the same address

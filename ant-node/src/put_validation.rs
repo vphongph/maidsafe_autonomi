@@ -16,7 +16,7 @@ use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
     storage::{
         try_deserialize_record, try_serialize_record, Chunk, DataTypes, GraphEntryAddress, Pointer,
-        RecordHeader, RecordKind, Scratchpad, ValidationType,
+        PointerAddress, RecordHeader, RecordKind, Scratchpad, ValidationType,
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
@@ -241,28 +241,44 @@ impl Node {
                 res
             }
             RecordKind::DataOnly(DataTypes::Pointer) => {
-                // Pointers should always be paid for
-                error!("Pointer should not be validated at this point");
-                Err(Error::InvalidPutWithoutPayment(
-                    PrettyPrintRecordKey::from(&record.key).into_owned(),
-                ))
+                let pointer = try_deserialize_record::<Pointer>(&record)?;
+                let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
+                let pretty_key = PrettyPrintRecordKey::from(&record.key);
+                let already_exists = self
+                    .validate_key_and_existence(&net_addr, &record.key)
+                    .await?;
+
+                if !already_exists {
+                    warn!("Pointer at address: {:?}, key: {:?} does not exist locally, rejecting PUT without payment", pointer.network_address(), pretty_key);
+                    return Err(Error::InvalidPutWithoutPayment(
+                        PrettyPrintRecordKey::from(&record.key).into_owned(),
+                    ));
+                }
+
+                let res = self
+                    .validate_and_store_pointer_record(pointer, record.key.clone(), true, None)
+                    .await;
+                if res.is_ok() {
+                    let content_hash = XorName::from_content(&record.value);
+                    Marker::ValidPointerPutFromClient(&pretty_key).log();
+
+                    // Notify replication_fetcher to mark the attempt as completed.
+                    self.network().notify_fetch_completed(
+                        record.key.clone(),
+                        ValidationType::NonChunk(content_hash),
+                    );
+                }
+                res
             }
             RecordKind::DataWithPayment(DataTypes::Pointer) => {
                 let (payment, pointer) =
                     try_deserialize_record::<(ProofOfPayment, Pointer)>(&record)?;
 
-                // check if the deserialized value's PointerAddress matches the record's key
                 let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
-                let key = net_addr.to_record_key();
-                let pretty_key = PrettyPrintRecordKey::from(&key);
-                if record.key != key {
-                    warn!(
-                        "Record's key {pretty_key:?} does not match with the value's PointerAddress, ignoring PUT."
-                    );
-                    return Err(Error::RecordKeyMismatch);
-                }
-
-                let already_exists = self.validate_key_and_existence(&net_addr, &key).await?;
+                let pretty_key = PrettyPrintRecordKey::from(&record.key);
+                let already_exists = self
+                    .validate_key_and_existence(&net_addr, &record.key)
+                    .await?;
 
                 // The pointer may already exist during the replication.
                 // The payment shall get deposit to self even if the pointer already exists.
@@ -278,11 +294,17 @@ impl Node {
                     }
                 }
 
-                let res = self.validate_and_store_pointer_record(pointer, key, true, Some(payment));
+                let res = self
+                    .validate_and_store_pointer_record(
+                        pointer,
+                        record.key.clone(),
+                        true,
+                        Some(payment),
+                    )
+                    .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
-                    Marker::ValidPointerPutFromClient(&PrettyPrintRecordKey::from(&record.key))
-                        .log();
+                    Marker::ValidPointerPutFromClient(&pretty_key).log();
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     self.network().notify_fetch_completed(
@@ -340,6 +362,7 @@ impl Node {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
                 self.validate_and_store_pointer_record(pointer, key, false, None)
+                    .await
             }
         }
     }
@@ -675,8 +698,50 @@ impl Node {
         Ok(local_entries)
     }
 
+    /// Get the local Pointer for the provided `PointerAddress`
+    /// This only fetches the Pointer from the local store and does not perform any network operations.
+    /// If the local Pointer is not present or corrupted, returns `None`.
+    async fn get_local_pointer(&self, addr: PointerAddress) -> Option<Pointer> {
+        // get the local Pointer
+        let record_key = NetworkAddress::from_pointer_address(addr).to_record_key();
+        debug!("Checking for local Pointer with key: {record_key:?}");
+        let local_record = match self.network().get_local_record(&record_key).await {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                debug!("Pointer is not present locally: {record_key:?}");
+                return None;
+            }
+            Err(e) => {
+                error!("Failed to get Pointer record at {addr:?}: {e}");
+                return None;
+            }
+        };
+
+        // deserialize the record and get the Pointer
+        let local_header = match RecordHeader::from_record(&local_record) {
+            Ok(h) => h,
+            Err(_) => {
+                error!("Failed to deserialize Pointer record at {addr:?}");
+                return None;
+            }
+        };
+        let record_kind = local_header.kind;
+        if !matches!(record_kind, RecordKind::DataOnly(DataTypes::Pointer)) {
+            error!("Found a {record_kind} when expecting to find Pointer at {addr:?}");
+            return None;
+        }
+        let local_pointer: Pointer = match try_deserialize_record(&local_record) {
+            Ok(p) => p,
+            Err(_) => {
+                error!("Failed to deserialize Pointer record at {addr:?}");
+                return None;
+            }
+        };
+        Some(local_pointer)
+    }
+
     /// Validate and store a pointer record
-    pub(crate) fn validate_and_store_pointer_record(
+    pub(crate) async fn validate_and_store_pointer_record(
         &self,
         pointer: Pointer,
         key: RecordKey,
@@ -696,6 +761,18 @@ impl Node {
             return Err(Error::RecordKeyMismatch);
         }
 
+        // Keep the pointer with the highest counter
+        if let Some(local_pointer) = self.get_local_pointer(pointer.network_address()).await {
+            if pointer.counter() <= local_pointer.counter() {
+                info!(
+                    "Ignoring Pointer PUT at {key:?} with counter less than or equal to the current counter ({} <= {})",
+                    pointer.counter(),
+                    local_pointer.counter()
+                );
+                return Ok(());
+            }
+        }
+
         // Store the pointer
         let record = Record {
             key: key.clone(),
@@ -708,9 +785,14 @@ impl Node {
 
         if is_client_put {
             let content_hash = XorName::from_content(&record.value);
-            self.replicate_valid_fresh_record(key, ValidationType::NonChunk(content_hash), payment);
+            self.replicate_valid_fresh_record(
+                key.clone(),
+                ValidationType::NonChunk(content_hash),
+                payment,
+            );
         }
 
+        info!("Successfully stored Pointer record at {key:?}");
         Ok(())
     }
 }

@@ -14,6 +14,10 @@ pub type AlreadyPaidAddressesCount = usize;
 /// Errors that can occur during the pay operation.
 #[derive(Debug, thiserror::Error)]
 pub enum PayError {
+    #[error(
+        "EVM wallet and client use different EVM networks. Please use the same network for both."
+    )]
+    EvmWalletNetworkMismatch,
     #[error("Wallet error: {0:?}")]
     EvmWalletError(#[from] EvmWalletError),
     #[error("Failed to self-encrypt data.")]
@@ -97,6 +101,11 @@ impl Client {
         content_addrs: impl Iterator<Item = (XorName, usize)> + Clone,
         wallet: &EvmWallet,
     ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
+        // Check if the wallet uses the same network as the client
+        if wallet.network() != &self.evm_network {
+            return Err(PayError::EvmWalletNetworkMismatch);
+        }
+
         let number_of_content_addrs = content_addrs.clone().count();
         let quotes = self.get_store_quotes(data_type, content_addrs).await?;
 

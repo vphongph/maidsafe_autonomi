@@ -97,6 +97,18 @@ impl RunningNode {
         Ok(listeners)
     }
 
+    /// Return the node's listening addresses with the peer id appended.
+    pub async fn get_listen_addrs_with_peer_id(&self) -> Result<Vec<Multiaddr>> {
+        let listeners = self.get_listen_addrs().await?;
+
+        let multi_addrs: Vec<Multiaddr> = listeners
+            .into_iter()
+            .filter_map(|listen_addr| listen_addr.with_p2p(self.peer_id()).ok())
+            .collect();
+
+        Ok(multi_addrs)
+    }
+
     /// Return the node's listening port
     pub async fn get_node_listening_port(&self) -> Result<u16> {
         let listen_addrs = self.network.get_swarm_local_state().await?.listeners;

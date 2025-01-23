@@ -165,17 +165,12 @@ async fn spawn_network(
 
         let socket_addr = SocketAddr::new(ip, 0);
 
+        // Get the initial peers from the previously spawned nodes
         let mut initial_peers: Vec<Multiaddr> = vec![];
 
         for peer in running_nodes.iter() {
-            if let Ok(listen_addrs) = peer.get_listen_addrs().await {
-                // Append the peer id to the listen addresses
-                let multi_addrs: Vec<Multiaddr> = listen_addrs
-                    .into_iter()
-                    .filter_map(|listen_addr| listen_addr.with_p2p(peer.peer_id()).ok())
-                    .collect();
-
-                initial_peers.extend(multi_addrs);
+            if let Ok(listen_addrs_with_peer_id) = peer.get_listen_addrs_with_peer_id().await {
+                initial_peers.extend(listen_addrs_with_peer_id);
             }
         }
 

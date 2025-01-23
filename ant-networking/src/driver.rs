@@ -874,7 +874,6 @@ impl SwarmDriver {
                 // Prioritise any local cmds pending.
                 // https://github.com/libp2p/rust-libp2p/blob/master/docs/coding-guidelines.md#prioritize-local-work-over-new-work-from-a-remote
                 local_cmd = self.local_cmd_receiver.recv() => match local_cmd {
-                    Some(LocalSwarmCmd::AddLocalRecordAsStored { .. }) => {}
                     Some(cmd) => {
                         let start = Instant::now();
                         let cmd_string = format!("{cmd:?}");

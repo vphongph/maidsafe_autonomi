@@ -13,7 +13,6 @@ version = "0.3.4"
 default = []
 loud = []
 open-metrics = ["libp2p/metrics", "prometheus-client", "hyper", "sysinfo"]
-upnp = ["libp2p/upnp"]
 
 [dependencies]
 aes-gcm-siv = "0.11.1"
@@ -37,6 +36,7 @@ itertools = "~0.12.1"
 libp2p = { version = "0.54.1", features = [
     "tokio",
     "dns",
+    "upnp",
     "kad",
     "macros",
     "request-response",

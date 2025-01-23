@@ -94,7 +94,6 @@ pub struct NodeBuilder {
     metrics_server_port: Option<u16>,
     /// Enable hole punching for nodes connecting from home networks.
     is_behind_home_network: bool,
-    #[cfg(feature = "upnp")]
     upnp: bool,
 }
 
@@ -108,7 +107,7 @@ impl NodeBuilder {
         addr: SocketAddr,
         local: bool,
         root_dir: PathBuf,
-        #[cfg(feature = "upnp")] upnp: bool,
+        upnp: bool,
     ) -> Self {
         Self {
             bootstrap_cache: None,
@@ -122,7 +121,6 @@ impl NodeBuilder {
             #[cfg(feature = "open-metrics")]
             metrics_server_port: None,
             is_behind_home_network: false,
-            #[cfg(feature = "upnp")]
             upnp,
         }
     }
@@ -184,7 +182,6 @@ impl NodeBuilder {
             network_builder.bootstrap_cache(cache);
         }
 
-        #[cfg(feature = "upnp")]
         network_builder.upnp(self.upnp);
 
         let (network, network_event_receiver, swarm_driver) =

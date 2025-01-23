@@ -9,7 +9,6 @@
 // Implementation to record `libp2p::upnp::Event` metrics
 mod bad_node;
 pub mod service;
-#[cfg(feature = "upnp")]
 mod upnp;
 
 use std::sync::atomic::AtomicU64;
@@ -37,7 +36,6 @@ pub(crate) struct NetworkMetricsRecorder {
     // Must directly call self.libp2p_metrics.record(libp2p_event) with Recorder trait in scope. But since we have
     // re-implemented the trait for the wrapper struct, we can instead call self.record(libp2p_event)
     libp2p_metrics: Libp2pMetrics,
-    #[cfg(feature = "upnp")]
     upnp_events: Family<upnp::UpnpEventLabels, Counter>,
 
     // metrics from ant-networking
@@ -127,9 +125,7 @@ impl NetworkMetricsRecorder {
             bad_peers_count.clone(),
         );
 
-        #[cfg(feature = "upnp")]
         let upnp_events = Family::default();
-        #[cfg(feature = "upnp")]
         sub_registry.register(
             "upnp_events",
             "Events emitted by the UPnP behaviour",
@@ -209,7 +205,6 @@ impl NetworkMetricsRecorder {
         );
         let network_metrics = Self {
             libp2p_metrics,
-            #[cfg(feature = "upnp")]
             upnp_events,
 
             records_stored,

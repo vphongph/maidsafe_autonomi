@@ -68,7 +68,6 @@ impl SwarmDriver {
                     }
                 }
             }
-            #[cfg(feature = "upnp")]
             SwarmEvent::Behaviour(NodeEvent::Upnp(upnp_event)) => {
                 #[cfg(feature = "open-metrics")]
                 if let Some(metrics_recorder) = &self.metrics_recorder {

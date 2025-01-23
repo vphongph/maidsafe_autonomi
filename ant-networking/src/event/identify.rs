@@ -32,7 +32,7 @@ impl SwarmDriver {
             // Log the other Identify events.
             libp2p::identify::Event::Sent { .. } => debug!("identify: {identify_event:?}"),
             libp2p::identify::Event::Pushed { .. } => debug!("identify: {identify_event:?}"),
-            libp2p::identify::Event::Error { .. } => debug!("identify: {identify_event:?}"),
+            libp2p::identify::Event::Error { .. } => warn!("identify: {identify_event:?}"),
         }
     }
 

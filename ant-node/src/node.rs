@@ -341,10 +341,10 @@ impl Node {
                 let peers_connected = &peers_connected;
 
                 tokio::select! {
-                    // Check shutdown signal
-                    _ = shutdown_rx.changed() => {
-                        if *shutdown_rx.borrow() {
-                            info!("Shutting down node loop.");
+                    // Check for a shutdown command.
+                    result = shutdown_rx.changed() => {
+                        if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                            info!("Shutdown signal received or sender dropped. Exiting network events loop.");
                             break;
                         }
                     },

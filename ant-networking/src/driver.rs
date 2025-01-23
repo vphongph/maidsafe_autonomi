@@ -864,13 +864,6 @@ impl SwarmDriver {
                 // polls futures in order they appear here (as opposed to random)
                 biased;
 
-                // Check shutdown signal
-                _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {
-                        info!("Shutting down swarm driver.");
-                        break;
-                    }
-                },
                 // Prioritise any local cmds pending.
                 // https://github.com/libp2p/rust-libp2p/blob/master/docs/coding-guidelines.md#prioritize-local-work-over-new-work-from-a-remote
                 local_cmd = self.local_cmd_receiver.recv() => match local_cmd {
@@ -895,6 +888,13 @@ impl SwarmDriver {
                         trace!("SwarmCmd handled in {:?}: {cmd_string:?}", start.elapsed());
                     },
                     None =>  continue,
+                },
+                // Check for a shutdown command.
+                result = shutdown_rx.changed() => {
+                    if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                        info!("Shutdown signal received or sender dropped. Exiting swarm driver loop.");
+                        break;
+                    }
                 },
                 // next take and react to external swarm events
                 swarm_event = self.swarm.select_next_some() => {

@@ -10,8 +10,8 @@ use crate::{
     event::NodeEvent, multiaddr_get_ip, multiaddr_is_global, multiaddr_strip_p2p,
     relay_manager::is_a_relayed_peer, time::Instant, NetworkEvent, Result, SwarmDriver,
 };
+use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::version::{IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR};
-use libp2p::mdns;
 #[cfg(feature = "open-metrics")]
 use libp2p::metrics::Recorder;
 use libp2p::{
@@ -285,29 +285,6 @@ impl SwarmDriver {
                     libp2p::identify::Event::Error { .. } => debug!("identify: {iden:?}"),
                 }
             }
-            SwarmEvent::Behaviour(NodeEvent::Mdns(mdns_event)) => {
-                event_string = "mdns";
-                // mDNS is only relevant in local mode
-                if self.local {
-                    match *mdns_event {
-                        mdns::Event::Discovered(list) => {
-                            for (peer_id, addr) in list {
-                                // The multiaddr does not contain the peer ID, so add it.
-                                let addr = addr.with(Protocol::P2p(peer_id));
-
-                                info!(%addr, "mDNS node discovered and dialing");
-
-                                if let Err(err) = self.dial(addr.clone()) {
-                                    warn!(%addr, "mDNS node dial error: {err:?}");
-                                }
-                            }
-                        }
-                        mdns::Event::Expired(peer) => {
-                            debug!("mdns peer {peer:?} expired");
-                        }
-                    }
-                }
-            }
             SwarmEvent::NewListenAddr {
                 mut address,
                 listener_id,
@@ -329,6 +306,26 @@ impl SwarmDriver {
                         // all addresses are effectively external here...
                         // this is needed for Kad Mode::Server
                         self.swarm.add_external_address(address.clone());
+
+                        // If we are local, add our own address(es) to cache
+                        if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
+                            tracing::info!("Adding listen address to bootstrap cache");
+
+                            let config = bootstrap_cache.config().clone();
+                            let mut old_cache = bootstrap_cache.clone();
+
+                            if let Ok(new) = BootstrapCacheStore::new(config) {
+                                self.bootstrap_cache = Some(new);
+                                old_cache.add_addr(address.clone());
+
+                                // Save cache to disk.
+                                crate::time::spawn(async move {
+                                    if let Err(err) = old_cache.sync_and_flush_to_disk(true) {
+                                        error!("Failed to save bootstrap cache: {err}");
+                                    }
+                                });
+                            }
+                        }
                     } else if let Some(external_add_manager) =
                         self.external_address_manager.as_mut()
                     {

@@ -134,6 +134,9 @@ pub enum NetworkError {
     NoGraphEntryFoundInsideRecord(GraphEntryAddress),
 
     // ---------- Store Error
+    #[error("Not Enough Peers for Store Cost Request")]
+    NotEnoughPeersForStoreCostRequest,
+
     #[error("No Store Cost Responses")]
     NoStoreCostResponses,
 

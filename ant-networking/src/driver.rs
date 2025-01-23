@@ -43,7 +43,7 @@ use ant_protocol::{
 };
 use futures::future::Either;
 use futures::StreamExt;
-use libp2p::{core::muxing::StreamMuxerBox, relay};
+use libp2p::{core::muxing::StreamMuxerBox, relay, swarm::behaviour::toggle::Toggle};
 use libp2p::{
     identity::Keypair,
     kad::{self, QueryId, Quorum, Record, RecordKey, K_VALUE},
@@ -55,7 +55,6 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use libp2p::{mdns, swarm::behaviour::toggle::Toggle};
 use libp2p::{swarm::SwarmEvent, Transport as _};
 #[cfg(feature = "open-metrics")]
 use prometheus_client::metrics::info::Info;
@@ -227,8 +226,6 @@ pub(super) struct NodeBehaviour {
     pub(super) blocklist:
         libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
     pub(super) identify: libp2p::identify::Behaviour,
-    /// mDNS behaviour to use in local mode
-    pub(super) mdns: Toggle<mdns::tokio::Behaviour>,
     pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
     pub(super) relay_server: libp2p::relay::Behaviour,
@@ -395,7 +392,7 @@ impl NetworkBuilder {
         let upnp = self.upnp;
 
         let (network, events_receiver, mut swarm_driver) =
-            self.build(kad_cfg, Some(store_cfg), false, ProtocolSupport::Full, upnp)?;
+            self.build(kad_cfg, Some(store_cfg), false, ProtocolSupport::Full, upnp);
 
         // Listen on the provided address
         let listen_socket_addr = listen_addr.ok_or(NetworkError::ListenAddressNotProvided)?;
@@ -412,7 +409,7 @@ impl NetworkBuilder {
     }
 
     /// Same as `build_node` API but creates the network components in client mode
-    pub fn build_client(self) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+    pub fn build_client(self) -> (Network, mpsc::Receiver<NetworkEvent>, SwarmDriver) {
         // Create a Kademlia behaviour for client mode, i.e. set req/resp protocol
         // to outbound-only mode and don't listen on any address
         let mut kad_cfg = kad::Config::new(KAD_STREAM_PROTOCOL_ID); // default query timeout is 60 secs
@@ -428,9 +425,9 @@ impl NetworkBuilder {
             .set_replication_factor(REPLICATION_FACTOR);
 
         let (network, net_event_recv, driver) =
-            self.build(kad_cfg, None, true, ProtocolSupport::Outbound, false)?;
+            self.build(kad_cfg, None, true, ProtocolSupport::Outbound, false);
 
-        Ok((network, net_event_recv, driver))
+        (network, net_event_recv, driver)
     }
 
     /// Private helper to create the network components with the provided config and req/res behaviour
@@ -441,7 +438,7 @@ impl NetworkBuilder {
         is_client: bool,
         req_res_protocol: ProtocolSupport,
         upnp: bool,
-    ) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+    ) -> (Network, mpsc::Receiver<NetworkEvent>, SwarmDriver) {
         let identify_protocol_str = IDENTIFY_PROTOCOL_STR
             .read()
             .expect("Failed to obtain read lock for IDENTIFY_PROTOCOL_STR")
@@ -576,22 +573,6 @@ impl NetworkBuilder {
             }
         };
 
-        let mdns = if self.local {
-            debug!("Enabling mDNS behavior (because of local mode)");
-
-            let mdns_config = mdns::Config {
-                // lower query interval to speed up peer discovery this
-                // increases traffic, but means we no longer have clients
-                // unable to connect after a few minutes
-                query_interval: Duration::from_secs(5),
-                ..Default::default()
-            };
-            Some(mdns::tokio::Behaviour::new(mdns_config, peer_id)?)
-        } else {
-            None
-        }
-        .into(); // Into `Toggle<T>`
-
         let agent_version = if is_client {
             IDENTIFY_CLIENT_VERSION_STR
                 .read()
@@ -642,7 +623,6 @@ impl NetworkBuilder {
             request_response,
             kademlia,
             identify,
-            mdns,
         };
 
         let swarm_config = libp2p::swarm::Config::with_tokio_executor()
@@ -722,7 +702,7 @@ impl NetworkBuilder {
             self.keypair,
         );
 
-        Ok((network, network_event_receiver, swarm_driver))
+        (network, network_event_receiver, swarm_driver)
     }
 }
 

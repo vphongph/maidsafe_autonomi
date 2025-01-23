@@ -217,7 +217,7 @@ async fn fetch_store_quote_with_retries(
         }
         // Shall have a sleep between retries to avoid choking the network.
         // This shall be rare to happen though.
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
 
@@ -240,7 +240,7 @@ async fn get_market_price_with_rate_limiter_and_retries(
                 break Ok(amounts);
             }
             Err(err) => {
-                if err.to_string().contains("429") && retries < MAX_RETRIES {
+                if retries < MAX_RETRIES {
                     retries += 1;
                     interval_in_ms *= retries * 2;
                     error!("Error while fetching quote market price: {err:?}, retry #{retries}");

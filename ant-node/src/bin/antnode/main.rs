@@ -13,7 +13,7 @@ mod rpc_service;
 mod subcommands;
 
 use crate::subcommands::EvmNetworkCommand;
-use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};
+use ant_bootstrap::{BootstrapCacheStore, PeersArgs};
 use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
@@ -274,13 +274,14 @@ fn main() -> Result<()> {
     let (log_output_dest, log_reload_handle, _log_appender_guard) =
         init_logging(&opt, keypair.public().to_peer_id())?;
 
-    let rt = Runtime::new()?;
-    let mut bootstrap_cache = BootstrapCacheStore::new_from_peers_args(
-        &opt.peers,
-        Some(BootstrapCacheConfig::default_config()?),
-    )?;
-    // To create the file before startup if it doesn't exist.
-    bootstrap_cache.sync_and_flush_to_disk(true)?;
+    let mut bootstrap_cache = BootstrapCacheStore::new_from_peers_args(&opt.peers, None)?;
+    // If we are the first node, write initial cache to disk.
+    if opt.peers.first {
+        bootstrap_cache.write()?;
+    } else {
+        // Else we check/clean the file, write it back, and ensure its existence.
+        bootstrap_cache.sync_and_flush_to_disk(true)?;
+    }
 
     let msg = format!(
         "Running {} v{}",
@@ -303,6 +304,7 @@ fn main() -> Result<()> {
     // Create a tokio runtime per `run_node` attempt, this ensures
     // any spawned tasks are closed before we would attempt to run
     // another process with these args.
+    let rt = Runtime::new()?;
     if opt.peers.local {
         rt.spawn(init_metrics(std::process::id()));
     }
@@ -650,10 +652,13 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
     let current_exe = env::current_exe().expect("could not get current executable path");
 
     // Retrieve the command-line arguments passed to this process
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
     info!("Original args are: {args:?}");
     info!("Current exe is: {current_exe:?}");
+
+    // Remove `--first` argument. If node is restarted, it is not the first anymore.
+    args.retain(|arg| arg != "--first");
 
     // Convert current exe path to string, log an error and return if it fails
     let current_exe = match current_exe.to_str() {

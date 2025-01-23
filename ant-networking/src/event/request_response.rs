@@ -24,14 +24,18 @@ impl SwarmDriver {
         event: request_response::Event<Request, Response>,
     ) -> Result<(), NetworkError> {
         match event {
-            request_response::Event::Message { message, peer, .. } => match message {
+            request_response::Event::Message {
+                message,
+                peer,
+                connection_id,
+            } => match message {
                 Message::Request {
                     request,
                     channel,
                     request_id,
                     ..
                 } => {
-                    debug!("Received request {request_id:?} from peer {peer:?}, req: {request:?}");
+                    debug!("Received request {request_id:?} on {connection_id:?} from peer {peer:?}, req: {request:?}");
                     // If the request is replication or quote verification,
                     // we can handle it and send the OK response here.
                     // As the handle result is unimportant to the sender.
@@ -90,7 +94,7 @@ impl SwarmDriver {
                     request_id,
                     response,
                 } => {
-                    debug!("Got response {request_id:?} from peer {peer:?}, res: {response}.");
+                    debug!("Got response {request_id:?} on {connection_id:?} from peer {peer:?}, res: {response}.");
                     if let Some(sender) = self.pending_requests.remove(&request_id) {
                         // The sender will be provided if the caller (Requester) is awaiting for a response
                         // at the call site.
@@ -124,7 +128,7 @@ impl SwarmDriver {
                 request_id,
                 error,
                 peer,
-                ..
+                connection_id,
             } => {
                 if let Some(sender) = self.pending_requests.remove(&request_id) {
                     match sender {
@@ -134,12 +138,12 @@ impl SwarmDriver {
                                 .map_err(|_| NetworkError::InternalMsgChannelDropped)?;
                         }
                         None => {
-                            warn!("RequestResponse: OutboundFailure for request_id: {request_id:?} and peer: {peer:?}, with error: {error:?}");
+                            warn!("RequestResponse: OutboundFailure for request_id: {request_id:?} on {connection_id:?} and peer: {peer:?}, with error: {error:?}");
                             return Err(NetworkError::ReceivedResponseDropped(request_id));
                         }
                     }
                 } else {
-                    warn!("RequestResponse: OutboundFailure for request_id: {request_id:?} and peer: {peer:?}, with error: {error:?}");
+                    warn!("RequestResponse: OutboundFailure for request_id: {request_id:?} on {connection_id:?} and peer: {peer:?}, with error: {error:?}");
                     return Err(NetworkError::ReceivedResponseDropped(request_id));
                 }
             }
@@ -147,14 +151,16 @@ impl SwarmDriver {
                 peer,
                 request_id,
                 error,
-                ..
+                connection_id,
             } => {
-                warn!("RequestResponse: InboundFailure for request_id: {request_id:?} and peer: {peer:?}, with error: {error:?}");
+                warn!("RequestResponse: InboundFailure for request_id: {request_id:?} on {connection_id:?} and peer: {peer:?}, with error: {error:?}");
             }
             request_response::Event::ResponseSent {
-                peer, request_id, ..
+                peer,
+                request_id,
+                connection_id,
             } => {
-                debug!("ResponseSent for request_id: {request_id:?} and peer: {peer:?}");
+                debug!("ResponseSent for request_id: {request_id:?} on {connection_id:?} and peer: {peer:?}");
             }
         }
         Ok(())

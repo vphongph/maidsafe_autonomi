@@ -12,7 +12,7 @@ use bytes::Bytes;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
-use crate::{self_encryption::encrypt, Client};
+use crate::{chunk::ChunkAddress, self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
 
 use super::DataAddr;
@@ -21,7 +21,7 @@ impl Client {
     /// Fetch a blob of data from the network
     pub async fn data_get_public(&self, addr: DataAddr) -> Result<Bytes, GetError> {
         info!("Fetching data from Data Address: {addr:?}");
-        let data_map_chunk = self.chunk_get(addr).await?;
+        let data_map_chunk = self.chunk_get(ChunkAddress::new(addr)).await?;
         let data = self
             .fetch_from_data_map_chunk(data_map_chunk.value())
             .await?;

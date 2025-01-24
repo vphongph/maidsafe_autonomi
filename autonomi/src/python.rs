@@ -16,7 +16,6 @@ use ant_protocol::storage::{
 use bls::{PublicKey as RustPublicKey, SecretKey as RustSecretKey};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::thread_rng;
 use xor_name::XorName;
 
 #[pyclass(name = "Client")]
@@ -185,41 +184,27 @@ impl Client {
 
     fn pointer_put(
         &self,
-        owner: &PyPublicKey,
         counter: u32,
         target: &PyPointerTarget,
         key: &PySecretKey,
         wallet: &Wallet,
     ) -> PyResult<PyPointerAddress> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let pointer = RustPointer::new(owner.inner, counter, target.inner.clone(), &key.inner);
-        let addr = rt
+        let pointer = RustPointer::new(&key.inner, counter, target.inner.clone());
+        let (_price, addr) = rt
             .block_on(self.inner.pointer_put(pointer, &wallet.inner))
             .map_err(|e| PyValueError::new_err(format!("Failed to put pointer: {e}")))?;
         Ok(PyPointerAddress { inner: addr })
     }
 
-    fn pointer_cost(&self, key: &PySecretKey) -> PyResult<String> {
+    fn pointer_cost(&self, key: &PyPublicKey) -> PyResult<String> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
         let cost = rt
-            .block_on(self.inner.pointer_cost(key.inner.clone()))
+            .block_on(self.inner.pointer_cost(key.inner))
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to get pointer cost: {e}"))
             })?;
         Ok(cost.to_string())
-    }
-
-    fn pointer_address(&self, owner: &PyPublicKey, counter: u32) -> PyResult<String> {
-        let mut rng = thread_rng();
-        let pointer = RustPointer::new(
-            owner.inner,
-            counter,
-            RustPointerTarget::ChunkAddress(ChunkAddress::new(XorName::random(&mut rng))),
-            &RustSecretKey::random(),
-        );
-        let address = pointer.network_address();
-        let bytes: [u8; 32] = address.xorname().0;
-        Ok(hex::encode(bytes))
     }
 }
 
@@ -257,14 +242,9 @@ pub struct PyPointer {
 #[pymethods]
 impl PyPointer {
     #[new]
-    pub fn new(
-        owner: &PyPublicKey,
-        counter: u32,
-        target: &PyPointerTarget,
-        key: &PySecretKey,
-    ) -> PyResult<Self> {
+    pub fn new(counter: u32, target: &PyPointerTarget, key: &PySecretKey) -> PyResult<Self> {
         Ok(Self {
-            inner: RustPointer::new(owner.inner, counter, target.inner.clone(), &key.inner),
+            inner: RustPointer::new(&key.inner, counter, target.inner.clone()),
         })
     }
 

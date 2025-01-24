@@ -1,7 +1,14 @@
+// Copyright 2024 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
 use crate::storage::{ChunkAddress, GraphEntryAddress, PointerAddress, ScratchpadAddress};
 use bls::{Error as BlsError, PublicKey, SecretKey, Signature};
 use hex::FromHexError;
-use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xor_name::XorName;
@@ -49,17 +56,15 @@ impl PointerTarget {
 
 impl Pointer {
     /// Create a new pointer, signing it with the provided secret key.
-    pub fn new(
-        owner: PublicKey,
-        counter: u32,
-        target: PointerTarget,
-        signing_key: &SecretKey,
-    ) -> Self {
-        let bytes_to_sign = Self::bytes_to_sign(&owner, counter, &target);
-        let signature = signing_key.sign(&bytes_to_sign);
+    /// This pointer would be stored on the network at the provided key's public key
+    /// There can only be one pointer at a time at the same address (one per key)
+    pub fn new(owner: &SecretKey, counter: u32, target: PointerTarget) -> Self {
+        let pubkey = owner.public_key();
+        let bytes_to_sign = Self::bytes_to_sign(&pubkey, counter, &target);
+        let signature = owner.sign(&bytes_to_sign);
 
         Self {
-            owner,
+            owner: pubkey,
             counter,
             target,
             signature,
@@ -95,6 +100,11 @@ impl Pointer {
         bytes
     }
 
+    /// Get the address of the pointer
+    pub fn address(&self) -> PointerAddress {
+        PointerAddress::from_owner(self.owner)
+    }
+
     /// Get the bytes that were signed for this pointer
     pub fn bytes_for_signature(&self) -> Vec<u8> {
         Self::bytes_to_sign(&self.owner, self.counter, &self.target)
@@ -104,7 +114,9 @@ impl Pointer {
         self.target.xorname()
     }
 
-    pub fn count(&self) -> u32 {
+    /// Get the counter of the pointer, the higher the counter, the more recent the pointer is
+    /// Similarly to counter CRDTs only the latest version (highest counter) of the pointer is kept on the network
+    pub fn counter(&self) -> u32 {
         self.counter
     }
 
@@ -118,91 +130,30 @@ impl Pointer {
         let bytes = self.bytes_for_signature();
         self.owner.verify(&self.signature, &bytes)
     }
-
-    pub fn encode_hex(&self) -> String {
-        hex::encode(self.owner.to_bytes())
-    }
-
-    pub fn decode_hex(hex_str: &str) -> Result<Self, PointerError> {
-        let bytes = hex::decode(hex_str)?;
-        if bytes.len() != 48 {
-            return Err(PointerError::InvalidPublicKeyLength);
-        }
-        let mut bytes_array = [0u8; 48];
-        bytes_array.copy_from_slice(&bytes);
-
-        let owner = PublicKey::from_bytes(bytes_array).map_err(PointerError::BlsError)?;
-
-        let mut rng = thread_rng();
-        let target = PointerTarget::ChunkAddress(ChunkAddress::new(XorName::random(&mut rng)));
-
-        // Create a temporary secret key just for hex decoding test purposes
-        let sk = SecretKey::random();
-        Ok(Self::new(owner, 0, target, &sk))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::thread_rng;
 
     #[test]
     fn test_pointer_creation_and_validation() {
         let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
         let counter = 1;
         let mut rng = thread_rng();
         let target =
             PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
 
         // Create and sign pointer
-        let pointer = Pointer::new(owner_pk, counter, target.clone(), &owner_sk);
+        let pointer = Pointer::new(&owner_sk, counter, target.clone());
         assert!(pointer.verify()); // Should be valid with correct signature
 
         // Create pointer with wrong signature
         let wrong_sk = SecretKey::random();
-        let wrong_pointer = Pointer::new(owner_pk, counter, target.clone(), &wrong_sk);
+        let sig = wrong_sk.sign(pointer.bytes_for_signature());
+        let wrong_pointer =
+            Pointer::new_with_signature(owner_sk.public_key(), counter, target.clone(), sig);
         assert!(!wrong_pointer.verify()); // Should be invalid with wrong signature
-    }
-
-    #[test]
-    fn test_pointer_xorname() {
-        let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
-        let counter = 1;
-        let mut rng = thread_rng();
-        let target =
-            PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
-
-        let pointer = Pointer::new(owner_pk, counter, target.clone(), &owner_sk);
-        let xorname = pointer.xorname();
-        assert_eq!(xorname, target.xorname());
-    }
-
-    #[test]
-    fn test_pointer_hex_encoding() {
-        let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
-        let counter = 1;
-        let mut rng = thread_rng();
-        let target =
-            PointerTarget::GraphEntryAddress(GraphEntryAddress::new(XorName::random(&mut rng)));
-
-        let pointer = Pointer::new(owner_pk, counter, target, &owner_sk);
-        let hex = pointer.encode_hex();
-        let expected_hex = hex::encode(owner_pk.to_bytes());
-        assert_eq!(hex, expected_hex);
-    }
-
-    #[test]
-    fn test_pointer_hex_decoding() {
-        let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
-        let hex = hex::encode(owner_pk.to_bytes());
-
-        let result = Pointer::decode_hex(&hex);
-        assert!(result.is_ok());
-        let pointer = result.unwrap();
-        assert_eq!(pointer.owner, owner_pk);
     }
 }

@@ -623,7 +623,7 @@ impl Network {
                         }
 
                         if let Some(old) = &valid_pointer {
-                            if old.count() >= pointer.count() {
+                            if old.counter() >= pointer.counter() {
                                 info!("Rejecting Pointer for {pretty_key} with lower count than the previous one");
                                 continue;
                             }

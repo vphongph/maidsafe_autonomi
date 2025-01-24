@@ -28,6 +28,7 @@ pub use high_level::files;
 pub use high_level::vault;
 
 pub mod address;
+pub mod key_derivation;
 pub mod payment;
 pub mod quote;
 

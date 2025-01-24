@@ -52,7 +52,7 @@ impl Client {
     ) -> Result<(Bytes, VaultContentType), VaultError> {
         info!("Fetching and decrypting vault...");
         let public_key = secret_key.public_key();
-        let pad = self.scratchpad_get(&public_key).await?;
+        let pad = self.scratchpad_get_from_public_key(&public_key).await?;
 
         let data = pad.decrypt_data(secret_key)?;
         debug!("vault data is successfully fetched and decrypted");
@@ -90,7 +90,8 @@ impl Client {
         info!("Writing to vault at {scratch_address:?}");
 
         let total_cost = if is_new {
-            self.scratchpad_create(scratch, payment_option).await?
+            let (cost, _address) = self.scratchpad_create(scratch, payment_option).await?;
+            cost
         } else {
             self.scratchpad_update(scratch).await?;
             AttoTokens::zero()

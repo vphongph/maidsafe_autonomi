@@ -13,13 +13,13 @@ use ant_evm::{Amount, AttoTokens};
 use ant_networking::{GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::storage::{try_serialize_record, RecordKind, RetryStrategy};
 use ant_protocol::{
-    storage::{try_deserialize_record, DataTypes, ScratchpadAddress},
+    storage::{try_deserialize_record, DataTypes},
     NetworkAddress,
 };
 use libp2p::kad::{Quorum, Record};
 use std::collections::HashSet;
 
-pub use ant_protocol::storage::Scratchpad;
+pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
 pub use bls::{PublicKey, SecretKey};
 
 #[derive(Debug, thiserror::Error)]
@@ -35,12 +35,21 @@ pub enum ScratchpadError {
 impl Client {
     /// Get Scratchpad from the Network
     /// It is stored at the owner's public key
-    pub async fn scratchpad_get(
+    pub async fn scratchpad_get_from_public_key(
         &self,
         public_key: &PublicKey,
     ) -> Result<Scratchpad, ScratchpadError> {
-        let scratch_address = ScratchpadAddress::new(*public_key);
-        let network_address = NetworkAddress::from_scratchpad_address(scratch_address);
+        let address = ScratchpadAddress::new(*public_key);
+        self.scratchpad_get(&address).await
+    }
+
+    /// Get Scratchpad from the Network
+    /// It is stored at the owner's public key
+    pub async fn scratchpad_get(
+        &self,
+        address: &ScratchpadAddress,
+    ) -> Result<Scratchpad, ScratchpadError> {
+        let network_address = NetworkAddress::from_scratchpad_address(*address);
         info!("Fetching scratchpad from network at {network_address:?}",);
         let scratch_key = network_address.to_record_key();
 
@@ -59,7 +68,7 @@ impl Client {
             Ok(record) => {
                 debug!("Got scratchpad for {scratch_key:?}");
                 try_deserialize_record::<Scratchpad>(&record)
-                    .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(scratch_address))?
+                    .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(*address))?
             }
             Err(NetworkError::GetRecordError(GetRecordError::SplitRecord { result_map })) => {
                 debug!("Got multiple scratchpads for {scratch_key:?}");
@@ -67,7 +76,7 @@ impl Client {
                     .values()
                     .map(|(record, _)| try_deserialize_record::<Scratchpad>(record))
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(scratch_address))?;
+                    .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(*address))?;
 
                 // take the latest versions
                 pads.sort_by_key(|s| s.count());
@@ -112,7 +121,7 @@ impl Client {
         public_key: &PublicKey,
         content_type: u64,
     ) -> Result<(Scratchpad, bool), PutError> {
-        let pad_res = self.scratchpad_get(public_key).await;
+        let pad_res = self.scratchpad_get_from_public_key(public_key).await;
         let mut is_new = true;
 
         let scratch = if let Ok(existing_data) = pad_res {
@@ -139,12 +148,14 @@ impl Client {
     }
 
     /// Create a new scratchpad to the network
+    /// Returns the cost of the scratchpad and the address of the scratchpad
     pub async fn scratchpad_create(
         &self,
         scratchpad: Scratchpad,
         payment_option: PaymentOption,
-    ) -> Result<AttoTokens, PutError> {
+    ) -> Result<(AttoTokens, ScratchpadAddress), PutError> {
         let scratch_address = scratchpad.network_address();
+        let address = *scratchpad.address();
         let scratch_key = scratch_address.to_record_key();
 
         // pay for the scratchpad
@@ -204,7 +215,7 @@ impl Client {
                 )
             })?;
 
-        Ok(total_cost)
+        Ok((total_cost, address))
     }
 
     /// Update an existing scratchpad to the network

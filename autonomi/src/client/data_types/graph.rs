@@ -43,7 +43,7 @@ pub enum GraphError {
     InvalidQuote,
     #[error("Entry already exists at this address: {0:?}")]
     AlreadyExists(GraphEntryAddress),
-    #[error("Graph forked! Multiple entries found at this address: {0:?}")]
+    #[error("Graph forked! Multiple entries found: {0:?}")]
     Fork(Vec<GraphEntry>),
 }
 

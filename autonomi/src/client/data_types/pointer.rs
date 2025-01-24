@@ -47,8 +47,6 @@ pub enum PointerError {
 impl Client {
     /// Get a pointer from the network
     pub async fn pointer_get(&self, address: PointerAddress) -> Result<Pointer, PointerError> {
-        info!("Getting pointer: {address:?}");
-
         let key = NetworkAddress::from_pointer_address(address).to_record_key();
         debug!("Fetching pointer from network at: {key:?}");
         let get_cfg = GetRecordCfg {

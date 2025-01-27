@@ -554,8 +554,15 @@ impl Node {
 
         // add local GraphEntries to the validated GraphEntries, turn to Vec
         let local_entries = self.get_local_graphentries(addr).await?;
+        let existing_entry = local_entries.len();
         validated_entries.extend(local_entries.into_iter());
         let validated_entries: Vec<GraphEntry> = validated_entries.into_iter().collect();
+
+        // No need to write to disk if nothing new.
+        if existing_entry == validated_entries.len() {
+            debug!("No new entry of the GraphEntry {pretty_key:?}");
+            return Ok(());
+        }
 
         // store the record into the local storage
         let record = Record {

@@ -1296,12 +1296,8 @@ mod tests {
         // Create a scratchpad
         let unencrypted_scratchpad_data = Bytes::from_static(b"Test scratchpad data");
         let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
 
-        let mut scratchpad = Scratchpad::new(owner_pk, 0);
-
-        let _next_version =
-            scratchpad.update_and_sign(unencrypted_scratchpad_data.clone(), &owner_sk);
+        let scratchpad = Scratchpad::new(&owner_sk, 0, &unencrypted_scratchpad_data, 0);
 
         let scratchpad_address = *scratchpad.address();
 

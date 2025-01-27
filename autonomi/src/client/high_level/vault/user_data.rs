@@ -12,7 +12,7 @@ use crate::client::high_level::files::archive_private::PrivateArchiveAccess;
 use crate::client::high_level::files::archive_public::ArchiveAddr;
 use crate::client::payment::PaymentOption;
 use crate::client::Client;
-use crate::client::{GetError, PutError};
+use crate::client::GetError;
 use ant_evm::AttoTokens;
 use ant_protocol::Bytes;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub struct UserData {
 
 /// Errors that can occur during the get operation.
 #[derive(Debug, thiserror::Error)]
-pub enum UserDataVaultGetError {
+pub enum UserDataVaultError {
     #[error("Vault error: {0}")]
     Vault(#[from] VaultError),
     #[error("Unsupported vault content type: {0}")]
@@ -111,19 +111,17 @@ impl Client {
     pub async fn get_user_data_from_vault(
         &self,
         secret_key: &VaultSecretKey,
-    ) -> Result<UserData, UserDataVaultGetError> {
+    ) -> Result<UserData, UserDataVaultError> {
         let (bytes, content_type) = self.fetch_and_decrypt_vault(secret_key).await?;
 
         if content_type != *USER_DATA_VAULT_CONTENT_IDENTIFIER {
-            return Err(UserDataVaultGetError::UnsupportedVaultContentType(
+            return Err(UserDataVaultError::UnsupportedVaultContentType(
                 content_type,
             ));
         }
 
         let vault = UserData::from_bytes(bytes).map_err(|e| {
-            UserDataVaultGetError::Serialization(format!(
-                "Failed to deserialize vault content: {e}"
-            ))
+            UserDataVaultError::Serialization(format!("Failed to deserialize vault content: {e}"))
         })?;
 
         Ok(vault)
@@ -136,10 +134,10 @@ impl Client {
         secret_key: &VaultSecretKey,
         payment_option: PaymentOption,
         user_data: UserData,
-    ) -> Result<AttoTokens, PutError> {
-        let bytes = user_data
-            .to_bytes()
-            .map_err(|e| PutError::Serialization(format!("Failed to serialize user data: {e}")))?;
+    ) -> Result<AttoTokens, UserDataVaultError> {
+        let bytes = user_data.to_bytes().map_err(|e| {
+            UserDataVaultError::Serialization(format!("Failed to serialize user data: {e}"))
+        })?;
         let total_cost = self
             .write_bytes_to_vault(
                 bytes,

@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_logging::LogBuilder;
+use autonomi::client::payment::PaymentOption;
 use autonomi::AttoTokens;
 use autonomi::{
     chunk::ChunkAddress,
@@ -35,7 +36,8 @@ async fn pointer_put_manual() -> Result<()> {
     println!("pointer cost: {cost}");
 
     // put the pointer
-    let (cost, addr) = client.pointer_put(pointer.clone(), &wallet).await?;
+    let payment_option = PaymentOption::from(&wallet);
+    let (cost, addr) = client.pointer_put(pointer.clone(), payment_option).await?;
     assert_eq!(addr, pointer.address());
     println!("pointer put 1 cost: {cost}");
 
@@ -50,7 +52,8 @@ async fn pointer_put_manual() -> Result<()> {
     // try update pointer and make it point to itself
     let target2 = PointerTarget::PointerAddress(addr);
     let pointer2 = Pointer::new(&key, 1, target2);
-    let (cost, _) = client.pointer_put(pointer2.clone(), &wallet).await?;
+    let payment_option = PaymentOption::from(&wallet);
+    let (cost, _) = client.pointer_put(pointer2.clone(), payment_option).await?;
     assert_eq!(cost, AttoTokens::zero());
     println!("pointer put 2 cost: {cost}");
 
@@ -82,7 +85,10 @@ async fn pointer_put() -> Result<()> {
     println!("pointer cost: {cost}");
 
     // put the pointer
-    let (cost, addr) = client.pointer_create(&key, target.clone(), &wallet).await?;
+    let payment_option = PaymentOption::from(&wallet);
+    let (cost, addr) = client
+        .pointer_create(&key, target.clone(), payment_option)
+        .await?;
     println!("pointer create cost: {cost}");
 
     // wait for the pointer to be replicated
@@ -96,7 +102,6 @@ async fn pointer_put() -> Result<()> {
     // try update pointer and make it point to itself
     let target2 = PointerTarget::PointerAddress(addr);
     client.pointer_update(&key, target2.clone()).await?;
-    println!("pointer update cost: {cost}");
 
     // wait for the pointer to be replicated
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;

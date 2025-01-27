@@ -16,6 +16,8 @@ use libp2p::PeerId;
 use std::collections::HashMap;
 use xor_name::XorName;
 
+pub use ant_protocol::storage::DataTypes;
+
 /// A quote for a single address
 pub struct QuoteForAddress(pub(crate) Vec<(PeerId, PaymentQuote, Amount)>);
 
@@ -72,14 +74,19 @@ pub enum CostError {
 impl Client {
     pub async fn get_store_quotes(
         &self,
-        data_type: u32,
+        data_type: DataTypes,
         content_addrs: impl Iterator<Item = (XorName, usize)>,
     ) -> Result<StoreQuote, CostError> {
         // get all quotes from nodes
         let futures: Vec<_> = content_addrs
             .into_iter()
             .map(|(content_addr, data_size)| {
-                fetch_store_quote_with_retries(&self.network, content_addr, data_type, data_size)
+                fetch_store_quote_with_retries(
+                    &self.network,
+                    content_addr,
+                    data_type.get_index(),
+                    data_size,
+                )
             })
             .collect();
 

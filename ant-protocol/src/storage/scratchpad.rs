@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use xor_name::XorName;
 
-/// Scratchpad, a mutable address for encrypted data
+/// Scratchpad, a mutable space for encrypted data on the Network
 #[derive(
     Hash, Eq, PartialEq, PartialOrd, Ord, Clone, custom_debug::Debug, Serialize, Deserialize,
 )]
@@ -23,12 +23,12 @@ pub struct Scratchpad {
     /// Network address. Omitted when serialising and
     /// calculated from the `encrypted_data` when deserialising.
     address: ScratchpadAddress,
-    /// Data encoding: custom apps using scratchpad should use this so they can identify the type of data they are storing in the bytes
+    /// Data encoding: custom apps using scratchpad should use this so they can identify the type of data they are storing
     data_encoding: u64,
-    /// Contained data. This should be encrypted
+    /// Encrypted data stored in the scratchpad, it is encrypted automatically by the [`Scratchpad::new`] and [`Scratchpad::update_and_sign`] methods
     #[debug(skip)]
     encrypted_data: Bytes,
-    /// Monotonically increasing counter to track the number of times this has been updated.
+    /// Monotonically increasing counter to track the number of times this has been updated. When pushed to the network, the scratchpad with the highest counter is kept.
     counter: u64,
     /// Signature over the above fields
     signature: Signature,

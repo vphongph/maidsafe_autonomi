@@ -171,15 +171,20 @@ async fn scratchpad_errors() -> Result<()> {
 
     // check that the scratchpad is stored
     let got = client.scratchpad_get(&addr).await?;
-    assert_eq!(got, Scratchpad::new(&key, content_type, &content, 0));
+    assert_eq!(*got.owner(), key.public_key());
+    assert_eq!(got.data_encoding(), content_type);
+    assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
+    assert_eq!(got.counter(), 0);
+    assert!(got.is_valid());
     println!("scratchpad got 1");
 
-    // try update scratchpad with same counter
+    // try create scratchpad at the same address
     let fork_content = Bytes::from("Fork");
-    let zero_again = 0;
-    let fork_scratch = Scratchpad::new(&key, content_type, &fork_content, zero_again);
     let payment_option = PaymentOption::from(&wallet);
-    let res = client.scratchpad_put(fork_scratch, payment_option).await;
+    let res = client
+        .scratchpad_create(&key, content_type, &fork_content, payment_option)
+        .await;
+    println!("Scratchpad create should fail here: {res:?}");
     assert!(matches!(
         res,
         Err(ScratchpadError::ScratchpadAlreadyExists(_))
@@ -188,9 +193,13 @@ async fn scratchpad_errors() -> Result<()> {
     // wait for the scratchpad to be replicated
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-    // check that the scratchpad is stored
+    // check that the scratchpad is stored with original content
     let got = client.scratchpad_get(&addr).await?;
-    assert_eq!(got, Scratchpad::new(&key, content_type, &content, 0));
+    assert_eq!(*got.owner(), key.public_key());
+    assert_eq!(got.data_encoding(), content_type);
+    assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
+    assert_eq!(got.counter(), 0);
+    assert!(got.is_valid());
     println!("scratchpad got 1");
 
     // check that the content is decrypted correctly and matches the original

@@ -498,7 +498,7 @@ fn create_pointers_task(
                     PointerTarget::ChunkAddress(ChunkAddress::new(XorName(rand::random())));
                 loop {
                     match client
-                        .pointer_create(&owner, pointer_target.clone(), &wallet)
+                        .pointer_create(&owner, pointer_target.clone(), (&wallet).into())
                         .await
                     {
                         Ok((cost, addr)) => {

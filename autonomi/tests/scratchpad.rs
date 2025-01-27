@@ -106,7 +106,11 @@ async fn scratchpad_put() -> Result<()> {
 
     // check that the scratchpad is stored
     let got = client.scratchpad_get(&addr).await?;
-    assert_eq!(got, Scratchpad::new(&key, content_type, &content, 0));
+    assert_eq!(*got.owner(), public_key);
+    assert_eq!(got.data_encoding(), content_type);
+    assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
+    assert_eq!(got.counter(), 0);
+    assert!(got.is_valid());
     println!("scratchpad got 1");
 
     // check that the content is decrypted correctly
@@ -124,7 +128,11 @@ async fn scratchpad_put() -> Result<()> {
 
     // check that the scratchpad is updated
     let got = client.scratchpad_get(&addr).await?;
-    assert_eq!(got, Scratchpad::new(&key, content_type, &content2, 1));
+    assert_eq!(*got.owner(), public_key);
+    assert_eq!(got.data_encoding(), content_type);
+    assert_eq!(got.decrypt_data(&key), Ok(content2.clone()));
+    assert_eq!(got.counter(), 1);
+    assert!(got.is_valid());
     println!("scratchpad got 2");
 
     // check that the content is decrypted correctly

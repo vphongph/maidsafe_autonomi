@@ -14,11 +14,11 @@ use crate::common::{
 };
 use ant_logging::LogBuilder;
 use ant_protocol::{
-    storage::{ChunkAddress, PointerTarget},
+    storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget},
     NetworkAddress,
 };
 use autonomi::{Client, Wallet};
-use bls::SecretKey;
+use bls::{PublicKey, SecretKey};
 use common::client::transfer_to_new_wallet;
 use eyre::{bail, ErrReport, Result};
 use rand::Rng;
@@ -40,8 +40,9 @@ const TOKENS_TO_TRANSFER: usize = 10000000;
 
 const EXTRA_CHURN_COUNT: u32 = 5;
 const CHURN_CYCLES: u32 = 2;
-const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 15;
-const POINTER_CREATION_RATIO_TO_CHURN: u32 = 15;
+const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 17;
+const POINTER_CREATION_RATIO_TO_CHURN: u32 = 11;
+const GRAPHENTRY_CREATION_RATIO_TO_CHURN: u32 = 7;
 
 static DATA_SIZE: LazyLock<usize> = LazyLock::new(|| *MAX_CHUNK_SIZE / 3);
 
@@ -152,6 +153,21 @@ async fn data_availability_during_churn() -> Result<()> {
         None
     };
 
+    // Spawn a task to create GraphEntry at random locations,
+    // at a higher frequency than the churning events
+    let create_graph_entry_handle = if !chunks_only {
+        let graph_entry_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
+        let create_graph_entry_handle = create_graph_entry_task(
+            client.clone(),
+            graph_entry_wallet,
+            Arc::clone(&content),
+            churn_period,
+        );
+        Some(create_graph_entry_handle)
+    } else {
+        None
+    };
+
     // Spawn a task to churn nodes
     churn_nodes_task(Arc::clone(&churn_count), test_duration, churn_period);
 
@@ -191,6 +207,11 @@ async fn data_availability_during_churn() -> Result<()> {
         if let Some(handle) = &create_pointer_handle {
             if handle.is_finished() {
                 bail!("Create pointers task has finished before the test duration. Probably due to an error.");
+            }
+        }
+        if let Some(handle) = &create_graph_entry_handle {
+            if handle.is_finished() {
+                bail!("Create GraphEntry task has finished before the test duration. Probably due to an error.");
             }
         }
 
@@ -266,6 +287,150 @@ async fn data_availability_during_churn() -> Result<()> {
 
     println!("Test passed after running for {:?}.", start_time.elapsed());
     Ok(())
+}
+
+// Spawns a task which periodically creates GraphEntry at random locations.
+fn create_graph_entry_task(
+    client: Client,
+    wallet: Wallet,
+    content_list: ContentList,
+    churn_period: Duration,
+) -> JoinHandle<Result<()>> {
+    let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+        // Map of the ownership, allowing the later on update can be undertaken.
+        // In this test scenario, we only test simple GraphEntry tree structure: 1-parent-1-output
+        // The tree structure is stored as a vector (last one being the latest)
+        let mut growing_history: Vec<Vec<GraphEntryAddress>> = vec![];
+        let mut owners: HashMap<PublicKey, SecretKey> = HashMap::new();
+
+        // Create GraphEntry at a higher frequency than the churning events
+        let delay = churn_period / GRAPHENTRY_CREATION_RATIO_TO_CHURN;
+
+        loop {
+            sleep(delay).await;
+
+            // 50% chance of `growing` (i.e. has existing one as partent) instead of creation new.
+            let is_growing: bool = if growing_history.is_empty() {
+                false
+            } else {
+                rand::random()
+            };
+
+            let output = SecretKey::random();
+            let output_content: [u8; 32] = rand::random();
+            let outputs = vec![(output.public_key(), output_content)];
+
+            #[allow(unused_assignments)]
+            let mut index = growing_history.len();
+            let mut graph_entry_to_put = None;
+            if is_growing {
+                index = rand::thread_rng().gen_range(0..growing_history.len());
+                let Some(addr) = growing_history[index].last() else {
+                    println!("Doesn't have history GraphEntry of {index:?}");
+                    error!("Doesn't have history GraphEntry of {index:?}");
+                    continue;
+                };
+
+                let mut retries = 1;
+                loop {
+                    match client.graph_entry_get(*addr).await {
+                        Ok(graph_entry) => {
+                            println!("Fetched graph_entry at {addr:?}");
+
+                            let Some((old_output, old_content)) = graph_entry.outputs.last() else {
+                                println!("Can't get output from the graph_entry of {addr:?}");
+                                error!("Can't get output from the graph_entry of {addr:?}");
+                                break;
+                            };
+
+                            // The previous output now becomes the owner.
+                            let Some(owner) = owners.get(old_output) else {
+                                println!("Can't get secret_key of {output:?}");
+                                error!("Can't get secret_key of {output:?}");
+                                break;
+                            };
+
+                            let parents = vec![graph_entry.owner];
+                            let graph_entry = GraphEntry::new(
+                                owner.public_key(),
+                                parents,
+                                *old_content,
+                                outputs,
+                                owner,
+                            );
+
+                            growing_history[index].push(graph_entry.address());
+
+                            graph_entry_to_put = Some(graph_entry);
+                            break;
+                        }
+                        Err(err) => {
+                            println!(
+                                "Failed to get graph_entry at {addr:?}: {err:?}. Retrying ..."
+                            );
+                            error!("Failed to get graph_entry at {addr:?} : {err:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                                error!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                                bail!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                            }
+                            retries += 1;
+                            sleep(delay).await;
+                        }
+                    }
+                }
+            } else {
+                let owner = SecretKey::random();
+                let content: [u8; 32] = rand::random();
+                let parents = vec![];
+                let graph_entry =
+                    GraphEntry::new(owner.public_key(), parents, content, outputs, &owner);
+
+                growing_history.push(vec![graph_entry.address()]);
+                let _ = owners.insert(owner.public_key(), owner);
+
+                graph_entry_to_put = Some(graph_entry);
+            };
+
+            let Some(graph_entry) = graph_entry_to_put else {
+                println!("Doesn't have graph_entry to put to network.");
+                error!("Doesn't have graph_entry to put to network.");
+                continue;
+            };
+
+            let _ = owners.insert(output.public_key(), output);
+
+            let mut retries = 1;
+            loop {
+                match client.graph_entry_put(graph_entry.clone(), &wallet).await {
+                    Ok((cost, addr)) => {
+                        println!("Uploaded graph_entry to {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
+                        let net_addr = NetworkAddress::GraphEntryAddress(addr);
+                        content_list.write().await.push_back(net_addr);
+                        break;
+                    }
+                    Err(err) => {
+                        println!("Failed to upload graph_entry: {err:?}. Retrying ...");
+                        error!("Failed to upload graph_entry: {err:?}. Retrying ...");
+                        if retries >= 3 {
+                            println!("Failed to upload graph_entry after 3 retries: {err}");
+                            error!("Failed to upload graph_entry after 3 retries: {err}");
+                            bail!("Failed to upload graph_entry after 3 retries: {err}");
+                        }
+                        retries += 1;
+                        sleep(delay).await;
+                    }
+                }
+            }
+        }
+    });
+    handle
 }
 
 // Spawns a task which periodically creates Pointers at random locations.
@@ -580,7 +745,7 @@ async fn final_retry_query_content(
             } else {
                 attempts += 1;
                 let delay = 2 * churn_period;
-                debug!("Delaying last check for {delay:?} ...");
+                debug!("Delaying last check of {net_addr:?} for {delay:?} ...");
                 sleep(delay).await;
                 continue;
             }
@@ -600,6 +765,10 @@ async fn query_content(client: &Client, net_addr: &NetworkAddress) -> Result<()>
         }
         NetworkAddress::PointerAddress(addr) => {
             let _ = client.pointer_get(*addr).await?;
+            Ok(())
+        }
+        NetworkAddress::GraphEntryAddress(addr) => {
+            let _ = client.graph_entry_get(*addr).await?;
             Ok(())
         }
         _other => Ok(()), // we don't create/store any other type of content in this test yet

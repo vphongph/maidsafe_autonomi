@@ -39,13 +39,11 @@ pub struct PublicArchive {
     map: BTreeMap<PathBuf, (DataAddr, MetadataVersioned)>,
 }
 
-/// This type essentially adds a `version` field to the serialized `PublicArchive` data.
-/// E.g. in JSON format: `{ "version": 0, "map": <xxx> }`
+/// This type essentially wraps archive in version marker. E.g. in JSON format:
+/// `{ "V0": { "map": <xxx> } }`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
-#[serde(tag = "version")]
 pub enum PublicArchiveVersioned {
-    #[serde(rename = "0")]
     V0(PublicArchive),
 }
 
@@ -200,5 +198,55 @@ impl Client {
         let result = self.data_cost(bytes).await;
         debug!("Calculated the cost to upload archive {archive:?} is {result:?}");
         result
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn compatibility() {
+        // In the future we'll have an extra variant.
+        #[derive(Serialize, Deserialize)]
+        #[non_exhaustive]
+        pub enum FuturePublicArchiveVersioned {
+            V0(PublicArchive),
+            V1(PublicArchive),
+            #[serde(other)]
+            Unsupported,
+        }
+
+        let mut arch = PublicArchive::new();
+        arch.add_file(
+            PathBuf::from_str("hello_world").unwrap(),
+            DataAddr::random(&mut rand::thread_rng()),
+            Metadata::new_with_size(1),
+        );
+        let arch_serialized = arch.to_bytes().unwrap();
+
+        // Create archive, forward compatible (still the same V0 version).
+        let future_arch = FuturePublicArchiveVersioned::V0(arch.clone());
+        let future_arch_serialized = rmp_serde::to_vec(&future_arch).unwrap();
+
+        // Let's see if we can deserialize a (forward compatible) archive arriving to us from the future
+        let _ = PublicArchive::from_bytes(Bytes::from(future_arch_serialized)).unwrap();
+
+        // Let's see if we can deserialize an old archive from the future
+        let _: FuturePublicArchiveVersioned = rmp_serde::from_slice(&arch_serialized[..]).unwrap();
+
+        // Now we break forward compatibility by introducing a new version not supported by the old code.
+        let future_arch = FuturePublicArchiveVersioned::V1(arch.clone());
+        let future_arch_serialized = rmp_serde::to_vec(&future_arch).unwrap();
+        // The old archive will not be able to decode this.
+        assert!(PublicArchive::from_bytes(Bytes::from(future_arch_serialized)).is_err());
+
+        // Now we prove backwards compatibility. Our old V0 archive will still be decoded by our new archive wrapper as V0.
+        let versioned_arch = PublicArchiveVersioned::V0(arch.clone()); // 'Old' archive wrapper
+        let versioned_arch_serialized = rmp_serde::to_vec(&versioned_arch).unwrap();
+        let _: FuturePublicArchiveVersioned = // Into 'new' wrapper
+            rmp_serde::from_slice(&versioned_arch_serialized[..]).unwrap();
     }
 }

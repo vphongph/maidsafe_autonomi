@@ -52,7 +52,7 @@ pub enum MetadataVersioned {
     V0(Metadata),
 }
 
-// Allows us to do access currently only possible `Metadata` struct (V0) conveniently:
+// Allows us to access currently only possible `Metadata` struct (V0) conveniently:
 // ```rust
 // let metadata = MetadataVersioned::V0(Metadata::new_with_size(123));
 // let size = metadata.size; // Access the only possible (currently) `Metadata` (V0) struct

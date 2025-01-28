@@ -36,13 +36,11 @@ pub struct PrivateArchive {
     map: BTreeMap<PathBuf, (DataMapChunk, MetadataVersioned)>,
 }
 
-/// This type essentially adds a `version` field to the serialized `PrivateArchive` data.
-/// E.g. in JSON format: `{ "version": 0, "map": <xxx> }`
+/// This type essentially wraps archive in version marker. E.g. in JSON format:
+/// `{ "V0": { "map": <xxx> } }`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
-#[serde(tag = "version")]
 pub enum PrivateArchiveVersioned {
-    #[serde(rename = "0")]
     V0(PrivateArchive),
 }
 

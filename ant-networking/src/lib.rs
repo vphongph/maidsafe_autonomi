@@ -432,10 +432,16 @@ impl Network {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
+
                     // Check the quote itself is valid.
                     if !quote.check_is_signed_by_claimed_peer(peer) {
                         warn!("Received invalid quote from {peer_address:?}, {quote:?}");
                         continue;
+                    }
+
+                    // Check if the returned data type matches the request
+                    if quote.quoting_metrics.data_type != data_type {
+                        warn!("Received invalid quote from {peer_address:?}, {quote:?}. Data type did not match the request.");
                     }
 
                     all_quotes.push((peer_address.clone(), quote.clone()));

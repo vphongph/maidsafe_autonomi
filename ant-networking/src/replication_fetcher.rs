@@ -17,7 +17,7 @@ use libp2p::{
     kad::{KBucketDistance as Distance, RecordKey, K_VALUE},
     PeerId,
 };
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet, VecDeque};
 use tokio::{sync::mpsc, time::Duration};
 
 // Max parallel fetches that can be undertaken at the same time.
@@ -528,19 +528,19 @@ impl ReplicationFetcher {
                 }
             });
 
-        let mut failed_holders = BTreeSet::new();
+        let mut failed_holders = BTreeMap::new();
 
         for (record_key, peer_id) in failed_fetches {
-            error!(
-                "Failed to fetch {:?} from {peer_id:?}",
+            debug!(
+                "Replication_fetcher has outdated fetch of {:?} from {peer_id:?}",
                 PrettyPrintRecordKey::from(&record_key)
             );
-            let _ = failed_holders.insert(peer_id);
+            let _ = failed_holders.insert(peer_id, record_key);
         }
 
         // now to clear any failed nodes from our lists.
         self.to_be_fetched
-            .retain(|(_, _, holder), _| !failed_holders.contains(holder));
+            .retain(|(_, _, holder), _| !failed_holders.contains_key(holder));
 
         // Such failed_hodlers (if any) shall be reported back and be excluded from RT.
         if !failed_holders.is_empty() {

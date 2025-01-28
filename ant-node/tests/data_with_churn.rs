@@ -293,7 +293,7 @@ async fn data_availability_during_churn() -> Result<()> {
 fn create_graph_entry_task(
     client: Client,
     wallet: Wallet,
-    content: ContentList,
+    content_list: ContentList,
     churn_period: Duration,
 ) -> JoinHandle<Result<()>> {
     let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
@@ -412,7 +412,7 @@ fn create_graph_entry_task(
                     Ok((cost, addr)) => {
                         println!("Uploaded graph_entry to {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
                         let net_addr = NetworkAddress::GraphEntryAddress(addr);
-                        content.write().await.push_back(net_addr);
+                        content_list.write().await.push_back(net_addr);
                         break;
                     }
                     Err(err) => {
@@ -745,7 +745,7 @@ async fn final_retry_query_content(
             } else {
                 attempts += 1;
                 let delay = 2 * churn_period;
-                debug!("Delaying last check for {delay:?} ...");
+                debug!("Delaying last check of {net_addr:?} for {delay:?} ...");
                 sleep(delay).await;
                 continue;
             }

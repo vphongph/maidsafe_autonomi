@@ -30,7 +30,7 @@ use ant_protocol::{
 #[cfg(feature = "open-metrics")]
 use std::collections::HashSet;
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     fmt::{Debug, Formatter},
 };
 use tokio::sync::oneshot;
@@ -131,7 +131,7 @@ pub enum NetworkEvent {
     /// Terminate Node on unrecoverable errors
     TerminateNode { reason: TerminateNodeReason },
     /// List of peer nodes that failed to fetch replication copy from.
-    FailedToFetchHolders(BTreeSet<PeerId>),
+    FailedToFetchHolders(BTreeMap<PeerId, RecordKey>),
     /// Quotes to be verified
     QuoteVerification { quotes: Vec<(PeerId, PaymentQuote)> },
     /// Fresh replicate to fetch

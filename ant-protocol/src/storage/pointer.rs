@@ -132,6 +132,11 @@ impl Pointer {
         let bytes = self.bytes_for_signature();
         self.owner.verify(&self.signature, &bytes)
     }
+
+    /// Size of the pointer
+    pub fn size() -> usize {
+        size_of::<Pointer>()
+    }
 }
 
 #[cfg(test)]

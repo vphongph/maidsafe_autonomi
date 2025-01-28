@@ -110,7 +110,7 @@ async fn scratchpad_put() -> Result<()> {
     assert_eq!(got.data_encoding(), content_type);
     assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
     assert_eq!(got.counter(), 0);
-    assert!(got.is_valid());
+    assert!(got.verify());
     println!("scratchpad got 1");
 
     // check that the content is decrypted correctly
@@ -132,7 +132,7 @@ async fn scratchpad_put() -> Result<()> {
     assert_eq!(got.data_encoding(), content_type);
     assert_eq!(got.decrypt_data(&key), Ok(content2.clone()));
     assert_eq!(got.counter(), 1);
-    assert!(got.is_valid());
+    assert!(got.verify());
     println!("scratchpad got 2");
 
     // check that the content is decrypted correctly
@@ -175,7 +175,7 @@ async fn scratchpad_errors() -> Result<()> {
     assert_eq!(got.data_encoding(), content_type);
     assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
     assert_eq!(got.counter(), 0);
-    assert!(got.is_valid());
+    assert!(got.verify());
     println!("scratchpad got 1");
 
     // try create scratchpad at the same address
@@ -199,7 +199,7 @@ async fn scratchpad_errors() -> Result<()> {
     assert_eq!(got.data_encoding(), content_type);
     assert_eq!(got.decrypt_data(&key), Ok(content.clone()));
     assert_eq!(got.counter(), 0);
-    assert!(got.is_valid());
+    assert!(got.verify());
     println!("scratchpad got 1");
 
     // check that the content is decrypted correctly and matches the original

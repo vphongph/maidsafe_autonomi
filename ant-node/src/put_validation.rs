@@ -467,9 +467,15 @@ impl Node {
         }
 
         // ensure data integrity
-        if !scratchpad.is_valid() {
+        if !scratchpad.verify() {
             warn!("Rejecting Scratchpad PUT with invalid signature");
             return Err(Error::InvalidScratchpadSignature);
+        }
+
+        // ensure the scratchpad is not too big
+        if scratchpad.is_too_big() {
+            warn!("Rejecting Scratchpad PUT with too big size");
+            return Err(Error::ScratchpadTooBig(scratchpad.size()));
         }
 
         info!(

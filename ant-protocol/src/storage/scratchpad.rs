@@ -25,16 +25,20 @@ pub struct Scratchpad {
     address: ScratchpadAddress,
     /// Data encoding: custom apps using scratchpad should use this so they can identify the type of data they are storing
     data_encoding: u64,
-    /// Encrypted data stored in the scratchpad, it is encrypted automatically by the [`Scratchpad::new`] and [`Scratchpad::update_and_sign`] methods
+    /// Encrypted data stored in the scratchpad, it is encrypted automatically by the [`Scratchpad::new`] and [`Scratchpad::update`] methods
     #[debug(skip)]
     encrypted_data: Bytes,
-    /// Monotonically increasing counter to track the number of times this has been updated. When pushed to the network, the scratchpad with the highest counter is kept.
+    /// Monotonically increasing counter to track the number of times this has been updated.
+    /// When pushed to the network, the scratchpad with the highest counter is kept.
     counter: u64,
     /// Signature over the above fields
     signature: Signature,
 }
 
 impl Scratchpad {
+    /// Max Scratchpad size is 4MB including the metadata
+    pub const MAX_SIZE: usize = 4 * 1024 * 1024;
+
     /// Creates a new instance of `Scratchpad`. Encrypts the data, and signs all the elements.
     pub fn new(
         owner: &SecretKey,
@@ -51,15 +55,13 @@ impl Scratchpad {
             &encrypted_data,
             counter,
         ));
-        let s = Self {
+        Self {
             address: addr,
             encrypted_data,
             data_encoding,
             counter,
             signature,
-        };
-        debug_assert!(s.is_valid(), "Must be valid after being signed. This is a bug, please report it by opening an issue on our github");
-        s
+        }
     }
 
     /// Create a new Scratchpad without provding the secret key
@@ -106,8 +108,8 @@ impl Scratchpad {
         self.data_encoding
     }
 
-    /// Updates the content, re-signs the scratchpad
-    pub fn update_and_sign(&mut self, unencrypted_data: &Bytes, sk: &SecretKey) {
+    /// Updates the content and encrypts it, increments the counter, re-signs the scratchpad
+    pub fn update(&mut self, unencrypted_data: &Bytes, sk: &SecretKey) {
         self.counter += 1;
         let pk = self.owner();
         let address = ScratchpadAddress::new(*pk);
@@ -120,11 +122,11 @@ impl Scratchpad {
             self.counter,
         );
         self.signature = sk.sign(&bytes_to_sign);
-        debug_assert!(self.is_valid(), "Must be valid after being signed. This is a bug, please report it by opening an issue on our github");
+        debug_assert!(self.verify(), "Must be valid after being signed. This is a bug, please report it by opening an issue on our github");
     }
 
-    /// Verifies that the Scratchpad is valid
-    pub fn is_valid(&self) -> bool {
+    /// Verifies that the Scratchpad signature is valid
+    pub fn verify(&self) -> bool {
         let signing_bytes = Self::bytes_for_signature(
             self.address,
             self.data_encoding,
@@ -178,6 +180,16 @@ impl Scratchpad {
     pub fn payload_size(&self) -> usize {
         self.encrypted_data.len()
     }
+
+    /// Size of the scratchpad
+    pub fn size(&self) -> usize {
+        size_of::<Scratchpad>() + self.payload_size()
+    }
+
+    /// Returns true if the scratchpad is too big
+    pub fn is_too_big(&self) -> bool {
+        self.size() > Self::MAX_SIZE
+    }
 }
 
 #[cfg(test)]
@@ -189,13 +201,13 @@ mod tests {
         let sk = SecretKey::random();
         let raw_data = Bytes::from_static(b"data to be encrypted");
         let mut scratchpad = Scratchpad::new(&sk, 42, &raw_data, 0);
-        assert!(scratchpad.is_valid());
+        assert!(scratchpad.verify());
         assert_eq!(scratchpad.counter(), 0);
         assert_ne!(scratchpad.encrypted_data(), &raw_data);
 
         let raw_data2 = Bytes::from_static(b"data to be encrypted v2");
-        scratchpad.update_and_sign(&raw_data2, &sk);
-        assert!(scratchpad.is_valid());
+        scratchpad.update(&raw_data2, &sk);
+        assert!(scratchpad.verify());
         assert_eq!(scratchpad.counter(), 1);
         assert_ne!(scratchpad.encrypted_data(), &raw_data);
         assert_ne!(scratchpad.encrypted_data(), &raw_data2);

@@ -639,7 +639,7 @@ impl Network {
                             continue;
                         };
 
-                        if !scratchpad.is_valid() {
+                        if !scratchpad.verify() {
                             warn!(
                                 "Rejecting Scratchpad for {pretty_key} PUT with invalid signature"
                             );

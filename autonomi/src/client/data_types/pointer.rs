@@ -103,7 +103,7 @@ impl Client {
             // TODO: define Pointer default size for pricing
             .pay_for_content_addrs(
                 DataTypes::Pointer,
-                std::iter::once((xor_name, size_of::<Pointer>())),
+                std::iter::once((xor_name, Pointer::size())),
                 payment_option,
             )
             .await
@@ -275,10 +275,7 @@ impl Client {
         let address = PointerAddress::from_owner(key);
         let xor = *address.xorname();
         let store_quote = self
-            .get_store_quotes(
-                DataTypes::Pointer,
-                std::iter::once((xor, size_of::<Pointer>())),
-            )
+            .get_store_quotes(DataTypes::Pointer, std::iter::once((xor, Pointer::size())))
             .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote

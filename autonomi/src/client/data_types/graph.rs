@@ -71,12 +71,11 @@ impl Client {
 
         // pay for the graph entry
         let xor_name = address.xorname();
-        let graph_size_with_forks = size_of::<GraphEntry>() * 10;
         debug!("Paying for graph entry at address: {address:?}");
         let (payment_proofs, skipped_payments) = self
             .pay_for_content_addrs(
                 DataTypes::GraphEntry,
-                std::iter::once((*xor_name, graph_size_with_forks)),
+                std::iter::once((*xor_name, entry.size())),
                 payment_option,
             )
             .await
@@ -150,11 +149,10 @@ impl Client {
         trace!("Getting cost for GraphEntry of {key:?}");
         let address = GraphEntryAddress::from_owner(key);
         let xor = *address.xorname();
-        let graph_size_with_forks = size_of::<GraphEntry>() * 10;
         let store_quote = self
             .get_store_quotes(
                 DataTypes::GraphEntry,
-                std::iter::once((xor, graph_size_with_forks)),
+                std::iter::once((xor, GraphEntry::MAX_SIZE)),
             )
             .await?;
         let total_cost = AttoTokens::from_atto(

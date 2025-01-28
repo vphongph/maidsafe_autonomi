@@ -22,6 +22,8 @@ pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
 pub use bls::{PublicKey, SecretKey, Signature};
 
+const SCRATCHPAD_MAX_SIZE: usize = Scratchpad::MAX_SIZE;
+
 /// Errors that can occur when dealing with Scratchpads
 #[derive(Debug, thiserror::Error)]
 pub enum ScratchpadError {
@@ -39,12 +41,11 @@ pub enum ScratchpadError {
     ScratchpadAlreadyExists(ScratchpadAddress),
     #[error("Scratchpad cannot be updated as it does not exist, please create it first or wait for it to be created")]
     CannotUpdateNewScratchpad,
-    #[error("Scratchpad size is too big: {0} > {MAX_SCRATCHPAD_SIZE}")]
+    #[error("Scratchpad size is too big: {0} > {SCRATCHPAD_MAX_SIZE}")]
     ScratchpadTooBig(usize),
+    #[error("Scratchpad signature is not valid")]
+    BadSignature,
 }
-
-/// Max Scratchpad size is 4MB including the metadata
-pub const MAX_SCRATCHPAD_SIZE: usize = 4 * 1024 * 1024;
 
 impl Client {
     /// Get Scratchpad from the Network
@@ -126,6 +127,17 @@ impl Client {
         Ok(pad)
     }
 
+    /// Verify a scratchpad
+    pub fn scratchpad_verify(scratchpad: &Scratchpad) -> Result<(), ScratchpadError> {
+        if !scratchpad.verify() {
+            return Err(ScratchpadError::BadSignature);
+        }
+        if scratchpad.is_too_big() {
+            return Err(ScratchpadError::ScratchpadTooBig(scratchpad.size()));
+        }
+        Ok(())
+    }
+
     /// Manually store a scratchpad on the network
     pub async fn scratchpad_put(
         &self,
@@ -133,18 +145,15 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, ScratchpadAddress), ScratchpadError> {
         let address = scratchpad.address();
+        Self::scratchpad_verify(&scratchpad)?;
 
         // pay for the scratchpad
         let xor_name = address.xorname();
-        let size = size_of::<Scratchpad>() + scratchpad.payload_size();
-        if size > MAX_SCRATCHPAD_SIZE {
-            return Err(ScratchpadError::ScratchpadTooBig(size));
-        }
         debug!("Paying for scratchpad at address: {address:?}");
         let (payment_proofs, _skipped_payments) = self
             .pay_for_content_addrs(
                 DataTypes::Scratchpad,
-                std::iter::once((xor_name, MAX_SCRATCHPAD_SIZE)),
+                std::iter::once((xor_name, scratchpad.size())),
                 payment_option,
             )
             .await
@@ -254,7 +263,6 @@ impl Client {
     /// Update an existing scratchpad to the network
     /// This operation is free but requires the scratchpad to be already created on the network
     /// Only the latest version of the scratchpad is kept on the Network, previous versions will be overwritten and unrecoverable
-    /// The method [`Scratchpad::update_and_sign`] should be used before calling this function to send the scratchpad to the network
     pub async fn scratchpad_update(
         &self,
         owner: &SecretKey,
@@ -285,6 +293,9 @@ impl Client {
             warn!("Scratchpad at address {address:?} cannot be updated as it does not exist, please create it first or wait for it to be created");
             return Err(ScratchpadError::CannotUpdateNewScratchpad);
         };
+
+        // make sure the scratchpad is valid
+        Self::scratchpad_verify(&scratchpad)?;
 
         // prepare the record to be stored
         let record = Record {
@@ -328,7 +339,7 @@ impl Client {
         let store_quote = self
             .get_store_quotes(
                 DataTypes::Scratchpad,
-                std::iter::once((scratch_xor, size_of::<Scratchpad>())),
+                std::iter::once((scratch_xor, SCRATCHPAD_MAX_SIZE)),
             )
             .await?;
 

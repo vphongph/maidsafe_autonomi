@@ -69,7 +69,7 @@ use std::{
     num::NonZeroUsize,
     path::PathBuf,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Duration;
 use tracing::warn;
 use xor_name::XorName;
@@ -813,7 +813,7 @@ impl SwarmDriver {
     /// The `tokio::select` macro is used to concurrently process swarm events
     /// and command receiver messages, ensuring efficient handling of multiple
     /// asynchronous tasks.
-    pub async fn run(mut self) {
+    pub async fn run(mut self, mut shutdown_rx: watch::Receiver<bool>) {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
@@ -867,6 +867,13 @@ impl SwarmDriver {
                         trace!("SwarmCmd handled in {:?}: {cmd_string:?}", start.elapsed());
                     },
                     None =>  continue,
+                },
+                // Check for a shutdown command.
+                result = shutdown_rx.changed() => {
+                    if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                        info!("Shutdown signal received or sender dropped. Exiting swarm driver loop.");
+                        break;
+                    }
                 },
                 // next take and react to external swarm events
                 swarm_event = self.swarm.select_next_some() => {

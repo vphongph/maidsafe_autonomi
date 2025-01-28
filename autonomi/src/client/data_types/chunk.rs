@@ -18,8 +18,8 @@ use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind}
 use ant_protocol::{
     messages::ChunkProof,
     storage::{
-        try_deserialize_record, try_serialize_record, ChunkAddress, DataTypes, RecordHeader,
-        RecordKind, RetryStrategy,
+        try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind,
+        RetryStrategy,
     },
     NetworkAddress,
 };
@@ -28,15 +28,14 @@ use libp2p::kad::{Quorum, Record};
 use rand::{thread_rng, Rng};
 use self_encryption::{decrypt_full_set, DataMap, EncryptedChunk};
 use serde::{Deserialize, Serialize};
-use xor_name::XorName;
-
-pub use ant_protocol::storage::Chunk;
 
 use crate::{
     client::{payment::Receipt, utils::process_tasks_with_max_concurrency, GetError, PutError},
     self_encryption::DataMapLevel,
     Client,
 };
+
+pub use ant_protocol::storage::{Chunk, ChunkAddress};
 
 /// Number of retries to upload chunks.
 pub(crate) const RETRY_ATTEMPTS: usize = 3;
@@ -75,9 +74,6 @@ pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
     batch_size
 });
 
-/// Raw Chunk Address (points to a [`Chunk`])
-pub type ChunkAddr = XorName;
-
 /// Private data on the network can be accessed with this
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DataMapChunk(pub(crate) Chunk);
@@ -113,10 +109,10 @@ fn hash_to_short_string(input: &str) -> String {
 
 impl Client {
     /// Get a chunk from the network.
-    pub async fn chunk_get(&self, addr: ChunkAddr) -> Result<Chunk, GetError> {
+    pub async fn chunk_get(&self, addr: ChunkAddress) -> Result<Chunk, GetError> {
         info!("Getting chunk: {addr:?}");
 
-        let key = NetworkAddress::from_chunk_address(ChunkAddress::new(addr)).to_record_key();
+        let key = NetworkAddress::from_chunk_address(addr).to_record_key();
         debug!("Fetching chunk from network at: {key:?}");
         let get_cfg = GetRecordCfg {
             get_quorum: Quorum::One,
@@ -208,7 +204,7 @@ impl Client {
         &self,
         chunk: &Chunk,
         payment: ProofOfPayment,
-    ) -> Result<(), PutError> {
+    ) -> Result<ChunkAddress, PutError> {
         let storing_nodes = payment.payees();
 
         if storing_nodes.is_empty() {
@@ -265,9 +261,9 @@ impl Client {
             use_put_record_to: Some(storing_nodes.clone()),
             verification,
         };
-        let payment_upload = Ok(self.network.put_record(record, &put_cfg).await?);
+        self.network.put_record(record, &put_cfg).await?;
         debug!("Successfully stored chunk: {chunk:?} to {storing_nodes:?}");
-        payment_upload
+        Ok(*chunk.address())
     }
 
     /// Unpack a wrapped data map and fetch all bytes using self-encryption.
@@ -307,16 +303,23 @@ impl Client {
         for info in data_map.infos() {
             download_tasks.push(async move {
                 match self
-                    .chunk_get(info.dst_hash)
+                    .chunk_get(ChunkAddress::new(info.dst_hash))
                     .await
-                    .inspect_err(|err| error!("Error fetching chunk {:?}: {err:?}", info.dst_hash))
-                {
+                    .inspect_err(|err| {
+                        error!(
+                            "Error fetching chunk {:?}: {err:?}",
+                            ChunkAddress::new(info.dst_hash)
+                        )
+                    }) {
                     Ok(chunk) => Ok(EncryptedChunk {
                         index: info.index,
                         content: chunk.value,
                     }),
                     Err(err) => {
-                        error!("Error fetching chunk {:?}: {err:?}", info.dst_hash);
+                        error!(
+                            "Error fetching chunk {:?}: {err:?}",
+                            ChunkAddress::new(info.dst_hash)
+                        );
                         Err(err)
                     }
                 }

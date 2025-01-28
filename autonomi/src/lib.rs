@@ -61,18 +61,21 @@ pub use client::data_types::graph;
 pub use client::data_types::pointer;
 pub use client::data_types::scratchpad;
 
-/// The high-level data types
+// The high-level data types
 pub use client::data;
 pub use client::files;
 pub use client::vault;
 
 // Re-exports of the evm types
 pub use ant_evm::utils::get_evm_network;
-pub use ant_evm::Amount;
 pub use ant_evm::EvmNetwork as Network;
 pub use ant_evm::EvmWallet as Wallet;
 pub use ant_evm::QuoteHash;
 pub use ant_evm::RewardsAddress;
+pub use ant_evm::{Amount, AttoTokens};
+
+// Re-exports of the bls types
+pub use bls::{PublicKey, SecretKey, Signature};
 
 #[doc(no_inline)] // Place this under 'Re-exports' in the docs.
 pub use bytes::Bytes;
@@ -81,9 +84,26 @@ pub use libp2p::Multiaddr;
 
 #[doc(inline)]
 pub use client::{
-    data_types::chunk::Chunk, data_types::graph::GraphEntry, data_types::pointer::Pointer,
-    data_types::scratchpad::Scratchpad, files::archive_private::PrivateArchive,
-    files::archive_public::PublicArchive, files::Metadata, Client, ClientConfig,
+    // Data types
+    data_types::chunk::Chunk,
+    // Addresses for the data types
+    data_types::chunk::ChunkAddress,
+    data_types::graph::GraphEntry,
+    data_types::graph::GraphEntryAddress,
+    data_types::pointer::Pointer,
+    data_types::pointer::PointerAddress,
+    data_types::scratchpad::Scratchpad,
+
+    data_types::scratchpad::ScratchpadAddress,
+
+    // Files
+    files::archive_private::PrivateArchive,
+    files::archive_public::PublicArchive,
+    files::Metadata,
+
+    // Client
+    Client,
+    ClientConfig,
 };
 
 #[cfg(feature = "extension-module")]

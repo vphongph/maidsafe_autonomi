@@ -25,7 +25,7 @@ otlp = ["ant-logging/otlp"]
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.4" }
 ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
 ant-evm = { path = "../ant-evm", version = "0.1.8" }
-ant-logging = { path = "../ant-logging", version = "0.2.45", features = [ "process-metrics" ] }
+ant-logging = { path = "../ant-logging", version = "0.2.45", features = ["process-metrics"] }
 ant-networking = { path = "../ant-networking", version = "0.3.3" }
 ant-protocol = { path = "../ant-protocol", version = "0.3.3" }
 ant-service-management = { path = "../ant-service-management", version = "0.4.7" }
@@ -72,7 +72,7 @@ tonic = { version = "0.6.2" }
 tracing = { version = "~0.1.26" }
 tracing-appender = "~0.2.0"
 tracing-opentelemetry = { version = "0.21", optional = true }
-tracing-subscriber = { version = "0.3.16" }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 walkdir = "~2.5.0"
 xor_name = "5.0.0"
 

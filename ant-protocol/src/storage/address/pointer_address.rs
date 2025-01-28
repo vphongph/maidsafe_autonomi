@@ -37,3 +37,17 @@ impl std::fmt::Debug for PointerAddress {
         write!(f, "PointerAddress({})", &self.to_hex()[0..6])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pointer_serialization() {
+        let key = bls::SecretKey::random();
+        let pointer_address = PointerAddress::from_owner(key.public_key());
+        let serialized = pointer_address.to_bytes();
+        let deserialized = PointerAddress::from_bytes(&serialized).unwrap();
+        assert_eq!(pointer_address, deserialized);
+    }
+}

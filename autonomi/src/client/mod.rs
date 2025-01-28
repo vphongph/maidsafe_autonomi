@@ -28,6 +28,7 @@ pub use high_level::files;
 pub use high_level::vault;
 
 pub mod address;
+pub mod key_derivation;
 pub mod payment;
 pub mod quote;
 
@@ -50,7 +51,7 @@ use libp2p::{identity::Keypair, Multiaddr};
 use payment::PayError;
 use quote::CostError;
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -80,6 +81,8 @@ pub struct Client {
     pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
     /// The EVM network to use for the client.
     pub evm_network: EvmNetwork,
+    // Shutdown signal for the `SwarmDriver` task
+    _shutdown_tx: watch::Sender<bool>,
 }
 
 /// Configuration for [`Client::init_with_config`].
@@ -216,7 +219,7 @@ impl Client {
     /// # }
     /// ```
     pub async fn init_with_config(config: ClientConfig) -> Result<Self, ConnectError> {
-        let (network, event_receiver) = build_client_and_run_swarm(config.local);
+        let (shutdown_tx, network, event_receiver) = build_client_and_run_swarm(config.local);
 
         let peers_args = PeersArgs {
             disable_mainnet_contacts: config.local,
@@ -250,6 +253,7 @@ impl Client {
             network,
             client_event_sender: Arc::new(None),
             evm_network: config.evm_network,
+            _shutdown_tx: shutdown_tx,
         })
     }
 
@@ -264,7 +268,9 @@ impl Client {
     }
 }
 
-fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEvent>) {
+fn build_client_and_run_swarm(
+    local: bool,
+) -> (watch::Sender<bool>, Network, mpsc::Receiver<NetworkEvent>) {
     let mut network_builder = NetworkBuilder::new(Keypair::generate_ed25519(), local);
 
     if let Ok(mut config) = BootstrapCacheConfig::default_config(local) {
@@ -280,10 +286,15 @@ fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEv
     // TODO: Think about handling the mDNS error here.
     let (network, event_receiver, swarm_driver) = network_builder.build_client();
 
-    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run());
+    // TODO: Implement graceful SwarmDriver shutdown for client.
+    // Create a shutdown signal channel
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run(shutdown_rx));
+
     debug!("Client swarm driver is running");
 
-    (network, event_receiver)
+    (shutdown_tx, network, event_receiver)
 }
 
 async fn handle_event_receiver(

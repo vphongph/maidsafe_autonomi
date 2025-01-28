@@ -408,7 +408,10 @@ fn create_graph_entry_task(
 
             let mut retries = 1;
             loop {
-                match client.graph_entry_put(graph_entry.clone(), &wallet).await {
+                match client
+                    .graph_entry_put(graph_entry.clone(), (&wallet).into())
+                    .await
+                {
                     Ok((cost, addr)) => {
                         println!("Uploaded graph_entry to {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
                         let net_addr = NetworkAddress::GraphEntryAddress(addr);

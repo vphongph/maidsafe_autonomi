@@ -9,6 +9,7 @@
 use crate::{error::Result, node::Node};
 use ant_evm::ProofOfPayment;
 use ant_networking::{GetRecordCfg, Network};
+use ant_protocol::storage::DataTypes;
 use ant_protocol::{
     messages::{Cmd, Query, QueryResponse, Request, Response},
     storage::ValidationType,
@@ -104,7 +105,8 @@ impl Node {
     pub(crate) fn replicate_valid_fresh_record(
         &self,
         paid_key: RecordKey,
-        record_type: ValidationType,
+        data_type: DataTypes,
+        validation_type: ValidationType,
         payment: Option<ProofOfPayment>,
     ) {
         let network = self.network().clone();
@@ -159,7 +161,7 @@ impl Node {
 
             let our_peer_id = network.peer_id();
             let our_address = NetworkAddress::from_peer(our_peer_id);
-            let keys = vec![(data_addr, record_type.clone(), payment)];
+            let keys = vec![(data_addr, data_type, validation_type.clone(), payment)];
 
             for peer_id in replicate_candidates {
                 debug!("Replicating fresh record {pretty_key:?} to {peer_id:?}");
@@ -181,16 +183,21 @@ impl Node {
     pub(crate) fn fresh_replicate_to_fetch(
         &self,
         holder: NetworkAddress,
-        keys: Vec<(NetworkAddress, ValidationType, Option<ProofOfPayment>)>,
+        keys: Vec<(
+            NetworkAddress,
+            DataTypes,
+            ValidationType,
+            Option<ProofOfPayment>,
+        )>,
     ) {
         let node = self.clone();
         let _handle = spawn(async move {
             let mut new_keys = vec![];
-            for (addr, val_type, payment) in keys {
+            for (addr, data_type, val_type, payment) in keys {
                 if let Some(payment) = payment {
                     // Payment must be valid
                     match node
-                        .payment_for_us_exists_and_is_still_valid(&addr, payment)
+                        .payment_for_us_exists_and_is_still_valid(&addr, data_type, payment)
                         .await
                     {
                         Ok(_) => {}

@@ -14,11 +14,12 @@ use crate::common::{
 };
 use ant_logging::LogBuilder;
 use ant_protocol::{
-    storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget},
+    storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget, ScratchpadAddress},
     NetworkAddress,
 };
 use autonomi::{Client, Wallet};
 use bls::{PublicKey, SecretKey};
+use bytes::Bytes;
 use common::client::transfer_to_new_wallet;
 use eyre::{bail, ErrReport, Result};
 use rand::Rng;
@@ -40,8 +41,9 @@ const TOKENS_TO_TRANSFER: usize = 10000000;
 
 const EXTRA_CHURN_COUNT: u32 = 5;
 const CHURN_CYCLES: u32 = 2;
-const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 17;
+const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 13;
 const POINTER_CREATION_RATIO_TO_CHURN: u32 = 11;
+const SCRATCHPAD_CREATION_RATIO_TO_CHURN: u32 = 9;
 const GRAPHENTRY_CREATION_RATIO_TO_CHURN: u32 = 7;
 
 static DATA_SIZE: LazyLock<usize> = LazyLock::new(|| *MAX_CHUNK_SIZE / 3);
@@ -168,6 +170,21 @@ async fn data_availability_during_churn() -> Result<()> {
         None
     };
 
+    // Spawn a task to create ScratchPad at random locations,
+    // at a higher frequency than the churning events
+    let create_scratchpad_handle = if !chunks_only {
+        let scratchpad_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
+        let create_scratchpad_handle = create_scratchpad_task(
+            client.clone(),
+            scratchpad_wallet,
+            Arc::clone(&content),
+            churn_period,
+        );
+        Some(create_scratchpad_handle)
+    } else {
+        None
+    };
+
     // Spawn a task to churn nodes
     churn_nodes_task(Arc::clone(&churn_count), test_duration, churn_period);
 
@@ -206,12 +223,17 @@ async fn data_availability_during_churn() -> Result<()> {
         }
         if let Some(handle) = &create_pointer_handle {
             if handle.is_finished() {
-                bail!("Create pointers task has finished before the test duration. Probably due to an error.");
+                bail!("Create Pointers task has finished before the test duration. Probably due to an error.");
             }
         }
         if let Some(handle) = &create_graph_entry_handle {
             if handle.is_finished() {
                 bail!("Create GraphEntry task has finished before the test duration. Probably due to an error.");
+            }
+        }
+        if let Some(handle) = &create_scratchpad_handle {
+            if handle.is_finished() {
+                bail!("Create ScratchPad task has finished before the test duration. Probably due to an error.");
             }
         }
 
@@ -287,6 +309,98 @@ async fn data_availability_during_churn() -> Result<()> {
 
     println!("Test passed after running for {:?}.", start_time.elapsed());
     Ok(())
+}
+
+// Spawns a task which periodically creates ScratchPads at random locations.
+fn create_scratchpad_task(
+    client: Client,
+    wallet: Wallet,
+    content: ContentList,
+    churn_period: Duration,
+) -> JoinHandle<Result<()>> {
+    let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+        // Map of the ownership, allowing the later on update can be undertaken.
+        let mut owners: HashMap<ScratchpadAddress, SecretKey> = HashMap::new();
+
+        // Create ScratchPad at a higher frequency than the churning events
+        let delay = churn_period / SCRATCHPAD_CREATION_RATIO_TO_CHURN;
+
+        loop {
+            sleep(delay).await;
+
+            // 50% chance to carry out update instead of creation.
+            let is_update: bool = if owners.is_empty() {
+                false
+            } else {
+                rand::random()
+            };
+
+            let content_type: u64 = rand::random();
+            let data_byte: u8 = rand::random();
+            let mut data = vec![data_byte; 100];
+            rand::thread_rng().fill(&mut data[..]);
+            let bytes = Bytes::from(data);
+
+            let mut retries = 1;
+            if is_update {
+                let index = rand::thread_rng().gen_range(0..owners.len());
+                let iterator: Vec<_> = owners.iter().collect();
+                let (addr, owner) = iterator[index];
+
+                loop {
+                    match client.scratchpad_update(owner, content_type, &bytes).await {
+                        Ok(_) => {
+                            println!("Updated ScratchPad at {addr:?} after a delay of: {delay:?}");
+                            break;
+                        }
+                        Err(err) => {
+                            println!("Failed to update ScratchPad at {addr:?}. Retrying ...");
+                            error!("Failed to update ScratchPad at {addr:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                                error!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                                bail!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            } else {
+                let owner = SecretKey::random();
+                loop {
+                    match client
+                        .scratchpad_create(&owner, content_type, &bytes, (&wallet).into())
+                        .await
+                    {
+                        Ok((cost, addr)) => {
+                            println!("Created new ScratchPad at {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
+                            let net_addr = NetworkAddress::ScratchpadAddress(addr);
+                            content.write().await.push_back(net_addr);
+                            let _ = owners.insert(addr, owner);
+                            break;
+                        }
+                        Err(err) => {
+                            println!("Failed to create ScratchPad: {err:?}. Retrying ...");
+                            error!("Failed to create ScratchPad: {err:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!("Failed to create ScratchPad after 3 retries: {err}");
+                                error!("Failed to create ScratchPad after 3 retries: {err}");
+                                bail!("Failed to create ScratchPad after 3 retries: {err}");
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    handle
 }
 
 // Spawns a task which periodically creates GraphEntry at random locations.
@@ -774,6 +888,11 @@ async fn query_content(client: &Client, net_addr: &NetworkAddress) -> Result<()>
             let _ = client.graph_entry_get(*addr).await?;
             Ok(())
         }
-        _other => Ok(()), // we don't create/store any other type of content in this test yet
+        NetworkAddress::ScratchpadAddress(addr) => {
+            let _ = client.scratchpad_get(addr).await?;
+            Ok(())
+        }
+        // Drain the enum to ensure all native supported data_types are covered
+        NetworkAddress::PeerId(_) | NetworkAddress::RecordKey(_) => Ok(()),
     }
 }

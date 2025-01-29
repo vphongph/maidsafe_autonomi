@@ -15,9 +15,11 @@ use autonomi::{
     Client,
 };
 use eyre::Result;
+use serial_test::serial;
 use test_utils::evm::get_funded_wallet;
 
 #[tokio::test]
+#[serial]
 async fn scratchpad_put_manual() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("scratchpad", false);
 
@@ -79,6 +81,7 @@ async fn scratchpad_put_manual() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial]
 async fn scratchpad_put() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("scratchpad", false);
 
@@ -142,6 +145,7 @@ async fn scratchpad_put() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial]
 async fn scratchpad_errors() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("scratchpad", false);
 

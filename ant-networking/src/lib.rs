@@ -442,6 +442,7 @@ impl Network {
                     // Check if the returned data type matches the request
                     if quote.quoting_metrics.data_type != data_type {
                         warn!("Received invalid quote from {peer_address:?}, {quote:?}. Data type did not match the request.");
+                        continue;
                     }
 
                     all_quotes.push((peer_address.clone(), quote.clone()));

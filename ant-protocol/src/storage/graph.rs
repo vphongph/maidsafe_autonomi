@@ -28,6 +28,9 @@ pub struct GraphEntry {
 }
 
 impl GraphEntry {
+    /// Maximum size of a graph entry
+    pub const MAX_SIZE: usize = 1024;
+
     /// Create a new graph entry, signing it with the provided secret key.
     pub fn new(
         owner: PublicKey,
@@ -101,8 +104,29 @@ impl GraphEntry {
         Self::bytes_to_sign(&self.owner, &self.parents, &self.content, &self.outputs)
     }
 
+    /// Verify the signature of the graph entry
     pub fn verify(&self) -> bool {
         self.owner
             .verify(&self.signature, self.bytes_for_signature())
+    }
+
+    /// Size of the graph entry
+    pub fn size(&self) -> usize {
+        size_of::<GraphEntry>()
+            + self
+                .outputs
+                .iter()
+                .map(|(p, c)| p.to_bytes().len() + c.len())
+                .sum::<usize>()
+            + self
+                .parents
+                .iter()
+                .map(|p| p.to_bytes().len())
+                .sum::<usize>()
+    }
+
+    /// Returns true if the graph entry is too big
+    pub fn is_too_big(&self) -> bool {
+        self.size() > Self::MAX_SIZE
     }
 }

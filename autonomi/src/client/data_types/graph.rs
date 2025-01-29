@@ -7,12 +7,13 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::client::payment::PayError;
+use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::Client;
 use crate::client::ClientEvent;
 use crate::client::UploadSummary;
 
-use ant_evm::{Amount, AttoTokens, EvmWallet, EvmWalletError};
+use ant_evm::{Amount, AttoTokens, EvmWalletError};
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy},
@@ -64,7 +65,7 @@ impl Client {
     pub async fn graph_entry_put(
         &self,
         entry: GraphEntry,
-        wallet: &EvmWallet,
+        payment_option: PaymentOption,
     ) -> Result<(AttoTokens, GraphEntryAddress), GraphError> {
         let address = entry.address();
 
@@ -72,10 +73,10 @@ impl Client {
         let xor_name = address.xorname();
         debug!("Paying for graph entry at address: {address:?}");
         let (payment_proofs, skipped_payments) = self
-            .pay(
-                DataTypes::GraphEntry.get_index(),
-                std::iter::once((*xor_name, entry.bytes_for_signature().len())),
-                wallet,
+            .pay_for_content_addrs(
+                DataTypes::GraphEntry,
+                std::iter::once((*xor_name, entry.size())),
+                payment_option,
             )
             .await
             .inspect_err(|err| {
@@ -148,11 +149,10 @@ impl Client {
         trace!("Getting cost for GraphEntry of {key:?}");
         let address = GraphEntryAddress::from_owner(key);
         let xor = *address.xorname();
-        // TODO: define default size of GraphEntry
         let store_quote = self
             .get_store_quotes(
-                DataTypes::GraphEntry.get_index(),
-                std::iter::once((xor, 512)),
+                DataTypes::GraphEntry,
+                std::iter::once((xor, GraphEntry::MAX_SIZE)),
             )
             .await?;
         let total_cost = AttoTokens::from_atto(

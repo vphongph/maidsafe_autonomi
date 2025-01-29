@@ -27,6 +27,8 @@ pub enum PointerError {
     SerializationError(String),
 }
 
+/// Pointer, a mutable address pointing to other data on the Network
+/// It is stored at the owner's public key and can only be updated by the owner
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Pointer {
     owner: PublicKey,
@@ -129,6 +131,11 @@ impl Pointer {
     pub fn verify(&self) -> bool {
         let bytes = self.bytes_for_signature();
         self.owner.verify(&self.signature, &bytes)
+    }
+
+    /// Size of the pointer
+    pub fn size() -> usize {
+        size_of::<Pointer>()
     }
 }
 

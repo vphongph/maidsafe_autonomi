@@ -8,7 +8,10 @@
 
 use ant_logging::LogBuilder;
 use autonomi::{
-    client::graph::{GraphEntry, GraphError},
+    client::{
+        graph::{GraphEntry, GraphError},
+        payment::PaymentOption,
+    },
     Client,
 };
 use eyre::Result;
@@ -30,7 +33,10 @@ async fn graph_entry_put() -> Result<()> {
     println!("graph_entry cost: {cost}");
 
     // put the graph_entry
-    client.graph_entry_put(graph_entry.clone(), &wallet).await?;
+    let payment_option = PaymentOption::from(&wallet);
+    client
+        .graph_entry_put(graph_entry.clone(), payment_option)
+        .await?;
     println!("graph_entry put 1");
 
     // wait for the graph_entry to be replicated
@@ -44,7 +50,10 @@ async fn graph_entry_put() -> Result<()> {
     // try put another graph_entry with the same address
     let content2 = [1u8; 32];
     let graph_entry2 = GraphEntry::new(key.public_key(), vec![], content2, vec![], &key);
-    let res = client.graph_entry_put(graph_entry2.clone(), &wallet).await;
+    let payment_option = PaymentOption::from(&wallet);
+    let res = client
+        .graph_entry_put(graph_entry2.clone(), payment_option)
+        .await;
 
     assert!(matches!(
         res,

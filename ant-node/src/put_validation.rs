@@ -447,7 +447,7 @@ impl Node {
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
         let addr = scratchpad.address();
-        let count = scratchpad.count();
+        let count = scratchpad.counter();
         debug!("Validating and storing scratchpad {addr:?} with count {count}");
 
         // check if the deserialized value's ScratchpadAddress matches the record's key
@@ -460,16 +460,22 @@ impl Node {
         // check if the Scratchpad is present locally that we don't have a newer version
         if let Some(local_pad) = self.network().get_local_record(&scratchpad_key).await? {
             let local_pad = try_deserialize_record::<Scratchpad>(&local_pad)?;
-            if local_pad.count() >= scratchpad.count() {
+            if local_pad.counter() >= scratchpad.counter() {
                 warn!("Rejecting Scratchpad PUT with counter less than or equal to the current counter");
                 return Err(Error::IgnoringOutdatedScratchpadPut);
             }
         }
 
         // ensure data integrity
-        if !scratchpad.is_valid() {
+        if !scratchpad.verify() {
             warn!("Rejecting Scratchpad PUT with invalid signature");
             return Err(Error::InvalidScratchpadSignature);
+        }
+
+        // ensure the scratchpad is not too big
+        if scratchpad.is_too_big() {
+            warn!("Rejecting Scratchpad PUT with too big size");
+            return Err(Error::ScratchpadTooBig(scratchpad.size()));
         }
 
         info!(

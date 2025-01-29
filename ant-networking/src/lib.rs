@@ -639,7 +639,7 @@ impl Network {
                             continue;
                         };
 
-                        if !scratchpad.is_valid() {
+                        if !scratchpad.verify() {
                             warn!(
                                 "Rejecting Scratchpad for {pretty_key} PUT with invalid signature"
                             );
@@ -647,7 +647,7 @@ impl Network {
                         }
 
                         if let Some(old) = &valid_scratchpad {
-                            if old.count() >= scratchpad.count() {
+                            if old.counter() >= scratchpad.counter() {
                                 info!("Rejecting Scratchpad for {pretty_key} with lower count than the previous one");
                                 continue;
                             }

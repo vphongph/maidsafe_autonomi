@@ -20,6 +20,7 @@ use libp2p::{
 };
 
 use ant_evm::{PaymentQuote, ProofOfPayment};
+use ant_protocol::storage::DataTypes;
 #[cfg(feature = "open-metrics")]
 use ant_protocol::CLOSE_GROUP_SIZE;
 use ant_protocol::{
@@ -137,7 +138,12 @@ pub enum NetworkEvent {
     /// Fresh replicate to fetch
     FreshReplicateToFetch {
         holder: NetworkAddress,
-        keys: Vec<(NetworkAddress, ValidationType, Option<ProofOfPayment>)>,
+        keys: Vec<(
+            NetworkAddress,
+            DataTypes,
+            ValidationType,
+            Option<ProofOfPayment>,
+        )>,
     },
 }
 

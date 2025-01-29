@@ -110,6 +110,17 @@ impl ProofOfPayment {
         }
         true
     }
+
+    /// Verifies whether all quotes were made for the expected data type.
+    pub fn verify_data_type(&self, data_type: u32) -> bool {
+        for (_, quote) in self.peer_quotes.iter() {
+            if quote.quoting_metrics.data_type != data_type {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// A payment quote to store data given by a node to a client

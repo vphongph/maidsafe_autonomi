@@ -41,6 +41,7 @@ impl Node {
                 let payment_res = self
                     .payment_for_us_exists_and_is_still_valid(
                         &chunk.network_address(),
+                        DataTypes::Chunk,
                         payment.clone(),
                     )
                     .await;
@@ -53,6 +54,7 @@ impl Node {
                     // did not manage to get this chunk as yet
                     self.replicate_valid_fresh_record(
                         record_key,
+                        DataTypes::Chunk,
                         ValidationType::Chunk,
                         Some(payment),
                     );
@@ -83,6 +85,7 @@ impl Node {
                         .log();
                     self.replicate_valid_fresh_record(
                         record_key,
+                        DataTypes::Chunk,
                         ValidationType::Chunk,
                         Some(payment),
                     );
@@ -116,6 +119,7 @@ impl Node {
                 let payment_res = self
                     .payment_for_us_exists_and_is_still_valid(
                         &scratchpad.network_address(),
+                        DataTypes::Scratchpad,
                         payment.clone(),
                     )
                     .await;
@@ -206,7 +210,11 @@ impl Node {
                 // However, if the GraphEntry is already present, the incoming one shall be
                 // appended with the existing one, if content is different.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment.clone())
+                    .payment_for_us_exists_and_is_still_valid(
+                        &net_addr,
+                        DataTypes::GraphEntry,
+                        payment.clone(),
+                    )
                     .await
                 {
                     if already_exists {
@@ -226,6 +234,7 @@ impl Node {
                         .log();
                     self.replicate_valid_fresh_record(
                         record.key.clone(),
+                        DataTypes::GraphEntry,
                         ValidationType::NonChunk(content_hash),
                         Some(payment),
                     );
@@ -283,7 +292,11 @@ impl Node {
                 // The pointer may already exist during the replication.
                 // The payment shall get deposit to self even if the pointer already exists.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment.clone())
+                    .payment_for_us_exists_and_is_still_valid(
+                        &net_addr,
+                        DataTypes::Pointer,
+                        payment.clone(),
+                    )
                     .await
                 {
                     if already_exists {
@@ -502,6 +515,7 @@ impl Node {
             // but must have an existing copy to update.
             self.replicate_valid_fresh_record(
                 scratchpad_key,
+                DataTypes::Scratchpad,
                 ValidationType::NonChunk(content_hash),
                 payment,
             );
@@ -600,6 +614,7 @@ impl Node {
     pub(crate) async fn payment_for_us_exists_and_is_still_valid(
         &self,
         address: &NetworkAddress,
+        data_type: DataTypes,
         payment: ProofOfPayment,
     ) -> Result<()> {
         let key = address.to_record_key();
@@ -621,6 +636,14 @@ impl Node {
             warn!("Payment quote has expired for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(
                 "Payment quote has expired for record {pretty_key}"
+            )));
+        }
+
+        // verify data type matches
+        if !payment.verify_data_type(data_type.get_index()) {
+            warn!("Payment quote has wrong data type for record {pretty_key}");
+            return Err(Error::InvalidRequest(format!(
+                "Payment quote has wrong data type for record {pretty_key}"
             )));
         }
 
@@ -800,6 +823,7 @@ impl Node {
             let content_hash = XorName::from_content(&record.value);
             self.replicate_valid_fresh_record(
                 key.clone(),
+                DataTypes::Pointer,
                 ValidationType::NonChunk(content_hash),
                 payment,
             );

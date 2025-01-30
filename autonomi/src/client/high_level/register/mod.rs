@@ -111,8 +111,7 @@ impl Client {
         &self,
         owner: &SecretKey,
         initial_value: RegisterValue,
-        graph_payment_option: PaymentOption,
-        pointer_payment_option: PaymentOption,
+        payment_option: PaymentOption,
     ) -> Result<(AttoTokens, RegisterAddress), RegisterError> {
         let main_key = MainSecretKey::new(owner.clone());
         let public_key = main_key.public_key();
@@ -131,14 +130,14 @@ impl Client {
 
         // put the first entry in the graph
         let (graph_cost, addr) = self
-            .graph_entry_put(root_entry, graph_payment_option)
+            .graph_entry_put(root_entry, payment_option.clone())
             .await?;
 
         // create a Pointer to the last entry
         let target = PointerTarget::GraphEntryAddress(addr);
         let pointer_key = self.register_head_pointer_sk(&main_key.into());
         let (pointer_cost, _pointer_addr) = self
-            .pointer_create(&pointer_key, target, pointer_payment_option)
+            .pointer_create(&pointer_key, target, payment_option.clone())
             .await?;
 
         let total_cost = graph_cost

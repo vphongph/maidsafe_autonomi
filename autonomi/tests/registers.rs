@@ -32,12 +32,7 @@ async fn registers_usage() -> Result<()> {
 
     // create the register
     let (cost, addr) = client
-        .register_create(
-            &register_key,
-            content,
-            PaymentOption::from(&wallet),
-            PaymentOption::from(&wallet),
-        )
+        .register_create(&register_key, content, PaymentOption::from(&wallet))
         .await?;
     println!("register created: {cost} {addr:?}");
     assert_eq!(addr, RegisterAddress::new(register_key.public_key()));
@@ -91,12 +86,7 @@ async fn registers_errors() -> Result<()> {
 
     // create the register
     let (cost, addr) = client
-        .register_create(
-            &register_key,
-            content,
-            PaymentOption::from(&wallet),
-            PaymentOption::from(&wallet),
-        )
+        .register_create(&register_key, content, PaymentOption::from(&wallet))
         .await?;
     println!("register created: {cost} {addr:?}");
     assert_eq!(addr, RegisterAddress::new(register_key.public_key()));
@@ -106,12 +96,7 @@ async fn registers_errors() -> Result<()> {
 
     // try to create the register again
     let res = client
-        .register_create(
-            &register_key,
-            content,
-            PaymentOption::from(&wallet),
-            PaymentOption::from(&wallet),
-        )
+        .register_create(&register_key, content, PaymentOption::from(&wallet))
         .await;
     println!("register create second time should fail: {res:?}");
     assert!(matches!(
@@ -131,12 +116,7 @@ async fn test_register_history() -> Result<()> {
     let register_key = Client::register_key_from_name(&main_key, "history_test");
     let content1 = Client::register_value_from_bytes(b"Massive")?;
     let (_cost, addr) = client
-        .register_create(
-            &register_key,
-            content1,
-            PaymentOption::from(&wallet),
-            PaymentOption::from(&wallet),
-        )
+        .register_create(&register_key, content1, PaymentOption::from(&wallet))
         .await?;
 
     // let the network replicate the register

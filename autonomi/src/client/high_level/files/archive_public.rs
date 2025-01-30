@@ -254,7 +254,7 @@ mod test {
             modified: u64,
             size: u64,
             extra: Option<String>,
-            accessed: Option<u64>,
+            accessed: Option<u64>, // Added field
         }
         #[derive(Debug, Default, Serialize, Deserialize)]
         pub struct PublicArchiveV1p1 {

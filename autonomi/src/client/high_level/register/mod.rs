@@ -320,4 +320,34 @@ mod tests {
         let same_name = super::Client::register_key_from_name(&main_key, "register1");
         assert_eq!(same_name.public_key(), register_key.public_key());
     }
+
+    #[tokio::test]
+    async fn test_register_value_from_bytes() {
+        let value = super::Client::register_value_from_bytes(&[1, 2, 3]).unwrap();
+        assert_eq!(
+            value,
+            [
+                1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0
+            ]
+        );
+        let value = super::Client::register_value_from_bytes(&[
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
+        ])
+        .unwrap();
+        assert_eq!(
+            value,
+            [
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32
+            ]
+        );
+        let err = super::Client::register_value_from_bytes(&[
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32, 33,
+        ])
+        .unwrap_err();
+        assert!(matches!(err, super::RegisterError::InvalidRegisterValueLength(v) if v == 33));
+    }
 }

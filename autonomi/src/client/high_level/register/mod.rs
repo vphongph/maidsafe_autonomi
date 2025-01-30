@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::client::data_types::graph::{GraphContent, GraphEntry, GraphError};
+use crate::client::data_types::graph::{GraphContent, GraphEntry, GraphEntryAddress, GraphError};
 use crate::client::data_types::pointer::{PointerAddress, PointerError, PointerTarget};
 use crate::client::key_derivation::{DerivationIndex, MainPubkey, MainSecretKey};
 use crate::client::payment::PaymentOption;
@@ -18,6 +18,10 @@ use ant_networking::{GetRecordError, NetworkError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xor_name::XorName;
+
+mod history;
+
+pub use history::RegisterHistory;
 
 /// A Register is addressed at a [`RegisterAddress`] which is in fact the owner's [`PublicKey`].
 /// There can only be one register stored at [`PublicKey`].
@@ -41,10 +45,18 @@ impl RegisterAddress {
     pub fn owner(&self) -> PublicKey {
         self.owner
     }
+
+    /// To underlying graph representation
+    pub fn to_underlying_graph_root(&self) -> GraphEntryAddress {
+        GraphEntryAddress::from_owner(self.owner)
+    }
 }
 
 /// The value of a register: a 32 bytes array (same as [`GraphContent`])
 pub type RegisterValue = GraphContent;
+
+/// The size of a register value: 32 bytes
+pub const REGISTER_VALUE_SIZE: usize = size_of::<RegisterValue>();
 
 #[derive(Error, Debug)]
 pub enum RegisterError {
@@ -62,6 +74,10 @@ pub enum RegisterError {
     Corrupt(String),
     #[error("Register cannot be updated as it does not exist, please create it first or wait for it to be created")]
     CannotUpdateNewRegister,
+    #[error(
+        "Invalid register value length: {0}, expected something within {REGISTER_VALUE_SIZE} bytes"
+    )]
+    InvalidRegisterValueLength(usize),
 }
 
 /// Hard coded derivation index for the register head pointer
@@ -79,7 +95,18 @@ impl Client {
         main_key.derive_key(&derivation_index).into()
     }
 
-    /// Create a new register
+    /// Create a new [`RegisterValue`] from bytes, make sure the bytes are not longer than [`REGISTER_VALUE_SIZE`]
+    pub fn register_value_from_bytes(bytes: &[u8]) -> Result<RegisterValue, RegisterError> {
+        if bytes.len() > REGISTER_VALUE_SIZE {
+            return Err(RegisterError::InvalidRegisterValueLength(bytes.len()));
+        }
+        let mut content: RegisterValue = [0; REGISTER_VALUE_SIZE];
+        content[..bytes.len()].copy_from_slice(bytes);
+        Ok(content)
+    }
+
+    /// Create a new register with an initial value
+    /// Note that two payments are required, one for the underlying [`GraphEntry`] and one for the [`crate::Pointer`]
     pub async fn register_create(
         &self,
         owner: &SecretKey,
@@ -152,40 +179,13 @@ impl Client {
 
         // get the next derivation index from the current head entry
         debug!("Getting register head graph entry at {graph_entry_addr:?}");
-        let parent_entry = match self.graph_entry_get(*graph_entry_addr).await {
-            Ok(e) => e,
-            Err(GraphError::Fork(entries)) => {
-                warn!("Forked register, multiple entries found: {entries:?}, choosing the one with the smallest derivation index for the next entry");
-                let (entry_by_smallest_derivation, _) = entries
-                    .into_iter()
-                    .filter_map(|e| {
-                        e.descendants
-                            .iter()
-                            .map(|d| d.1)
-                            .min()
-                            .map(|derivation| (e, derivation))
-                    })
-                    .min_by(|a, b| a.1.cmp(&b.1))
-                    .ok_or(RegisterError::Corrupt(format!(
-                        "No descendants found for FORKED entry at {graph_entry_addr:?}"
-                    )))?;
-                entry_by_smallest_derivation
-            }
-            Err(err) => return Err(err.into()),
-        };
-        let new_derivation =
-            parent_entry
-                .descendants
-                .iter()
-                .map(|d| d.1)
-                .min()
-                .ok_or(RegisterError::Corrupt(format!(
-                    "No descendants found for entry at {graph_entry_addr:?}"
-                )))?;
+        let (parent_entry, new_derivation) = self
+            .register_get_graph_entry_and_next_derivation_index(graph_entry_addr)
+            .await?;
 
         // create a new entry with the new value
         let main_key = MainSecretKey::new(owner.clone());
-        let new_key = main_key.derive_key(&DerivationIndex::from_bytes(new_derivation));
+        let new_key = main_key.derive_key(&new_derivation);
         let parents = vec![parent_entry.owner];
         let next_derivation = DerivationIndex::random(&mut rand::thread_rng());
         let next_pk = main_key.public_key().derive_key(&next_derivation);
@@ -267,6 +267,47 @@ impl Client {
         let pointer_pk =
             pk.derive_key(&DerivationIndex::from_bytes(REGISTER_HEAD_DERIVATION_INDEX));
         pointer_pk.into()
+    }
+
+    /// Get underlying register graph entry and next derivation index
+    /// In normal circumstances, there is only one entry with one descendant, yielding ONE entry and ONE derivation index
+    /// In the case of a fork or a corrupt register, the smallest derivation index among all the entries descendants is chosen
+    /// We chose here to deal with the errors instead of erroring out to allow users to solve Fork and Corrupt issues by updating the register
+    async fn register_get_graph_entry_and_next_derivation_index(
+        &self,
+        graph_entry_addr: &GraphEntryAddress,
+    ) -> Result<(GraphEntry, DerivationIndex), RegisterError> {
+        let entry = match self.graph_entry_get(*graph_entry_addr).await {
+            Ok(e) => e,
+            Err(GraphError::Fork(entries)) => {
+                warn!("Forked register, multiple entries found: {entries:?}, choosing the one with the smallest derivation index for the next entry");
+                let (entry_by_smallest_derivation, _) = entries
+                    .into_iter()
+                    .filter_map(|e| {
+                        e.descendants
+                            .iter()
+                            .map(|d| d.1)
+                            .min()
+                            .map(|derivation| (e, derivation))
+                    })
+                    .min_by(|a, b| a.1.cmp(&b.1))
+                    .ok_or(RegisterError::Corrupt(format!(
+                        "No descendants found for FORKED entry at {graph_entry_addr:?}"
+                    )))?;
+                entry_by_smallest_derivation
+            }
+            Err(err) => return Err(err.into()),
+        };
+        let new_derivation =
+            entry
+                .descendants
+                .iter()
+                .map(|d| d.1)
+                .min()
+                .ok_or(RegisterError::Corrupt(format!(
+                    "No descendants found for entry at {graph_entry_addr:?}"
+                )))?;
+        Ok((entry, DerivationIndex::from_bytes(new_derivation)))
     }
 }
 

@@ -242,4 +242,44 @@ mod test {
         let _: FuturePublicArchiveVersioned = // Into 'new' wrapper
             rmp_serde::from_slice(&versioned_arch_serialized[..]).unwrap();
     }
+
+    #[test]
+    fn forward_compatibility() {
+        // What we do here is we create a new `Metadata` and use that in the `Archive` structs.
+
+        /// A version `1.1` which is non-breaking (`1.0` is forward compatible with `1.1`).
+        #[derive(Debug, Default, Serialize, Deserialize)]
+        pub struct MetadataV1p1 {
+            created: u64,
+            modified: u64,
+            size: u64,
+            extra: Option<String>,
+            accessed: Option<u64>,
+        }
+        #[derive(Debug, Default, Serialize, Deserialize)]
+        pub struct PublicArchiveV1p1 {
+            map: BTreeMap<PathBuf, (DataAddr, MetadataV1p1)>,
+        }
+        #[derive(Debug, Serialize, Deserialize)]
+        pub enum PublicArchiveVersionedV1p1 {
+            V0(PublicArchiveV1p1),
+        }
+
+        let mut arch_p1 = PublicArchiveV1p1::default();
+        arch_p1.map.insert(
+            PathBuf::from_str("hello_world").unwrap(),
+            (
+                DataAddr::random(&mut rand::thread_rng()),
+                MetadataV1p1 {
+                    accessed: Some(1),
+                    ..Default::default()
+                },
+            ),
+        );
+        let arch_p1_ser =
+            rmp_serde::to_vec_named(&PublicArchiveVersionedV1p1::V0(arch_p1)).unwrap();
+
+        // Our old data structure should be forward compatible with the new one.
+        assert!(PublicArchive::from_bytes(Bytes::from(arch_p1_ser)).is_ok());
+    }
 }

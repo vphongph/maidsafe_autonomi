@@ -157,14 +157,3 @@ impl Client {
         result
     }
 }
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn backwards_compatibility() {
-        let archive = super::PrivateArchive::new();
-        let bytes = archive.to_bytes().unwrap();
-        let archive2 = super::PrivateArchive::from_bytes(bytes).unwrap();
-        assert_eq!(archive, archive2);
-    }
-}

@@ -27,7 +27,7 @@ use crate::{
     Client,
 };
 
-use super::{Metadata, MetadataVersioned};
+use super::Metadata;
 
 /// The address of a public archive on the network. Points to an [`PublicArchive`].
 pub type ArchiveAddr = XorName;
@@ -36,7 +36,7 @@ pub type ArchiveAddr = XorName;
 /// to the network, of which the addresses are stored in this archive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PublicArchive {
-    map: BTreeMap<PathBuf, (DataAddr, MetadataVersioned)>,
+    map: BTreeMap<PathBuf, (DataAddr, Metadata)>,
 }
 
 /// This type essentially wraps archive in version marker. E.g. in JSON format:
@@ -76,8 +76,7 @@ impl PublicArchive {
     /// Add a file to a local archive
     /// Note that this does not upload the archive to the network
     pub fn add_file(&mut self, path: PathBuf, data_addr: DataAddr, meta: Metadata) {
-        self.map
-            .insert(path.clone(), (data_addr, MetadataVersioned::V0(meta)));
+        self.map.insert(path.clone(), (data_addr, meta));
         debug!("Added a new file to the archive, path: {:?}", path);
     }
 
@@ -85,7 +84,7 @@ impl PublicArchive {
     pub fn files(&self) -> Vec<(PathBuf, Metadata)> {
         self.map
             .iter()
-            .map(|(path, (_, meta))| (path.clone(), meta.clone().into()))
+            .map(|(path, (_, meta))| (path.clone(), meta.clone()))
             .collect()
     }
 
@@ -97,19 +96,13 @@ impl PublicArchive {
     /// Iterate over the archive items
     /// Returns an iterator over (PathBuf, DataAddr, Metadata)
     pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &DataAddr, &Metadata)> {
-        self.map.iter().map(|(path, (addr, meta))| {
-            (
-                path,
-                addr,
-                match meta {
-                    MetadataVersioned::V0(meta) => meta,
-                },
-            )
-        })
+        self.map
+            .iter()
+            .map(|(path, (addr, meta))| (path, addr, meta))
     }
 
     /// Get the underlying map
-    pub fn map(&self) -> &BTreeMap<PathBuf, (DataAddr, MetadataVersioned)> {
+    pub fn map(&self) -> &BTreeMap<PathBuf, (DataAddr, Metadata)> {
         &self.map
     }
 
@@ -125,7 +118,7 @@ impl PublicArchive {
     /// Serialize to bytes.
     pub fn to_bytes(&self) -> Result<Bytes, rmp_serde::encode::Error> {
         let versioned = PublicArchiveVersioned::V0(self.clone());
-        let root_serialized = rmp_serde::to_vec(&versioned)?;
+        let root_serialized = rmp_serde::to_vec_named(&versioned)?;
         let root_serialized = Bytes::from(root_serialized);
 
         Ok(root_serialized)
@@ -229,7 +222,7 @@ mod test {
 
         // Create archive, forward compatible (still the same V0 version).
         let future_arch = FuturePublicArchiveVersioned::V0(arch.clone());
-        let future_arch_serialized = rmp_serde::to_vec(&future_arch).unwrap();
+        let future_arch_serialized = rmp_serde::to_vec_named(&future_arch).unwrap();
 
         // Let's see if we can deserialize a (forward compatible) archive arriving to us from the future
         let _ = PublicArchive::from_bytes(Bytes::from(future_arch_serialized)).unwrap();
@@ -239,13 +232,13 @@ mod test {
 
         // Now we break forward compatibility by introducing a new version not supported by the old code.
         let future_arch = FuturePublicArchiveVersioned::V1(arch.clone());
-        let future_arch_serialized = rmp_serde::to_vec(&future_arch).unwrap();
+        let future_arch_serialized = rmp_serde::to_vec_named(&future_arch).unwrap();
         // The old archive will not be able to decode this.
         assert!(PublicArchive::from_bytes(Bytes::from(future_arch_serialized)).is_err());
 
         // Now we prove backwards compatibility. Our old V0 archive will still be decoded by our new archive wrapper as V0.
         let versioned_arch = PublicArchiveVersioned::V0(arch.clone()); // 'Old' archive wrapper
-        let versioned_arch_serialized = rmp_serde::to_vec(&versioned_arch).unwrap();
+        let versioned_arch_serialized = rmp_serde::to_vec_named(&versioned_arch).unwrap();
         let _: FuturePublicArchiveVersioned = // Into 'new' wrapper
             rmp_serde::from_slice(&versioned_arch_serialized[..]).unwrap();
     }

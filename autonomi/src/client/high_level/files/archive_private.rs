@@ -23,7 +23,7 @@ use crate::{
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use super::{Metadata, MetadataVersioned};
+use super::Metadata;
 
 /// Private archive data map, allowing access to the [`PrivateArchive`] data.
 pub type PrivateArchiveAccess = DataMapChunk;
@@ -33,7 +33,7 @@ pub type PrivateArchiveAccess = DataMapChunk;
 /// The data maps are stored within this structure instead of uploading them to the network, keeping the data private.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PrivateArchive {
-    map: BTreeMap<PathBuf, (DataMapChunk, MetadataVersioned)>,
+    map: BTreeMap<PathBuf, (DataMapChunk, Metadata)>,
 }
 
 /// This type essentially wraps archive in version marker. E.g. in JSON format:
@@ -73,8 +73,7 @@ impl PrivateArchive {
     /// Add a file to a local archive
     /// Note that this does not upload the archive to the network
     pub fn add_file(&mut self, path: PathBuf, data_map: DataMapChunk, meta: Metadata) {
-        self.map
-            .insert(path.clone(), (data_map, MetadataVersioned::V0(meta)));
+        self.map.insert(path.clone(), (data_map, meta));
         debug!("Added a new file to the archive, path: {:?}", path);
     }
 
@@ -82,7 +81,7 @@ impl PrivateArchive {
     pub fn files(&self) -> Vec<(PathBuf, Metadata)> {
         self.map
             .iter()
-            .map(|(path, (_, meta))| (path.clone(), meta.clone().into()))
+            .map(|(path, (_, meta))| (path.clone(), meta.clone()))
             .collect()
     }
 
@@ -98,19 +97,13 @@ impl PrivateArchive {
     ///
     /// Returns an iterator over ([`PathBuf`], [`DataMapChunk`], [`Metadata`])
     pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &DataMapChunk, &Metadata)> {
-        self.map.iter().map(|(path, (data_map, meta))| {
-            (
-                path,
-                data_map,
-                match meta {
-                    MetadataVersioned::V0(meta) => meta,
-                },
-            )
-        })
+        self.map
+            .iter()
+            .map(|(path, (data_map, meta))| (path, data_map, meta))
     }
 
     /// Get the underlying map
-    pub fn map(&self) -> &BTreeMap<PathBuf, (DataMapChunk, MetadataVersioned)> {
+    pub fn map(&self) -> &BTreeMap<PathBuf, (DataMapChunk, Metadata)> {
         &self.map
     }
 
@@ -126,7 +119,7 @@ impl PrivateArchive {
     /// Serialize to bytes.
     pub fn to_bytes(&self) -> Result<Bytes, rmp_serde::encode::Error> {
         let versioned = PrivateArchiveVersioned::V0(self.clone());
-        let root_serialized = rmp_serde::to_vec(&versioned)?;
+        let root_serialized = rmp_serde::to_vec_named(&versioned)?;
         let root_serialized = Bytes::from(root_serialized);
 
         Ok(root_serialized)

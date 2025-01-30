@@ -11,7 +11,9 @@ use crate::time::spawn;
 use crate::{event::NetworkEvent, time::Instant, CLOSE_GROUP_SIZE};
 use ant_evm::U256;
 use ant_protocol::{
-    convert_distance_to_u256, storage::ValidationType, NetworkAddress, PrettyPrintRecordKey,
+    convert_distance_to_u256,
+    storage::{DataTypes, ValidationType},
+    NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
     kad::{KBucketDistance as Distance, RecordKey, K_VALUE},
@@ -88,7 +90,7 @@ impl ReplicationFetcher {
         &mut self,
         holder: PeerId,
         incoming_keys: Vec<(NetworkAddress, ValidationType)>,
-        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
+        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType, DataTypes)>,
         is_fresh_replicate: bool,
         closest_k_peers: Vec<NetworkAddress>,
     ) -> Vec<(PeerId, RecordKey)> {
@@ -328,7 +330,7 @@ impl ReplicationFetcher {
         &mut self,
         holder: &PeerId,
         incoming_keys: Vec<(NetworkAddress, ValidationType)>,
-        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
+        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType, DataTypes)>,
         closest_k_peers: Vec<NetworkAddress>,
     ) -> Vec<(PeerId, NetworkAddress, ValidationType)> {
         match self.is_peer_trustworthy(holder) {
@@ -422,7 +424,7 @@ impl ReplicationFetcher {
         &mut self,
         holder: &PeerId,
         incoming_keys: Vec<(NetworkAddress, ValidationType)>,
-        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
+        locally_stored_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType, DataTypes)>,
         mut closest_k_peers: Vec<NetworkAddress>,
     ) -> Vec<(NetworkAddress, ValidationType)> {
         // Pre-calculate self_address since it's used multiple times
@@ -552,10 +554,10 @@ impl ReplicationFetcher {
     /// This checks the hash on GraphEntry to ensure we pull in divergent GraphEntry.
     fn remove_stored_keys(
         &mut self,
-        existing_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType)>,
+        existing_keys: &HashMap<RecordKey, (NetworkAddress, ValidationType, DataTypes)>,
     ) {
         self.to_be_fetched.retain(|(key, t, _), _| {
-            if let Some((_addr, record_type)) = existing_keys.get(key) {
+            if let Some((_addr, record_type, _data_type)) = existing_keys.get(key) {
                 // check the address only against similar record types
                 t != record_type
             } else {
@@ -563,7 +565,7 @@ impl ReplicationFetcher {
             }
         });
         self.on_going_fetches.retain(|(key, t), _| {
-            if let Some((_addr, record_type)) = existing_keys.get(key) {
+            if let Some((_addr, record_type, _data_type)) = existing_keys.get(key) {
                 // check the address only against similar record types
                 t != record_type
             } else {

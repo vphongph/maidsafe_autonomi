@@ -124,12 +124,13 @@ impl Client {
             }
         };
 
+        Self::scratchpad_verify(&pad)?;
         Ok(pad)
     }
 
     /// Verify a scratchpad
     pub fn scratchpad_verify(scratchpad: &Scratchpad) -> Result<(), ScratchpadError> {
-        if !scratchpad.verify() {
+        if !scratchpad.verify_signature() {
             return Err(ScratchpadError::BadSignature);
         }
         if scratchpad.is_too_big() {

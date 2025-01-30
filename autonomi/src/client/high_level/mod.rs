@@ -8,4 +8,5 @@
 
 pub mod data;
 pub mod files;
+pub mod register;
 pub mod vault;

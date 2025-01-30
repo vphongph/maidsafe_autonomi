@@ -337,7 +337,8 @@ fn create_graph_entry_task(
                         Ok(graph_entry) => {
                             println!("Fetched graph_entry at {addr:?}");
 
-                            let Some((old_output, old_content)) = graph_entry.outputs.last() else {
+                            let Some((old_output, old_content)) = graph_entry.descendants.last()
+                            else {
                                 println!("Can't get output from the graph_entry of {addr:?}");
                                 error!("Can't get output from the graph_entry of {addr:?}");
                                 break;
@@ -351,13 +352,8 @@ fn create_graph_entry_task(
                             };
 
                             let parents = vec![graph_entry.owner];
-                            let graph_entry = GraphEntry::new(
-                                owner.public_key(),
-                                parents,
-                                *old_content,
-                                outputs,
-                                owner,
-                            );
+                            let graph_entry =
+                                GraphEntry::new(owner, parents, *old_content, outputs);
 
                             growing_history[index].push(graph_entry.address());
 
@@ -389,8 +385,7 @@ fn create_graph_entry_task(
                 let owner = SecretKey::random();
                 let content: [u8; 32] = rand::random();
                 let parents = vec![];
-                let graph_entry =
-                    GraphEntry::new(owner.public_key(), parents, content, outputs, &owner);
+                let graph_entry = GraphEntry::new(&owner, parents, content, outputs);
 
                 growing_history.push(vec![graph_entry.address()]);
                 let _ = owners.insert(owner.public_key(), owner);

@@ -1,0 +1,282 @@
+// Copyright 2025 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
+use crate::client::data_types::graph::{GraphContent, GraphEntry, GraphError};
+use crate::client::data_types::pointer::{PointerAddress, PointerError, PointerTarget};
+use crate::client::key_derivation::{DerivationIndex, MainPubkey, MainSecretKey};
+use crate::client::payment::PaymentOption;
+use crate::client::quote::CostError;
+use crate::client::Client;
+use crate::AttoTokens;
+use crate::{PublicKey, SecretKey};
+use ant_networking::{GetRecordError, NetworkError};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use xor_name::XorName;
+
+/// A Register is addressed at a [`RegisterAddress`] which is in fact the owner's [`PublicKey`].
+/// There can only be one register stored at [`PublicKey`].
+/// Any data stored in the register is stored as is, without encryption or modifications.
+/// Since the data is publicly accessible by anyone knowing the [`RegisterAddress`],
+/// it is up to the owner to encrypt the data uploaded to the register, if wanted.
+/// Only the owner can update the register with its [`SecretKey`].
+/// The [`SecretKey`] is the only piece of information an owner should keep to access to the register.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RegisterAddress {
+    pub owner: PublicKey,
+}
+
+impl RegisterAddress {
+    /// Create a new register address
+    pub fn new(owner: PublicKey) -> Self {
+        Self { owner }
+    }
+
+    /// Get the owner of the register
+    pub fn owner(&self) -> PublicKey {
+        self.owner
+    }
+}
+
+/// The value of a register: a 32 bytes array (same as [`GraphContent`])
+pub type RegisterValue = GraphContent;
+
+#[derive(Error, Debug)]
+pub enum RegisterError {
+    #[error("Underlying GraphError: {0}")]
+    GraphError(#[from] GraphError),
+    #[error("Underlying PointerError: {0}")]
+    PointerError(#[from] PointerError),
+    #[error("Invalid cost")]
+    InvalidCost,
+    #[error("Invalid head pointer, was expecting a GraphEntryAddress but got: {0:?}")]
+    InvalidHeadPointer(PointerTarget),
+    #[error("Forked register, this can happen if the register has been updated concurrently, you can solve this by updating the register again with a new value. Concurrent entries: {0:?}")]
+    Fork(Vec<[u8; 32]>),
+    #[error("Corrupt register: {0}")]
+    Corrupt(String),
+    #[error("Register cannot be updated as it does not exist, please create it first or wait for it to be created")]
+    CannotUpdateNewRegister,
+}
+
+/// Hard coded derivation index for the register head pointer
+/// Derive the register's main public key by it to get the pointer owner/address
+const REGISTER_HEAD_DERIVATION_INDEX: [u8; 32] = [0; 32];
+
+impl Client {
+    /// Create a new register key from a SecretKey and a name
+    /// This derives a new [`SecretKey`] from the owner's [`SecretKey`] using the name
+    /// Note that you will need to keep track of the names you used to create the register key
+    pub fn register_key_from_name(owner: &SecretKey, name: &str) -> SecretKey {
+        let main_key = MainSecretKey::new(owner.clone());
+        let derivation_index =
+            DerivationIndex::from_bytes(XorName::from_content(name.as_bytes()).0);
+        main_key.derive_key(&derivation_index).into()
+    }
+
+    /// Create a new register
+    pub async fn register_create(
+        &self,
+        owner: &SecretKey,
+        initial_value: RegisterValue,
+        graph_payment_option: PaymentOption,
+        pointer_payment_option: PaymentOption,
+    ) -> Result<(AttoTokens, RegisterAddress), RegisterError> {
+        let main_key = MainSecretKey::new(owner.clone());
+        let public_key = main_key.public_key();
+
+        // create the first entry and decide on the next key
+        let index = DerivationIndex::random(&mut rand::thread_rng());
+        let next_key = main_key.public_key().derive_key(&index);
+        let parents = vec![];
+        let descendants = vec![(next_key.into(), index.into_bytes())];
+        let root_entry = GraphEntry::new(
+            &main_key.clone().into(),
+            parents,
+            initial_value,
+            descendants,
+        );
+
+        // put the first entry in the graph
+        let (graph_cost, addr) = self
+            .graph_entry_put(root_entry, graph_payment_option)
+            .await?;
+
+        // create a Pointer to the last entry
+        let target = PointerTarget::GraphEntryAddress(addr);
+        let pointer_key = self.register_head_pointer_sk(&main_key.into());
+        let (pointer_cost, _pointer_addr) = self
+            .pointer_create(&pointer_key, target, pointer_payment_option)
+            .await?;
+
+        let total_cost = graph_cost
+            .checked_add(pointer_cost)
+            .ok_or(RegisterError::InvalidCost)?;
+        Ok((
+            total_cost,
+            RegisterAddress {
+                owner: public_key.into(),
+            },
+        ))
+    }
+
+    /// Update the value of a register
+    pub async fn register_update(
+        &self,
+        owner: &SecretKey,
+        new_value: RegisterValue,
+        payment_option: PaymentOption,
+    ) -> Result<AttoTokens, RegisterError> {
+        // get the pointer of the register head
+        let addr = RegisterAddress {
+            owner: owner.public_key(),
+        };
+        let pointer_addr = self.register_head_pointer_address(&addr);
+        debug!("Getting pointer of register head at {pointer_addr:?}");
+        let pointer = match self.pointer_get(pointer_addr).await {
+            Ok(pointer) => pointer,
+            Err(PointerError::Network(NetworkError::GetRecordError(
+                GetRecordError::RecordNotFound,
+            ))) => return Err(RegisterError::CannotUpdateNewRegister),
+            Err(err) => return Err(err.into()),
+        };
+        let graph_entry_addr = match pointer.target() {
+            PointerTarget::GraphEntryAddress(addr) => addr,
+            other => return Err(RegisterError::InvalidHeadPointer(other.clone())),
+        };
+
+        // get the next derivation index from the current head entry
+        debug!("Getting register head graph entry at {graph_entry_addr:?}");
+        let parent_entry = match self.graph_entry_get(*graph_entry_addr).await {
+            Ok(e) => e,
+            Err(GraphError::Fork(entries)) => {
+                warn!("Forked register, multiple entries found: {entries:?}, choosing the one with the smallest derivation index for the next entry");
+                let (entry_by_smallest_derivation, _) = entries
+                    .into_iter()
+                    .filter_map(|e| {
+                        e.descendants
+                            .iter()
+                            .map(|d| d.1)
+                            .min()
+                            .map(|derivation| (e, derivation))
+                    })
+                    .min_by(|a, b| a.1.cmp(&b.1))
+                    .ok_or(RegisterError::Corrupt(format!(
+                        "No descendants found for FORKED entry at {graph_entry_addr:?}"
+                    )))?;
+                entry_by_smallest_derivation
+            }
+            Err(err) => return Err(err.into()),
+        };
+        let new_derivation =
+            parent_entry
+                .descendants
+                .iter()
+                .map(|d| d.1)
+                .min()
+                .ok_or(RegisterError::Corrupt(format!(
+                    "No descendants found for entry at {graph_entry_addr:?}"
+                )))?;
+
+        // create a new entry with the new value
+        let main_key = MainSecretKey::new(owner.clone());
+        let new_key = main_key.derive_key(&DerivationIndex::from_bytes(new_derivation));
+        let parents = vec![parent_entry.owner];
+        let next_derivation = DerivationIndex::random(&mut rand::thread_rng());
+        let next_pk = main_key.public_key().derive_key(&next_derivation);
+        let descendants = vec![(next_pk.into(), next_derivation.into_bytes())];
+        let new_entry = GraphEntry::new(&new_key.into(), parents, new_value, descendants);
+
+        // put the new entry in the graph
+        let (cost, new_graph_entry_addr) = self.graph_entry_put(new_entry, payment_option).await?;
+
+        // update the pointer to point to the new entry
+        let target = PointerTarget::GraphEntryAddress(new_graph_entry_addr);
+        let pointer_key = self.register_head_pointer_sk(&main_key.into());
+        self.pointer_update(&pointer_key, target).await?;
+
+        Ok(cost)
+    }
+
+    /// Get the current value of the register
+    pub async fn register_get(
+        &self,
+        addr: &RegisterAddress,
+    ) -> Result<RegisterValue, RegisterError> {
+        // get the pointer of the register head
+        let pointer_addr = self.register_head_pointer_address(addr);
+        debug!("Getting pointer of register head at {pointer_addr:?}");
+        let pointer = self.pointer_get(pointer_addr).await?;
+        let graph_entry_addr = match pointer.target() {
+            PointerTarget::GraphEntryAddress(addr) => addr,
+            other => return Err(RegisterError::InvalidHeadPointer(other.clone())),
+        };
+
+        // get the entry from the graph
+        debug!("Getting register head graph entry at {graph_entry_addr:?}");
+        let entry = match self.graph_entry_get(*graph_entry_addr).await {
+            Ok(entry) => entry,
+            Err(GraphError::Fork(entries)) => {
+                let values = entries.iter().map(|e| e.content).collect::<Vec<_>>();
+                return Err(RegisterError::Fork(values));
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+        // get the content of the entry
+        let content = entry.content;
+        Ok(content)
+    }
+
+    /// Get the cost of a register operation.
+    /// Returns the cost of creation if it doesn't exist, else returns the cost of an update
+    pub async fn register_cost(&self, owner: &PublicKey) -> Result<AttoTokens, CostError> {
+        let pointer_pk = self.register_head_pointer_pk(&RegisterAddress { owner: *owner });
+        let scratchpad_cost = self.scratchpad_cost(owner);
+        let pointer_cost = self.pointer_cost(pointer_pk);
+        let (scratchpad_cost, pointer_cost) =
+            futures::future::join(scratchpad_cost, pointer_cost).await;
+        scratchpad_cost?
+            .checked_add(pointer_cost?)
+            .ok_or(CostError::InvalidCost)
+    }
+
+    /// Get the address of the register's head pointer
+    fn register_head_pointer_address(&self, addr: &RegisterAddress) -> PointerAddress {
+        let pk: MainPubkey = addr.owner.into();
+        let pointer_pk =
+            pk.derive_key(&DerivationIndex::from_bytes(REGISTER_HEAD_DERIVATION_INDEX));
+        PointerAddress::from_owner(pointer_pk.into())
+    }
+
+    /// Get the secret key of the register's head pointer
+    fn register_head_pointer_sk(&self, register_owner: &SecretKey) -> SecretKey {
+        let pointer_sk = MainSecretKey::new(register_owner.clone())
+            .derive_key(&DerivationIndex::from_bytes(REGISTER_HEAD_DERIVATION_INDEX));
+        pointer_sk.into()
+    }
+
+    /// Get the public key of the register's head pointer
+    fn register_head_pointer_pk(&self, addr: &RegisterAddress) -> PublicKey {
+        let pk: MainPubkey = addr.owner.into();
+        let pointer_pk =
+            pk.derive_key(&DerivationIndex::from_bytes(REGISTER_HEAD_DERIVATION_INDEX));
+        pointer_pk.into()
+    }
+}
+
+mod tests {
+    #[tokio::test]
+    async fn test_register_by_name() {
+        let main_key = bls::SecretKey::random();
+        let register_key = super::Client::register_key_from_name(&main_key, "register1");
+        assert_ne!(register_key.public_key(), main_key.public_key());
+        let same_name = super::Client::register_key_from_name(&main_key, "register1");
+        assert_eq!(same_name.public_key(), register_key.public_key());
+    }
+}

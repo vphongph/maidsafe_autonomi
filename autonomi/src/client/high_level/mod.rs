@@ -19,7 +19,8 @@ pub mod vault;
 /// The underlying structure of registers is a graph, where each version is a new [`crate::GraphEntry`]
 /// Each entry is linked to the previous entry and to the next entry, like a doubly linked list
 /// For fast access to the current register value, a [`crate::Pointer`] to the last entry always keeps track of the latest version
-/// ```no_run
+///
+/// ```ignore
 /// chain of GraphEntry: [register root] <-> [value2] <-> [value3] <-> [latest value]
 ///                                                                      ^
 ///                                                                      |

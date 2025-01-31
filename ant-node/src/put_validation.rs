@@ -631,7 +631,6 @@ impl Node {
                 "Payment is not valid for record {pretty_key}"
             )));
         }
-        debug!("Payment is valid for record {pretty_key}");
 
         // verify quote expiration
         if payment.has_expired() {
@@ -654,6 +653,7 @@ impl Node {
         let mut payees = payment.payees();
         payees.retain(|peer_id| !closest_k_peers.contains(peer_id));
         if !payees.is_empty() {
+            warn!("Payment quote has out-of-range payees for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(
                 "Payment quote has out-of-range payees {payees:?}"
             )));
@@ -670,7 +670,11 @@ impl Node {
         let reward_amount =
             verify_data_payment(self.evm_network(), owned_payment_quotes, payments_to_verify)
                 .await
-                .map_err(|e| Error::EvmNetwork(format!("Failed to verify chunk payment: {e}")))?;
+                .inspect_err(|e| {
+                    warn!("Failed to verify record payment: {e}");
+                })
+                .map_err(|e| Error::EvmNetwork(format!("Failed to verify record payment: {e}")))?;
+
         debug!("Payment of {reward_amount:?} is valid for record {pretty_key}");
 
         // Notify `record_store` that the node received a payment.

@@ -81,7 +81,7 @@ pub struct Client {
     pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
     /// The EVM network to use for the client.
     pub evm_network: EvmNetwork,
-    // Shutdown signal for the `SwarmDriver` task
+    // Shutdown signal for child tasks. Sends signal when dropped.
     _shutdown_tx: watch::Sender<bool>,
 }
 

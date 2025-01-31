@@ -120,15 +120,12 @@ impl Node {
             let mut retry_count = 0;
             debug!("Checking we have successfully stored the fresh record {pretty_key:?} in the store before replicating");
             loop {
-                let record = match network.get_local_record(&paid_key).await {
-                    Ok(record) => record,
-                    Err(err) => {
-                        error!(
+                let record = network.get_local_record(&paid_key).await.unwrap_or_else(|err| {
+                    error!(
                             "Replicating fresh record {pretty_key:?} get_record_from_store errored: {err:?}"
                         );
-                        None
-                    }
-                };
+                    None
+                });
 
                 if record.is_some() {
                     break;

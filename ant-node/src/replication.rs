@@ -120,15 +120,12 @@ impl Node {
             let mut retry_count = 0;
             debug!("Checking we have successfully stored the fresh record {pretty_key:?} in the store before replicating");
             loop {
-                let record = match network.get_local_record(&paid_key).await {
-                    Ok(record) => record,
-                    Err(err) => {
-                        error!(
+                let record = network.get_local_record(&paid_key).await.unwrap_or_else(|err| {
+                    error!(
                             "Replicating fresh record {pretty_key:?} get_record_from_store errored: {err:?}"
                         );
-                        None
-                    }
-                };
+                    None
+                });
 
                 if record.is_some() {
                     break;
@@ -148,15 +145,22 @@ impl Node {
             debug!("Start replication of fresh record {pretty_key:?} from store");
 
             let data_addr = NetworkAddress::from_record_key(&paid_key);
-            let replicate_candidates = match network
-                .get_replicate_candidates(data_addr.clone())
-                .await
-            {
-                Ok(peers) => peers,
-                Err(err) => {
-                    error!("Replicating fresh record {pretty_key:?} get_replicate_candidates errored: {err:?}");
-                    return;
-                }
+
+            // If payment exists, only candidates are the payees.
+            // Else get candidates from network.
+            let replicate_candidates = match payment.as_ref() {
+                Some(payment) => payment
+                    .payees()
+                    .into_iter()
+                    .filter(|peer_id| peer_id != &network.peer_id())
+                    .collect(),
+                None => match network.get_replicate_candidates(data_addr.clone()).await {
+                    Ok(peers) => peers,
+                    Err(err) => {
+                        error!("Replicating fresh record {pretty_key:?} get_replicate_candidates errored: {err:?}");
+                        return;
+                    }
+                },
             };
 
             let our_peer_id = network.peer_id();

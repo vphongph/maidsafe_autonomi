@@ -16,10 +16,11 @@ use crate::client::key_derivation::MainPubkey;
 use crate::client::Client;
 
 /// A handle to the register history
+#[derive(Clone)]
 pub struct RegisterHistory {
     client: Client,
     register_owner: PublicKey,
-    current: GraphEntryAddress,
+    current_iter: GraphEntryAddress,
 }
 
 impl RegisterHistory {
@@ -27,7 +28,7 @@ impl RegisterHistory {
         Self {
             client,
             register_owner,
-            current: root,
+            current_iter: root,
         }
     }
 
@@ -36,7 +37,7 @@ impl RegisterHistory {
     pub async fn next(&mut self) -> Result<Option<RegisterValue>, RegisterError> {
         let (entry, next_derivation) = match self
             .client
-            .register_get_graph_entry_and_next_derivation_index(&self.current)
+            .register_get_graph_entry_and_next_derivation_index(&self.current_iter)
             .await
         {
             Ok(res) => res,
@@ -48,14 +49,16 @@ impl RegisterHistory {
         let next_entry_pk: PublicKey = MainPubkey::from(self.register_owner)
             .derive_key(&next_derivation)
             .into();
-        self.current = GraphEntryAddress::from_owner(next_entry_pk);
+        self.current_iter = GraphEntryAddress::from_owner(next_entry_pk);
         Ok(Some(entry.content))
     }
 
-    /// Get all the register values from the history
+    /// Get all the register values from the history, starting from the first to the latest entry
     pub async fn collect(&mut self) -> Result<Vec<RegisterValue>, RegisterError> {
+        let mut history_from_first = self.clone();
+        history_from_first.current_iter = GraphEntryAddress::from_owner(self.register_owner);
         let mut values = Vec::new();
-        while let Some(value) = self.next().await? {
+        while let Some(value) = history_from_first.next().await? {
             values.push(value);
         }
         Ok(values)
@@ -65,8 +68,8 @@ impl RegisterHistory {
 impl Client {
     /// Get the register history, starting from the root to the latest entry
     /// This returns a [`RegisterHistory`] that can be use to get the register values from the history
-    /// [`RegisterHistory::next`] can be used to get the values one by one
-    /// [`RegisterHistory::collect`] can be used to get all the register values from the history
+    /// [`RegisterHistory::next`] can be used to get the values one by one, from the first to the latest entry
+    /// [`RegisterHistory::collect`] can be used to get all the register values from the history from the first to the latest entry
     pub fn register_history(&self, addr: &RegisterAddress) -> RegisterHistory {
         let graph_entry_addr = addr.to_underlying_graph_root();
         RegisterHistory::new(self.clone(), addr.owner, graph_entry_addr)

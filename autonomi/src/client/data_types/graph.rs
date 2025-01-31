@@ -162,9 +162,9 @@ impl Client {
     }
 
     /// Get the cost to create a GraphEntry
-    pub async fn graph_entry_cost(&self, key: PublicKey) -> Result<AttoTokens, GraphError> {
+    pub async fn graph_entry_cost(&self, key: &PublicKey) -> Result<AttoTokens, CostError> {
         trace!("Getting cost for GraphEntry of {key:?}");
-        let address = GraphEntryAddress::from_owner(key);
+        let address = GraphEntryAddress::from_owner(*key);
         let xor = *address.xorname();
         let store_quote = self
             .get_store_quotes(

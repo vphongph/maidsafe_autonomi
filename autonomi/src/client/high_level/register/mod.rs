@@ -192,7 +192,22 @@ impl Client {
         let new_entry = GraphEntry::new(&new_key.into(), parents, new_value, descendants);
 
         // put the new entry in the graph
-        let (cost, new_graph_entry_addr) = self.graph_entry_put(new_entry, payment_option).await?;
+        let (cost, new_graph_entry_addr) = match self
+            .graph_entry_put(new_entry, payment_option)
+            .await
+        {
+            Ok(res) => res,
+            Err(GraphError::AlreadyExists(address)) => {
+                // pointer is apparently not at head, update it
+                let target = PointerTarget::GraphEntryAddress(address);
+                let pointer_key = self.register_head_pointer_sk(&main_key.into());
+                self.pointer_update(&pointer_key, target).await?;
+                return Err(RegisterError::Corrupt(format!(
+                    "Pointer is apparently not at head, attempting to heal the register by updating it to point to the next entry at {address:?}, please retry the operation"
+                )));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // update the pointer to point to the new entry
         let target = PointerTarget::GraphEntryAddress(new_graph_entry_addr);
@@ -236,11 +251,11 @@ impl Client {
     /// Returns the cost of creation if it doesn't exist, else returns the cost of an update
     pub async fn register_cost(&self, owner: &PublicKey) -> Result<AttoTokens, CostError> {
         let pointer_pk = self.register_head_pointer_pk(&RegisterAddress { owner: *owner });
-        let scratchpad_cost = self.scratchpad_cost(owner);
+        let graph_entry_cost = self.graph_entry_cost(owner);
         let pointer_cost = self.pointer_cost(pointer_pk);
-        let (scratchpad_cost, pointer_cost) =
-            futures::future::join(scratchpad_cost, pointer_cost).await;
-        scratchpad_cost?
+        let (graph_entry_cost, pointer_cost) =
+            futures::future::join(graph_entry_cost, pointer_cost).await;
+        graph_entry_cost?
             .checked_add(pointer_cost?)
             .ok_or(CostError::InvalidCost)
     }
@@ -283,31 +298,34 @@ impl Client {
                 let (entry_by_smallest_derivation, _) = entries
                     .into_iter()
                     .filter_map(|e| {
-                        e.descendants
-                            .iter()
-                            .map(|d| d.1)
-                            .min()
+                        get_derivation_from_graph_entry(&e)
+                            .ok()
                             .map(|derivation| (e, derivation))
                     })
                     .min_by(|a, b| a.1.cmp(&b.1))
                     .ok_or(RegisterError::Corrupt(format!(
-                        "No descendants found for FORKED entry at {graph_entry_addr:?}"
+                        "No valid descendants found for FORKED entry at {graph_entry_addr:?}"
                     )))?;
                 entry_by_smallest_derivation
             }
             Err(err) => return Err(err.into()),
         };
-        let new_derivation =
-            entry
-                .descendants
-                .iter()
-                .map(|d| d.1)
-                .min()
-                .ok_or(RegisterError::Corrupt(format!(
-                    "No descendants found for entry at {graph_entry_addr:?}"
-                )))?;
-        Ok((entry, DerivationIndex::from_bytes(new_derivation)))
+        let new_derivation = get_derivation_from_graph_entry(&entry)?;
+        Ok((entry, new_derivation))
     }
+}
+
+fn get_derivation_from_graph_entry(entry: &GraphEntry) -> Result<DerivationIndex, RegisterError> {
+    let graph_entry_addr = GraphEntryAddress::from_owner(entry.owner);
+    let d = match entry.descendants.as_slice() {
+        [d] => d.1,
+        _ => return Err(RegisterError::Corrupt(format!(
+            "Underlying Register GraphEntry at {graph_entry_addr:?} is corrupted, expected one descendant but got {}: {:?}",
+            entry.descendants.len(),
+            entry.descendants
+        ))),
+    };
+    Ok(DerivationIndex::from_bytes(d))
 }
 
 mod tests {

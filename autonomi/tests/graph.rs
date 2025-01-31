@@ -31,7 +31,7 @@ async fn graph_entry_put() -> Result<()> {
     let graph_entry = GraphEntry::new(&key, vec![], content, vec![]);
 
     // estimate the cost of the graph_entry
-    let cost = client.graph_entry_cost(key.public_key()).await?;
+    let cost = client.graph_entry_cost(&key.public_key()).await?;
     println!("graph_entry cost: {cost}");
 
     // put the graph_entry

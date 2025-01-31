@@ -480,7 +480,7 @@ impl Node {
         }
 
         // ensure data integrity
-        if !scratchpad.verify() {
+        if !scratchpad.verify_signature() {
             warn!("Rejecting Scratchpad PUT with invalid signature");
             return Err(Error::InvalidScratchpadSignature);
         }
@@ -560,8 +560,10 @@ impl Node {
         }
 
         // verify the GraphEntries
-        let mut validated_entries: BTreeSet<GraphEntry> =
-            entries_for_key.into_iter().filter(|t| t.verify()).collect();
+        let mut validated_entries: BTreeSet<GraphEntry> = entries_for_key
+            .into_iter()
+            .filter(|t| t.verify_signature())
+            .collect();
 
         // skip if none are valid
         let addr = match validated_entries.first() {
@@ -785,7 +787,7 @@ impl Node {
         payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
-        if !pointer.verify() {
+        if !pointer.verify_signature() {
             warn!("Pointer signature verification failed");
             return Err(Error::InvalidSignature);
         }

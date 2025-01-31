@@ -69,6 +69,8 @@ pub enum CostError {
     Serialization(String),
     #[error("Market price error: {0:?}")]
     MarketPriceError(#[from] ant_evm::payment_vault::error::Error),
+    #[error("Received invalid cost")]
+    InvalidCost,
 }
 
 impl Client {

@@ -14,7 +14,9 @@ use crate::client::ClientEvent;
 use crate::client::UploadSummary;
 
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
+use ant_networking::get_graph_entry_from_record;
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
+use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind, RetryStrategy},
     NetworkAddress,
@@ -22,9 +24,8 @@ use ant_protocol::{
 use bls::PublicKey;
 use libp2p::kad::{Quorum, Record};
 
-pub use ant_protocol::storage::GraphEntry;
-pub use ant_protocol::storage::GraphEntryAddress;
-pub use bls::SecretKey;
+pub use crate::SecretKey;
+pub use ant_protocol::storage::{GraphContent, GraphEntry, GraphEntryAddress};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
@@ -54,14 +55,30 @@ impl Client {
         &self,
         address: GraphEntryAddress,
     ) -> Result<GraphEntry, GraphError> {
-        let graph_entries = self.network.get_graph_entry(address).await?;
+        let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
+        let get_cfg = GetRecordCfg {
+            get_quorum: Quorum::All,
+            retry_strategy: Some(RetryStrategy::Quick),
+            target_record: None,
+            expected_holders: Default::default(),
+        };
+        let record = self
+            .network
+            .get_record_from_network(key.clone(), &get_cfg)
+            .await?;
+        debug!(
+            "Got record from the network, {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        );
+
+        let graph_entries = get_graph_entry_from_record(&record)?;
         match &graph_entries[..] {
             [entry] => Ok(entry.clone()),
             multiple => Err(GraphError::Fork(multiple.to_vec())),
         }
     }
 
-    /// Puts a GraphEntry to the network.
+    /// Manually puts a GraphEntry to the network.
     pub async fn graph_entry_put(
         &self,
         entry: GraphEntry,
@@ -145,9 +162,9 @@ impl Client {
     }
 
     /// Get the cost to create a GraphEntry
-    pub async fn graph_entry_cost(&self, key: PublicKey) -> Result<AttoTokens, GraphError> {
+    pub async fn graph_entry_cost(&self, key: &PublicKey) -> Result<AttoTokens, CostError> {
         trace!("Getting cost for GraphEntry of {key:?}");
-        let address = GraphEntryAddress::from_owner(key);
+        let address = GraphEntryAddress::from_owner(*key);
         let xor = *address.xorname();
         let store_quote = self
             .get_store_quotes(

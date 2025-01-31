@@ -122,11 +122,11 @@ impl Scratchpad {
             self.counter,
         );
         self.signature = sk.sign(&bytes_to_sign);
-        debug_assert!(self.verify(), "Must be valid after being signed. This is a bug, please report it by opening an issue on our github");
+        debug_assert!(self.verify_signature(), "Must be valid after being signed. This is a bug, please report it by opening an issue on our github");
     }
 
     /// Verifies that the Scratchpad signature is valid
-    pub fn verify(&self) -> bool {
+    pub fn verify_signature(&self) -> bool {
         let signing_bytes = Self::bytes_for_signature(
             self.address,
             self.data_encoding,
@@ -201,13 +201,13 @@ mod tests {
         let sk = SecretKey::random();
         let raw_data = Bytes::from_static(b"data to be encrypted");
         let mut scratchpad = Scratchpad::new(&sk, 42, &raw_data, 0);
-        assert!(scratchpad.verify());
+        assert!(scratchpad.verify_signature());
         assert_eq!(scratchpad.counter(), 0);
         assert_ne!(scratchpad.encrypted_data(), &raw_data);
 
         let raw_data2 = Bytes::from_static(b"data to be encrypted v2");
         scratchpad.update(&raw_data2, &sk);
-        assert!(scratchpad.verify());
+        assert!(scratchpad.verify_signature());
         assert_eq!(scratchpad.counter(), 1);
         assert_ne!(scratchpad.encrypted_data(), &raw_data);
         assert_ne!(scratchpad.encrypted_data(), &raw_data2);

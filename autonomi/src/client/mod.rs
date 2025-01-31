@@ -38,7 +38,6 @@ pub mod quote;
 pub mod external_signer;
 
 // private module with utility functions
-mod rate_limiter;
 mod utils;
 
 use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};

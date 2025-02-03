@@ -442,26 +442,28 @@ impl Wallet {
         format!("{:?}", self.inner.address())
     }
 
-    fn balance(&self) -> PyResult<String> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let balance = rt
-            .block_on(async { self.inner.balance_of_tokens().await })
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get balance: {e}"))
-            })?;
-
-        Ok(balance.to_string())
+    fn balance<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            match client.balance_of_tokens().await {
+                Ok(balance) => Ok(balance.to_string()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get balance: {e}"
+                ))),
+            }
+        })
     }
 
-    fn balance_of_gas(&self) -> PyResult<String> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let balance = rt
-            .block_on(async { self.inner.balance_of_gas_tokens().await })
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get balance: {e}"))
-            })?;
-
-        Ok(balance.to_string())
+    fn balance_of_gas<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            match client.balance_of_gas_tokens().await {
+                Ok(balance) => Ok(balance.to_string()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get balance: {e}"
+                ))),
+            }
+        })
     }
 }
 

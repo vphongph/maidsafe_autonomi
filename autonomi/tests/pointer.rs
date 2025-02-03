@@ -15,10 +15,12 @@ use autonomi::{
     Client,
 };
 use eyre::Result;
+use serial_test::serial;
 use test_utils::evm::get_funded_wallet;
 use xor_name::XorName;
 
 #[tokio::test]
+#[serial]
 async fn pointer_put_manual() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("pointer", false);
 
@@ -69,6 +71,7 @@ async fn pointer_put_manual() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial]
 async fn pointer_put() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("pointer", false);
 

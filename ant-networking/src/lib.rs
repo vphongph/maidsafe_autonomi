@@ -624,7 +624,7 @@ impl Network {
                             continue;
                         };
 
-                        if !pointer.verify() {
+                        if !pointer.verify_signature() {
                             warn!("Rejecting Pointer for {pretty_key} PUT with invalid signature");
                             continue;
                         }
@@ -646,7 +646,7 @@ impl Network {
                             continue;
                         };
 
-                        if !scratchpad.verify() {
+                        if !scratchpad.verify_signature() {
                             warn!(
                                 "Rejecting Scratchpad for {pretty_key} PUT with invalid signature"
                             );

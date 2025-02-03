@@ -242,6 +242,7 @@ impl PaymentQuote {
                 data_size: 0,
                 data_type: 0,
                 close_records_stored: 0,
+                records_per_type: vec![],
                 max_records: 0,
                 received_payment_count: 0,
                 live_time: 0,

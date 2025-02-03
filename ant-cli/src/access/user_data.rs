@@ -132,6 +132,10 @@ pub fn write_local_user_data(user_data: &UserData) -> Result<()> {
         write_local_private_file_archive(archive.to_hex(), archive.address(), name)?;
     }
 
+    for (register, name) in user_data.register_addresses.iter() {
+        write_local_register(register, name)?;
+    }
+
     Ok(())
 }
 

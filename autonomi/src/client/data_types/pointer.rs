@@ -192,6 +192,7 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, PointerAddress), PointerError> {
         let address = PointerAddress::from_owner(owner.public_key());
+        // NB TODO make this a quick get with quorum 1 and retry 0
         let already_exists = match self.pointer_get(address).await {
             Ok(_) => true,
             Err(PointerError::Network(NetworkError::GetRecordError(

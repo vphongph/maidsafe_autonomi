@@ -3,7 +3,7 @@ Example demonstrating the use of pointers in the Autonomi network.
 Pointers allow for creating references to data that can be updated.
 """
 
-from autonomi_client import Client, Network, Wallet, PaymentOption, PublicKey, SecretKey, PointerTarget, ChunkAddress
+from autonomi_client import Client, Network, Wallet, PaymentOption, PublicKey, SecretKey, PointerTarget, ChunkAddress, Pointer
 import asyncio
 
 async def main():
@@ -13,7 +13,7 @@ async def main():
     network = Network(True)
     wallet = Wallet.new_from_private_key(network, private_key)
     print(f"Wallet address: {wallet.address()}")
-    print(f"Wallet balance: {wallet.balance()}")
+    print(f"Wallet balance: {await wallet.balance()}")
 
     # Connect to the network
     client = await Client.init_local()
@@ -30,22 +30,22 @@ async def main():
     # Create owner key pair
     owner_key = SecretKey()
     owner_pub = owner_key.public_key()
+
+    pointer = Pointer(owner_key, 0, target)
+    payment_option = PaymentOption.wallet(wallet)
     
     # Create and store the pointer
-    counter = 0  # Start with counter 0
-    await client.pointer_put(owner_pub, counter, target, owner_key, wallet)
+    pointer_addr = await client.pointer_put(pointer, payment_option)
     print(f"Pointer stored successfully")
 
-    # Calculate the pointer address
-    pointer_addr = client.pointer_address(owner_pub, counter)
-    print(f"Pointer address: {pointer_addr}")
+    await asyncio.sleep(1)
 
     # Later, we can retrieve the pointer
     pointer = await client.pointer_get(pointer_addr)
-    print(f"Retrieved pointer target: {pointer.target().hex()}")
+    print(f"Retrieved pointer target: {pointer}")
 
     # We can then use the target address to get the original data
-    retrieved_data = await client.data_get_public(pointer.target().hex())
+    retrieved_data = await client.data_get_public(pointer.target.hex)
     print(f"Retrieved target data: {retrieved_data.decode()}")
 
 

@@ -229,22 +229,19 @@ impl PyClient {
     fn pointer_put<'a>(
         &self,
         py: Python<'a>,
-        counter: u32,
-        target: &PyPointerTarget,
-        key: &PySecretKey,
+        pointer: &PyPointer,
         payment_option: &PyPaymentOption,
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
-        let pointer = Pointer::new(&key.inner, counter, target.inner.clone());
+        let pointer = pointer.inner.clone();
         let payment = payment_option.inner.clone();
 
         future_into_py(py, async move {
-            match client.pointer_put(pointer, payment).await {
-                Ok((_price, addr)) => Ok(PyPointerAddress { inner: addr }),
-                Err(e) => Err(PyRuntimeError::new_err(format!(
-                    "Failed to put pointer: {e}"
-                ))),
-            }
+            let (_cost, addr) = client
+                .pointer_put(pointer, payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put pointer: {e}")))?;
+            Ok(PyPointerAddress { inner: addr })
         })
     }
 
@@ -298,7 +295,7 @@ pub struct PyPointer {
 #[pymethods]
 impl PyPointer {
     #[new]
-    pub fn new(counter: u32, target: &PyPointerTarget, key: &PySecretKey) -> PyResult<Self> {
+    pub fn new(key: &PySecretKey, counter: u32, target: &PyPointerTarget) -> PyResult<Self> {
         Ok(Self {
             inner: Pointer::new(&key.inner, counter, target.inner.clone()),
         })

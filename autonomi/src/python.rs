@@ -54,6 +54,7 @@ impl PyClient {
     fn data_get<'a>(&self, py: Python<'a>, access: &PyDataMapChunk) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let access = access.inner.clone();
+
         future_into_py(py, async move {
             match client.data_get(access).await {
                 Ok(data) => Ok(data.to_vec()),
@@ -70,6 +71,7 @@ impl PyClient {
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let payment = payment.inner.clone();
+
         future_into_py(py, async move {
             match client
                 .data_put_public(bytes::Bytes::from(data), payment)
@@ -100,6 +102,7 @@ impl PyClient {
     fn vault_cost<'a>(&self, py: Python<'a>, key: &PyVaultSecretKey) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner.clone();
+
         future_into_py(py, async move {
             match client.vault_cost(&key).await {
                 Ok(cost) => Ok(cost.to_string()),
@@ -121,6 +124,7 @@ impl PyClient {
         let client = self.inner.clone();
         let payment = payment.inner.clone();
         let key = key.inner.clone();
+
         future_into_py(py, async move {
             match client
                 .write_bytes_to_vault(bytes::Bytes::from(data), payment, &key, content_type)
@@ -141,6 +145,7 @@ impl PyClient {
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner.clone();
+
         future_into_py(py, async move {
             match client.fetch_and_decrypt_vault(&key).await {
                 Ok((data, content_type)) => Ok((data.to_vec(), content_type)),
@@ -158,6 +163,7 @@ impl PyClient {
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner.clone();
+
         future_into_py(py, async move {
             match client.get_user_data_from_vault(&key).await {
                 Ok(user_data) => Ok(PyUserData { inner: user_data }),
@@ -179,6 +185,7 @@ impl PyClient {
         let key = key.inner.clone();
         let payment = payment.inner.clone();
         let user_data = user_data.inner.clone();
+
         future_into_py(py, async move {
             match client
                 .put_user_data_to_vault(&key, payment, user_data)
@@ -192,16 +199,16 @@ impl PyClient {
         })
     }
 
-    fn pointer_get<'a>(&self, py: Python<'a>, address: &str) -> PyResult<Bound<'a, PyAny>> {
+    fn pointer_get<'a>(&self, py: Python<'a>, addr: &str) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let xorname = XorName::from_content(
-            &hex::decode(address)
-                .map_err(|e| PyRuntimeError::new_err(format!("Invalid pointer address: {e}")))?,
+            &hex::decode(addr)
+                .map_err(|e| PyValueError::new_err(format!("`addr` is invalid: {e:?}")))?,
         );
-        let address = PointerAddress::new(xorname);
+        let addr = PointerAddress::new(xorname);
 
         future_into_py(py, async move {
-            match client.pointer_get(address).await {
+            match client.pointer_get(addr).await {
                 Ok(pointer) => Ok(PyPointer { inner: pointer }),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get pointer: {e}"
@@ -235,6 +242,7 @@ impl PyClient {
     fn pointer_cost<'a>(&self, py: Python<'a>, key: &PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner.clone();
+
         future_into_py(py, async move {
             match client.pointer_cost(key).await {
                 Ok(cost) => Ok(cost.to_string()),
@@ -257,8 +265,9 @@ impl PyPointerAddress {
     #[new]
     pub fn new(hex_str: String) -> PyResult<Self> {
         let bytes = hex::decode(&hex_str)
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex string: {e}")))?;
+            .map_err(|e| PyValueError::new_err(format!("`hex_str` is invalid: {e:?}")))?;
         let xorname = XorName::from_content(&bytes);
+
         Ok(Self {
             inner: PointerAddress::new(xorname),
         })
@@ -384,13 +393,11 @@ impl PyChunkAddress {
 
     #[staticmethod]
     fn from_chunk_address(addr: &str) -> PyResult<Self> {
-        let bytes = hex::decode(addr)
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid chunk address: {e}")))?;
+        let bytes =
+            hex::decode(addr).map_err(|e| PyValueError::new_err(format!("`addr` invalid: {e}")))?;
 
         if bytes.len() != 32 {
-            return Err(PyRuntimeError::new_err(
-                "Invalid chunk address length: must be 32 bytes",
-            ));
+            return Err(PyValueError::new_err("`addr` invalid: must be 32 bytes"));
         }
 
         let mut xorname = [0u8; 32];
@@ -423,7 +430,7 @@ impl PyWallet {
             Network::ArbitrumOne, // TODO: Make this configurable
             &private_key,
         )
-        .map_err(|e| PyRuntimeError::new_err(format!("Invalid private key: {e}")))?;
+        .map_err(|e| PyValueError::new_err(format!("`private_key` invalid: {e}")))?;
 
         Ok(Self { inner: wallet })
     }
@@ -491,7 +498,7 @@ impl PySecretKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         SecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -519,7 +526,7 @@ impl PyPublicKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         PublicKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -546,7 +553,7 @@ impl PyVaultSecretKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         VaultSecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -613,7 +620,7 @@ impl PyDataMapChunk {
     fn from_hex(hex: &str) -> PyResult<Self> {
         DataMapChunk::from_hex(hex)
             .map(|access| Self { inner: access })
-            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex: {e}")))
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex: {e}")))
     }
 
     fn to_hex(&self) -> String {

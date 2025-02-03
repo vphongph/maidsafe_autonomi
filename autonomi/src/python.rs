@@ -4,33 +4,30 @@
 use crate::client::{
     chunk::DataMapChunk,
     files::{archive_private::PrivateArchiveAccess, archive_public::ArchiveAddr},
-    payment::PaymentOption as RustPaymentOption,
-    vault::{UserData, VaultSecretKey as RustVaultSecretKey},
-    Client as RustClient,
+    payment::PaymentOption,
+    vault::{UserData, VaultSecretKey},
+    Client,
 };
-use crate::{Bytes, Network, Wallet as RustWallet};
-use ant_protocol::storage::{
-    ChunkAddress, Pointer as RustPointer, PointerAddress as RustPointerAddress,
-    PointerTarget as RustPointerTarget,
-};
-use bls::{PublicKey as RustPublicKey, SecretKey as RustSecretKey};
+use crate::{Bytes, Network, Wallet};
+use ant_protocol::storage::{ChunkAddress, Pointer, PointerAddress, PointerTarget};
+use bls::{PublicKey, SecretKey};
 use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use xor_name::XorName;
 
 #[pyclass(name = "Client")]
-pub(crate) struct Client {
-    inner: RustClient,
+pub(crate) struct PyClient {
+    inner: Client,
 }
 
 #[pymethods]
-impl Client {
+impl PyClient {
     #[staticmethod]
     fn init(py: Python) -> PyResult<Bound<PyAny>> {
         future_into_py(py, async {
-            match RustClient::init().await {
-                Ok(client) => Ok(Client { inner: client }),
+            match Client::init().await {
+                Ok(client) => Ok(PyClient { inner: client }),
                 Err(e) => Err(PyConnectionError::new_err(format!(
                     "Failed to connect: {e}"
                 ))),
@@ -42,7 +39,7 @@ impl Client {
         &self,
         py: Python<'a>,
         data: Vec<u8>,
-        payment: &PaymentOption,
+        payment: &PyPaymentOption,
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let payment = payment.inner.clone();
@@ -69,7 +66,7 @@ impl Client {
         &self,
         py: Python<'a>,
         data: Vec<u8>,
-        payment: &PaymentOption,
+        payment: &PyPaymentOption,
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let payment = payment.inner.clone();
@@ -117,7 +114,7 @@ impl Client {
         &self,
         py: Python<'a>,
         data: Vec<u8>,
-        payment: &PaymentOption,
+        payment: &PyPaymentOption,
         key: &PyVaultSecretKey,
         content_type: u64,
     ) -> PyResult<Bound<'a, PyAny>> {
@@ -175,7 +172,7 @@ impl Client {
         &self,
         py: Python<'a>,
         key: &PyVaultSecretKey,
-        payment: &PaymentOption,
+        payment: &PyPaymentOption,
         user_data: &PyUserData,
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
@@ -201,7 +198,7 @@ impl Client {
             &hex::decode(address)
                 .map_err(|e| PyRuntimeError::new_err(format!("Invalid pointer address: {e}")))?,
         );
-        let address = RustPointerAddress::new(xorname);
+        let address = PointerAddress::new(xorname);
 
         future_into_py(py, async move {
             match client.pointer_get(address).await {
@@ -219,10 +216,10 @@ impl Client {
         counter: u32,
         target: &PyPointerTarget,
         key: &PySecretKey,
-        payment_option: &PaymentOption,
+        payment_option: &PyPaymentOption,
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
-        let pointer = RustPointer::new(&key.inner, counter, target.inner.clone());
+        let pointer = Pointer::new(&key.inner, counter, target.inner.clone());
         let payment = payment_option.inner.clone();
 
         future_into_py(py, async move {
@@ -252,7 +249,7 @@ impl Client {
 #[pyclass(name = "PointerAddress")]
 #[derive(Debug, Clone)]
 pub struct PyPointerAddress {
-    inner: RustPointerAddress,
+    inner: PointerAddress,
 }
 
 #[pymethods]
@@ -263,7 +260,7 @@ impl PyPointerAddress {
             .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex string: {e}")))?;
         let xorname = XorName::from_content(&bytes);
         Ok(Self {
-            inner: RustPointerAddress::new(xorname),
+            inner: PointerAddress::new(xorname),
         })
     }
 
@@ -277,7 +274,7 @@ impl PyPointerAddress {
 #[pyclass(name = "Pointer")]
 #[derive(Debug, Clone)]
 pub struct PyPointer {
-    inner: RustPointer,
+    inner: Pointer,
 }
 
 #[pymethods]
@@ -285,7 +282,7 @@ impl PyPointer {
     #[new]
     pub fn new(counter: u32, target: &PyPointerTarget, key: &PySecretKey) -> PyResult<Self> {
         Ok(Self {
-            inner: RustPointer::new(&key.inner, counter, target.inner.clone()),
+            inner: Pointer::new(&key.inner, counter, target.inner.clone()),
         })
     }
 
@@ -304,7 +301,7 @@ impl PyPointer {
     #[getter]
     fn target(&self) -> PyPointerTarget {
         PyPointerTarget {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
+            inner: PointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
     }
 }
@@ -312,7 +309,7 @@ impl PyPointer {
 #[pyclass(name = "PointerTarget")]
 #[derive(Debug, Clone)]
 pub struct PyPointerTarget {
-    inner: RustPointerTarget,
+    inner: PointerTarget,
 }
 
 #[pymethods]
@@ -320,9 +317,7 @@ impl PyPointerTarget {
     #[new]
     fn new(xorname: &[u8]) -> PyResult<Self> {
         Ok(Self {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(
-                xorname,
-            ))),
+            inner: PointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(xorname))),
         })
     }
 
@@ -335,23 +330,21 @@ impl PyPointerTarget {
     #[getter]
     fn target(&self) -> PyPointerTarget {
         PyPointerTarget {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
+            inner: PointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
     }
 
     #[staticmethod]
     fn from_xorname(xorname: &[u8]) -> PyResult<Self> {
         Ok(Self {
-            inner: RustPointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(
-                xorname,
-            ))),
+            inner: PointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(xorname))),
         })
     }
 
     #[staticmethod]
     fn from_chunk_address(addr: &PyChunkAddress) -> Self {
         Self {
-            inner: RustPointerTarget::ChunkAddress(addr.inner),
+            inner: PointerTarget::ChunkAddress(addr.inner),
         }
     }
 }
@@ -391,12 +384,11 @@ impl PyChunkAddress {
 
     #[staticmethod]
     fn from_chunk_address(addr: &str) -> PyResult<Self> {
-        let bytes = hex::decode(addr).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid chunk address: {e}"))
-        })?;
+        let bytes = hex::decode(addr)
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid chunk address: {e}")))?;
 
         if bytes.len() != 32 {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(PyRuntimeError::new_err(
                 "Invalid chunk address length: must be 32 bytes",
             ));
         }
@@ -419,21 +411,19 @@ impl PyChunkAddress {
 }
 
 #[pyclass(name = "Wallet")]
-pub struct Wallet {
-    pub(crate) inner: RustWallet,
+pub struct PyWallet {
+    pub(crate) inner: Wallet,
 }
 
 #[pymethods]
-impl Wallet {
+impl PyWallet {
     #[new]
     fn new(private_key: String) -> PyResult<Self> {
-        let wallet = RustWallet::new_from_private_key(
+        let wallet = Wallet::new_from_private_key(
             Network::ArbitrumOne, // TODO: Make this configurable
             &private_key,
         )
-        .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid private key: {e}"))
-        })?;
+        .map_err(|e| PyRuntimeError::new_err(format!("Invalid private key: {e}")))?;
 
         Ok(Self { inner: wallet })
     }
@@ -468,16 +458,16 @@ impl Wallet {
 }
 
 #[pyclass(name = "PaymentOption")]
-pub struct PaymentOption {
-    pub(crate) inner: RustPaymentOption,
+pub struct PyPaymentOption {
+    pub(crate) inner: PaymentOption,
 }
 
 #[pymethods]
-impl PaymentOption {
+impl PyPaymentOption {
     #[staticmethod]
-    fn wallet(wallet: &Wallet) -> Self {
+    fn wallet(wallet: &PyWallet) -> Self {
         Self {
-            inner: RustPaymentOption::Wallet(wallet.inner.clone()),
+            inner: PaymentOption::Wallet(wallet.inner.clone()),
         }
     }
 }
@@ -485,7 +475,7 @@ impl PaymentOption {
 #[pyclass(name = "SecretKey")]
 #[derive(Debug, Clone)]
 pub struct PySecretKey {
-    inner: RustSecretKey,
+    inner: SecretKey,
 }
 
 #[pymethods]
@@ -493,15 +483,15 @@ impl PySecretKey {
     #[new]
     fn new() -> PyResult<Self> {
         Ok(Self {
-            inner: RustSecretKey::random(),
+            inner: SecretKey::random(),
         })
     }
 
     #[staticmethod]
     fn from_hex(hex_str: &str) -> PyResult<Self> {
-        RustSecretKey::from_hex(hex_str)
+        SecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -512,14 +502,14 @@ impl PySecretKey {
 #[pyclass(name = "PublicKey")]
 #[derive(Debug, Clone)]
 pub struct PyPublicKey {
-    inner: RustPublicKey,
+    inner: PublicKey,
 }
 
 #[pymethods]
 impl PyPublicKey {
     #[new]
     fn new() -> PyResult<Self> {
-        let secret = RustSecretKey::random();
+        let secret = SecretKey::random();
         Ok(Self {
             inner: secret.public_key(),
         })
@@ -527,9 +517,9 @@ impl PyPublicKey {
 
     #[staticmethod]
     fn from_hex(hex_str: &str) -> PyResult<Self> {
-        RustPublicKey::from_hex(hex_str)
+        PublicKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -540,7 +530,7 @@ impl PyPublicKey {
 #[pyclass(name = "VaultSecretKey")]
 #[derive(Debug, Clone)]
 pub struct PyVaultSecretKey {
-    inner: RustVaultSecretKey,
+    inner: VaultSecretKey,
 }
 
 #[pymethods]
@@ -548,15 +538,15 @@ impl PyVaultSecretKey {
     #[new]
     fn new() -> PyResult<Self> {
         Ok(Self {
-            inner: RustVaultSecretKey::random(),
+            inner: VaultSecretKey::random(),
         })
     }
 
     #[staticmethod]
     fn from_hex(hex_str: &str) -> PyResult<Self> {
-        RustVaultSecretKey::from_hex(hex_str)
+        VaultSecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -623,7 +613,7 @@ impl PyDataMapChunk {
     fn from_hex(hex: &str) -> PyResult<Self> {
         DataMapChunk::from_hex(hex)
             .map(|access| Self { inner: access })
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex: {e}")))
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -637,9 +627,8 @@ impl PyDataMapChunk {
 
 #[pyfunction]
 fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
-    let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data)).map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("Encryption failed: {e}"))
-    })?;
+    let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data))
+        .map_err(|e| PyRuntimeError::new_err(format!("Encryption failed: {e}")))?;
 
     let data_map_bytes = rmp_serde::to_vec(&data_map)
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize data map: {e}")))?;
@@ -655,9 +644,9 @@ fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
 #[pymodule]
 #[pyo3(name = "autonomi_client")]
 fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<Client>()?;
-    m.add_class::<Wallet>()?;
-    m.add_class::<PaymentOption>()?;
+    m.add_class::<PyClient>()?;
+    m.add_class::<PyWallet>()?;
+    m.add_class::<PyPaymentOption>()?;
     m.add_class::<PyVaultSecretKey>()?;
     m.add_class::<PyUserData>()?;
     m.add_class::<PyDataMapChunk>()?;

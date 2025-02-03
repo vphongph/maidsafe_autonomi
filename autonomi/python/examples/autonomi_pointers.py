@@ -3,39 +3,37 @@ Example demonstrating the use of pointers in the Autonomi network.
 Pointers allow for creating references to data that can be updated.
 """
 
-from autonomi_client import Client, Wallet, PaymentOption, PublicKey, SecretKey, PointerTarget, ChunkAddress
+from autonomi_client import Client, Network, Wallet, PaymentOption, PublicKey, SecretKey, PointerTarget, ChunkAddress
+import asyncio
 
-def main():
+async def main():
     # Initialize a wallet with a private key
-    # This should be a valid Ethereum private key (64 hex chars without '0x' prefix)
-    private_key = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-    wallet = Wallet(private_key)
+    # This should be a valid Ethereum private key (64 hex chars)
+    private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    network = Network(True)
+    wallet = Wallet.new_from_private_key(network, private_key)
     print(f"Wallet address: {wallet.address()}")
     print(f"Wallet balance: {wallet.balance()}")
 
     # Connect to the network
-    peers = [
-        "/ip4/127.0.0.1/tcp/12000",
-        "/ip4/127.0.0.1/tcp/12001"
-    ]
-    client = Client.connect(peers)
+    client = await Client.init_local()
 
     # First, let's upload some data that we want to point to
     target_data = b"Hello, I'm the target data!"
-    target_addr = client.data_put_public(target_data, PaymentOption.wallet(wallet))
+    target_addr = await client.data_put_public(target_data, PaymentOption.wallet(wallet))
     print(f"Target data uploaded to: {target_addr}")
 
     # Create a pointer target from the address
-    chunk_addr = ChunkAddress.from_hex(target_addr)
+    chunk_addr = ChunkAddress.from_chunk_address(target_addr)
     target = PointerTarget.from_chunk_address(chunk_addr)
     
     # Create owner key pair
-    owner_key = SecretKey.new()
-    owner_pub = PublicKey.from_secret_key(owner_key)
+    owner_key = SecretKey()
+    owner_pub = owner_key.public_key()
     
     # Create and store the pointer
     counter = 0  # Start with counter 0
-    client.pointer_put(owner_pub, counter, target, owner_key, wallet)
+    await client.pointer_put(owner_pub, counter, target, owner_key, wallet)
     print(f"Pointer stored successfully")
 
     # Calculate the pointer address
@@ -43,12 +41,12 @@ def main():
     print(f"Pointer address: {pointer_addr}")
 
     # Later, we can retrieve the pointer
-    pointer = client.pointer_get(pointer_addr)
+    pointer = await client.pointer_get(pointer_addr)
     print(f"Retrieved pointer target: {pointer.target().hex()}")
 
     # We can then use the target address to get the original data
-    retrieved_data = client.data_get_public(pointer.target().hex())
+    retrieved_data = await client.data_get_public(pointer.target().hex())
     print(f"Retrieved target data: {retrieved_data.decode()}")
 
-if __name__ == "__main__":
-    main()
+
+asyncio.run(main())

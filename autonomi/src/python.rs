@@ -35,6 +35,16 @@ impl PyClient {
         })
     }
 
+    #[staticmethod]
+    fn init_local(py: Python) -> PyResult<Bound<PyAny>> {
+        future_into_py(py, async {
+            let inner = Client::init_local()
+                .await
+                .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
+            Ok(PyClient { inner })
+        })
+    }
+
     fn data_put<'a>(
         &self,
         py: Python<'a>,
@@ -199,16 +209,15 @@ impl PyClient {
         })
     }
 
-    fn pointer_get<'a>(&self, py: Python<'a>, addr: &str) -> PyResult<Bound<'a, PyAny>> {
+    fn pointer_get<'a>(
+        &self,
+        py: Python<'a>,
+        addr: PyPointerAddress,
+    ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
-        let xorname = XorName::from_content(
-            &hex::decode(addr)
-                .map_err(|e| PyValueError::new_err(format!("`addr` is invalid: {e:?}")))?,
-        );
-        let addr = PointerAddress::new(xorname);
 
         future_into_py(py, async move {
-            match client.pointer_get(addr).await {
+            match client.pointer_get(addr.inner).await {
                 Ok(pointer) => Ok(PyPointer { inner: pointer }),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get pointer: {e}"
@@ -435,6 +444,14 @@ impl PyWallet {
         Ok(Self { inner: wallet })
     }
 
+    #[staticmethod]
+    fn new_from_private_key(network: PyNetwork, private_key: &str) -> PyResult<Self> {
+        let inner = Wallet::new_from_private_key(network.inner, &private_key)
+            .map_err(|e| PyValueError::new_err(format!("`private_key` invalid: {e}")))?;
+
+        Ok(Self { inner })
+    }
+
     fn address(&self) -> String {
         format!("{:?}", self.inner.address())
     }
@@ -499,6 +516,12 @@ impl PySecretKey {
         SecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
             .map_err(|e| PyValueError::new_err(format!("Invalid hex key: {e}")))
+    }
+
+    fn public_key(&self) -> PyPublicKey {
+        PyPublicKey {
+            inner: self.inner.public_key(),
+        }
     }
 
     fn to_hex(&self) -> String {
@@ -648,6 +671,21 @@ fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
     Ok((data_map_bytes, chunks_bytes))
 }
 
+#[pyclass(name = "Network")]
+#[derive(Debug, Clone)]
+pub struct PyNetwork {
+    inner: Network,
+}
+
+#[pymethods]
+impl PyNetwork {
+    #[new]
+    fn new(local: bool) -> PyResult<Self> {
+        let inner = Network::new(local).map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
+        Ok(Self { inner })
+    }
+}
+
 #[pymodule]
 #[pyo3(name = "autonomi_client")]
 fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -663,6 +701,7 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyChunkAddress>()?;
     m.add_class::<PySecretKey>()?;
     m.add_class::<PyPublicKey>()?;
+    m.add_class::<PyNetwork>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
     Ok(())
 }

@@ -14,7 +14,7 @@ use ant_protocol::storage::{
     PointerTarget as RustPointerTarget,
 };
 use bls::{PublicKey as RustPublicKey, SecretKey as RustSecretKey};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use xor_name::XorName;
@@ -31,7 +31,9 @@ impl Client {
         future_into_py(py, async {
             match RustClient::init().await {
                 Ok(client) => Ok(Client { inner: client }),
-                Err(e) => Err(PyValueError::new_err(format!("Failed to connect: {e}"))),
+                Err(e) => Err(PyConnectionError::new_err(format!(
+                    "Failed to connect: {e}"
+                ))),
             }
         })
     }
@@ -44,7 +46,7 @@ impl Client {
                     .data_put(Bytes::from(data), payment.inner.clone()),
             )
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to put data: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to put data: {e}"))
             })?;
 
         Ok(PyDataMapChunk { inner: access })
@@ -55,7 +57,7 @@ impl Client {
         let data = rt
             .block_on(self.inner.data_get(access.inner.clone()))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to get data: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get data: {e}"))
             })?;
         Ok(data.to_vec())
     }
@@ -74,7 +76,7 @@ impl Client {
                 .await
             {
                 Ok(addr) => Ok(crate::client::address::addr_to_str(addr)),
-                Err(e) => Err(PyValueError::new_err(format!(
+                Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to put data: {:?}",
                     eyre::Report::from(e)
                 ))),
@@ -83,14 +85,14 @@ impl Client {
     }
 
     fn data_get_public<'a>(&self, py: Python<'a>, addr: &str) -> PyResult<Bound<'a, PyAny>> {
-        let this = self.inner.clone();
-        let addr = crate::client::address::str_to_addr(addr).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Invalid address: {e}"))
-        })?;
+        let client = self.inner.clone();
+        let addr = crate::client::address::str_to_addr(addr)
+            .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))?;
+
         future_into_py(py, async move {
-            match this.data_get_public(addr).await {
+            match client.data_get_public(addr).await {
                 Ok(data) => Ok(data.to_vec()),
-                Err(e) => Err(PyValueError::new_err(format!("Failed to put data: {e}"))),
+                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to put data: {e}"))),
             }
         })
     }
@@ -100,7 +102,7 @@ impl Client {
         let cost = rt
             .block_on(self.inner.vault_cost(&key.inner))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to get vault cost: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get vault cost: {e}"))
             })?;
         Ok(cost.to_string())
     }
@@ -121,7 +123,7 @@ impl Client {
                 content_type,
             ))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to write to vault: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write to vault: {e}"))
             })?;
         Ok(cost.to_string())
     }
@@ -131,7 +133,7 @@ impl Client {
         let (data, content_type) = rt
             .block_on(self.inner.fetch_and_decrypt_vault(&key.inner))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to fetch vault: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to fetch vault: {e}"))
             })?;
         Ok((data.to_vec(), content_type))
     }
@@ -141,7 +143,7 @@ impl Client {
         let user_data = rt
             .block_on(self.inner.get_user_data_from_vault(&key.inner))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!(
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
                     "Failed to get user data from vault: {e}"
                 ))
             })?;
@@ -162,7 +164,7 @@ impl Client {
             user_data.inner.clone(),
         ))
         .map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to put user data: {e}"))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to put user data: {e}"))
         })?;
         Ok(())
     }
@@ -170,12 +172,12 @@ impl Client {
     fn pointer_get(&self, address: &str) -> PyResult<PyPointer> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
         let xorname = XorName::from_content(&hex::decode(address).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Invalid pointer address: {e}"))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid pointer address: {e}"))
         })?);
         let address = RustPointerAddress::new(xorname);
 
         let pointer = rt.block_on(self.inner.pointer_get(address)).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to get pointer: {e}"))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get pointer: {e}"))
         })?;
 
         Ok(PyPointer { inner: pointer })
@@ -195,7 +197,7 @@ impl Client {
                 self.inner
                     .pointer_put(pointer, payment_option.inner.clone()),
             )
-            .map_err(|e| PyValueError::new_err(format!("Failed to put pointer: {e}")))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to put pointer: {e}")))?;
         Ok(PyPointerAddress { inner: addr })
     }
 
@@ -204,7 +206,9 @@ impl Client {
         let cost = rt
             .block_on(self.inner.pointer_cost(key.inner))
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to get pointer cost: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to get pointer cost: {e}"
+                ))
             })?;
         Ok(cost.to_string())
     }
@@ -221,7 +225,7 @@ impl PyPointerAddress {
     #[new]
     pub fn new(hex_str: String) -> PyResult<Self> {
         let bytes = hex::decode(&hex_str)
-            .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {e}")))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid hex string: {e}")))?;
         let xorname = XorName::from_content(&bytes);
         Ok(Self {
             inner: RustPointerAddress::new(xorname),
@@ -353,11 +357,11 @@ impl PyChunkAddress {
     #[staticmethod]
     fn from_chunk_address(addr: &str) -> PyResult<Self> {
         let bytes = hex::decode(addr).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Invalid chunk address: {e}"))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid chunk address: {e}"))
         })?;
 
         if bytes.len() != 32 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Invalid chunk address length: must be 32 bytes",
             ));
         }
@@ -393,7 +397,7 @@ impl Wallet {
             &private_key,
         )
         .map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Invalid private key: {e}"))
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid private key: {e}"))
         })?;
 
         Ok(Self { inner: wallet })
@@ -408,7 +412,7 @@ impl Wallet {
         let balance = rt
             .block_on(async { self.inner.balance_of_tokens().await })
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to get balance: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get balance: {e}"))
             })?;
 
         Ok(balance.to_string())
@@ -419,7 +423,7 @@ impl Wallet {
         let balance = rt
             .block_on(async { self.inner.balance_of_gas_tokens().await })
             .map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("Failed to get balance: {e}"))
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get balance: {e}"))
             })?;
 
         Ok(balance.to_string())
@@ -460,7 +464,7 @@ impl PySecretKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         RustSecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -488,7 +492,7 @@ impl PyPublicKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         RustPublicKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -515,7 +519,7 @@ impl PyVaultSecretKey {
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         RustVaultSecretKey::from_hex(hex_str)
             .map(|key| Self { inner: key })
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid hex key: {e}")))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex key: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -582,7 +586,7 @@ impl PyDataMapChunk {
     fn from_hex(hex: &str) -> PyResult<Self> {
         DataMapChunk::from_hex(hex)
             .map(|access| Self { inner: access })
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid hex: {e}")))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid hex: {e}")))
     }
 
     fn to_hex(&self) -> String {
@@ -596,11 +600,12 @@ impl PyDataMapChunk {
 
 #[pyfunction]
 fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
-    let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data))
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Encryption failed: {e}")))?;
+    let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data)).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Encryption failed: {e}"))
+    })?;
 
     let data_map_bytes = rmp_serde::to_vec(&data_map)
-        .map_err(|e| PyValueError::new_err(format!("Failed to serialize data map: {e}")))?;
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize data map: {e}")))?;
 
     let chunks_bytes: Vec<Vec<u8>> = chunks
         .into_iter()

@@ -308,34 +308,34 @@ jobs:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: Create Public Register (writeable by anyone)
-        run: ./target/release/ant --log-output-dest=data-dir --local register create bao 111 --public > ./register_public_create_output 2>&1
+      - name: Create Register
+        run: ./target/release/ant --log-output-dest=data-dir --local register create bao 111 > ./register2_create_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: parse public register address (unix)
+      - name: parse register address (unix)
         if: matrix.os != 'windows-latest'
         run: |
-          PUBLIC_REGISTER_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output)
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" >> $GITHUB_ENV
+          REGISTER2_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register2_create_output)
+          echo "REGISTER2_ADDRESS=$REGISTER2_ADDRESS" >> $GITHUB_ENV
         shell: bash
 
-      - name: parse public register address (win)
+      - name: parse register address (win)
         if: matrix.os == 'windows-latest'
         run: |
-          $PUBLIC_REGISTER_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $REGISTER2_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register2_create_output
+          echo "REGISTER2_ADDRESS=$REGISTER2_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
-      - name: Get Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (current key is the owner)
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: Edit Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 222
+      - name: Edit Register (current key is the owner)
+        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.REGISTER2_ADDRESS }} 222
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
@@ -347,20 +347,14 @@ jobs:
       - name: Generate new register signing key
         run: ./target/release/ant --log-output-dest data-dir register generate-key
 
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (new signing key is not the owner)
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
-      - name: Edit Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 333
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (new signing key is not the owner)
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2

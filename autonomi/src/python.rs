@@ -38,28 +38,31 @@ impl Client {
         })
     }
 
-    fn data_put(&self, data: Vec<u8>, payment: &PaymentOption) -> PyResult<PyDataMapChunk> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let access = rt
-            .block_on(
-                self.inner
-                    .data_put(Bytes::from(data), payment.inner.clone()),
-            )
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to put data: {e}"))
-            })?;
-
-        Ok(PyDataMapChunk { inner: access })
+    fn data_put<'a>(
+        &self,
+        py: Python<'a>,
+        data: Vec<u8>,
+        payment: &PaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment.inner.clone();
+        future_into_py(py, async move {
+            match client.data_put(Bytes::from(data), payment).await {
+                Ok(access) => Ok(PyDataMapChunk { inner: access }),
+                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to put data: {e}"))),
+            }
+        })
     }
 
-    fn data_get(&self, access: &PyDataMapChunk) -> PyResult<Vec<u8>> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let data = rt
-            .block_on(self.inner.data_get(access.inner.clone()))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get data: {e}"))
-            })?;
-        Ok(data.to_vec())
+    fn data_get<'a>(&self, py: Python<'a>, access: &PyDataMapChunk) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let access = access.inner.clone();
+        future_into_py(py, async move {
+            match client.data_get(access).await {
+                Ok(data) => Ok(data.to_vec()),
+                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to get data: {e}"))),
+            }
+        })
     }
 
     fn data_put_public<'a>(
@@ -68,10 +71,10 @@ impl Client {
         data: Vec<u8>,
         payment: &PaymentOption,
     ) -> PyResult<Bound<'a, PyAny>> {
-        let this = self.inner.clone();
+        let client = self.inner.clone();
         let payment = payment.inner.clone();
         future_into_py(py, async move {
-            match this
+            match client
                 .data_put_public(bytes::Bytes::from(data), payment)
                 .await
             {
@@ -97,120 +100,152 @@ impl Client {
         })
     }
 
-    fn vault_cost(&self, key: &PyVaultSecretKey) -> PyResult<String> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let cost = rt
-            .block_on(self.inner.vault_cost(&key.inner))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get vault cost: {e}"))
-            })?;
-        Ok(cost.to_string())
+    fn vault_cost<'a>(&self, py: Python<'a>, key: &PyVaultSecretKey) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let key = key.inner.clone();
+        future_into_py(py, async move {
+            match client.vault_cost(&key).await {
+                Ok(cost) => Ok(cost.to_string()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get vault cost: {e}"
+                ))),
+            }
+        })
     }
 
-    fn write_bytes_to_vault(
+    fn write_bytes_to_vault<'a>(
         &self,
+        py: Python<'a>,
         data: Vec<u8>,
         payment: &PaymentOption,
         key: &PyVaultSecretKey,
         content_type: u64,
-    ) -> PyResult<String> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let cost = rt
-            .block_on(self.inner.write_bytes_to_vault(
-                bytes::Bytes::from(data),
-                payment.inner.clone(),
-                &key.inner,
-                content_type,
-            ))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write to vault: {e}"))
-            })?;
-        Ok(cost.to_string())
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment.inner.clone();
+        let key = key.inner.clone();
+        future_into_py(py, async move {
+            match client
+                .write_bytes_to_vault(bytes::Bytes::from(data), payment, &key, content_type)
+                .await
+            {
+                Ok(cost) => Ok(cost.to_string()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to write to vault: {e}"
+                ))),
+            }
+        })
     }
 
-    fn fetch_and_decrypt_vault(&self, key: &PyVaultSecretKey) -> PyResult<(Vec<u8>, u64)> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let (data, content_type) = rt
-            .block_on(self.inner.fetch_and_decrypt_vault(&key.inner))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to fetch vault: {e}"))
-            })?;
-        Ok((data.to_vec(), content_type))
-    }
-
-    fn get_user_data_from_vault(&self, key: &PyVaultSecretKey) -> PyResult<PyUserData> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let user_data = rt
-            .block_on(self.inner.get_user_data_from_vault(&key.inner))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "Failed to get user data from vault: {e}"
-                ))
-            })?;
-
-        Ok(PyUserData { inner: user_data })
-    }
-
-    fn put_user_data_to_vault(
+    fn fetch_and_decrypt_vault<'a>(
         &self,
+        py: Python<'a>,
+        key: &PyVaultSecretKey,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let key = key.inner.clone();
+        future_into_py(py, async move {
+            match client.fetch_and_decrypt_vault(&key).await {
+                Ok((data, content_type)) => Ok((data.to_vec(), content_type)),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to fetch vault: {e}"
+                ))),
+            }
+        })
+    }
+
+    fn get_user_data_from_vault<'a>(
+        &self,
+        py: Python<'a>,
+        key: &PyVaultSecretKey,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let key = key.inner.clone();
+        future_into_py(py, async move {
+            match client.get_user_data_from_vault(&key).await {
+                Ok(user_data) => Ok(PyUserData { inner: user_data }),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get user data from vault: {e}"
+                ))),
+            }
+        })
+    }
+
+    fn put_user_data_to_vault<'a>(
+        &self,
+        py: Python<'a>,
         key: &PyVaultSecretKey,
         payment: &PaymentOption,
         user_data: &PyUserData,
-    ) -> PyResult<()> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        rt.block_on(self.inner.put_user_data_to_vault(
-            &key.inner,
-            payment.inner.clone(),
-            user_data.inner.clone(),
-        ))
-        .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to put user data: {e}"))
-        })?;
-        Ok(())
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let key = key.inner.clone();
+        let payment = payment.inner.clone();
+        let user_data = user_data.inner.clone();
+        future_into_py(py, async move {
+            match client
+                .put_user_data_to_vault(&key, payment, user_data)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to put user data: {e}"
+                ))),
+            }
+        })
     }
 
-    fn pointer_get(&self, address: &str) -> PyResult<PyPointer> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let xorname = XorName::from_content(&hex::decode(address).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Invalid pointer address: {e}"))
-        })?);
+    fn pointer_get<'a>(&self, py: Python<'a>, address: &str) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let xorname = XorName::from_content(
+            &hex::decode(address)
+                .map_err(|e| PyRuntimeError::new_err(format!("Invalid pointer address: {e}")))?,
+        );
         let address = RustPointerAddress::new(xorname);
 
-        let pointer = rt.block_on(self.inner.pointer_get(address)).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to get pointer: {e}"))
-        })?;
-
-        Ok(PyPointer { inner: pointer })
+        future_into_py(py, async move {
+            match client.pointer_get(address).await {
+                Ok(pointer) => Ok(PyPointer { inner: pointer }),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get pointer: {e}"
+                ))),
+            }
+        })
     }
 
-    fn pointer_put(
+    fn pointer_put<'a>(
         &self,
+        py: Python<'a>,
         counter: u32,
         target: &PyPointerTarget,
         key: &PySecretKey,
         payment_option: &PaymentOption,
-    ) -> PyResult<PyPointerAddress> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
         let pointer = RustPointer::new(&key.inner, counter, target.inner.clone());
-        let (_price, addr) = rt
-            .block_on(
-                self.inner
-                    .pointer_put(pointer, payment_option.inner.clone()),
-            )
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to put pointer: {e}")))?;
-        Ok(PyPointerAddress { inner: addr })
+        let payment = payment_option.inner.clone();
+
+        future_into_py(py, async move {
+            match client.pointer_put(pointer, payment).await {
+                Ok((_price, addr)) => Ok(PyPointerAddress { inner: addr }),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to put pointer: {e}"
+                ))),
+            }
+        })
     }
 
-    fn pointer_cost(&self, key: &PyPublicKey) -> PyResult<String> {
-        let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let cost = rt
-            .block_on(self.inner.pointer_cost(key.inner))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
+    fn pointer_cost<'a>(&self, py: Python<'a>, key: &PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let key = key.inner.clone();
+        future_into_py(py, async move {
+            match client.pointer_cost(key).await {
+                Ok(cost) => Ok(cost.to_string()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get pointer cost: {e}"
-                ))
-            })?;
-        Ok(cost.to_string())
+                ))),
+            }
+        })
     }
 }
 

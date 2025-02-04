@@ -22,7 +22,7 @@ name = "put_and_dir_upload"
 [features]
 default = []
 external-signer = ["ant-evm/external-signer"]
-extension-module = ["pyo3/extension-module"]
+extension-module = ["pyo3/extension-module", "pyo3-async-runtimes"]
 loud = []
 
 [dependencies]
@@ -41,7 +41,7 @@ futures = "0.3.30"
 hex = "~0.4.3"
 libp2p = "0.54.1"
 pyo3 = { version = "0.23.4", optional = true, features = ["extension-module", "abi3-py38"] }
-pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }
+pyo3-async-runtimes = { version = "0.23", optional = true, features = ["tokio-runtime"] }
 rand = "0.8.5"
 rayon = "1.8.0"
 rmp-serde = "1.1.1"

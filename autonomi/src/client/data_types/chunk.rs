@@ -191,13 +191,15 @@ impl Client {
             publisher: None,
             expires: None,
         };
+
+        let stored_on_node = try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
+            .map_err(|e| PutError::Serialization(format!("Failed to serialize chunk: {e:?}")))?
+            .to_vec();
+        let random_nonce = thread_rng().gen::<u64>();
+        let expected_proof = ChunkProof::new(&stored_on_node, random_nonce);
         let target_record = Record {
             key: address.to_record_key(),
-            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
-                .map_err(|_| {
-                    PutError::Serialization("Failed to serialize chunk record".to_string())
-                })?
-                .to_vec(),
+            value: stored_on_node,
             publisher: None,
             expires: None,
         };
@@ -212,7 +214,13 @@ impl Client {
         let put_cfg = PutRecordCfg {
             put_quorum: Quorum::All,
             retry_strategy: None,
-            verification: Some((VerificationKind::Crdt, get_cfg)),
+            verification: Some((
+                VerificationKind::ChunkProof {
+                    expected_proof,
+                    nonce: random_nonce,
+                },
+                get_cfg,
+            )),
             use_put_record_to: Some(payees),
         };
 

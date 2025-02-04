@@ -7,11 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    client::{payment::Receipt, utils::process_tasks_with_max_concurrency, GetError, PutError},
+    client::{payment::{PaymentOption, Receipt}, utils::process_tasks_with_max_concurrency, GetError, PutError},
     self_encryption::DataMapLevel,
     Client,
 };
-use ant_evm::ProofOfPayment;
+use ant_evm::{Amount, AttoTokens, ProofOfPayment};
 use ant_networking::{
     GetRecordCfg, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind,
 };
@@ -144,6 +144,107 @@ impl Client {
             );
             Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)).into())
         }
+    }
+
+    /// Manually upload a chunk to the network.
+    /// It is recommended to use the [`Client::data_put`] method instead to upload data.
+    pub async fn chunk_put(
+        &self,
+        chunk: &Chunk,
+        payment_option: PaymentOption,
+    ) -> Result<(AttoTokens, ChunkAddress), PutError> {
+        let address = chunk.network_address();
+
+        // pay for the chunk storage
+        let xor_name = *chunk.name();
+        debug!("Paying for chunk at address: {address:?}");
+        let (payment_proofs, _skipped_payments) = self
+            .pay_for_content_addrs(
+                DataTypes::Chunk,
+                std::iter::once((xor_name, chunk.serialised_size())),
+                payment_option,
+            )
+            .await
+            .inspect_err(|err| error!("Error paying for chunk {address:?} :{err:?}"))?;
+
+        // verify payment was successful
+        let (proof, price) = match payment_proofs.get(&xor_name) {
+            Some((proof, price)) => (proof, price),
+            None => {
+                info!("Chunk at address: {address:?} was already paid for");
+                return Ok((AttoTokens::zero(), *chunk.address()));
+            }
+        };
+        let total_cost = *price;
+
+        let payees = proof.payees();
+        let record = Record {
+            key: address.to_record_key(),
+            value: try_serialize_record(
+                &(proof, chunk),
+                RecordKind::DataWithPayment(DataTypes::Chunk),
+            )
+            .map_err(|_| {
+                PutError::Serialization("Failed to serialize chunk with payment".to_string())
+            })?
+            .to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let target_record = Record {
+            key: address.to_record_key(),
+            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
+                .map_err(|_| {
+                    PutError::Serialization("Failed to serialize chunk record".to_string())
+                })?
+                .to_vec(),
+            publisher: None,
+            expires: None,
+        };
+
+        let get_cfg = GetRecordCfg {
+            get_quorum: Quorum::Majority,
+            retry_strategy: Some(RetryStrategy::default()),
+            target_record: Some(target_record),
+            expected_holders: Default::default(),
+        };
+
+        let put_cfg = PutRecordCfg {
+            put_quorum: Quorum::All,
+            retry_strategy: None,
+            verification: Some((VerificationKind::Crdt, get_cfg)),
+            use_put_record_to: Some(payees),
+        };
+
+        // store the chunk on the network
+        debug!("Storing chunk at address: {address:?} to the network");
+        self.network
+            .put_record(record, &put_cfg)
+            .await
+            .inspect_err(|err| {
+                error!("Failed to put record - chunk {address:?} to the network: {err}")
+            })?;
+
+        Ok((total_cost, *chunk.address()))
+    }
+
+    /// Get the cost of a chunk.
+    pub async fn chunk_cost(&self, addr: &ChunkAddress) -> Result<AttoTokens, CostError> {
+        trace!("Getting cost for chunk of {addr:?}");
+
+        let xor = *addr.xorname();
+        let store_quote = self
+            .get_store_quotes(DataTypes::Chunk, std::iter::once((xor, Chunk::MAX_SIZE)))
+            .await?;
+        let total_cost = AttoTokens::from_atto(
+            store_quote
+                .0
+                .values()
+                .map(|quote| quote.price())
+                .sum::<Amount>(),
+        );
+        debug!("Calculated the cost to create chunk of {addr:?} is {total_cost}");
+        Ok(total_cost)
     }
 
     /// Upload chunks and retry failed uploads up to `RETRY_ATTEMPTS` times.

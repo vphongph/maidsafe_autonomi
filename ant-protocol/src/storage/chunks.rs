@@ -25,6 +25,9 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    /// The maximum size of a chunk is 1MB
+    pub const MAX_SIZE: usize = 1024 * 1024;
+
     /// Creates a new instance of `Chunk`.
     pub fn new(value: Bytes) -> Self {
         Self {

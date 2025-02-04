@@ -109,12 +109,17 @@ impl PyClient {
         })
     }
 
-    fn vault_cost<'a>(&self, py: Python<'a>, key: &PyVaultSecretKey) -> PyResult<Bound<'a, PyAny>> {
+    fn vault_cost<'a>(
+        &self,
+        py: Python<'a>,
+        key: &PyVaultSecretKey,
+        max_expected_size: u64,
+    ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner.clone();
 
         future_into_py(py, async move {
-            match client.vault_cost(&key).await {
+            match client.vault_cost(&key, max_expected_size).await {
                 Ok(cost) => Ok(cost.to_string()),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get vault cost: {e}"

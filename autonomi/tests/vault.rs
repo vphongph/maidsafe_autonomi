@@ -84,6 +84,9 @@ async fn vault_expand() -> Result<()> {
         .await?;
     assert_eq!(cost, AttoTokens::from_u64(6));
 
+    // Short break is required to avoid client choked by the last query round
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
     let (fetched_content, fetched_content_type) = client.fetch_and_decrypt_vault(&main_key).await?;
     assert_eq!(fetched_content_type, content_type);
     assert_eq!(fetched_content, update_content_10_mb);

@@ -13,7 +13,8 @@ use crate::client::{
 };
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
 use ant_networking::{
-    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, VerificationKind,
+    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy,
+    VerificationKind,
 };
 use ant_protocol::{
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
@@ -54,11 +55,16 @@ impl Client {
         let key = NetworkAddress::from_pointer_address(address).to_record_key();
         debug!("Fetching pointer from network at: {key:?}");
         let get_cfg = GetRecordCfg {
-            get_quorum: self.operation_config.pointer_operation_config.read_quorum,
+            get_quorum: self
+                .operation_config
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -100,11 +106,16 @@ impl Client {
         let key = NetworkAddress::from_pointer_address(*address).to_record_key();
         debug!("Checking pointer existance at: {key:?}");
         let get_cfg = GetRecordCfg {
-            get_quorum: self.operation_config.pointer_operation_config.read_quorum,
+            get_quorum: self
+                .operation_config
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -192,12 +203,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .pointer_operation_config
-                .verification_quorum,
+                .as_ref()
+                .verification_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .verification_retry_strategy,
+                .as_ref()
+                .verification_retry_strategy
+                .unwrap_or(RetryStrategy::Balanced),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -206,8 +219,9 @@ impl Client {
             put_quorum: ResponseQuorum::All,
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             verification: Some((VerificationKind::Crdt, get_cfg)),
             use_put_record_to: payees,
         };
@@ -287,12 +301,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .pointer_operation_config
-                .verification_quorum,
+                .as_ref()
+                .verification_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .verification_retry_strategy,
+                .as_ref()
+                .verification_retry_strategy
+                .unwrap_or(RetryStrategy::Balanced),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -300,8 +316,9 @@ impl Client {
             put_quorum: ResponseQuorum::All,
             retry_strategy: self
                 .operation_config
-                .pointer_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             verification: Some((VerificationKind::Crdt, get_cfg)),
             use_put_record_to: None,
         };

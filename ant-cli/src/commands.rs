@@ -58,8 +58,6 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
-        /// Optionally specify the quorum for the verification of the upload.
-        verification_quorum: Option<ResponseQuorum>,
     },
 
     /// Download a file from the given address.
@@ -197,11 +195,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     match cmd {
         Some(SubCmd::File { command }) => match command {
             FileCmd::Cost { file } => file::cost(&file, peers.await?).await,
-            FileCmd::Upload {
-                file,
-                public,
-                verification_quorum,
-            } => file::upload(&file, public, peers.await?, verification_quorum).await,
+            FileCmd::Upload { file, public } => file::upload(&file, public, peers.await?).await,
             FileCmd::Download {
                 addr,
                 dest_file,

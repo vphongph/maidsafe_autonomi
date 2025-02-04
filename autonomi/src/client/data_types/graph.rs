@@ -17,6 +17,7 @@ use ant_evm::{Amount, AttoTokens, EvmWalletError};
 use ant_networking::get_graph_entry_from_record;
 use ant_networking::GetRecordError;
 use ant_networking::ResponseQuorum;
+use ant_networking::RetryStrategy;
 use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
 use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
@@ -59,11 +60,16 @@ impl Client {
     ) -> Result<GraphEntry, GraphError> {
         let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
         let get_cfg = GetRecordCfg {
-            get_quorum: self.operation_config.graph_operation_config.read_quorum,
+            get_quorum: self
+                .operation_config
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::All),
             retry_strategy: self
                 .operation_config
-                .graph_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -91,11 +97,16 @@ impl Client {
         let key = NetworkAddress::from_graph_entry_address(*address).to_record_key();
         debug!("Checking graph_entry existance at: {key:?}");
         let get_cfg = GetRecordCfg {
-            get_quorum: self.operation_config.graph_operation_config.read_quorum,
+            get_quorum: self
+                .operation_config
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::All),
             retry_strategy: self
                 .operation_config
-                .graph_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -162,12 +173,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .graph_operation_config
-                .verification_quorum,
+                .as_ref()
+                .verification_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .graph_operation_config
-                .verification_retry_strategy,
+                .as_ref()
+                .verification_retry_strategy
+                .unwrap_or(RetryStrategy::Balanced),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -175,8 +188,9 @@ impl Client {
             put_quorum: ResponseQuorum::All,
             retry_strategy: self
                 .operation_config
-                .graph_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             use_put_record_to: Some(payees),
             verification: Some((VerificationKind::Crdt, get_cfg)),
         };

@@ -10,7 +10,8 @@ use crate::client::payment::{PayError, PaymentOption};
 use crate::{client::quote::CostError, Client};
 use crate::{Amount, AttoTokens};
 use ant_networking::{
-    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, VerificationKind,
+    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy,
+    VerificationKind,
 };
 use ant_protocol::storage::{try_serialize_record, RecordKind};
 use ant_protocol::{
@@ -73,12 +74,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .scratchpad_operation_config
-                .read_quorum,
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: HashSet::new(),
         };
@@ -146,12 +149,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .scratchpad_operation_config
-                .read_quorum,
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: HashSet::new(),
         };
@@ -246,12 +251,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .scratchpad_operation_config
-                .verification_quorum,
+                .as_ref()
+                .verification_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .verification_retry_strategy,
+                .as_ref()
+                .verification_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -260,8 +267,9 @@ impl Client {
             put_quorum: ResponseQuorum::All,
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::None),
             verification: Some((VerificationKind::Crdt, get_cfg)),
             use_put_record_to: payees,
         };
@@ -350,12 +358,14 @@ impl Client {
         let get_cfg = GetRecordCfg {
             get_quorum: self
                 .operation_config
-                .scratchpad_operation_config
-                .verification_quorum,
+                .as_ref()
+                .verification_quorum
+                .unwrap_or(ResponseQuorum::Majority),
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .verification_retry_strategy,
+                .as_ref()
+                .verification_retry_strategy
+                .unwrap_or(RetryStrategy::Quick),
             target_record: None,
             expected_holders: Default::default(),
         };
@@ -364,8 +374,9 @@ impl Client {
             put_quorum: ResponseQuorum::All,
             retry_strategy: self
                 .operation_config
-                .scratchpad_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::None),
             verification: Some((VerificationKind::Crdt, get_cfg)),
             use_put_record_to: None,
         };

@@ -89,12 +89,8 @@ pub use libp2p::Multiaddr;
 #[doc(inline)]
 pub use client::{
     // Client Configs
-    config::ChunkOperationConfig,
     config::ClientConfig,
     config::ClientOperationConfig,
-    config::GraphOperationConfig,
-    config::PointerOperationConfig,
-    config::ScratchpadOperationConfig,
 
     // Native data types
     data_types::chunk::Chunk,

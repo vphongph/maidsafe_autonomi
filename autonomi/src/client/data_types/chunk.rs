@@ -12,7 +12,9 @@ use crate::{
     Client,
 };
 use ant_evm::ProofOfPayment;
-use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, ResponseQuorum, VerificationKind};
+use ant_networking::{
+    GetRecordCfg, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind,
+};
 use ant_protocol::{
     messages::ChunkProof,
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
@@ -26,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     hash::{DefaultHasher, Hash, Hasher},
+    num::NonZero,
     sync::LazyLock,
 };
 
@@ -108,12 +111,18 @@ impl Client {
 
         let key = NetworkAddress::from_chunk_address(addr).to_record_key();
         debug!("Fetching chunk from network at: {key:?}");
+
         let get_cfg = GetRecordCfg {
-            get_quorum: self.operation_config.chunk_operation_config.read_quorum,
+            get_quorum: self
+                .operation_config
+                .as_ref()
+                .read_quorum
+                .unwrap_or(ResponseQuorum::One),
             retry_strategy: self
                 .operation_config
-                .chunk_operation_config
-                .read_retry_strategy,
+                .as_ref()
+                .read_retry_strategy
+                .unwrap_or(RetryStrategy::Balanced),
             target_record: None,
             expected_holders: HashSet::new(),
         };
@@ -230,12 +239,14 @@ impl Client {
             let verification_cfg = GetRecordCfg {
                 get_quorum: self
                     .operation_config
-                    .chunk_operation_config
-                    .verification_quorum,
+                    .as_ref()
+                    .verification_quorum
+                    .unwrap_or(ResponseQuorum::N(NonZero::new(2).expect("2 is non-zero"))),
                 retry_strategy: self
                     .operation_config
-                    .chunk_operation_config
-                    .verification_retry_strategy,
+                    .as_ref()
+                    .verification_retry_strategy
+                    .unwrap_or(RetryStrategy::Balanced),
                 target_record: None,
                 expected_holders: Default::default(),
             };
@@ -262,8 +273,9 @@ impl Client {
             put_quorum: ResponseQuorum::One,
             retry_strategy: self
                 .operation_config
-                .chunk_operation_config
-                .write_retry_strategy,
+                .as_ref()
+                .write_retry_strategy
+                .unwrap_or(RetryStrategy::Balanced),
             use_put_record_to: Some(storing_nodes.clone()),
             verification,
         };

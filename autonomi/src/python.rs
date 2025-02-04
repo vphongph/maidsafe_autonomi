@@ -247,7 +247,7 @@ impl PyClient {
 
     fn pointer_cost<'a>(&self, py: Python<'a>, key: &PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
-        let key = key.inner.clone();
+        let key = key.inner;
 
         future_into_py(py, async move {
             match client.pointer_cost(key).await {
@@ -443,7 +443,7 @@ impl PyWallet {
 
     #[staticmethod]
     fn new_from_private_key(network: PyNetwork, private_key: &str) -> PyResult<Self> {
-        let inner = Wallet::new_from_private_key(network.inner, &private_key)
+        let inner = Wallet::new_from_private_key(network.inner, private_key)
             .map_err(|e| PyValueError::new_err(format!("`private_key` invalid: {e}")))?;
 
         Ok(Self { inner })

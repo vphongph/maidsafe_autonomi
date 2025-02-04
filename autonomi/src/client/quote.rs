@@ -7,6 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::Client;
+use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use ant_evm::payment_vault::get_market_price;
 use ant_evm::{Amount, PaymentQuote, QuotePayment, QuotingMetrics};
 use ant_networking::{Network, NetworkError};
@@ -91,14 +93,16 @@ impl Client {
             })
             .collect();
 
-        let raw_quotes_per_addr = futures::future::try_join_all(futures).await?;
+        let raw_quotes_per_addr =
+            process_tasks_with_max_concurrency(futures, *FILE_UPLOAD_BATCH_SIZE).await;
 
         // choose the quotes to pay for each address
         let mut quotes_to_pay_per_addr = HashMap::new();
 
-        for (content_addr, raw_quotes) in raw_quotes_per_addr {
+        for result in raw_quotes_per_addr {
+            let (content_addr, raw_quotes) = result?;
             debug!(
-                "fetching market price for content_addr: {content_addr}, with {} quotes.",
+                "fetched market price for content_addr: {content_addr}, with {} quotes.",
                 raw_quotes.len()
             );
 

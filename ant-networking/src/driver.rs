@@ -11,6 +11,7 @@ use crate::{
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
     config::GetRecordCfg,
+    driver::kad::U256,
     error::{NetworkError, Result},
     event::{NetworkEvent, NodeEvent},
     external_address::ExternalAddressManager,
@@ -33,7 +34,6 @@ use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::PaymentQuote;
 use ant_protocol::{
     messages::{Request, Response},
-    storage::RetryStrategy,
     version::{
         get_network_id, IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_NODE_VERSION_STR,
         IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR,

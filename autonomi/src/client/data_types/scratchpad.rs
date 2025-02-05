@@ -9,17 +9,13 @@
 use crate::client::payment::{PayError, PaymentOption};
 use crate::{client::quote::CostError, Client};
 use crate::{Amount, AttoTokens};
-use ant_networking::{
-    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy,
-    VerificationKind,
-};
+use ant_networking::{GetRecordError, NetworkError};
 use ant_protocol::storage::{try_serialize_record, RecordKind};
 use ant_protocol::{
     storage::{try_deserialize_record, DataTypes},
     NetworkAddress,
 };
 use libp2p::kad::Record;
-use std::collections::HashSet;
 
 pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
@@ -70,22 +66,7 @@ impl Client {
         let network_address = NetworkAddress::from_scratchpad_address(*address);
         info!("Fetching scratchpad from network at {network_address:?}",);
         let scratch_key = network_address.to_record_key();
-
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: HashSet::new(),
-        };
-
+        let get_cfg = self.config.scratchpad.get_cfg();
         let pad = match self
             .network
             .get_record_from_network(scratch_key.clone(), &get_cfg)
@@ -146,21 +127,7 @@ impl Client {
     ) -> Result<bool, ScratchpadError> {
         let key = NetworkAddress::from_scratchpad_address(*address).to_record_key();
         debug!("Checking scratchpad existance at: {key:?}");
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: HashSet::new(),
-        };
-
+        let get_cfg = self.config.scratchpad.verification_cfg();
         match self
             .network
             .get_record_from_network(key.clone(), &get_cfg)
@@ -248,34 +215,9 @@ impl Client {
             (record, None)
         };
 
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .verification_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .verification_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::All,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::None),
-            verification: Some((VerificationKind::Crdt, get_cfg)),
-            use_put_record_to: payees,
-        };
-
         // store the scratchpad on the network
         debug!("Storing scratchpad at address {address:?} to the network");
+        let put_cfg = self.config.scratchpad.put_cfg(payees);
         self.network
             .put_record(record, &put_cfg)
             .await
@@ -355,33 +297,9 @@ impl Client {
             publisher: None,
             expires: None,
         };
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .verification_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .verification_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::All,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::None),
-            verification: Some((VerificationKind::Crdt, get_cfg)),
-            use_put_record_to: None,
-        };
 
         // store the scratchpad on the network
+        let put_cfg = self.config.scratchpad.put_cfg(None);
         debug!("Updating scratchpad at address {address:?} to the network");
         self.network
             .put_record(record, &put_cfg)

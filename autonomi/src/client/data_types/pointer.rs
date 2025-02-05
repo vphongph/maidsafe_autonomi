@@ -12,10 +12,7 @@ use crate::client::{
     Client,
 };
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
-use ant_networking::{
-    GetRecordCfg, GetRecordError, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy,
-    VerificationKind,
-};
+use ant_networking::{GetRecordError, NetworkError};
 use ant_protocol::{
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
@@ -54,21 +51,8 @@ impl Client {
     pub async fn pointer_get(&self, address: PointerAddress) -> Result<Pointer, PointerError> {
         let key = NetworkAddress::from_pointer_address(address).to_record_key();
         debug!("Fetching pointer from network at: {key:?}");
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
 
+        let get_cfg = self.config.pointer.get_cfg();
         let record = self
             .network
             .get_record_from_network(key.clone(), &get_cfg)
@@ -105,21 +89,7 @@ impl Client {
     ) -> Result<bool, PointerError> {
         let key = NetworkAddress::from_pointer_address(*address).to_record_key();
         debug!("Checking pointer existance at: {key:?}");
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-
+        let get_cfg = self.config.pointer.verification_cfg();
         match self
             .network
             .get_record_from_network(key.clone(), &get_cfg)
@@ -153,7 +123,6 @@ impl Client {
         let xor_name = *address.xorname();
         debug!("Paying for pointer at address: {address:?}");
         let (payment_proofs, _skipped_payments) = self
-            // TODO: define Pointer default size for pricing
             .pay_for_content_addrs(
                 DataTypes::Pointer,
                 std::iter::once((xor_name, Pointer::size())),
@@ -200,34 +169,9 @@ impl Client {
             (record, None)
         };
 
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .verification_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .verification_retry_strategy
-                .unwrap_or(RetryStrategy::Balanced),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::All,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            verification: Some((VerificationKind::Crdt, get_cfg)),
-            use_put_record_to: payees,
-        };
-
         // store the pointer on the network
         debug!("Storing pointer at address {address:?} to the network");
+        let put_cfg = self.config.pointer.put_cfg(payees);
         self.network
             .put_record(record, &put_cfg)
             .await
@@ -298,33 +242,10 @@ impl Client {
             publisher: None,
             expires: None,
         };
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .verification_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .verification_retry_strategy
-                .unwrap_or(RetryStrategy::Balanced),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::All,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            verification: Some((VerificationKind::Crdt, get_cfg)),
-            use_put_record_to: None,
-        };
 
         // store the pointer on the network
         debug!("Updating pointer at address {address:?} to the network");
+        let put_cfg = self.config.pointer.put_cfg(None);
         self.network
             .put_record(record, &put_cfg)
             .await

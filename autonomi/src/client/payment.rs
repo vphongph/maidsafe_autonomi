@@ -6,7 +6,7 @@ use xor_name::XorName;
 
 use super::quote::CostError;
 
-pub use crate::{AttoTokens, Amount};
+pub use crate::{Amount, AttoTokens};
 
 /// Contains the proof of payments for each XOR address and the amount paid
 pub type Receipt = HashMap<XorName, (ProofOfPayment, AttoTokens)>;

@@ -7,28 +7,27 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    client::{payment::{PaymentOption, Receipt}, utils::process_tasks_with_max_concurrency, GetError, PutError},
+    client::{
+        payment::{PaymentOption, Receipt},
+        quote::CostError,
+        utils::process_tasks_with_max_concurrency,
+        GetError, PutError,
+    },
     self_encryption::DataMapLevel,
     Client,
 };
 use ant_evm::{Amount, AttoTokens, ProofOfPayment};
-use ant_networking::{
-    GetRecordCfg, NetworkError, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind,
-};
+use ant_networking::NetworkError;
 use ant_protocol::{
-    messages::ChunkProof,
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
 };
 use bytes::Bytes;
 use libp2p::kad::Record;
-use rand::{thread_rng, Rng};
 use self_encryption::{decrypt_full_set, DataMap, EncryptedChunk};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     hash::{DefaultHasher, Hash, Hasher},
-    num::NonZero,
     sync::LazyLock,
 };
 
@@ -112,21 +111,7 @@ impl Client {
         let key = NetworkAddress::from_chunk_address(addr).to_record_key();
         debug!("Fetching chunk from network at: {key:?}");
 
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::One),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Balanced),
-            target_record: None,
-            expected_holders: HashSet::new(),
-        };
-
+        let get_cfg = self.config.chunks.get_cfg();
         let record = self
             .network
             .get_record_from_network(key, &get_cfg)
@@ -195,8 +180,6 @@ impl Client {
         let stored_on_node = try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
             .map_err(|e| PutError::Serialization(format!("Failed to serialize chunk: {e:?}")))?
             .to_vec();
-        let random_nonce = thread_rng().gen::<u64>();
-        let expected_proof = ChunkProof::new(&stored_on_node, random_nonce);
         let target_record = Record {
             key: address.to_record_key(),
             value: stored_on_node,
@@ -204,28 +187,9 @@ impl Client {
             expires: None,
         };
 
-        let get_cfg = GetRecordCfg {
-            get_quorum: Quorum::Majority,
-            retry_strategy: Some(RetryStrategy::default()),
-            target_record: Some(target_record),
-            expected_holders: Default::default(),
-        };
-
-        let put_cfg = PutRecordCfg {
-            put_quorum: Quorum::All,
-            retry_strategy: None,
-            verification: Some((
-                VerificationKind::ChunkProof {
-                    expected_proof,
-                    nonce: random_nonce,
-                },
-                get_cfg,
-            )),
-            use_put_record_to: Some(payees),
-        };
-
         // store the chunk on the network
         debug!("Storing chunk at address: {address:?} to the network");
+        let put_cfg = self.config.chunks.chunk_put_cfg(target_record, payees);
         self.network
             .put_record(record, &put_cfg)
             .await
@@ -347,50 +311,20 @@ impl Client {
             expires: None,
         };
 
-        let verification = {
-            let verification_cfg = GetRecordCfg {
-                get_quorum: self
-                    .operation_config
-                    .as_ref()
-                    .verification_quorum
-                    .unwrap_or(ResponseQuorum::N(NonZero::new(2).expect("2 is non-zero"))),
-                retry_strategy: self
-                    .operation_config
-                    .as_ref()
-                    .verification_retry_strategy
-                    .unwrap_or(RetryStrategy::Balanced),
-                target_record: None,
-                expected_holders: Default::default(),
-            };
-
-            let stored_on_node =
-                try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
-                    .map_err(|e| {
-                        PutError::Serialization(format!("Failed to serialize chunk: {e:?}"))
-                    })?
-                    .to_vec();
-            let random_nonce = thread_rng().gen::<u64>();
-            let expected_proof = ChunkProof::new(&stored_on_node, random_nonce);
-
-            Some((
-                VerificationKind::ChunkProof {
-                    expected_proof,
-                    nonce: random_nonce,
-                },
-                verification_cfg,
-            ))
+        let stored_on_node = try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))
+            .map_err(|e| PutError::Serialization(format!("Failed to serialize chunk: {e:?}")))?
+            .to_vec();
+        let target_record = Record {
+            key,
+            value: stored_on_node,
+            publisher: None,
+            expires: None,
         };
 
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::One,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::Balanced),
-            use_put_record_to: Some(storing_nodes.clone()),
-            verification,
-        };
+        let put_cfg = self
+            .config
+            .chunks
+            .chunk_put_cfg(target_record, storing_nodes.clone());
         self.network.put_record(record, &put_cfg).await?;
         debug!("Successfully stored chunk: {chunk:?} to {storing_nodes:?}");
         Ok(*chunk.address())

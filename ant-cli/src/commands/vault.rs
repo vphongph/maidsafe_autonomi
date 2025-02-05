@@ -13,7 +13,7 @@ use color_eyre::eyre::Result;
 use color_eyre::Section;
 
 pub async fn cost(peers: NetworkPeers, expected_max_size: u64) -> Result<()> {
-    let client = crate::actions::connect_to_network(peers, Default::default()).await?;
+    let client = crate::actions::connect_to_network(peers).await?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
 
     println!("Getting cost to create a new vault...");
@@ -28,7 +28,7 @@ pub async fn cost(peers: NetworkPeers, expected_max_size: u64) -> Result<()> {
 }
 
 pub async fn create(peers: NetworkPeers) -> Result<()> {
-    let client = crate::actions::connect_to_network(peers, Default::default()).await?;
+    let client = crate::actions::connect_to_network(peers).await?;
     let wallet = load_wallet(client.evm_network())?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
 
@@ -57,7 +57,7 @@ pub async fn create(peers: NetworkPeers) -> Result<()> {
 }
 
 pub async fn sync(force: bool, peers: NetworkPeers) -> Result<()> {
-    let client = crate::actions::connect_to_network(peers, Default::default()).await?;
+    let client = crate::actions::connect_to_network(peers).await?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
     let wallet = load_wallet(client.evm_network())?;
 
@@ -93,7 +93,7 @@ pub async fn sync(force: bool, peers: NetworkPeers) -> Result<()> {
 }
 
 pub async fn load(peers: NetworkPeers) -> Result<()> {
-    let client = crate::actions::connect_to_network(peers, Default::default()).await?;
+    let client = crate::actions::connect_to_network(peers).await?;
     let vault_sk = crate::keys::get_vault_secret_key()?;
 
     println!("Retrieving vault from network...");

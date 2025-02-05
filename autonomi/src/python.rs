@@ -1,6 +1,5 @@
 use crate::client::{
     chunk::DataMapChunk,
-    files::{archive_private::PrivateArchiveAccess, archive_public::ArchiveAddr},
     payment::PaymentOption,
     vault::{UserData, VaultSecretKey},
     Client,
@@ -299,15 +298,17 @@ pub struct PyPointerAddress {
 
 #[pymethods]
 impl PyPointerAddress {
-    /// Creates a new pointer address from a hex string.
-    #[new]
-    pub fn new(hex_str: String) -> PyResult<Self> {
-        let bytes = hex::decode(&hex_str)
-            .map_err(|e| PyValueError::new_err(format!("`hex_str` is invalid: {e:?}")))?;
-        let xorname = XorName::from_content(&bytes);
+    /// Initialise pointer address from hex string.
+    #[staticmethod]
+    pub fn from_hex(hex: String) -> PyResult<Self> {
+        let bytes = hex::decode(hex)
+            .map_err(|e| PyValueError::new_err(format!("`hex` not a valid hex string: {e}")))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| PyValueError::new_err("`hex` invalid: must be 32 bytes"))?;
 
         Ok(Self {
-            inner: PointerAddress::new(xorname),
+            inner: PointerAddress::new(XorName(bytes)),
         })
     }
 
@@ -371,11 +372,17 @@ pub struct PyPointerTarget {
 
 #[pymethods]
 impl PyPointerTarget {
-    /// Creates a new pointer target from a xorname byte array.
-    #[new]
-    fn new(xorname: &[u8]) -> PyResult<Self> {
+    /// Initialize a pointer target from a chunk address hex string.
+    #[staticmethod]
+    fn from_hex(hex: &str) -> PyResult<Self> {
+        let bytes = hex::decode(hex)
+            .map_err(|e| PyValueError::new_err(format!("`hex` not a valid hex string: {e}")))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| PyValueError::new_err("`hex` invalid: must be 32 bytes"))?;
+
         Ok(Self {
-            inner: PointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(xorname))),
+            inner: PointerTarget::ChunkAddress(ChunkAddress::new(XorName(bytes))),
         })
     }
 
@@ -391,14 +398,6 @@ impl PyPointerTarget {
         PyPointerTarget {
             inner: PointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
-    }
-
-    /// Creates a pointer target from a xorname byte array.
-    #[staticmethod]
-    fn from_xorname(xorname: &[u8]) -> PyResult<Self> {
-        Ok(Self {
-            inner: PointerTarget::ChunkAddress(ChunkAddress::new(XorName::from_content(xorname))),
-        })
     }
 
     /// Creates a pointer target from a chunk address.
@@ -672,21 +671,6 @@ impl PyUserData {
         Self {
             inner: UserData::new(),
         }
-    }
-
-    fn add_file_archive(&mut self, archive: &str) -> Option<String> {
-        let name = XorName::from_content(archive.as_bytes());
-        let archive_addr = ArchiveAddr::from_content(&name);
-        self.inner.add_file_archive(archive_addr)
-    }
-
-    fn add_private_file_archive(&mut self, archive: &str) -> Option<String> {
-        let name = XorName::from_content(archive.as_bytes());
-        let private_access = match PrivateArchiveAccess::from_hex(&name.to_string()) {
-            Ok(access) => access,
-            Err(_e) => return None,
-        };
-        self.inner.add_private_file_archive(private_access)
     }
 
     /// Returns a list of public file archives as (address, name) pairs.

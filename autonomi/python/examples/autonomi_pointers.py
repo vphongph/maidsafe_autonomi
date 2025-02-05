@@ -29,6 +29,10 @@ async def main():
     # Create owner key pair
     key = SecretKey()
 
+    # Estimate the cost of the pointer
+    cost = await client.pointer_cost(key.public_key())
+    print(f"pointer cost: {cost}")
+
     # Create the pointer
     pointer = Pointer(key, 0, target)
     payment_option = PaymentOption.wallet(wallet)

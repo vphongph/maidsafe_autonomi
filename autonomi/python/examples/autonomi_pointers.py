@@ -3,7 +3,7 @@ Example demonstrating the use of pointers in the Autonomi network.
 Pointers allow for creating references to data that can be updated.
 """
 
-from autonomi_client import Client, Network, Wallet, PaymentOption, PublicKey, SecretKey, PointerTarget, ChunkAddress, Pointer
+from autonomi_client import Client, Network, Wallet, PaymentOption, SecretKey, PointerTarget, ChunkAddress, Pointer
 import asyncio
 
 async def main():
@@ -24,20 +24,20 @@ async def main():
     print(f"Target data uploaded to: {target_addr}")
 
     # Create a pointer target from the address
-    chunk_addr = ChunkAddress.from_chunk_address(target_addr)
-    target = PointerTarget.from_chunk_address(chunk_addr)
+    target = PointerTarget.from_chunk_address(ChunkAddress(target_addr))
     
     # Create owner key pair
-    owner_key = SecretKey()
-    owner_pub = owner_key.public_key()
+    key = SecretKey()
 
-    pointer = Pointer(owner_key, 0, target)
+    # Create the pointer
+    pointer = Pointer(key, 0, target)
     payment_option = PaymentOption.wallet(wallet)
     
     # Create and store the pointer
     pointer_addr = await client.pointer_put(pointer, payment_option)
-    print(f"Pointer stored successfully")
+    print("Pointer stored successfully")
 
+    # Wait for the pointer to be stored by the network
     await asyncio.sleep(1)
 
     # Later, we can retrieve the pointer

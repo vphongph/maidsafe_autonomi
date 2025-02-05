@@ -1,6 +1,3 @@
-// TODO: Shall be removed once the python binding warnings resolved
-#![allow(non_local_definitions)]
-
 use crate::client::{
     chunk::DataMapChunk,
     files::{archive_private::PrivateArchiveAccess, archive_public::ArchiveAddr},
@@ -26,12 +23,10 @@ impl PyClient {
     #[staticmethod]
     fn init(py: Python) -> PyResult<Bound<PyAny>> {
         future_into_py(py, async {
-            match Client::init().await {
-                Ok(client) => Ok(PyClient { inner: client }),
-                Err(e) => Err(PyConnectionError::new_err(format!(
-                    "Failed to connect: {e}"
-                ))),
-            }
+            let inner = Client::init()
+                .await
+                .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
+            Ok(PyClient { inner })
         })
     }
 
@@ -390,9 +385,12 @@ impl From<PyChunkAddress> for ChunkAddress {
 #[pymethods]
 impl PyChunkAddress {
     #[new]
-    fn new(xorname: &[u8]) -> PyResult<Self> {
+    fn new(addr: &str) -> PyResult<Self> {
+        let addr = crate::client::address::str_to_addr(addr)
+            .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))?;
+
         Ok(Self {
-            inner: ChunkAddress::new(XorName::from_content(xorname)),
+            inner: ChunkAddress::new(addr),
         })
     }
 

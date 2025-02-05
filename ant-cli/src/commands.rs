@@ -71,6 +71,11 @@ pub enum FileCmd {
         addr: String,
         /// The destination file path.
         dest_file: String,
+        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunks).
+        ///
+        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
+        #[arg(short, long)]
+        quorum: Option<ResponseQuorum>,
     },
 
     /// List previous uploads
@@ -203,9 +208,11 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 public,
                 quorum,
             } => file::upload(&file, public, peers.await?, quorum).await,
-            FileCmd::Download { addr, dest_file } => {
-                file::download(&addr, &dest_file, peers.await?).await
-            }
+            FileCmd::Download {
+                addr,
+                dest_file,
+                quorum,
+            } => file::download(&addr, &dest_file, peers.await?, quorum).await,
             FileCmd::List => file::list(),
         },
         Some(SubCmd::Register { command }) => match command {

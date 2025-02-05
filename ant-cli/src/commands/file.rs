@@ -117,8 +117,17 @@ pub async fn upload(
     Ok(())
 }
 
-pub async fn download(addr: &str, dest_path: &str, peers: NetworkPeers) -> Result<()> {
-    let client = crate::actions::connect_to_network(peers).await?;
+pub async fn download(
+    addr: &str,
+    dest_path: &str,
+    peers: NetworkPeers,
+    quorum: Option<ResponseQuorum>,
+) -> Result<()> {
+    let mut config = ClientOperatingStrategy::new();
+    if let Some(quorum) = quorum {
+        config.chunks.get_quorum = quorum;
+    }
+    let client = crate::actions::connect_to_network_with_config(peers, config).await?;
     crate::actions::download(addr, dest_path, &client).await
 }
 

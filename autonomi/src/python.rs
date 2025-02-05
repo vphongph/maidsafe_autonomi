@@ -299,6 +299,7 @@ pub struct PyPointerAddress {
 
 #[pymethods]
 impl PyPointerAddress {
+    /// Creates a new pointer address from a hex string.
     #[new]
     pub fn new(hex_str: String) -> PyResult<Self> {
         let bytes = hex::decode(&hex_str)
@@ -310,6 +311,7 @@ impl PyPointerAddress {
         })
     }
 
+    /// Returns the hex string representation of the pointer address.
     #[getter]
     pub fn hex(&self) -> String {
         let bytes: [u8; 32] = self.inner.xorname().0;
@@ -327,6 +329,9 @@ pub struct PyPointer {
 
 #[pymethods]
 impl PyPointer {
+    /// Create a new pointer, signing it with the provided secret key.
+    /// This pointer would be stored on the network at the provided key's public key.
+    /// There can only be one pointer at a time at the same address (one per key).
     #[new]
     pub fn new(key: &PySecretKey, counter: u32, target: &PyPointerTarget) -> PyResult<Self> {
         Ok(Self {
@@ -334,18 +339,21 @@ impl PyPointer {
         })
     }
 
+    /// Returns the network address where this pointer is stored.
     pub fn address(&self) -> PyPointerAddress {
         PyPointerAddress {
             inner: self.inner.address(),
         }
     }
 
+    /// Returns the hex string representation of the pointer's target.
     #[getter]
     fn hex(&self) -> String {
         let bytes: [u8; 32] = self.inner.xorname().0;
         hex::encode(bytes)
     }
 
+    /// Returns the target that this pointer points to.
     #[getter]
     fn target(&self) -> PyPointerTarget {
         PyPointerTarget {
@@ -363,6 +371,7 @@ pub struct PyPointerTarget {
 
 #[pymethods]
 impl PyPointerTarget {
+    /// Creates a new pointer target from a xorname byte array.
     #[new]
     fn new(xorname: &[u8]) -> PyResult<Self> {
         Ok(Self {
@@ -370,6 +379,7 @@ impl PyPointerTarget {
         })
     }
 
+    /// Returns the hex string representation of this pointer address.
     #[getter]
     fn hex(&self) -> String {
         let bytes: [u8; 32] = self.inner.xorname().0;
@@ -383,6 +393,7 @@ impl PyPointerTarget {
         }
     }
 
+    /// Creates a pointer target from a xorname byte array.
     #[staticmethod]
     fn from_xorname(xorname: &[u8]) -> PyResult<Self> {
         Ok(Self {
@@ -390,6 +401,7 @@ impl PyPointerTarget {
         })
     }
 
+    /// Creates a pointer target from a chunk address.
     #[staticmethod]
     fn from_chunk_address(addr: &PyChunkAddress) -> Self {
         Self {
@@ -419,6 +431,7 @@ impl From<PyChunkAddress> for ChunkAddress {
 
 #[pymethods]
 impl PyChunkAddress {
+    /// Creates a new chunk address from a string representation.
     #[new]
     fn new(addr: &str) -> PyResult<Self> {
         let addr = crate::client::address::str_to_addr(addr)
@@ -435,6 +448,7 @@ impl PyChunkAddress {
         hex::encode(bytes)
     }
 
+    /// Creates a chunk address from a hex string representation.
     #[staticmethod]
     fn from_chunk_address(addr: &str) -> PyResult<Self> {
         let bytes =
@@ -461,6 +475,8 @@ impl PyChunkAddress {
     }
 }
 
+/// A wallet for interacting with the network's payment system.
+/// Handles token transfers, balance checks, and payments for network operations.
 #[pyclass(name = "Wallet")]
 pub struct PyWallet {
     pub(crate) inner: Wallet,
@@ -468,6 +484,8 @@ pub struct PyWallet {
 
 #[pymethods]
 impl PyWallet {
+    /// Creates a new wallet from a private key string.
+    /// The wallet will be configured to use the ArbitrumOne network.
     #[new]
     fn new(private_key: String) -> PyResult<Self> {
         let wallet = Wallet::new_from_private_key(
@@ -479,6 +497,7 @@ impl PyWallet {
         Ok(Self { inner: wallet })
     }
 
+    /// Creates a new wallet from a private key string with a specified network.
     #[staticmethod]
     fn new_from_private_key(network: PyNetwork, private_key: &str) -> PyResult<Self> {
         let inner = Wallet::new_from_private_key(network.inner, private_key)
@@ -487,10 +506,12 @@ impl PyWallet {
         Ok(Self { inner })
     }
 
+    /// Returns a string representation of the wallet's address.
     fn address(&self) -> String {
         format!("{:?}", self.inner.address())
     }
 
+    /// Returns the raw balance of payment tokens in the wallet.
     fn balance<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         future_into_py(py, async move {
@@ -503,6 +524,7 @@ impl PyWallet {
         })
     }
 
+    /// Returns the current balance of gas tokens in the wallet.
     fn balance_of_gas<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         future_into_py(py, async move {
@@ -516,6 +538,7 @@ impl PyWallet {
     }
 }
 
+/// Options for making payments on the network.
 #[pyclass(name = "PaymentOption")]
 pub struct PyPaymentOption {
     pub(crate) inner: PaymentOption,
@@ -523,6 +546,7 @@ pub struct PyPaymentOption {
 
 #[pymethods]
 impl PyPaymentOption {
+    /// Creates a payment option using the provided wallet.
     #[staticmethod]
     fn wallet(wallet: &PyWallet) -> Self {
         Self {
@@ -531,6 +555,8 @@ impl PyPaymentOption {
     }
 }
 
+/// A cryptographic secret key used for signing operations.
+/// Can be used to derive a public key and perform cryptographic operations.
 #[pyclass(name = "SecretKey")]
 #[derive(Debug, Clone)]
 pub struct PySecretKey {
@@ -539,6 +565,7 @@ pub struct PySecretKey {
 
 #[pymethods]
 impl PySecretKey {
+    /// Creates a new random secret key.
     #[new]
     fn new() -> PyResult<Self> {
         Ok(Self {
@@ -546,6 +573,7 @@ impl PySecretKey {
         })
     }
 
+    /// Creates a secret key from a hex string representation.
     #[staticmethod]
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         SecretKey::from_hex(hex_str)
@@ -553,17 +581,20 @@ impl PySecretKey {
             .map_err(|e| PyValueError::new_err(format!("Invalid hex key: {e}")))
     }
 
+    /// Derives and returns the corresponding public key.
     fn public_key(&self) -> PyPublicKey {
         PyPublicKey {
             inner: self.inner.public_key(),
         }
     }
 
+    /// Returns the hex string representation of the key.
     fn to_hex(&self) -> String {
         self.inner.to_hex()
     }
 }
 
+/// A cryptographic public key derived from a secret key.
 #[pyclass(name = "PublicKey")]
 #[derive(Debug, Clone)]
 pub struct PyPublicKey {
@@ -572,6 +603,7 @@ pub struct PyPublicKey {
 
 #[pymethods]
 impl PyPublicKey {
+    /// Creates a new random public key by generating a random secret key.
     #[new]
     fn new() -> PyResult<Self> {
         let secret = SecretKey::random();
@@ -580,6 +612,7 @@ impl PyPublicKey {
         })
     }
 
+    /// Creates a public key from a hex string representation.
     #[staticmethod]
     fn from_hex(hex_str: &str) -> PyResult<Self> {
         PublicKey::from_hex(hex_str)
@@ -592,6 +625,7 @@ impl PyPublicKey {
     }
 }
 
+/// A secret key used to encrypt and decrypt vault data.
 #[pyclass(name = "VaultSecretKey")]
 #[derive(Debug, Clone)]
 pub struct PyVaultSecretKey {
@@ -600,6 +634,7 @@ pub struct PyVaultSecretKey {
 
 #[pymethods]
 impl PyVaultSecretKey {
+    /// Creates a new random vault secret key.
     #[new]
     fn new() -> PyResult<Self> {
         Ok(Self {
@@ -619,6 +654,10 @@ impl PyVaultSecretKey {
     }
 }
 
+/// UserData is stored in Vaults and contains most of a user's private data:
+/// It allows users to keep track of only the key to their User Data Vault
+/// while having the rest kept on the Network encrypted in a Vault for them
+/// Using User Data Vault is optional, one can decide to keep all their data locally instead.
 #[pyclass(name = "UserData")]
 #[derive(Debug, Clone)]
 pub struct PyUserData {
@@ -627,6 +666,7 @@ pub struct PyUserData {
 
 #[pymethods]
 impl PyUserData {
+    /// Creates a new empty UserData instance.
     #[new]
     fn new() -> Self {
         Self {
@@ -649,14 +689,16 @@ impl PyUserData {
         self.inner.add_private_file_archive(private_access)
     }
 
+    /// Returns a list of public file archives as (address, name) pairs.
     fn file_archives(&self) -> Vec<(String, String)> {
         self.inner
             .file_archives
             .iter()
-            .map(|(addr, name)| (format!("{addr:x}"), name.clone()))
+            .map(|(addr, name)| (hex::encode(addr), name.clone()))
             .collect()
     }
 
+    /// Returns a list of private file archives as (data_map, name) pairs.
     fn private_file_archives(&self) -> Vec<(String, String)> {
         self.inner
             .private_file_archives
@@ -666,6 +708,7 @@ impl PyUserData {
     }
 }
 
+/// A map with encrypted data pieces on the network. Used to locate and reconstruct private data.
 #[pyclass(name = "DataMapChunk")]
 #[derive(Debug, Clone)]
 pub struct PyDataMapChunk {
@@ -674,6 +717,7 @@ pub struct PyDataMapChunk {
 
 #[pymethods]
 impl PyDataMapChunk {
+    /// Creates a DataMapChunk from a hex string representation.
     #[staticmethod]
     fn from_hex(hex: &str) -> PyResult<Self> {
         DataMapChunk::from_hex(hex)
@@ -681,10 +725,14 @@ impl PyDataMapChunk {
             .map_err(|e| PyValueError::new_err(format!("Invalid hex: {e}")))
     }
 
+    /// Returns the hex string representation of this DataMapChunk.
     fn to_hex(&self) -> String {
         self.inner.to_hex()
     }
 
+    /// Returns the private address of this DataMapChunk.
+    ///
+    /// Note that this is not a network address, it is only used for refering to private data client side.
     fn address(&self) -> String {
         self.inner.address().to_string()
     }
@@ -714,6 +762,9 @@ pub struct PyNetwork {
 
 #[pymethods]
 impl PyNetwork {
+    /// Creates a new network configuration.
+    ///
+    /// If `local` is true, configures for local network connections.
     #[new]
     fn new(local: bool) -> PyResult<Self> {
         let inner = Network::new(local).map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;

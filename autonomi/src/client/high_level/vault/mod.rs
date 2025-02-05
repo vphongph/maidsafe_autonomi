@@ -13,9 +13,11 @@ pub use key::{derive_vault_key, VaultSecretKey};
 pub use user_data::UserData;
 
 use crate::client::data_types::scratchpad::ScratchpadError;
+use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
 use crate::client::key_derivation::{DerivationIndex, MainSecretKey};
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::client::Client;
 use crate::graph::GraphError;
 use ant_evm::{AttoTokens, U256};
@@ -205,27 +207,63 @@ impl Client {
             total_cost = AttoTokens::from_atto(total_cost.as_atto() + graph_cost.as_atto());
         }
 
-        for (i, content) in contents.into_iter().enumerate() {
-            let sp_secret_key = main_secret_key
-                .derive_key(&DerivationIndex::from_bytes(scratchpad_derivations[i].1));
-            match self
-                .scratchpad_update(&sp_secret_key.clone().into(), content_type, &content)
-                .await
-            {
-                Ok(()) => continue,
-                Err(ScratchpadError::CannotUpdateNewScratchpad) => {
-                    let (price, addr) = self
-                        .scratchpad_create(
-                            &sp_secret_key.into(),
-                            content_type,
-                            &content,
-                            payment_option.clone(),
-                        )
-                        .await?;
-                    info!("Created Scratchpad at {addr:?} with cost of {price:?}");
+        // Convert to Vec of futures
+        let update_futures: Vec<_> = contents
+            .into_iter()
+            .enumerate()
+            .map(|(i, content)| {
+                let sp_secret_key = main_secret_key
+                    .derive_key(&DerivationIndex::from_bytes(scratchpad_derivations[i].1));
+                let client = self.clone();
+                let payment_option_clone = payment_option.clone();
+
+                async move {
+                    let target_addr = ScratchpadAddress::new(sp_secret_key.public_key().into());
+                    info!(
+                        "Updating Scratchpad at {target_addr:?} with content of {} bytes",
+                        content.len()
+                    );
+                    match client
+                        .scratchpad_update(&sp_secret_key.clone().into(), content_type, &content)
+                        .await
+                    {
+                        Ok(()) => {
+                            info!(
+                                "Updated Scratchpad at {target_addr:?} with content of {} bytes",
+                                content.len()
+                            );
+                            Ok(None)
+                        }
+                        Err(ScratchpadError::CannotUpdateNewScratchpad) => {
+                            info!("Creating Scratchpad at {target_addr:?}");
+                            let (price, addr) = client
+                                .scratchpad_create(
+                                    &sp_secret_key.into(),
+                                    content_type,
+                                    &content,
+                                    payment_option_clone,
+                                )
+                                .await?;
+                            info!("Created Scratchpad at {addr:?} with cost of {price:?}");
+                            Ok(Some(price))
+                        }
+                        Err(err) => Err(err.into()),
+                    }
+                }
+            })
+            .collect();
+
+        let update_results =
+            process_tasks_with_max_concurrency(update_futures, *FILE_UPLOAD_BATCH_SIZE).await;
+
+        // Process results
+        for result in update_results {
+            match result {
+                Ok(Some(price)) => {
                     total_cost = AttoTokens::from_atto(total_cost.as_atto() + price.as_atto());
                 }
-                Err(err) => return Err(err.into()),
+                Ok(None) => (),
+                Err(e) => return Err(e),
             }
         }
 

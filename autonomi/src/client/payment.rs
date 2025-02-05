@@ -104,29 +104,31 @@ impl Client {
         wallet: &EvmWallet,
     ) -> Result<(Receipt, AlreadyPaidAddressesCount), PayError> {
         // Check if the wallet uses the same network as the client
-        if wallet.network() != &self.evm_network {
+        if wallet.network() != self.evm_network() {
             return Err(PayError::EvmWalletNetworkMismatch);
         }
 
         let number_of_content_addrs = content_addrs.clone().count();
         let quotes = self.get_store_quotes(data_type, content_addrs).await?;
 
-        // Make sure nobody else can use the wallet while we are paying
-        debug!("Waiting for wallet lock");
-        let lock_guard = wallet.lock().await;
-        debug!("Locked wallet");
+        if !quotes.is_empty() {
+            // Make sure nobody else can use the wallet while we are paying
+            debug!("Waiting for wallet lock");
+            let lock_guard = wallet.lock().await;
+            debug!("Locked wallet");
 
-        // TODO: the error might contain some succeeded quote payments as well. These should be returned on err, so that they can be skipped when retrying.
-        // TODO: retry when it fails?
-        // Execute chunk payments
-        let _payments = wallet
-            .pay_for_quotes(quotes.payments())
-            .await
-            .map_err(|err| PayError::from(err.0))?;
+            // TODO: the error might contain some succeeded quote payments as well. These should be returned on err, so that they can be skipped when retrying.
+            // TODO: retry when it fails?
+            // Execute chunk payments
+            let _payments = wallet
+                .pay_for_quotes(quotes.payments())
+                .await
+                .map_err(|err| PayError::from(err.0))?;
 
-        // payment is done, unlock the wallet for other threads
-        drop(lock_guard);
-        debug!("Unlocked wallet");
+            // payment is done, unlock the wallet for other threads
+            drop(lock_guard);
+            debug!("Unlocked wallet");
+        }
 
         let skipped_chunks = number_of_content_addrs - quotes.len();
         trace!(

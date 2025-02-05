@@ -7,6 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::Client;
+use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use ant_evm::payment_vault::get_market_price;
 use ant_evm::{Amount, PaymentQuote, QuotePayment, QuotingMetrics};
 use ant_networking::{Network, NetworkError};
@@ -91,28 +93,38 @@ impl Client {
             })
             .collect();
 
-        let raw_quotes_per_addr = futures::future::try_join_all(futures).await?;
+        let raw_quotes_per_addr =
+            process_tasks_with_max_concurrency(futures, *FILE_UPLOAD_BATCH_SIZE).await;
 
         // choose the quotes to pay for each address
         let mut quotes_to_pay_per_addr = HashMap::new();
 
-        for (content_addr, raw_quotes) in raw_quotes_per_addr {
+        for result in raw_quotes_per_addr {
+            let (content_addr, mut raw_quotes) = result?;
             debug!(
-                "fetching market price for content_addr: {content_addr}, with {} quotes.",
+                "fetched market price for content_addr: {content_addr}, with {} quotes.",
                 raw_quotes.len()
             );
 
             // FIXME: find better way to deal with paid content addrs and feedback to the user
             // assume that content addr is already paid for and uploaded
-            if raw_quotes.len() <= CLOSE_GROUP_SIZE / 2 {
+            if raw_quotes.is_empty() {
                 debug!("content_addr: {content_addr} is already paid for. No need to fetch market price.");
                 continue;
             }
+
+            let target_addr = NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr));
+            // With the expand of quoting candidates,
+            // we shall get CLOSE_GROUP_SIZE closest into further procedure.
+            raw_quotes.sort_by_key(|(peer_id, _)| {
+                NetworkAddress::from_peer(*peer_id).distance(&target_addr)
+            });
 
             // ask smart contract for the market price
             let quoting_metrics: Vec<QuotingMetrics> = raw_quotes
                 .clone()
                 .iter()
+                .take(CLOSE_GROUP_SIZE)
                 .map(|(_, q)| q.quoting_metrics.clone())
                 .collect();
 
@@ -127,7 +139,7 @@ impl Client {
                 .collect();
 
             // sort by price
-            prices.sort_by(|(_, _, price_a), (_, _, price_b)| price_a.cmp(price_b));
+            prices.sort_by_key(|(_, _, price)| *price);
 
             // we need at least 5 valid quotes to pay for the data
             const MINIMUM_QUOTES_TO_PAY: usize = 5;
@@ -195,6 +207,10 @@ async fn fetch_store_quote_with_retries(
     loop {
         match fetch_store_quote(network, content_addr, data_type, data_size).await {
             Ok(quote) => {
+                if quote.is_empty() {
+                    // Empty quotes indicates the record already exists.
+                    break Ok((content_addr, quote));
+                }
                 if quote.len() < CLOSE_GROUP_SIZE {
                     retries += 1;
                     error!("Error while fetching store quote: not enough quotes ({}/{CLOSE_GROUP_SIZE}), retry #{retries}, quotes {quote:?}",

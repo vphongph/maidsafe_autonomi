@@ -242,7 +242,10 @@ impl Client {
 
         let xor = *addr.xorname();
         let store_quote = self
-            .get_store_quotes(DataTypes::Chunk, std::iter::once((xor, Chunk::MAX_SIZE)))
+            .get_store_quotes(
+                DataTypes::Chunk,
+                std::iter::once((xor, Chunk::DEFAULT_MAX_SIZE)),
+            )
             .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote

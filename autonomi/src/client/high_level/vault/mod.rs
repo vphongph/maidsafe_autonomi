@@ -218,12 +218,24 @@ impl Client {
                 let payment_option_clone = payment_option.clone();
 
                 async move {
+                    let target_addr = ScratchpadAddress::new(sp_secret_key.public_key().into());
+                    info!(
+                        "Updating Scratchpad at {target_addr:?} with content of {} bytes",
+                        content.len()
+                    );
                     match client
                         .scratchpad_update(&sp_secret_key.clone().into(), content_type, &content)
                         .await
                     {
-                        Ok(()) => Ok(None),
+                        Ok(()) => {
+                            info!(
+                                "Updated Scratchpad at {target_addr:?} with content of {} bytes",
+                                content.len()
+                            );
+                            Ok(None)
+                        }
                         Err(ScratchpadError::CannotUpdateNewScratchpad) => {
+                            info!("Creating Scratchpad at {target_addr:?}");
                             let (price, addr) = client
                                 .scratchpad_create(
                                     &sp_secret_key.into(),

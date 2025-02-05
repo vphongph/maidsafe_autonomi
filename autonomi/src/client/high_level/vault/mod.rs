@@ -73,7 +73,8 @@ pub enum VaultError {
 
 impl Client {
     /// Retrieves and returns a decrypted vault if one exists.
-    /// Returns the content type of the bytes in the vault
+    ///
+    /// Returns the content type of the bytes in the vault.
     pub async fn fetch_and_decrypt_vault(
         &self,
         secret_key: &VaultSecretKey,

@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use xor_name::XorName;
 
+/// Represents a client for the Autonomi network.
 #[pyclass(name = "Client")]
 pub(crate) struct PyClient {
     inner: Client,
@@ -20,6 +21,7 @@ pub(crate) struct PyClient {
 
 #[pymethods]
 impl PyClient {
+    /// Initialize the client with default configuration.
     #[staticmethod]
     fn init(py: Python) -> PyResult<Bound<PyAny>> {
         future_into_py(py, async {
@@ -30,6 +32,7 @@ impl PyClient {
         })
     }
 
+    /// Initialize a client that is configured to be local.
     #[staticmethod]
     fn init_local(py: Python) -> PyResult<Bound<PyAny>> {
         future_into_py(py, async {
@@ -40,6 +43,10 @@ impl PyClient {
         })
     }
 
+    /// Upload a piece of private data to the network. This data will be self-encrypted.
+    /// The [`DataMapChunk`] is not uploaded to the network, keeping the data private.
+    ///
+    /// Returns the [`DataMapChunk`] containing the map to the encrypted chunks.
     fn data_put<'a>(
         &self,
         py: Python<'a>,
@@ -58,6 +65,7 @@ impl PyClient {
         })
     }
 
+    /// Fetch a blob of (private) data from the network
     fn data_get<'a>(&self, py: Python<'a>, access: &PyDataMapChunk) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let access = access.inner.clone();
@@ -71,6 +79,9 @@ impl PyClient {
         })
     }
 
+    /// Upload a piece of data to the network. This data is publicly accessible.
+    ///
+    /// Returns the Data Address at which the data was stored.
     fn data_put_public<'a>(
         &self,
         py: Python<'a>,
@@ -90,6 +101,7 @@ impl PyClient {
         })
     }
 
+    /// Fetch a blob of data from the network
     fn data_get_public<'a>(&self, py: Python<'a>, addr: &str) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let addr = crate::client::address::str_to_addr(addr)
@@ -105,6 +117,7 @@ impl PyClient {
         })
     }
 
+    /// Get the cost of creating a new vault.
     fn vault_cost<'a>(
         &self,
         py: Python<'a>,
@@ -124,6 +137,11 @@ impl PyClient {
         })
     }
 
+    /// Put data into the client's VaultPacket
+    ///
+    /// Dynamically expand the vault capacity by paying for more space (Scratchpad) when needed.
+    ///
+    /// It is recommended to use the hash of the app name or unique identifier as the content type.
     fn write_bytes_to_vault<'a>(
         &self,
         py: Python<'a>,
@@ -149,6 +167,9 @@ impl PyClient {
         })
     }
 
+    /// Retrieves and returns a decrypted vault if one exists.
+    ///
+    /// Returns the content type of the bytes in the vault.
     fn fetch_and_decrypt_vault<'a>(
         &self,
         py: Python<'a>,
@@ -167,6 +188,7 @@ impl PyClient {
         })
     }
 
+    /// Get the user data from the vault
     fn get_user_data_from_vault<'a>(
         &self,
         py: Python<'a>,
@@ -185,6 +207,9 @@ impl PyClient {
         })
     }
 
+    /// Put the user data to the vault.
+    ///
+    /// Returns the total cost of the put operation.
     fn put_user_data_to_vault<'a>(
         &self,
         py: Python<'a>,
@@ -202,7 +227,7 @@ impl PyClient {
                 .put_user_data_to_vault(&key, payment, user_data)
                 .await
             {
-                Ok(_) => Ok(()),
+                Ok(cost) => Ok(cost.to_string()),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to put user data: {e}"
                 ))),
@@ -210,6 +235,7 @@ impl PyClient {
         })
     }
 
+    /// Get a pointer from the network
     fn pointer_get<'a>(
         &self,
         py: Python<'a>,
@@ -227,6 +253,7 @@ impl PyClient {
         })
     }
 
+    /// Manually store a pointer on the network
     fn pointer_put<'a>(
         &self,
         py: Python<'a>,
@@ -246,6 +273,7 @@ impl PyClient {
         })
     }
 
+    /// Calculate the cost of storing a pointer
     fn pointer_cost<'a>(&self, py: Python<'a>, key: &PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let key = key.inner;
@@ -261,6 +289,8 @@ impl PyClient {
     }
 }
 
+/// A network address where a pointer is stored.
+/// The address is derived from the owner's public key.
 #[pyclass(name = "PointerAddress")]
 #[derive(Debug, Clone)]
 pub struct PyPointerAddress {
@@ -287,6 +317,8 @@ impl PyPointerAddress {
     }
 }
 
+/// Pointer, a mutable address pointing to other data on the Network.
+/// It is stored at the owner's public key and can only be updated by the owner.
 #[pyclass(name = "Pointer")]
 #[derive(Debug, Clone)]
 pub struct PyPointer {
@@ -322,6 +354,7 @@ impl PyPointer {
     }
 }
 
+/// The target that a pointer points to on the network.
 #[pyclass(name = "PointerTarget")]
 #[derive(Debug, Clone)]
 pub struct PyPointerTarget {
@@ -365,6 +398,7 @@ impl PyPointerTarget {
     }
 }
 
+/// An address of a chunk of data on the network. Used to locate and retrieve data chunks.
 #[pyclass(name = "ChunkAddress")]
 #[derive(Debug, Clone)]
 pub struct PyChunkAddress {

@@ -83,7 +83,7 @@ impl Default for ClientOperatingStrategy {
                 put_retry: RetryStrategy::Balanced,
                 verification_quorum: ResponseQuorum::Majority,
                 verification_retry: RetryStrategy::Quick, // verification should be quick
-                get_quorum: ResponseQuorum::Majority,     // majority to catch possible forks
+                get_quorum: ResponseQuorum::N(two), // forks are rare but possible, balance between resilience and speed
                 get_retry: RetryStrategy::Balanced,
                 verification_kind: VerificationKind::Crdt, // forks are possible
             },

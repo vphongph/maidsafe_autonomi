@@ -7,16 +7,20 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::network::NetworkPeers;
-use autonomi::client::config::ClientOperationConfig;
+use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::{get_evm_network, Client, ClientConfig};
 use color_eyre::eyre::bail;
 use color_eyre::eyre::Result;
 use indicatif::ProgressBar;
 use std::time::Duration;
 
-pub async fn connect_to_network(
+pub async fn connect_to_network(peers: NetworkPeers) -> Result<Client> {
+    connect_to_network_with_config(peers, Default::default()).await
+}
+
+pub async fn connect_to_network_with_config(
     peers: NetworkPeers,
-    client_operation_config: ClientOperationConfig,
+    operation_config: ClientOperatingStrategy,
 ) -> Result<Client> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
@@ -40,7 +44,7 @@ pub async fn connect_to_network(
         local,
         peers: peers_opt,
         evm_network,
-        operation_config: client_operation_config,
+        strategy: operation_config,
     };
 
     let res = Client::init_with_config(config).await;

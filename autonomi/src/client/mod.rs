@@ -15,8 +15,6 @@
 /// - Pointer
 /// - Scratchpad
 pub mod data_types;
-use config::ClientConfig;
-use config::ClientOperationConfig;
 pub use data_types::chunk;
 pub use data_types::graph;
 pub use data_types::pointer;
@@ -50,10 +48,11 @@ use ant_networking::{
     interval, multiaddr_is_global, Network, NetworkBuilder, NetworkError, NetworkEvent,
 };
 use ant_protocol::{version::IDENTIFY_PROTOCOL_STR, NetworkAddress};
+use config::{ClientConfig, ClientOperatingStrategy};
 use libp2p::{identity::Keypair, Multiaddr};
 use payment::PayError;
 use quote::CostError;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, time::Duration};
 use tokio::sync::{mpsc, watch};
 
 /// Time before considering the connection timed out.
@@ -81,13 +80,11 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 #[derive(Clone)]
 pub struct Client {
     pub(crate) network: Network,
-    pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
+    pub(crate) client_event_sender: Option<mpsc::Sender<ClientEvent>>,
     /// The EVM network to use for the client.
-    evm_network: Arc<EvmNetwork>,
+    evm_network: EvmNetwork,
     /// The configuration for operations on the client.
-    ///
-    /// This will be shared across all clones of the client.
-    operation_config: Arc<ClientOperationConfig>,
+    config: ClientOperatingStrategy,
     // Shutdown signal for child tasks. Sends signal when dropped.
     _shutdown_tx: watch::Sender<bool>,
 }
@@ -182,7 +179,7 @@ impl Client {
             local,
             peers: Some(peers),
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
-            operation_config: Default::default(),
+            strategy: Default::default(),
         })
         .await
     }
@@ -238,9 +235,9 @@ impl Client {
 
         Ok(Self {
             network,
-            client_event_sender: Arc::new(None),
-            evm_network: Arc::new(config.evm_network),
-            operation_config: Arc::new(config.operation_config),
+            client_event_sender: None,
+            evm_network: config.evm_network,
+            config: config.strategy,
             _shutdown_tx: shutdown_tx,
         })
     }
@@ -249,7 +246,7 @@ impl Client {
     pub fn enable_client_events(&mut self) -> mpsc::Receiver<ClientEvent> {
         let (client_event_sender, client_event_receiver) =
             tokio::sync::mpsc::channel(CLIENT_EVENT_CHANNEL_SIZE);
-        self.client_event_sender = Arc::new(Some(client_event_sender));
+        self.client_event_sender = Some(client_event_sender);
         debug!("All events to the clients are enabled");
 
         client_event_receiver

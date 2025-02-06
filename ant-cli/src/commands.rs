@@ -58,6 +58,11 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
+        /// Experimental: Optionally specify the quorum for the verification of the upload.
+        ///
+        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
+        #[arg(short, long)]
+        quorum: Option<ResponseQuorum>,
     },
 
     /// Download a file from the given address.
@@ -66,8 +71,11 @@ pub enum FileCmd {
         addr: String,
         /// The destination file path.
         dest_file: String,
-        /// Optionally specify the quorum for the verification of the download.
-        read_quorum: Option<ResponseQuorum>,
+        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunks).
+        ///
+        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
+        #[arg(short, long)]
+        quorum: Option<ResponseQuorum>,
     },
 
     /// List previous uploads
@@ -195,12 +203,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     match cmd {
         Some(SubCmd::File { command }) => match command {
             FileCmd::Cost { file } => file::cost(&file, peers.await?).await,
-            FileCmd::Upload { file, public } => file::upload(&file, public, peers.await?).await,
+            FileCmd::Upload {
+                file,
+                public,
+                quorum,
+            } => file::upload(&file, public, peers.await?, quorum).await,
             FileCmd::Download {
                 addr,
                 dest_file,
-                read_quorum,
-            } => file::download(&addr, &dest_file, peers.await?, read_quorum).await,
+                quorum,
+            } => file::download(&addr, &dest_file, peers.await?, quorum).await,
             FileCmd::List => file::list(),
         },
         Some(SubCmd::Register { command }) => match command {

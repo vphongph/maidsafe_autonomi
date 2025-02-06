@@ -219,35 +219,38 @@ impl Client {
 
                 async move {
                     let target_addr = ScratchpadAddress::new(sp_secret_key.public_key().into());
-                    info!(
-                        "Updating Scratchpad at {target_addr:?} with content of {} bytes",
-                        content.len()
-                    );
-                    match client
-                        .scratchpad_update(&sp_secret_key.clone().into(), content_type, &content)
-                        .await
-                    {
-                        Ok(()) => {
-                            info!(
-                                "Updated Scratchpad at {target_addr:?} with content of {} bytes",
-                                content.len()
-                            );
-                            Ok(None)
+                    let already_exists = self.scratchpad_check_existance(&target_addr).await?;
+
+                    if already_exists {
+                        info!(
+                            "Updating Scratchpad at {target_addr:?} with content of {} bytes",
+                            content.len()
+                        );
+                        match client
+                            .scratchpad_update(&sp_secret_key.clone().into(), content_type, &content)
+                            .await
+                        {
+                            Ok(()) => {
+                                info!(
+                                    "Updated Scratchpad at {target_addr:?} with content of {} bytes",
+                                    content.len()
+                                );
+                                Ok(None)
+                            }
+                            Err(err) => Err(err.into()),
                         }
-                        Err(ScratchpadError::CannotUpdateNewScratchpad) => {
-                            info!("Creating Scratchpad at {target_addr:?}");
-                            let (price, addr) = client
-                                .scratchpad_create(
-                                    &sp_secret_key.into(),
-                                    content_type,
-                                    &content,
-                                    payment_option_clone,
-                                )
-                                .await?;
-                            info!("Created Scratchpad at {addr:?} with cost of {price:?}");
-                            Ok(Some(price))
-                        }
-                        Err(err) => Err(err.into()),
+                    } else {
+                        info!("Creating Scratchpad at {target_addr:?}");
+                        let (price, addr) = client
+                            .scratchpad_create(
+                                &sp_secret_key.into(),
+                                content_type,
+                                &content,
+                                payment_option_clone,
+                            )
+                            .await?;
+                        info!("Created Scratchpad at {addr:?} with cost of {price:?}");
+                        Ok(Some(price))
                     }
                 }
             })

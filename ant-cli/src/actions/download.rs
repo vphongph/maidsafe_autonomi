@@ -20,7 +20,7 @@ use color_eyre::{
 };
 use std::path::PathBuf;
 
-pub async fn download(addr: &str, dest_path: &str, client: &mut Client) -> Result<()> {
+pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<()> {
     let public_address = str_to_addr(addr).ok();
     let private_address = crate::user_data::get_local_private_archive_access(addr)
         .inspect_err(|e| error!("Failed to get private archive access: {e}"))
@@ -40,7 +40,7 @@ async fn download_private(
     addr: &str,
     private_address: PrivateArchiveAccess,
     dest_path: &str,
-    client: &mut Client,
+    client: &Client,
 ) -> Result<()> {
     let archive = client
         .archive_get(private_address)
@@ -86,7 +86,7 @@ async fn download_public(
     addr: &str,
     address: ArchiveAddr,
     dest_path: &str,
-    client: &mut Client,
+    client: &Client,
 ) -> Result<()> {
     let archive = client
         .archive_get_public(address)

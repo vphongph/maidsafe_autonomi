@@ -11,6 +11,7 @@ use crate::{
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
     config::GetRecordCfg,
+    driver::kad::U256,
     error::{NetworkError, Result},
     event::{NetworkEvent, NodeEvent},
     external_address::ExternalAddressManager,
@@ -30,9 +31,8 @@ use crate::{
     metrics::service::run_metrics_server, metrics::NetworkMetricsRecorder, MetricsRegistries,
 };
 use ant_bootstrap::BootstrapCacheStore;
-use ant_evm::{PaymentQuote, U256};
+use ant_evm::PaymentQuote;
 use ant_protocol::{
-    convert_distance_to_u256,
     messages::{Request, Response},
     version::{
         get_network_id, IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_NODE_VERSION_STR,
@@ -45,7 +45,7 @@ use futures::StreamExt;
 use libp2p::{core::muxing::StreamMuxerBox, relay, swarm::behaviour::toggle::Toggle};
 use libp2p::{
     identity::Keypair,
-    kad::{self, QueryId, Record, RecordKey, K_VALUE},
+    kad::{self, KBucketDistance as Distance, QueryId, Record, RecordKey, K_VALUE},
     multiaddr::Protocol,
     request_response::{self, Config as RequestResponseConfig, OutboundRequestId, ProtocolSupport},
     swarm::{
@@ -870,9 +870,8 @@ impl SwarmDriver {
                         // Note: self is included
                         let self_addr = NetworkAddress::from_peer(self.self_peer_id);
                         let close_peers_distance = self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE + 1]));
-                        let close_peers_u256 = convert_distance_to_u256(&close_peers_distance);
 
-                        let distance = std::cmp::max(density_distance, close_peers_u256);
+                        let distance = std::cmp::max(Distance(density_distance), close_peers_distance);
 
                         // The sampling approach has severe impact to the node side performance
                         // Hence suggested to be only used by client side.
@@ -891,7 +890,7 @@ impl SwarmDriver {
                         //     self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE]))
                         // };
 
-                        info!("Set responsible range to {distance:?}({:?})", distance.log2());
+                        info!("Set responsible range to {distance:?}({:?})", distance.ilog2());
 
                         // set any new distance to farthest record in the store
                         self.swarm.behaviour_mut().kademlia.store_mut().set_distance_range(distance);

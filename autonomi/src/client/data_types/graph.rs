@@ -16,9 +16,7 @@ use crate::client::UploadSummary;
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
 use ant_networking::get_graph_entry_from_record;
 use ant_networking::GetRecordError;
-use ant_networking::ResponseQuorum;
-use ant_networking::RetryStrategy;
-use ant_networking::{GetRecordCfg, NetworkError, PutRecordCfg, VerificationKind};
+use ant_networking::NetworkError;
 use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind},
@@ -59,20 +57,7 @@ impl Client {
         address: GraphEntryAddress,
     ) -> Result<GraphEntry, GraphError> {
         let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::All),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
+        let get_cfg = self.config.graph_entry.get_cfg();
         let record = self
             .network
             .get_record_from_network(key.clone(), &get_cfg)
@@ -96,21 +81,7 @@ impl Client {
     ) -> Result<bool, GraphError> {
         let key = NetworkAddress::from_graph_entry_address(*address).to_record_key();
         debug!("Checking graph_entry existance at: {key:?}");
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .read_quorum
-                .unwrap_or(ResponseQuorum::All),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .read_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-
+        let get_cfg = self.config.graph_entry.verification_cfg();
         match self
             .network
             .get_record_from_network(key.clone(), &get_cfg)
@@ -170,30 +141,7 @@ impl Client {
             publisher: None,
             expires: None,
         };
-        let get_cfg = GetRecordCfg {
-            get_quorum: self
-                .operation_config
-                .as_ref()
-                .verification_quorum
-                .unwrap_or(ResponseQuorum::Majority),
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .verification_retry_strategy
-                .unwrap_or(RetryStrategy::Balanced),
-            target_record: None,
-            expected_holders: Default::default(),
-        };
-        let put_cfg = PutRecordCfg {
-            put_quorum: ResponseQuorum::All,
-            retry_strategy: self
-                .operation_config
-                .as_ref()
-                .write_retry_strategy
-                .unwrap_or(RetryStrategy::Quick),
-            use_put_record_to: Some(payees),
-            verification: Some((VerificationKind::Crdt, get_cfg)),
-        };
+        let put_cfg = self.config.graph_entry.put_cfg(Some(payees));
 
         // put the record to the network
         debug!("Storing GraphEntry at address {address:?} to the network");

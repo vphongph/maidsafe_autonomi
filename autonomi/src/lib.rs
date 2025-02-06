@@ -90,7 +90,7 @@ pub use libp2p::Multiaddr;
 pub use client::{
     // Client Configs
     config::ClientConfig,
-    config::ClientOperationConfig,
+    config::ClientOperatingStrategy,
 
     // Native data types
     data_types::chunk::Chunk,

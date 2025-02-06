@@ -7,13 +7,15 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_evm::EvmNetwork;
-use ant_networking::{ResponseQuorum, RetryStrategy};
-use libp2p::Multiaddr;
+use ant_networking::{GetRecordCfg, PutRecordCfg, VerificationKind};
+use ant_protocol::messages::ChunkProof;
+use libp2p::{kad::Record, Multiaddr, PeerId};
+use rand::{thread_rng, Rng};
+use std::{collections::HashSet, num::NonZero};
 
-/// Configuration for [`crate::Client::init_with_config`].
-///
-/// Use [`ClientConfig::set_client_operation_config`] to set configure how the client performs operations
-/// on the network.
+pub use ant_networking::{ResponseQuorum, RetryStrategy};
+
+/// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Whether we're expected to connect to a local network.
@@ -27,30 +29,8 @@ pub struct ClientConfig {
     /// EVM network to use for quotations and payments.
     pub evm_network: EvmNetwork,
 
-    /// Configuration for operations on the client.
-    ///
-    /// This will be shared across all clones of the client and cannot be changed after initialization.
-    pub operation_config: ClientOperationConfig,
-}
-
-/// Configurations for operations on the client.
-///
-/// Default values are used for each type of data, but you can override them here.
-#[derive(Debug, Clone, Default)]
-pub struct ClientOperationConfig {
-    /// The retry strategy to use if we fail to store a piece of data. Every write will also verify that the data
-    /// is stored on the network by fetching it back.
-    ///
-    /// Use the `verification_quorum` and `verification_retry_strategy` to configure the verification operation.
-    pub(crate) write_retry_strategy: Option<RetryStrategy>,
-    /// The number of records to wait for before considering the read after write operation successful.
-    pub(crate) verification_quorum: Option<ResponseQuorum>,
-    /// The retry strategy to use if the read after write operation fails.
-    pub(crate) verification_retry_strategy: Option<RetryStrategy>,
-    /// The number of records to wait for before considering the read operation successful.
-    pub(crate) read_quorum: Option<ResponseQuorum>,
-    /// The retry strategy to use if the read operation fails.
-    pub(crate) read_retry_strategy: Option<RetryStrategy>,
+    /// Strategy for data operations by the client.
+    pub strategy: ClientOperatingStrategy,
 }
 
 impl ClientConfig {
@@ -59,46 +39,154 @@ impl ClientConfig {
             local: true,
             peers,
             evm_network: EvmNetwork::new(true).unwrap_or_default(),
-            operation_config: Default::default(),
+            strategy: Default::default(),
         }
-    }
-
-    pub fn set_client_operation_config(&mut self, operation_config: ClientOperationConfig) {
-        self.operation_config = operation_config;
     }
 }
 
-impl ClientOperationConfig {
-    /// Set the retry strategy for the data write operations. Every write will also verify that the data
-    /// is stored on the network by fetching it back.
-    ///
-    /// Use the `set_verification_quorum` and `set_verification_retry_strategy` to configure the verification
-    /// operation.
-    pub fn set_write_retry_strategy(&mut self, strategy: RetryStrategy) {
-        self.write_retry_strategy = Some(strategy);
+/// Strategy configuration for data operations by the client.
+///
+/// Default values are used for each type of data, but you can override them here.
+#[derive(Debug, Clone)]
+pub struct ClientOperatingStrategy {
+    pub chunks: Strategy,
+    pub graph_entry: Strategy,
+    pub pointer: Strategy,
+    pub scratchpad: Strategy,
+}
+
+impl ClientOperatingStrategy {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+/// The default configuration for the client.
+///
+/// It is optimized for faster chunk put and get, benefiting from the chunk content addressed property.
+/// Other data types are optimized for fast verification, and resilience in case of forks, which are impossible for chunks.
+impl Default for ClientOperatingStrategy {
+    fn default() -> Self {
+        let two = NonZero::new(2).expect("2 is non 0");
+        Self {
+            chunks: Strategy {
+                put_quorum: ResponseQuorum::N(two),
+                put_retry: RetryStrategy::Balanced,
+                verification_quorum: ResponseQuorum::N(two),
+                verification_retry: RetryStrategy::Balanced,
+                get_quorum: ResponseQuorum::One, // chunks are content addressed so one is enough as there is no fork possible
+                get_retry: RetryStrategy::Quick,
+                verification_kind: VerificationKind::Network, // it is recommended to use [`Strategy::chunk_put_cfg`] for chunks to benefit from the chunk proof
+            },
+            graph_entry: Strategy {
+                put_quorum: ResponseQuorum::Majority,
+                put_retry: RetryStrategy::Balanced,
+                verification_quorum: ResponseQuorum::Majority,
+                verification_retry: RetryStrategy::Quick, // verification should be quick
+                get_quorum: ResponseQuorum::N(two), // forks are rare but possible, balance between resilience and speed
+                get_retry: RetryStrategy::Quick,
+                verification_kind: VerificationKind::Crdt, // forks are possible
+            },
+            pointer: Strategy {
+                put_quorum: ResponseQuorum::Majority,
+                put_retry: RetryStrategy::Balanced,
+                verification_quorum: ResponseQuorum::Majority,
+                verification_retry: RetryStrategy::Quick, // verification should be quick
+                get_quorum: ResponseQuorum::Majority, // majority to catch possible differences in versions
+                get_retry: RetryStrategy::Quick,
+                verification_kind: VerificationKind::Crdt, // forks are possible
+            },
+            scratchpad: Strategy {
+                put_quorum: ResponseQuorum::Majority,
+                put_retry: RetryStrategy::Balanced,
+                verification_quorum: ResponseQuorum::Majority,
+                verification_retry: RetryStrategy::Quick, // verification should be quick
+                get_quorum: ResponseQuorum::Majority, // majority to catch possible differences in versions
+                get_retry: RetryStrategy::Quick,
+                verification_kind: VerificationKind::Crdt, // forks are possible
+            },
+        }
+    }
+}
+
+/// The strategy to adopt when puting and getting data from the network
+///
+/// Puts are followed by a verification using get, to ensure the data is stored correctly. This verification can be configured separately from the regular gets.
+#[derive(Debug, Clone)]
+pub struct Strategy {
+    /// The number of responses to wait for before considering the put operation successful
+    pub put_quorum: ResponseQuorum,
+    /// The retry strategy to use if we fail to store a piece of data
+    pub put_retry: RetryStrategy,
+    /// The number of responses to wait for before considering the verification to be successful
+    pub verification_quorum: ResponseQuorum,
+    /// The retry strategy for verification
+    pub verification_retry: RetryStrategy,
+    /// The number of responses to wait for before considering the get operation successful
+    pub get_quorum: ResponseQuorum,
+    /// The retry strategy to use if the get operation fails
+    pub get_retry: RetryStrategy,
+    /// Verification kind
+    pub(crate) verification_kind: VerificationKind,
+}
+
+impl Strategy {
+    /// Get config for getting a record
+    pub(crate) fn get_cfg(&self) -> GetRecordCfg {
+        GetRecordCfg {
+            get_quorum: self.get_quorum,
+            retry_strategy: self.get_retry,
+            target_record: None,
+            expected_holders: HashSet::new(),
+        }
     }
 
-    /// Set the quorum for the data verification operations. This is the number of records to wait for before
-    /// considering the read after write operation successful.
-    pub fn set_verification_quorum(&mut self, quorum: ResponseQuorum) {
-        self.verification_quorum = Some(quorum);
+    /// Get config for verifying the existance of a record
+    pub(crate) fn verification_cfg(&self) -> GetRecordCfg {
+        GetRecordCfg {
+            get_quorum: self.verification_quorum,
+            retry_strategy: self.verification_retry,
+            target_record: None,
+            expected_holders: HashSet::new(),
+        }
     }
 
-    /// Set the retry strategy for the data verification operation. This is the retry strategy to use if the read
-    /// after write operation fails.
-    pub fn set_verification_retry_strategy(&mut self, strategy: RetryStrategy) {
-        self.verification_retry_strategy = Some(strategy);
+    /// Put config for storing a record
+    pub(crate) fn put_cfg(&self, put_to: Option<Vec<PeerId>>) -> PutRecordCfg {
+        PutRecordCfg {
+            put_quorum: self.put_quorum,
+            retry_strategy: self.put_retry,
+            use_put_record_to: put_to,
+            verification: Some((self.verification_kind.clone(), self.verification_cfg())),
+        }
     }
 
-    /// Set the quorum for the set read operations. This is the number of records to wait for before considering
-    /// the read operation successful.
-    pub fn set_read_quorum(&mut self, quorum: ResponseQuorum) {
-        self.read_quorum = Some(quorum);
+    /// Put config for storing a Chunk, more strict and requires a chunk proof of storage
+    pub(crate) fn chunk_put_cfg(&self, expected: Record, put_to: Vec<PeerId>) -> PutRecordCfg {
+        let random_nonce = thread_rng().gen::<u64>();
+        let expected_proof = ChunkProof::new(&expected.value, random_nonce);
+
+        PutRecordCfg {
+            put_quorum: self.put_quorum,
+            retry_strategy: self.put_retry,
+            use_put_record_to: Some(put_to),
+            verification: Some((
+                VerificationKind::ChunkProof {
+                    expected_proof,
+                    nonce: random_nonce,
+                },
+                self.verification_cfg_specific(expected),
+            )),
+        }
     }
 
-    /// Set the retry strategy for the data read operation. This is the retry strategy to use if the read
-    /// operation fails.
-    pub fn set_read_retry_strategy(&mut self, strategy: RetryStrategy) {
-        self.read_retry_strategy = Some(strategy);
+    /// Get config for verifying the existance and value of a record
+    pub(crate) fn verification_cfg_specific(&self, expected: Record) -> GetRecordCfg {
+        GetRecordCfg {
+            get_quorum: self.verification_quorum,
+            retry_strategy: self.verification_retry,
+            target_record: Some(expected),
+            expected_holders: HashSet::new(),
+        }
     }
 }

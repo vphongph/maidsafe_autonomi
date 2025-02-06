@@ -6,7 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{event::NodeEvent, multiaddr_get_ip, time::Instant, NetworkEvent, Result, SwarmDriver};
+use crate::{
+    event::NodeEvent, multiaddr_get_ip, time::Instant, NetworkEvent, NodeIssue, Result, SwarmDriver,
+};
 use ant_bootstrap::BootstrapCacheStore;
 use itertools::Itertools;
 #[cfg(feature = "open-metrics")]
@@ -274,8 +276,8 @@ impl SwarmDriver {
                 let connection_details = self.live_connected_peers.remove(&connection_id);
                 self.record_connection_metrics();
 
-                // we need to decide if this was a critical error and the peer should be removed from the routing table
-                let should_clean_peer = match error {
+                // we need to decide if this was a critical error and if we should report it to the Issue tracker
+                let is_critical_error = match error {
                     DialError::Transport(errors) => {
                         // as it's an outgoing error, if it's transport based we can assume it is _our_ fault
                         //
@@ -381,25 +383,14 @@ impl SwarmDriver {
                     }
                 };
 
-                if should_clean_peer {
-                    warn!("Tracking issue of {failed_peer_id:?}. Clearing it out for now");
+                if is_critical_error {
+                    warn!("Outgoing Connection error to {failed_peer_id:?} is considered as critical. Marking it as an issue.");
+                    self.record_node_issue(failed_peer_id, NodeIssue::ConnectionIssue);
 
-                    // Just track failures during outgoing connection with `failed_peer_id` inside the bootstrap cache.
-                    // OutgoingConnectionError without peer_id can happen when dialing multiple addresses of a peer.
-                    // And similarly IncomingConnectionError can happen when a peer has multiple transports/listen addrs.
                     if let (Some((_, failed_addr, _)), Some(bootstrap_cache)) =
                         (connection_details, self.bootstrap_cache.as_mut())
                     {
                         bootstrap_cache.update_addr_status(&failed_addr, false);
-                    }
-
-                    if let Some(dead_peer) = self
-                        .swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .remove_peer(&failed_peer_id)
-                    {
-                        self.update_on_peer_removal(*dead_peer.node.key.preimage());
                     }
                 }
             }

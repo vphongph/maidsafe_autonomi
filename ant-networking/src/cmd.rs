@@ -46,8 +46,10 @@ const REPLICATION_TIMEOUT: Duration = Duration::from_secs(45);
 // Throttles replication to at most once every 30 seconds
 const MIN_REPLICATION_INTERVAL_S: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum NodeIssue {
+    /// Some connections might be considered to be critical and should be tracked.
+    ConnectionIssue,
     /// Data Replication failed
     ReplicationFailure,
     /// Close nodes have reported this peer as bad
@@ -56,6 +58,18 @@ pub enum NodeIssue {
     BadQuoting,
     /// Peer failed to pass the chunk proof verification
     FailedChunkProofCheck,
+}
+
+impl std::fmt::Display for NodeIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NodeIssue::ConnectionIssue => write!(f, "CriticalConnectionIssue"),
+            NodeIssue::ReplicationFailure => write!(f, "ReplicationFailure"),
+            NodeIssue::CloseNodesShunning => write!(f, "CloseNodesShunning"),
+            NodeIssue::BadQuoting => write!(f, "BadQuoting"),
+            NodeIssue::FailedChunkProofCheck => write!(f, "FailedChunkProofCheck"),
+        }
+    }
 }
 
 /// Commands to send to the Swarm
@@ -976,12 +990,11 @@ impl SwarmDriver {
         Ok(())
     }
 
-    fn record_node_issue(&mut self, peer_id: PeerId, issue: NodeIssue) {
+    pub(crate) fn record_node_issue(&mut self, peer_id: PeerId, issue: NodeIssue) {
         info!("Peer {peer_id:?} is reported as having issue {issue:?}");
         let (issue_vec, is_bad) = self.bad_nodes.entry(peer_id).or_default();
-
-        let mut is_new_bad = false;
-        let mut bad_behaviour: String = "".to_string();
+        let mut new_bad_behaviour = None;
+        let mut is_connection_issue = false;
 
         // If being considered as bad already, skip certain operations
         if !(*is_bad) {
@@ -1014,9 +1027,13 @@ impl SwarmDriver {
                     .filter(|(i, _timestamp)| *issue == *i)
                     .count();
                 if issue_counts >= 3 {
-                    *is_bad = true;
-                    is_new_bad = true;
-                    bad_behaviour = format!("{issue:?}");
+                    // If it is a connection issue, we don't need to consider it as a bad node
+                    if matches!(issue, NodeIssue::ConnectionIssue) {
+                        is_connection_issue = true;
+                    } else {
+                        *is_bad = true;
+                    }
+                    new_bad_behaviour = Some(issue.clone());
                     info!("Peer {peer_id:?} accumulated {issue_counts} times of issue {issue:?}. Consider it as a bad node now.");
                     // Once a bad behaviour detected, no point to continue
                     break;
@@ -1024,16 +1041,28 @@ impl SwarmDriver {
             }
         }
 
+        // Give the faulty connection node more chances by removing the issue from the list. It is still evicted from
+        // the routing table.
+        if is_connection_issue {
+            issue_vec.retain(|(issue, _timestamp)| !matches!(issue, NodeIssue::ConnectionIssue));
+            info!("Evicting bad peer {peer_id:?} due to connection issue from RT.");
+            if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
+                self.update_on_peer_removal(*dead_peer.node.key.preimage());
+            }
+            return;
+        }
+
         if *is_bad {
-            warn!("Cleaning out bad_peer {peer_id:?}. Will be added to the blocklist after informing that peer.");
+            info!("Evicting bad peer {peer_id:?} from RT.");
             if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
                 self.update_on_peer_removal(*dead_peer.node.key.preimage());
             }
 
-            if is_new_bad {
+            if let Some(bad_behaviour) = new_bad_behaviour {
+                // inform the bad node about it and add to the blocklist after that (not for connection issues)
                 self.record_metrics(Marker::PeerConsideredAsBad { bad_peer: &peer_id });
-                // inform the bad node about it and add to the blocklist after that.
 
+                warn!("Peer {peer_id:?} is considered as bad due to {bad_behaviour:?}. Informing the peer and adding to blocklist.");
                 // response handling
                 let (tx, rx) = oneshot::channel();
                 let local_swarm_cmd_sender = self.local_cmd_sender.clone();
@@ -1058,7 +1087,7 @@ impl SwarmDriver {
                 let request = Request::Cmd(Cmd::PeerConsideredAsBad {
                     detected_by: NetworkAddress::from_peer(self.self_peer_id),
                     bad_peer: NetworkAddress::from_peer(peer_id),
-                    bad_behaviour,
+                    bad_behaviour: bad_behaviour.to_string(),
                 });
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request,

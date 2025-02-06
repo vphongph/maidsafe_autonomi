@@ -190,12 +190,11 @@ impl PyClient {
         let key = key.inner.clone();
 
         future_into_py(py, async move {
-            match client.vault_cost(&key, max_expected_size).await {
-                Ok(cost) => Ok(cost.to_string()),
-                Err(e) => Err(PyRuntimeError::new_err(format!(
-                    "Failed to get vault cost: {e}"
-                ))),
-            }
+            let cost = client
+                .vault_cost(&key, max_expected_size)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get vault cost: {e}")))?;
+            Ok(cost.to_string())
         })
     }
 

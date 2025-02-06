@@ -75,34 +75,34 @@ impl Default for ClientOperatingStrategy {
                 verification_quorum: ResponseQuorum::N(two),
                 verification_retry: RetryStrategy::Balanced,
                 get_quorum: ResponseQuorum::One, // chunks are content addressed so one is enough as there is no fork possible
-                get_retry: RetryStrategy::Balanced,
+                get_retry: RetryStrategy::Quick,
                 verification_kind: VerificationKind::Network, // it is recommended to use [`Strategy::chunk_put_cfg`] for chunks to benefit from the chunk proof
             },
             graph_entry: Strategy {
-                put_quorum: ResponseQuorum::All,
+                put_quorum: ResponseQuorum::Majority,
                 put_retry: RetryStrategy::Balanced,
                 verification_quorum: ResponseQuorum::Majority,
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: ResponseQuorum::N(two), // forks are rare but possible, balance between resilience and speed
-                get_retry: RetryStrategy::Balanced,
+                get_retry: RetryStrategy::Quick,
                 verification_kind: VerificationKind::Crdt, // forks are possible
             },
             pointer: Strategy {
-                put_quorum: ResponseQuorum::All,
+                put_quorum: ResponseQuorum::Majority,
                 put_retry: RetryStrategy::Balanced,
                 verification_quorum: ResponseQuorum::Majority,
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: ResponseQuorum::Majority, // majority to catch possible differences in versions
-                get_retry: RetryStrategy::Balanced,
+                get_retry: RetryStrategy::Quick,
                 verification_kind: VerificationKind::Crdt, // forks are possible
             },
             scratchpad: Strategy {
-                put_quorum: ResponseQuorum::All,
+                put_quorum: ResponseQuorum::Majority,
                 put_retry: RetryStrategy::Balanced,
                 verification_quorum: ResponseQuorum::Majority,
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: ResponseQuorum::Majority, // majority to catch possible differences in versions
-                get_retry: RetryStrategy::Balanced,
+                get_retry: RetryStrategy::Quick,
                 verification_kind: VerificationKind::Crdt, // forks are possible
             },
         }

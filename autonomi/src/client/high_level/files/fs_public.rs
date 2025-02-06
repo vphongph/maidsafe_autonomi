@@ -111,7 +111,7 @@ impl Client {
 
                 let xor_names: Vec<_> = chunks
                     .iter()
-                    .map(|chunk| (*chunk.name(), chunk.serialised_size()))
+                    .map(|chunk| (*chunk.name(), chunk.size()))
                     .collect();
 
                 let metadata = metadata_from_entry(&entry);
@@ -231,9 +231,8 @@ impl Client {
             start.elapsed()
         );
 
-        let total_cost = AttoTokens::from(0);
-
-        self.process_upload_results(uploads, receipt, skipped_payments_amount)
+        let total_cost = self
+            .process_upload_results(uploads, receipt, skipped_payments_amount)
             .await;
 
         Ok((total_cost, public_archive))

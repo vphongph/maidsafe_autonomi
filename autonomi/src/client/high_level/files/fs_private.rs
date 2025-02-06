@@ -18,11 +18,10 @@ use super::archive_private::{PrivateArchive, PrivateArchiveAccess};
 use super::{get_relative_file_path_from_abs_file_and_folder_path, FILE_UPLOAD_BATCH_SIZE};
 use super::{DownloadError, UploadError};
 
-use crate::client::payment::PaymentOption;
-use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_max_concurrency};
-use crate::{AttoTokens, Client, Wallet};
 use crate::client::PutError;
+use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_max_concurrency};
 use crate::self_encryption::encrypt;
+use crate::{AttoTokens, Client, Wallet};
 use ant_protocol::storage::{Chunk, DataTypes};
 use bytes::Bytes;
 use std::path::PathBuf;
@@ -106,7 +105,7 @@ impl Client {
 
                 let xor_names: Vec<_> = chunks
                     .iter()
-                    .map(|chunk| (*chunk.name(), chunk.serialised_size()))
+                    .map(|chunk| (*chunk.name(), chunk.size()))
                     .collect();
 
                 let metadata = super::fs_public::metadata_from_entry(&entry);
@@ -218,9 +217,8 @@ impl Client {
             start.elapsed()
         );
 
-        let total_cost = AttoTokens::from(0);
-
-        self.process_upload_results(uploads, receipt, skipped_payments_amount)
+        let total_cost = self
+            .process_upload_results(uploads, receipt, skipped_payments_amount)
             .await;
 
         Ok((total_cost, private_archive))

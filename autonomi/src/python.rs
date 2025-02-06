@@ -6,7 +6,7 @@ use crate::{
         payment::PaymentOption,
         vault::{UserData, VaultSecretKey},
     },
-    Client, PublicArchive,
+    Client, Metadata, PublicArchive,
 };
 use crate::{Bytes, Network, Wallet};
 use ant_protocol::storage::{ChunkAddress, Pointer, PointerAddress, PointerTarget};
@@ -823,10 +823,97 @@ impl PyNetwork {
     }
 }
 
+/// Metadata for files in an archive, containing creation time, modification time, and size.
+#[pyclass(name = "Metadata")]
+#[derive(Debug, Clone)]
+pub struct PyMetadata {
+    inner: Metadata,
+}
+
+#[pymethods]
+impl PyMetadata {
+    /// Create new metadata with the given size
+    #[new]
+    fn new(size: u64) -> Self {
+        Self {
+            inner: Metadata::new_with_size(size),
+        }
+    }
+
+    /// Get the creation time as Unix timestamp in seconds
+    #[getter]
+    fn created(&self) -> u64 {
+        self.inner.created
+    }
+
+    /// Get the modification time as Unix timestamp in seconds
+    #[getter]
+    fn modified(&self) -> u64 {
+        self.inner.modified
+    }
+
+    /// Get the file size in bytes
+    #[getter]
+    fn size(&self) -> u64 {
+        self.inner.size
+    }
+}
+
+/// A public archive containing files that can be accessed by anyone on the network.
 #[pyclass(name = "PublicArchive")]
 #[derive(Debug, Clone)]
 pub struct PyPublicArchive {
     inner: PublicArchive,
+}
+
+#[pymethods]
+impl PyPublicArchive {
+    /// Create a new empty archive
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: PublicArchive::new(),
+        }
+    }
+
+    /// Rename a file in the archive.
+    ///
+    /// Returns None on success, or error message on failure
+    fn rename_file(&mut self, old_path: PathBuf, new_path: PathBuf) -> PyResult<()> {
+        self.inner
+            .rename_file(&old_path, &new_path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to rename file: {e}")))
+    }
+
+    /// Add a file to the archive
+    fn add_file(
+        &mut self,
+        path: PathBuf,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+        metadata: &PyMetadata,
+    ) {
+        self.inner.add_file(path, addr, metadata.inner.clone());
+    }
+
+    /// List all files in the archive.
+    ///
+    /// Returns a list of (path, metadata) tuples
+    fn files(&self) -> Vec<(PathBuf, PyMetadata)> {
+        self.inner
+            .files()
+            .into_iter()
+            .map(|(path, meta)| (path, PyMetadata { inner: meta }))
+            .collect()
+    }
+
+    /// List all data addresses of files in the archive
+    fn addresses(&self) -> Vec<String> {
+        self.inner
+            .addresses()
+            .into_iter()
+            .map(|addr| crate::client::address::addr_to_str(addr))
+            .collect()
+    }
 }
 
 #[pymodule]
@@ -845,6 +932,7 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySecretKey>()?;
     m.add_class::<PyPublicKey>()?;
     m.add_class::<PyNetwork>()?;
+    m.add_class::<PyMetadata>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
     Ok(())
 }

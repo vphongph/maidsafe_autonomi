@@ -19,6 +19,11 @@ use xor_name::XorName;
 
 pub use ant_protocol::storage::DataTypes;
 
+// todo: limit depends per RPC endpoint. We should make this configurable
+// todo: test the limit for the Arbitrum One / Sepolia public RPC endpoint
+// Max limit of the Anvil RPC endpoint
+const GET_MARKET_PRICE_BATCH_LIMIT: usize = 2000;
+
 /// A quote for a single address
 pub struct QuoteForAddress(pub(crate) Vec<(PeerId, PaymentQuote, Amount)>);
 
@@ -80,7 +85,6 @@ impl Client {
         data_type: DataTypes,
         content_addrs: impl Iterator<Item = (XorName, usize)>,
     ) -> Result<StoreQuote, CostError> {
-        // get all quotes from nodes
         let futures: Vec<_> = content_addrs
             .into_iter()
             .map(|(content_addr, data_size)| {
@@ -96,81 +100,79 @@ impl Client {
         let raw_quotes_per_addr =
             process_tasks_with_max_concurrency(futures, *FILE_UPLOAD_BATCH_SIZE).await;
 
-        // choose the quotes to pay for each address
         let mut quotes_to_pay_per_addr = HashMap::new();
+        let mut all_quoting_metrics = Vec::new();
+        let mut content_addr_map = HashMap::new();
 
         for result in raw_quotes_per_addr {
             let (content_addr, mut raw_quotes) = result?;
             debug!(
-                "fetched market price for content_addr: {content_addr}, with {} quotes.",
+                "fetched raw quotes for content_addr: {content_addr}, with {} quotes.",
                 raw_quotes.len()
             );
 
-            // FIXME: find better way to deal with paid content addrs and feedback to the user
-            // assume that content addr is already paid for and uploaded
             if raw_quotes.is_empty() {
                 debug!("content_addr: {content_addr} is already paid for. No need to fetch market price.");
                 continue;
             }
 
             let target_addr = NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr));
-            // With the expand of quoting candidates,
-            // we shall get CLOSE_GROUP_SIZE closest into further procedure.
             raw_quotes.sort_by_key(|(peer_id, _)| {
                 NetworkAddress::from_peer(*peer_id).distance(&target_addr)
             });
 
-            // ask smart contract for the market price
             let quoting_metrics: Vec<QuotingMetrics> = raw_quotes
-                .clone()
                 .iter()
                 .take(CLOSE_GROUP_SIZE)
                 .map(|(_, q)| q.quoting_metrics.clone())
                 .collect();
 
-            let all_prices = get_market_price(&self.evm_network, quoting_metrics.clone()).await?;
+            content_addr_map.insert(content_addr, raw_quotes);
+            all_quoting_metrics.extend(quoting_metrics);
+        }
 
-            debug!("market prices: {all_prices:?}");
+        let mut all_prices = Vec::new();
+        for chunk in all_quoting_metrics.chunks(GET_MARKET_PRICE_BATCH_LIMIT) {
+            let batch_prices = get_market_price(&self.evm_network, chunk.to_vec()).await?;
+            all_prices.extend(batch_prices);
+        }
+        debug!("market prices: {all_prices:?}");
 
-            let mut prices: Vec<(PeerId, PaymentQuote, Amount)> = all_prices
+        let mut price_index = 0;
+        for (content_addr, raw_quotes) in content_addr_map {
+            let mut prices: Vec<(PeerId, PaymentQuote, Amount)> = raw_quotes
                 .into_iter()
-                .zip(raw_quotes.into_iter())
-                .map(|(price, (peer, quote))| (peer, quote, price))
+                .take(CLOSE_GROUP_SIZE)
+                .map(|(peer, quote)| {
+                    let price = all_prices[price_index];
+                    price_index += 1;
+                    (peer, quote, price)
+                })
                 .collect();
 
-            // sort by price
             prices.sort_by_key(|(_, _, price)| *price);
 
-            // we need at least 5 valid quotes to pay for the data
             const MINIMUM_QUOTES_TO_PAY: usize = 5;
-            match &prices[..] {
-                [first, second, third, fourth, fifth, ..] => {
-                    let (p1, q1, _) = first;
-                    let (p2, q2, _) = second;
+            if prices.len() >= MINIMUM_QUOTES_TO_PAY {
+                let (p1, q1, _) = &prices[0];
+                let (p2, q2, _) = &prices[1];
 
-                    // don't pay for the cheapest 2 quotes but include them
-                    let first = (*p1, q1.clone(), Amount::ZERO);
-                    let second = (*p2, q2.clone(), Amount::ZERO);
-
-                    // pay for the rest
-                    quotes_to_pay_per_addr.insert(
-                        content_addr,
-                        QuoteForAddress(vec![
-                            first,
-                            second,
-                            third.clone(),
-                            fourth.clone(),
-                            fifth.clone(),
-                        ]),
-                    );
-                }
-                _ => {
-                    return Err(CostError::NotEnoughNodeQuotes(
-                        content_addr,
-                        prices.len(),
-                        MINIMUM_QUOTES_TO_PAY,
-                    ));
-                }
+                quotes_to_pay_per_addr.insert(
+                    content_addr,
+                    QuoteForAddress(vec![
+                        (*p1, q1.clone(), Amount::ZERO),
+                        (*p2, q2.clone(), Amount::ZERO),
+                        prices[2].clone(),
+                        prices[3].clone(),
+                        prices[4].clone(),
+                    ]),
+                );
+            } else {
+                return Err(CostError::NotEnoughNodeQuotes(
+                    content_addr,
+                    prices.len(),
+                    MINIMUM_QUOTES_TO_PAY,
+                ));
             }
         }
 

@@ -235,10 +235,6 @@ impl Node {
             if !new_keys.is_empty() {
                 // Adding to the replication_fetcher for the rate_limit purpose,
                 // instead of fetching directly. To reduce potential choking risk.
-                info!(
-                    "Adding {} fresh records from {holder:?} to the replication_fetcher",
-                    new_keys.len()
-                );
                 node.network()
                     .add_fresh_records_to_the_replication_fetcher(holder, new_keys);
             }

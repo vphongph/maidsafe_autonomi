@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use crate::{node::Node, Error, Marker, Result};
 use ant_evm::payment_vault::verify_data_payment;
-use ant_evm::{AttoTokens, ProofOfPayment};
+use ant_evm::ProofOfPayment;
 use ant_networking::NetworkError;
 use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
@@ -419,9 +419,6 @@ impl Node {
 
     /// Store a `Chunk` to the RecordStore
     pub(crate) fn store_chunk(&self, chunk: &Chunk) -> Result<()> {
-        let chunk_name = *chunk.name();
-        let chunk_addr = *chunk.address();
-
         let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
 
@@ -433,13 +430,13 @@ impl Node {
         };
 
         // finally store the Record directly into the local storage
-        debug!("Storing chunk {chunk_name:?} as Record locally");
         self.network().put_local_record(record);
 
         self.record_metrics(Marker::ValidChunkRecordPutFromNetwork(&pretty_key));
 
-        self.events_channel()
-            .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
+        // TODO: currently ignored, re-enable once start to handle
+        // self.events_channel()
+        //     .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
 
         Ok(())
     }
@@ -621,7 +618,6 @@ impl Node {
     ) -> Result<()> {
         let key = address.to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
-        debug!("Validating record payment for {pretty_key}");
 
         // check if the quote is valid
         let self_peer_id = self.network().peer_id();
@@ -666,7 +662,6 @@ impl Node {
             .collect();
         // check if payment is valid on chain
         let payments_to_verify = payment.digest();
-        debug!("Verifying payment for record {pretty_key}");
         let reward_amount =
             verify_data_payment(self.evm_network(), owned_payment_quotes, payments_to_verify)
                 .await
@@ -690,11 +685,12 @@ impl Node {
                 .current_reward_wallet_balance
                 .set(new_value);
         }
-        self.events_channel()
-            .broadcast(crate::NodeEvent::RewardReceived(
-                AttoTokens::from(reward_amount),
-                address.clone(),
-            ));
+        // TODO: currently ignored, re-enable once going to handle this.
+        // self.events_channel()
+        //     .broadcast(crate::NodeEvent::RewardReceived(
+        //         AttoTokens::from(reward_amount),
+        //         address.clone(),
+        //     ));
 
         // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
         info!("Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}");

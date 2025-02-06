@@ -483,7 +483,7 @@ impl ReplicationFetcher {
             });
         }
 
-        if !out_of_range_keys.is_empty() {
+        if !out_of_range_keys.is_empty() && !new_incoming_keys.is_empty() {
             info!("Among {total_incoming_keys} incoming replications from {holder:?}, {} new records and {} out of range",
                 new_incoming_keys.len(), out_of_range_keys.len());
         }

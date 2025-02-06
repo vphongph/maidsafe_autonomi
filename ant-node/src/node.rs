@@ -69,7 +69,7 @@ const HIGHEST_SCORE: usize = 100;
 
 /// Any nodes bearing a score below this shall be considered as bad.
 /// Max is to be 100 * 100
-const MIN_ACCEPTABLE_HEALTHY_SCORE: usize = 5000;
+const MIN_ACCEPTABLE_HEALTHY_SCORE: usize = 3000;
 
 /// in ms, expecting average StorageChallenge complete time to be around 250ms.
 const TIME_STEP: usize = 20;
@@ -364,7 +364,6 @@ impl Node {
                     // runs every replication_interval time
                     _ = replication_interval.tick() => {
                         let start = Instant::now();
-                        debug!("Periodic replication triggered");
                         let network = self.network().clone();
                         self.record_metrics(Marker::IntervalReplicationTriggered);
 
@@ -484,14 +483,12 @@ impl Node {
             }
             NetworkEvent::ResponseReceived { res } => {
                 event_header = "ResponseReceived";
-                debug!("NetworkEvent::ResponseReceived {res:?}");
                 if let Err(err) = self.handle_response(res) {
                     error!("Error while handling NetworkEvent::ResponseReceived {err:?}");
                 }
             }
             NetworkEvent::KeysToFetchForReplication(keys) => {
                 event_header = "KeysToFetchForReplication";
-                debug!("Going to fetch {:?} keys for replication", keys.len());
                 self.record_metrics(Marker::fetching_keys_for_replication(&keys));
 
                 if let Err(err) = self.fetch_replication_keys_without_wait(keys) {
@@ -583,6 +580,9 @@ impl Node {
             Response::Query(QueryResponse::GetReplicatedRecord(resp)) => {
                 error!("Response to replication shall be handled by called not by common handler, {resp:?}");
             }
+            Response::Cmd(CmdResponse::FreshReplicate(Ok(()))) => {
+                // No need to handle
+            }
             other => {
                 warn!("handle_response not implemented for {other:?}");
             }
@@ -604,7 +604,6 @@ impl Node {
                 nonce,
                 difficulty,
             } => {
-                debug!("Got GetStoreQuote request for {key:?} with difficulty {difficulty}");
                 let record_key = key.to_record_key();
                 let self_id = network.peer_id();
 
@@ -658,9 +657,7 @@ impl Node {
                     }
                 }
             }
-            Query::GetReplicatedRecord { requester, key } => {
-                debug!("Got GetReplicatedRecord from {requester:?} regarding {key:?}");
-
+            Query::GetReplicatedRecord { requester: _, key } => {
                 let our_address = NetworkAddress::from_peer(network.peer_id());
                 let mut result = Err(ProtocolError::ReplicatedRecordNotFound {
                     holder: Box::new(our_address.clone()),
@@ -680,16 +677,9 @@ impl Node {
                 key,
                 nonce,
                 difficulty,
-            } => {
-                debug!(
-                    "Got GetChunkExistenceProof targeting chunk {key:?} with {difficulty} answers."
-                );
-
-                QueryResponse::GetChunkExistenceProof(
-                    Self::respond_x_closest_record_proof(network, key, nonce, difficulty, true)
-                        .await,
-                )
-            }
+            } => QueryResponse::GetChunkExistenceProof(
+                Self::respond_x_closest_record_proof(network, key, nonce, difficulty, true).await,
+            ),
             Query::CheckNodeInProblem(target_address) => {
                 debug!("Got CheckNodeInProblem for peer {target_address:?}");
 
@@ -849,12 +839,12 @@ impl Node {
                     }
                 }
             }
-        }
 
-        info!(
-            "Respond with {} answers to the StorageChallenge targeting {key:?} with {difficulty} difficulty, in {:?}",
-            results.len(), start.elapsed()
-        );
+            info!(
+                "Respond with {} answers to the StorageChallenge targeting {key:?} with {difficulty} difficulty, in {:?}",
+                results.len(), start.elapsed()
+            );
+        }
 
         results
     }

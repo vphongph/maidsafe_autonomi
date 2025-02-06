@@ -1,4 +1,5 @@
-use autonomi::{Bytes, Client, Metadata, PrivateArchive};
+use autonomi::files::{Metadata, PrivateArchive};
+use autonomi::{Bytes, Client};
 use test_utils::evm::get_funded_wallet;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -14,8 +15,8 @@ async fn main() -> eyre::Result<()> {
 
     // Upload 10MiB of random data and verify it by fetching it back.
     let data = Bytes::from("Hello, World!");
-    let data_map = client.data_put(data.clone(), (&wallet).into()).await?;
-    let data_fetched = client.data_get(data_map.clone()).await?;
+    let (_cost, data_map) = client.data_put(data.clone(), (&wallet).into()).await?;
+    let data_fetched = client.data_get(&data_map).await?;
     assert_eq!(data, data_fetched);
 
     // Upload the data as part of an archive, giving it the name `test.txt`.
@@ -27,8 +28,8 @@ async fn main() -> eyre::Result<()> {
     );
 
     // Upload the archive to the network.
-    let archive_data_map = client.archive_put(&archive, (&wallet).into()).await?;
-    let archive_fetched = client.archive_get(archive_data_map).await?;
+    let (_cost, archive_data_map) = client.archive_put(&archive, (&wallet).into()).await?;
+    let archive_fetched = client.archive_get(&archive_data_map).await?;
     assert_eq!(archive, archive_fetched);
 
     println!("Archive uploaded successfully");

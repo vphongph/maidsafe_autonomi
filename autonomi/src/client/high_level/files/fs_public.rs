@@ -13,7 +13,7 @@ use crate::client::high_level::files::{
 };
 use crate::client::Client;
 use crate::client::{high_level::data::DataAddr, utils::process_tasks_with_max_concurrency};
-use ant_evm::EvmWallet;
+use crate::{Amount, AttoTokens, Wallet};
 use ant_networking::time::{Duration, SystemTime};
 use bytes::Bytes;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ impl Client {
     /// Download file from network to local file system
     pub async fn file_download_public(
         &self,
-        data_addr: DataAddr,
+        data_addr: &DataAddr,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
         let data = self.data_get_public(data_addr).await?;
@@ -38,13 +38,13 @@ impl Client {
     /// Download directory from network to local file system
     pub async fn dir_download_public(
         &self,
-        archive_addr: ArchiveAddr,
+        archive_addr: &ArchiveAddr,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
         let archive = self.archive_get_public(archive_addr).await?;
         debug!("Downloaded archive for the directory from the network at {archive_addr:?}");
         for (path, addr, _meta) in archive.iter() {
-            self.file_download_public(*addr, to_dest.join(path)).await?;
+            self.file_download_public(addr, to_dest.join(path)).await?;
         }
         debug!(
             "All files in the directory downloaded to {:?} from the network address {:?}",
@@ -62,8 +62,8 @@ impl Client {
     pub async fn dir_upload_public(
         &self,
         dir_path: PathBuf,
-        wallet: &EvmWallet,
-    ) -> Result<PublicArchive, UploadError> {
+        wallet: &Wallet,
+    ) -> Result<(AttoTokens, PublicArchive), UploadError> {
         info!("Uploading directory: {dir_path:?}");
         let start = tokio::time::Instant::now();
 
@@ -78,8 +78,8 @@ impl Client {
             let metadata = metadata_from_entry(&entry);
             let path = entry.path().to_path_buf();
             upload_tasks.push(async move {
-                let file = self.file_upload_public(path.clone(), wallet).await;
-                (path, metadata, file)
+                let res = self.file_upload_public(path.clone(), wallet).await;
+                (path, metadata, res)
             });
         }
 
@@ -92,11 +92,18 @@ impl Client {
             start.elapsed()
         );
         let mut archive = PublicArchive::new();
+        let mut total_cost = AttoTokens::zero();
         for (path, metadata, maybe_file) in uploads.into_iter() {
             let rel_path = get_relative_file_path_from_abs_file_and_folder_path(&path, &dir_path);
 
             match maybe_file {
-                Ok(file) => archive.add_file(rel_path, file, metadata),
+                Ok((cost, file)) => {
+                    archive.add_file(rel_path, file, metadata);
+                    total_cost = total_cost.checked_add(cost).unwrap_or_else(|| {
+                        error!("Total cost overflowed: {total_cost:?} + {cost:?}");
+                        total_cost
+                    });
+                }
                 Err(err) => {
                     error!("Failed to upload file: {path:?}: {err:?}");
                     return Err(err);
@@ -106,7 +113,7 @@ impl Client {
 
         #[cfg(feature = "loud")]
         println!("Upload completed in {:?}", start.elapsed());
-        Ok(archive)
+        Ok((total_cost, archive))
     }
 
     /// Same as [`Client::dir_upload_public`] but also uploads the archive to the network.
@@ -115,11 +122,15 @@ impl Client {
     pub async fn dir_and_archive_upload_public(
         &self,
         dir_path: PathBuf,
-        wallet: &EvmWallet,
-    ) -> Result<ArchiveAddr, UploadError> {
-        let archive = self.dir_upload_public(dir_path, wallet).await?;
-        let archive_addr = self.archive_put_public(&archive, wallet).await?;
-        Ok(archive_addr)
+        wallet: &Wallet,
+    ) -> Result<(AttoTokens, ArchiveAddr), UploadError> {
+        let (cost1, archive) = self.dir_upload_public(dir_path, wallet).await?;
+        let (cost2, archive_addr) = self.archive_put_public(&archive, wallet).await?;
+        let total_cost = cost1.checked_add(cost2).unwrap_or_else(|| {
+            error!("Total cost overflowed: {cost1:?} + {cost2:?}");
+            cost1
+        });
+        Ok((total_cost, archive_addr))
     }
 
     /// Upload a file to the network.
@@ -127,24 +138,24 @@ impl Client {
     async fn file_upload_public(
         &self,
         path: PathBuf,
-        wallet: &EvmWallet,
-    ) -> Result<DataAddr, UploadError> {
+        wallet: &Wallet,
+    ) -> Result<(AttoTokens, DataAddr), UploadError> {
         info!("Uploading file: {path:?}");
         #[cfg(feature = "loud")]
         println!("Uploading file: {path:?}");
 
         let data = tokio::fs::read(path.clone()).await?;
         let data = Bytes::from(data);
-        let addr = self.data_put_public(data, wallet.into()).await?;
+        let (cost, addr) = self.data_put_public(data, wallet.into()).await?;
         debug!("File {path:?} uploaded to the network at {addr:?}");
-        Ok(addr)
+        Ok((cost, addr))
     }
 
     /// Get the cost to upload a file/dir to the network.
     /// quick and dirty implementation, please refactor once files are cleanly implemented
-    pub async fn file_cost(&self, path: &PathBuf) -> Result<ant_evm::AttoTokens, FileCostError> {
+    pub async fn file_cost(&self, path: &PathBuf) -> Result<AttoTokens, FileCostError> {
         let mut archive = PublicArchive::new();
-        let mut total_cost = ant_evm::Amount::ZERO;
+        let mut total_cost = Amount::ZERO;
 
         for entry in walkdir::WalkDir::new(path) {
             let entry = entry?;

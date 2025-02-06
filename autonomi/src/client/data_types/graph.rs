@@ -54,9 +54,9 @@ impl Client {
     /// Fetches a GraphEntry from the network.
     pub async fn graph_entry_get(
         &self,
-        address: GraphEntryAddress,
+        address: &GraphEntryAddress,
     ) -> Result<GraphEntry, GraphError> {
-        let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
+        let key = NetworkAddress::from_graph_entry_address(*address).to_record_key();
         let get_cfg = self.config.graph_entry.get_cfg();
         let record = self
             .network

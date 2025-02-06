@@ -29,14 +29,14 @@ async fn dir_upload_download() -> Result<()> {
     let client = Client::init_local().await?;
     let wallet = get_funded_wallet();
 
-    let addr = client
+    let (_cost, addr) = client
         .dir_and_archive_upload_public("tests/file/test_dir".into(), &wallet)
         .await?;
 
     sleep(Duration::from_secs(10)).await;
 
     client
-        .dir_download_public(addr, "tests/file/test_dir_fetched".into())
+        .dir_download_public(&addr, "tests/file/test_dir_fetched".into())
         .await?;
 
     // compare the two directories
@@ -85,12 +85,12 @@ async fn file_into_vault() -> Result<()> {
     let wallet = get_funded_wallet();
     let client_sk = bls::SecretKey::random();
 
-    let addr = client
+    let (_cost, addr) = client
         .dir_and_archive_upload_public("tests/file/test_dir".into(), &wallet)
         .await?;
     sleep(Duration::from_secs(2)).await;
 
-    let archive = client.archive_get_public(addr).await?;
+    let archive = client.archive_get_public(&addr).await?;
     let set_version = 0;
     client
         .write_bytes_to_vault(archive.to_bytes()?, wallet.into(), &client_sk, set_version)

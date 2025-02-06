@@ -94,20 +94,13 @@ pub use client::{
 
     // Native data types
     data_types::chunk::Chunk,
-    // Addresses for the native data types
     data_types::chunk::ChunkAddress,
     data_types::graph::GraphEntry,
     data_types::graph::GraphEntryAddress,
     data_types::pointer::Pointer,
     data_types::pointer::PointerAddress,
     data_types::scratchpad::Scratchpad,
-
     data_types::scratchpad::ScratchpadAddress,
-
-    // Files
-    files::archive_private::PrivateArchive,
-    files::archive_public::PublicArchive,
-    files::Metadata,
 
     // Client
     Client,

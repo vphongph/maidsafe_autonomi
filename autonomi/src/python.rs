@@ -45,9 +45,13 @@ impl Client {
         Ok(Self { inner: client })
     }
 
-    fn data_put(&self, data: Vec<u8>, payment: &PaymentOption) -> PyResult<PyDataMapChunk> {
+    fn data_put(
+        &self,
+        data: Vec<u8>,
+        payment: &PaymentOption,
+    ) -> PyResult<(String, PyDataMapChunk)> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let access = rt
+        let (cost, access) = rt
             .block_on(
                 self.inner
                     .data_put(Bytes::from(data), payment.inner.clone()),
@@ -56,22 +60,26 @@ impl Client {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to put data: {e}"))
             })?;
 
-        Ok(PyDataMapChunk { inner: access })
+        Ok((cost.to_string(), PyDataMapChunk { inner: access }))
     }
 
     fn data_get(&self, access: &PyDataMapChunk) -> PyResult<Vec<u8>> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
         let data = rt
-            .block_on(self.inner.data_get(access.inner.clone()))
+            .block_on(self.inner.data_get(&access.inner))
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to get data: {e}"))
             })?;
         Ok(data.to_vec())
     }
 
-    fn data_put_public(&self, data: Vec<u8>, payment: &PaymentOption) -> PyResult<String> {
+    fn data_put_public(
+        &self,
+        data: Vec<u8>,
+        payment: &PaymentOption,
+    ) -> PyResult<(String, String)> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
-        let addr = rt
+        let (cost, addr) = rt
             .block_on(
                 self.inner
                     .data_put_public(bytes::Bytes::from(data), payment.inner.clone()),
@@ -80,7 +88,7 @@ impl Client {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to put data: {e}"))
             })?;
 
-        Ok(crate::client::address::addr_to_str(addr))
+        Ok((cost.to_string(), crate::client::address::addr_to_str(addr)))
     }
 
     fn data_get_public(&self, addr: &str) -> PyResult<Vec<u8>> {
@@ -89,9 +97,11 @@ impl Client {
             pyo3::exceptions::PyValueError::new_err(format!("Invalid address: {e}"))
         })?;
 
-        let data = rt.block_on(self.inner.data_get_public(addr)).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to get data: {e}"))
-        })?;
+        let data = rt
+            .block_on(self.inner.data_get_public(&addr))
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Failed to get data: {e}"))
+            })?;
 
         Ok(data.to_vec())
     }
@@ -175,7 +185,7 @@ impl Client {
         })?);
         let address = RustPointerAddress::new(xorname);
 
-        let pointer = rt.block_on(self.inner.pointer_get(address)).map_err(|e| {
+        let pointer = rt.block_on(self.inner.pointer_get(&address)).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to get pointer: {e}"))
         })?;
 
@@ -203,7 +213,7 @@ impl Client {
     fn pointer_cost(&self, key: &PyPublicKey) -> PyResult<String> {
         let rt = tokio::runtime::Runtime::new().expect("Could not start tokio runtime");
         let cost = rt
-            .block_on(self.inner.pointer_cost(key.inner))
+            .block_on(self.inner.pointer_cost(&key.inner))
             .map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to get pointer cost: {e}"))
             })?;
@@ -251,9 +261,9 @@ impl PyPointer {
         })
     }
 
-    pub fn network_address(&self) -> PyPointerAddress {
+    pub fn address(&self) -> PyPointerAddress {
         PyPointerAddress {
-            inner: self.inner.network_address(),
+            inner: self.inner.address(),
         }
     }
 

@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use ant_evm::AttoTokens;
 use ant_networking::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
@@ -130,7 +131,7 @@ impl Client {
     /// Fetch a [`PrivateArchive`] from the network
     pub async fn archive_get(
         &self,
-        addr: PrivateArchiveAccess,
+        addr: &PrivateArchiveAccess,
     ) -> Result<PrivateArchive, GetError> {
         let data = self.data_get(addr).await?;
         Ok(PrivateArchive::from_bytes(data)?)
@@ -141,7 +142,7 @@ impl Client {
         &self,
         archive: &PrivateArchive,
         payment_option: PaymentOption,
-    ) -> Result<PrivateArchiveAccess, PutError> {
+    ) -> Result<(AttoTokens, PrivateArchiveAccess), PutError> {
         let bytes = archive
             .to_bytes()
             .map_err(|e| PutError::Serialization(format!("Failed to serialize archive: {e:?}")))?;

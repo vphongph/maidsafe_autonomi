@@ -6,14 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_evm::Amount;
 use ant_protocol::storage::DataTypes;
-use bytes::Bytes;
 
-use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::payment::PaymentOption;
 use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
+use crate::Amount;
+use crate::AttoTokens;
 use crate::{self_encryption::encrypt, Client};
+
+pub use crate::client::data_types::chunk::DataMapChunk;
+pub use crate::Bytes;
 
 impl Client {
     /// Fetch a blob of (private) data from the network
@@ -26,11 +28,11 @@ impl Client {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = Client::init().await?;
     /// # let data_map = todo!();
-    /// let data_fetched = client.data_get(data_map).await?;
+    /// let data_fetched = client.data_get(&data_map).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn data_get(&self, data_map: DataMapChunk) -> Result<Bytes, GetError> {
+    pub async fn data_get(&self, data_map: &DataMapChunk) -> Result<Bytes, GetError> {
         info!(
             "Fetching private data from Data Map {:?}",
             data_map.0.address()
@@ -55,7 +57,7 @@ impl Client {
     /// # let client = Client::init().await?;
     /// # let wallet = todo!();
     /// let data = Bytes::from("Hello, World");
-    /// let data_map = client.data_put(data, wallet).await?;
+    /// let (total_cost, data_map) = client.data_put(data, wallet).await?;
     /// let data_fetched = client.data_get(data_map).await?;
     /// assert_eq!(data, data_fetched);
     /// # Ok(())
@@ -65,7 +67,7 @@ impl Client {
         &self,
         data: Bytes,
         payment_option: PaymentOption,
-    ) -> Result<DataMapChunk, PutError> {
+    ) -> Result<(AttoTokens, DataMapChunk), PutError> {
         let now = ant_networking::time::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;
         debug!("Encryption took: {:.2?}", now.elapsed());
@@ -73,7 +75,7 @@ impl Client {
         // Pay for all chunks
         let xor_names: Vec<_> = chunks
             .iter()
-            .map(|chunk| (*chunk.name(), chunk.serialised_size()))
+            .map(|chunk| (*chunk.name(), chunk.size()))
             .collect();
         info!("Paying for {} addresses", xor_names.len());
         let (receipt, skipped_payments) = self
@@ -100,13 +102,14 @@ impl Client {
 
         let record_count = chunks.len().saturating_sub(skipped_payments);
 
+        let tokens_spent = receipt
+            .values()
+            .map(|(_, cost)| cost.as_atto())
+            .sum::<Amount>();
+        let total_cost = AttoTokens::from_atto(tokens_spent);
+
         // Reporting
         if let Some(channel) = self.client_event_sender.as_ref() {
-            let tokens_spent = receipt
-                .values()
-                .map(|(_, cost)| cost.as_atto())
-                .sum::<Amount>();
-
             let summary = UploadSummary {
                 records_paid: record_count,
                 records_already_paid: skipped_payments,
@@ -117,7 +120,7 @@ impl Client {
             }
         }
 
-        Ok(DataMapChunk(data_map_chunk))
+        Ok((total_cost, DataMapChunk(data_map_chunk)))
     }
 }
 

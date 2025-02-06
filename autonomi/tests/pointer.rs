@@ -34,7 +34,7 @@ async fn pointer_put_manual() -> Result<()> {
     let pointer = Pointer::new(&key, 0, target);
 
     // estimate the cost of the pointer
-    let cost = client.pointer_cost(public_key).await?;
+    let cost = client.pointer_cost(&public_key).await?;
     println!("pointer cost: {cost}");
 
     // put the pointer
@@ -47,7 +47,7 @@ async fn pointer_put_manual() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the pointer is stored
-    let got = client.pointer_get(addr).await?;
+    let got = client.pointer_get(&addr).await?;
     assert_eq!(got, pointer.clone());
     println!("pointer got 1");
 
@@ -63,7 +63,7 @@ async fn pointer_put_manual() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the pointer is updated
-    let got = client.pointer_get(addr).await?;
+    let got = client.pointer_get(&addr).await?;
     assert_eq!(got, pointer2.clone());
     println!("pointer got 2");
 
@@ -84,7 +84,7 @@ async fn pointer_put() -> Result<()> {
         PointerTarget::ChunkAddress(ChunkAddress::new(XorName::random(&mut rand::thread_rng())));
 
     // estimate the cost of the pointer
-    let cost = client.pointer_cost(public_key).await?;
+    let cost = client.pointer_cost(&public_key).await?;
     println!("pointer cost: {cost}");
 
     // put the pointer
@@ -98,7 +98,7 @@ async fn pointer_put() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the pointer is stored
-    let got = client.pointer_get(addr).await?;
+    let got = client.pointer_get(&addr).await?;
     assert_eq!(got, Pointer::new(&key, 0, target));
     println!("pointer got 1");
 
@@ -110,7 +110,7 @@ async fn pointer_put() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the pointer is updated
-    let got = client.pointer_get(addr).await?;
+    let got = client.pointer_get(&addr).await?;
     assert_eq!(got, Pointer::new(&key, 1, target2));
     println!("pointer got 2");
 

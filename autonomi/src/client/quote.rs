@@ -20,8 +20,8 @@ use xor_name::XorName;
 pub use ant_protocol::storage::DataTypes;
 
 // todo: limit depends per RPC endpoint. We should make this configurable
-// todo: test the limit for the Arbitrum One / Sepolia public RPC endpoint
-// Max limit of the Anvil RPC endpoint
+// todo: test the limit for the Arbitrum One public RPC endpoint
+// Working limit of the Arbitrum Sepolia public RPC endpoint
 const GET_MARKET_PRICE_BATCH_LIMIT: usize = 2000;
 
 /// A quote for a single address
@@ -100,9 +100,7 @@ impl Client {
         let raw_quotes_per_addr =
             process_tasks_with_max_concurrency(futures, *FILE_UPLOAD_BATCH_SIZE).await;
 
-        let mut quotes_to_pay_per_addr = HashMap::new();
-        let mut all_quoting_metrics = Vec::new();
-        let mut content_addr_map = HashMap::new();
+        let mut all_quotes = Vec::new();
 
         for result in raw_quotes_per_addr {
             let (content_addr, mut raw_quotes) = result?;
@@ -117,60 +115,74 @@ impl Client {
             }
 
             let target_addr = NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr));
+
+            // Only keep the quotes of the 5 closest nodes
             raw_quotes.sort_by_key(|(peer_id, _)| {
                 NetworkAddress::from_peer(*peer_id).distance(&target_addr)
             });
+            raw_quotes.truncate(CLOSE_GROUP_SIZE);
 
-            let quoting_metrics: Vec<QuotingMetrics> = raw_quotes
-                .iter()
-                .take(CLOSE_GROUP_SIZE)
-                .map(|(_, q)| q.quoting_metrics.clone())
-                .collect();
-
-            content_addr_map.insert(content_addr, raw_quotes);
-            all_quoting_metrics.extend(quoting_metrics);
+            for (peer_id, quote) in raw_quotes.into_iter() {
+                all_quotes.push((content_addr, peer_id, quote));
+            }
         }
 
         let mut all_prices = Vec::new();
-        for chunk in all_quoting_metrics.chunks(GET_MARKET_PRICE_BATCH_LIMIT) {
-            let batch_prices = get_market_price(&self.evm_network, chunk.to_vec()).await?;
-            all_prices.extend(batch_prices);
-        }
-        debug!("market prices: {all_prices:?}");
 
-        let mut price_index = 0;
-        for (content_addr, raw_quotes) in content_addr_map {
-            let mut prices: Vec<(PeerId, PaymentQuote, Amount)> = raw_quotes
-                .into_iter()
-                .take(CLOSE_GROUP_SIZE)
-                .map(|(peer, quote)| {
-                    let price = all_prices[price_index];
-                    price_index += 1;
-                    (peer, quote, price)
-                })
+        for chunk in all_quotes.chunks(GET_MARKET_PRICE_BATCH_LIMIT) {
+            let quoting_metrics: Vec<QuotingMetrics> = chunk
+                .iter()
+                .map(|(_, _, quote)| quote.quoting_metrics.clone())
                 .collect();
 
-            prices.sort_by_key(|(_, _, price)| *price);
+            debug!(
+                "Getting market prices for {} quoting metrics",
+                quoting_metrics.len()
+            );
 
-            const MINIMUM_QUOTES_TO_PAY: usize = 5;
-            if prices.len() >= MINIMUM_QUOTES_TO_PAY {
-                let (p1, q1, _) = &prices[0];
-                let (p2, q2, _) = &prices[1];
+            let batch_prices = get_market_price(&self.evm_network, quoting_metrics).await?;
+
+            all_prices.extend(batch_prices);
+        }
+
+        let quotes_with_prices: Vec<(XorName, PeerId, PaymentQuote, Amount)> = all_quotes
+            .into_iter()
+            .zip(all_prices.into_iter())
+            .map(|((content_addr, peer_id, quote), price)| (content_addr, peer_id, quote, price))
+            .collect();
+
+        let mut quotes_per_addr: HashMap<XorName, Vec<(PeerId, PaymentQuote, Amount)>> =
+            HashMap::new();
+
+        for (content_addr, peer_id, quote, price) in quotes_with_prices {
+            let entry = quotes_per_addr.entry(content_addr).or_default();
+            entry.push((peer_id, quote, price));
+            entry.sort_by_key(|(_, _, price)| *price);
+        }
+
+        let mut quotes_to_pay_per_addr = HashMap::new();
+
+        const MINIMUM_QUOTES_TO_PAY: usize = 5;
+
+        for (content_addr, quotes) in quotes_per_addr {
+            if quotes.len() >= MINIMUM_QUOTES_TO_PAY {
+                let (p1, q1, _) = &quotes[0];
+                let (p2, q2, _) = &quotes[1];
 
                 quotes_to_pay_per_addr.insert(
                     content_addr,
                     QuoteForAddress(vec![
                         (*p1, q1.clone(), Amount::ZERO),
                         (*p2, q2.clone(), Amount::ZERO),
-                        prices[2].clone(),
-                        prices[3].clone(),
-                        prices[4].clone(),
+                        quotes[2].clone(),
+                        quotes[3].clone(),
+                        quotes[4].clone(),
                     ]),
                 );
             } else {
                 return Err(CostError::NotEnoughNodeQuotes(
                     content_addr,
-                    prices.len(),
+                    quotes.len(),
                     MINIMUM_QUOTES_TO_PAY,
                 ));
             }

@@ -11,7 +11,7 @@ use ant_evm::ProofOfPayment;
 use ant_networking::{GetRecordCfg, Network, ResponseQuorum};
 use ant_protocol::storage::DataTypes;
 use ant_protocol::{
-    messages::{Cmd, Query, QueryResponse, Request, Response},
+    messages::{Query, QueryResponse, Request, Response},
     storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey,
 };
@@ -100,88 +100,91 @@ impl Node {
         Ok(())
     }
 
-    /// Replicate a fresh record to its close group peers.
-    /// This should not be triggered by a record we receive via replicaiton fetch
-    pub(crate) fn replicate_valid_fresh_record(
-        &self,
-        paid_key: RecordKey,
-        data_type: DataTypes,
-        validation_type: ValidationType,
-        payment: Option<ProofOfPayment>,
-    ) {
-        let network = self.network().clone();
+    // Client changed to upload to ALL payees, hence no longer need this.
+    // May need again once client change back to upload to just one to save traffic.
+    //
+    // Replicate a fresh record to its close group peers.
+    // This should not be triggered by a record we receive via replicaiton fetch
+    // pub(crate) fn replicate_valid_fresh_record(
+    //     &self,
+    //     paid_key: RecordKey,
+    //     data_type: DataTypes,
+    //     validation_type: ValidationType,
+    //     payment: Option<ProofOfPayment>,
+    // ) {
+    //     let network = self.network().clone();
 
-        let _handle = spawn(async move {
-            let start = std::time::Instant::now();
-            let pretty_key = PrettyPrintRecordKey::from(&paid_key);
+    //     let _handle = spawn(async move {
+    //         let start = std::time::Instant::now();
+    //         let pretty_key = PrettyPrintRecordKey::from(&paid_key);
 
-            // first we wait until our own network store can return the record
-            // otherwise it may not be fully written yet
-            let mut retry_count = 0;
-            debug!("Checking we have successfully stored the fresh record {pretty_key:?} in the store before replicating");
-            loop {
-                let record = network.get_local_record(&paid_key).await.unwrap_or_else(|err| {
-                    error!(
-                            "Replicating fresh record {pretty_key:?} get_record_from_store errored: {err:?}"
-                        );
-                    None
-                });
+    //         // first we wait until our own network store can return the record
+    //         // otherwise it may not be fully written yet
+    //         let mut retry_count = 0;
+    //         debug!("Checking we have successfully stored the fresh record {pretty_key:?} in the store before replicating");
+    //         loop {
+    //             let record = network.get_local_record(&paid_key).await.unwrap_or_else(|err| {
+    //                 error!(
+    //                         "Replicating fresh record {pretty_key:?} get_record_from_store errored: {err:?}"
+    //                     );
+    //                 None
+    //             });
 
-                if record.is_some() {
-                    break;
-                }
+    //             if record.is_some() {
+    //                 break;
+    //             }
 
-                if retry_count > 10 {
-                    error!(
-                        "Could not get record from store for replication: {pretty_key:?} after 10 retries"
-                    );
-                    return;
-                }
+    //             if retry_count > 10 {
+    //                 error!(
+    //                     "Could not get record from store for replication: {pretty_key:?} after 10 retries"
+    //                 );
+    //                 return;
+    //             }
 
-                retry_count += 1;
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
+    //             retry_count += 1;
+    //             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    //         }
 
-            debug!("Start replication of fresh record {pretty_key:?} from store");
+    //         debug!("Start replication of fresh record {pretty_key:?} from store");
 
-            let data_addr = NetworkAddress::from_record_key(&paid_key);
+    //         let data_addr = NetworkAddress::from_record_key(&paid_key);
 
-            // If payment exists, only candidates are the payees.
-            // Else get candidates from network.
-            let replicate_candidates = match payment.as_ref() {
-                Some(payment) => payment
-                    .payees()
-                    .into_iter()
-                    .filter(|peer_id| peer_id != &network.peer_id())
-                    .collect(),
-                None => match network.get_replicate_candidates(data_addr.clone()).await {
-                    Ok(peers) => peers,
-                    Err(err) => {
-                        error!("Replicating fresh record {pretty_key:?} get_replicate_candidates errored: {err:?}");
-                        return;
-                    }
-                },
-            };
+    //         // If payment exists, only candidates are the payees.
+    //         // Else get candidates from network.
+    //         let replicate_candidates = match payment.as_ref() {
+    //             Some(payment) => payment
+    //                 .payees()
+    //                 .into_iter()
+    //                 .filter(|peer_id| peer_id != &network.peer_id())
+    //                 .collect(),
+    //             None => match network.get_replicate_candidates(data_addr.clone()).await {
+    //                 Ok(peers) => peers,
+    //                 Err(err) => {
+    //                     error!("Replicating fresh record {pretty_key:?} get_replicate_candidates errored: {err:?}");
+    //                     return;
+    //                 }
+    //             },
+    //         };
 
-            let our_peer_id = network.peer_id();
-            let our_address = NetworkAddress::from_peer(our_peer_id);
-            let keys = vec![(data_addr, data_type, validation_type.clone(), payment)];
+    //         let our_peer_id = network.peer_id();
+    //         let our_address = NetworkAddress::from_peer(our_peer_id);
+    //         let keys = vec![(data_addr, data_type, validation_type.clone(), payment)];
 
-            for peer_id in replicate_candidates {
-                debug!("Replicating fresh record {pretty_key:?} to {peer_id:?}");
-                let request = Request::Cmd(Cmd::FreshReplicate {
-                    holder: our_address.clone(),
-                    keys: keys.clone(),
-                });
+    //         for peer_id in replicate_candidates {
+    //             debug!("Replicating fresh record {pretty_key:?} to {peer_id:?}");
+    //             let request = Request::Cmd(Cmd::FreshReplicate {
+    //                 holder: our_address.clone(),
+    //                 keys: keys.clone(),
+    //             });
 
-                network.send_req_ignore_reply(request, peer_id);
-            }
-            debug!(
-                "Completed replicate fresh record {pretty_key:?} on store, in {:?}",
-                start.elapsed()
-            );
-        });
-    }
+    //             network.send_req_ignore_reply(request, peer_id);
+    //         }
+    //         debug!(
+    //             "Completed replicate fresh record {pretty_key:?} on store, in {:?}",
+    //             start.elapsed()
+    //         );
+    //     });
+    // }
 
     // To fetch a received fresh record replication
     pub(crate) fn fresh_replicate_to_fetch(

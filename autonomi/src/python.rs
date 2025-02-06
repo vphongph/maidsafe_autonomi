@@ -6,7 +6,8 @@ use crate::{
         payment::PaymentOption,
         vault::{UserData, VaultSecretKey},
     },
-    Client, Metadata, PublicArchive,
+    files::{Metadata, PublicArchive},
+    Client,
 };
 use crate::{Bytes, Network, Wallet};
 use ant_protocol::storage::{ChunkAddress, Pointer, PointerAddress, PointerTarget};
@@ -133,11 +134,11 @@ impl PyClient {
         let wallet = wallet.inner.clone();
 
         future_into_py(py, async move {
-            let addr = client
+            let (cost, addr) = client
                 .dir_and_archive_upload_public(dir_path, &wallet)
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to upload directory: {e}")))?;
-            Ok(crate::client::address::addr_to_str(&addr))
+            Ok((cost.to_string(), crate::client::address::addr_to_str(addr)))
         })
     }
 

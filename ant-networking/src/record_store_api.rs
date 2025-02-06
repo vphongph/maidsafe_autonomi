@@ -23,7 +23,6 @@ pub enum UnifiedRecordStore {
     Client(ClientRecordStore),
     Node(NodeRecordStore),
 }
-
 impl RecordStore for UnifiedRecordStore {
     type RecordsIter<'a> = std::vec::IntoIter<Cow<'a, Record>>;
     type ProvidedIter<'a> = std::vec::IntoIter<Cow<'a, ProviderRecord>>;

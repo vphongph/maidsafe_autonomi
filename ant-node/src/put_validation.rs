@@ -335,7 +335,10 @@ impl Node {
 
     /// Store a pre-validated, and already paid record to the RecordStore
     pub(crate) async fn store_replicated_in_record(&self, record: Record) -> Result<()> {
-        debug!("Storing record which was replicated to us {:?}", record.key);
+        debug!(
+            "Storing record which was replicated to us {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        );
         let record_header = RecordHeader::from_record(&record)?;
         match record_header.kind {
             // A separate flow handles record with payment

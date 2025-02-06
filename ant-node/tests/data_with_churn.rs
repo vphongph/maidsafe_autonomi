@@ -447,7 +447,7 @@ fn create_graph_entry_task(
 
                 let mut retries = 1;
                 loop {
-                    match client.graph_entry_get(*addr).await {
+                    match client.graph_entry_get(addr).await {
                         Ok(graph_entry) => {
                             println!("Fetched graph_entry at {addr:?}");
 
@@ -683,7 +683,7 @@ fn store_chunks_task(
                         println!("Error to put chunk: {err:?}");
                         error!("Error to put chunk: {err:?}")
                     }) {
-                    Ok(data_map) => {
+                    Ok((_cost, data_map)) => {
                         println!("Stored Chunk/s at {data_map:?} after a delay of: {delay:?}");
                         info!("Stored Chunk/s at {data_map:?} after a delay of: {delay:?}");
 
@@ -872,15 +872,15 @@ async fn final_retry_query_content(
 async fn query_content(client: &Client, net_addr: &NetworkAddress) -> Result<()> {
     match net_addr {
         NetworkAddress::ChunkAddress(addr) => {
-            client.data_get_public(*addr.xorname()).await?;
+            client.data_get_public(addr.xorname()).await?;
             Ok(())
         }
         NetworkAddress::PointerAddress(addr) => {
-            let _ = client.pointer_get(*addr).await?;
+            let _ = client.pointer_get(addr).await?;
             Ok(())
         }
         NetworkAddress::GraphEntryAddress(addr) => {
-            let _ = client.graph_entry_get(*addr).await?;
+            let _ = client.graph_entry_get(addr).await?;
             Ok(())
         }
         NetworkAddress::ScratchpadAddress(addr) => {

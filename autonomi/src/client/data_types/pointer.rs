@@ -48,8 +48,8 @@ pub enum PointerError {
 
 impl Client {
     /// Get a pointer from the network
-    pub async fn pointer_get(&self, address: PointerAddress) -> Result<Pointer, PointerError> {
-        let key = NetworkAddress::from_pointer_address(address).to_record_key();
+    pub async fn pointer_get(&self, address: &PointerAddress) -> Result<Pointer, PointerError> {
+        let key = NetworkAddress::from_pointer_address(*address).to_record_key();
         debug!("Fetching pointer from network at: {key:?}");
 
         let get_cfg = self.config.pointer.get_cfg();
@@ -117,7 +117,7 @@ impl Client {
         pointer: Pointer,
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, PointerAddress), PointerError> {
-        let address = pointer.network_address();
+        let address = pointer.address();
 
         // pay for the pointer storage
         let xor_name = *address.xorname();
@@ -203,13 +203,14 @@ impl Client {
     /// Update an existing pointer to point to a new target on the network
     /// The pointer needs to be created first with [`Client::pointer_put`]
     /// This operation is free as the pointer was already paid for at creation
+    /// Only the latest version of the pointer is kept on the Network, previous versions will be overwritten and unrecoverable
     pub async fn pointer_update(
         &self,
         owner: &SecretKey,
         target: PointerTarget,
     ) -> Result<(), PointerError> {
         let address = PointerAddress::from_owner(owner.public_key());
-        let current = match self.pointer_get(address).await {
+        let current = match self.pointer_get(&address).await {
             Ok(pointer) => Some(pointer),
             Err(PointerError::Network(NetworkError::GetRecordError(
                 GetRecordError::RecordNotFound,
@@ -257,10 +258,10 @@ impl Client {
     }
 
     /// Calculate the cost of storing a pointer
-    pub async fn pointer_cost(&self, key: PublicKey) -> Result<AttoTokens, CostError> {
+    pub async fn pointer_cost(&self, key: &PublicKey) -> Result<AttoTokens, CostError> {
         trace!("Getting cost for pointer of {key:?}");
 
-        let address = PointerAddress::from_owner(key);
+        let address = PointerAddress::from_owner(*key);
         let xor = *address.xorname();
         let store_quote = self
             .get_store_quotes(DataTypes::Pointer, std::iter::once((xor, Pointer::size())))

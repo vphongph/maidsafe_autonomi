@@ -13,7 +13,7 @@ use std::{
 
 use ant_networking::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ant_evm::{AttoTokens, EvmWallet};
+use crate::{AttoTokens, Wallet};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use xor_name::XorName;
@@ -135,11 +135,11 @@ impl Client {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::init().await?;
-    /// let archive = client.archive_get_public(ArchiveAddr::random(&mut rand::thread_rng())).await?;
+    /// let archive = client.archive_get_public(&ArchiveAddr::random(&mut rand::thread_rng())).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn archive_get_public(&self, addr: ArchiveAddr) -> Result<PublicArchive, GetError> {
+    pub async fn archive_get_public(&self, addr: &ArchiveAddr) -> Result<PublicArchive, GetError> {
         let data = self.data_get_public(addr).await?;
         Ok(PublicArchive::from_bytes(data)?)
     }
@@ -159,15 +159,15 @@ impl Client {
     /// # let wallet = todo!();
     /// let mut archive = PublicArchive::new();
     /// archive.add_file(PathBuf::from("file.txt"), DataAddr::random(&mut rand::thread_rng()), Metadata::new_with_size(0));
-    /// let address = client.archive_put_public(&archive, &wallet).await?;
+    /// let (cost, address) = client.archive_put_public(&archive, &wallet).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn archive_put_public(
         &self,
         archive: &PublicArchive,
-        wallet: &EvmWallet,
-    ) -> Result<ArchiveAddr, PutError> {
+        wallet: &Wallet,
+    ) -> Result<(AttoTokens, ArchiveAddr), PutError> {
         let bytes = archive
             .to_bytes()
             .map_err(|e| PutError::Serialization(format!("Failed to serialize archive: {e:?}")))?;
@@ -184,7 +184,7 @@ impl Client {
     }
 
     /// Get the cost to upload an archive
-    pub async fn archive_cost(&self, archive: PublicArchive) -> Result<AttoTokens, CostError> {
+    pub async fn archive_cost(&self, archive: &PublicArchive) -> Result<AttoTokens, CostError> {
         let bytes = archive
             .to_bytes()
             .map_err(|e| CostError::Serialization(format!("Failed to serialize archive: {e:?}")))?;

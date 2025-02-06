@@ -168,6 +168,7 @@ impl Client {
     }
 
     /// Update the value of a register
+    /// The register needs to be created first with [`Client::register_create`]
     pub async fn register_update(
         &self,
         owner: &SecretKey,
@@ -180,7 +181,7 @@ impl Client {
         };
         let pointer_addr = self.register_head_pointer_address(&addr);
         debug!("Getting pointer of register head at {pointer_addr:?}");
-        let pointer = match self.pointer_get(pointer_addr).await {
+        let pointer = match self.pointer_get(&pointer_addr).await {
             Ok(pointer) => pointer,
             Err(PointerError::Network(NetworkError::GetRecordError(
                 GetRecordError::RecordNotFound,
@@ -241,7 +242,7 @@ impl Client {
         // get the pointer of the register head
         let pointer_addr = self.register_head_pointer_address(addr);
         debug!("Getting pointer of register head at {pointer_addr:?}");
-        let pointer = self.pointer_get(pointer_addr).await?;
+        let pointer = self.pointer_get(&pointer_addr).await?;
         let graph_entry_addr = match pointer.target() {
             PointerTarget::GraphEntryAddress(addr) => addr,
             other => return Err(RegisterError::InvalidHeadPointer(other.clone())),
@@ -249,7 +250,7 @@ impl Client {
 
         // get the entry from the graph
         debug!("Getting register head graph entry at {graph_entry_addr:?}");
-        let entry = match self.graph_entry_get(*graph_entry_addr).await {
+        let entry = match self.graph_entry_get(graph_entry_addr).await {
             Ok(entry) => entry,
             Err(GraphError::Fork(entries)) => {
                 let values = entries.iter().map(|e| e.content).collect::<Vec<_>>();
@@ -268,7 +269,7 @@ impl Client {
     pub async fn register_cost(&self, owner: &PublicKey) -> Result<AttoTokens, CostError> {
         let pointer_pk = self.register_head_pointer_pk(&RegisterAddress { owner: *owner });
         let graph_entry_cost = self.graph_entry_cost(owner);
-        let pointer_cost = self.pointer_cost(pointer_pk);
+        let pointer_cost = self.pointer_cost(&pointer_pk);
         let (graph_entry_cost, pointer_cost) =
             futures::future::join(graph_entry_cost, pointer_cost).await;
         graph_entry_cost?
@@ -307,7 +308,7 @@ impl Client {
         &self,
         graph_entry_addr: &GraphEntryAddress,
     ) -> Result<(GraphEntry, DerivationIndex), RegisterError> {
-        let entry = match self.graph_entry_get(*graph_entry_addr).await {
+        let entry = match self.graph_entry_get(graph_entry_addr).await {
             Ok(e) => e,
             Err(GraphError::Fork(entries)) => {
                 warn!("Forked register, multiple entries found: {entries:?}, choosing the one with the smallest derivation index for the next entry");

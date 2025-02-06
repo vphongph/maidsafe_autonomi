@@ -48,7 +48,7 @@ pub enum ScratchpadError {
 
 impl Client {
     /// Get Scratchpad from the Network
-    /// It is stored at the owner's public key
+    /// A Scratchpad is stored at the owner's public key so we can derive the address from it
     pub async fn scratchpad_get_from_public_key(
         &self,
         public_key: &PublicKey,
@@ -58,7 +58,6 @@ impl Client {
     }
 
     /// Get Scratchpad from the Network
-    /// It is stored at the owner's public key
     pub async fn scratchpad_get(
         &self,
         address: &ScratchpadAddress,
@@ -252,7 +251,8 @@ impl Client {
     }
 
     /// Update an existing scratchpad to the network
-    /// This operation is free but requires the scratchpad to be already created on the network
+    /// The scratchpad needs to be created first with [`Client::scratchpad_create`]
+    /// This operation is free as the scratchpad was already paid for at creation
     /// Only the latest version of the scratchpad is kept on the Network, previous versions will be overwritten and unrecoverable
     pub async fn scratchpad_update(
         &self,

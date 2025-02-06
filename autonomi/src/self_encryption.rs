@@ -59,7 +59,7 @@ fn pack_data_map(data_map: DataMap) -> Result<(Chunk, Vec<Chunk>), Error> {
         debug!("Max chunk size: {}", *MAX_CHUNK_SIZE);
         let chunk = Chunk::new(chunk_content);
         // If datamap chunk is less than `MAX_CHUNK_SIZE` return it so it can be directly sent to the network.
-        if *MAX_CHUNK_SIZE >= chunk.serialised_size() {
+        if *MAX_CHUNK_SIZE >= chunk.size() {
             chunks.reverse();
             // Returns the last datamap, and all the chunks produced.
             break (chunk, chunks);

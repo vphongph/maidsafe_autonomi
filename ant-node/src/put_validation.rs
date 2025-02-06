@@ -251,14 +251,14 @@ impl Node {
             }
             RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
-                let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
+                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
                 let pretty_key = PrettyPrintRecordKey::from(&record.key);
                 let already_exists = self
                     .validate_key_and_existence(&net_addr, &record.key)
                     .await?;
 
                 if !already_exists {
-                    warn!("Pointer at address: {:?}, key: {:?} does not exist locally, rejecting PUT without payment", pointer.network_address(), pretty_key);
+                    warn!("Pointer at address: {:?}, key: {:?} does not exist locally, rejecting PUT without payment", pointer.address(), pretty_key);
                     return Err(Error::InvalidPutWithoutPayment(
                         PrettyPrintRecordKey::from(&record.key).into_owned(),
                     ));
@@ -283,7 +283,7 @@ impl Node {
                 let (payment, pointer) =
                     try_deserialize_record::<(ProofOfPayment, Pointer)>(&record)?;
 
-                let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
+                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
                 let pretty_key = PrettyPrintRecordKey::from(&record.key);
                 let already_exists = self
                     .validate_key_and_existence(&net_addr, &record.key)
@@ -797,14 +797,14 @@ impl Node {
         }
 
         // Check if the pointer's address matches the record key
-        let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
+        let net_addr = NetworkAddress::from_pointer_address(pointer.address());
         if key != net_addr.to_record_key() {
             warn!("Pointer address does not match record key");
             return Err(Error::RecordKeyMismatch);
         }
 
         // Keep the pointer with the highest counter
-        if let Some(local_pointer) = self.get_local_pointer(pointer.network_address()).await {
+        if let Some(local_pointer) = self.get_local_pointer(pointer.address()).await {
             if pointer.counter() <= local_pointer.counter() {
                 info!(
                     "Ignoring Pointer PUT at {key:?} with counter less than or equal to the current counter ({} <= {})",

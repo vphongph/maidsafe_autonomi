@@ -219,11 +219,15 @@ impl Debug for NetworkAddress {
                 )
             }
             NetworkAddress::RecordKey(bytes) => {
-                format!("NetworkAddress::RecordKey({bytes:?} - ")
+                format!("NetworkAddress::RecordKey({:?} - ", hex::encode(bytes))
             }
         };
 
-        write!(f, "{name_str}{:?})", self.as_kbucket_key())
+        write!(
+            f,
+            "{name_str}{:?})",
+            PrettyPrintKBucketKey(self.as_kbucket_key())
+        )
     }
 }
 

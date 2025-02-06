@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use crate::{node::Node, Error, Marker, Result};
 use ant_evm::payment_vault::verify_data_payment;
-use ant_evm::{AttoTokens, ProofOfPayment};
+use ant_evm::ProofOfPayment;
 use ant_networking::NetworkError;
 use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
@@ -49,15 +49,14 @@ impl Node {
                 // Now that we've taken any money passed to us, regardless of the payment's validity,
                 // if we already have the data we can return early
                 if already_exists {
-                    // if we're receiving this chunk PUT again, and we have been paid,
-                    // we eagerly retry replicaiton as it seems like other nodes are having trouble
-                    // did not manage to get this chunk as yet
-                    self.replicate_valid_fresh_record(
-                        record_key,
-                        DataTypes::Chunk,
-                        ValidationType::Chunk,
-                        Some(payment),
-                    );
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record_key,
+                    //     DataTypes::Chunk,
+                    //     ValidationType::Chunk,
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
@@ -83,12 +82,14 @@ impl Node {
                 if store_chunk_result.is_ok() {
                     Marker::ValidPaidChunkPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(
-                        record_key,
-                        DataTypes::Chunk,
-                        ValidationType::Chunk,
-                        Some(payment),
-                    );
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record_key,
+                    //     DataTypes::Chunk,
+                    //     ValidationType::Chunk,
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
@@ -232,12 +233,14 @@ impl Node {
                     let content_hash = XorName::from_content(&record.value);
                     Marker::ValidGraphEntryPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(
-                        record.key.clone(),
-                        DataTypes::GraphEntry,
-                        ValidationType::NonChunk(content_hash),
-                        Some(payment),
-                    );
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record.key.clone(),
+                    //     DataTypes::GraphEntry,
+                    //     ValidationType::NonChunk(content_hash),
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
@@ -332,7 +335,10 @@ impl Node {
 
     /// Store a pre-validated, and already paid record to the RecordStore
     pub(crate) async fn store_replicated_in_record(&self, record: Record) -> Result<()> {
-        debug!("Storing record which was replicated to us {:?}", record.key);
+        debug!(
+            "Storing record which was replicated to us {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        );
         let record_header = RecordHeader::from_record(&record)?;
         match record_header.kind {
             // A separate flow handles record with payment
@@ -419,9 +425,6 @@ impl Node {
 
     /// Store a `Chunk` to the RecordStore
     pub(crate) fn store_chunk(&self, chunk: &Chunk) -> Result<()> {
-        let chunk_name = *chunk.name();
-        let chunk_addr = *chunk.address();
-
         let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
 
@@ -433,13 +436,13 @@ impl Node {
         };
 
         // finally store the Record directly into the local storage
-        debug!("Storing chunk {chunk_name:?} as Record locally");
         self.network().put_local_record(record);
 
         self.record_metrics(Marker::ValidChunkRecordPutFromNetwork(&pretty_key));
 
-        self.events_channel()
-            .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
+        // TODO: currently ignored, re-enable once start to handle
+        // self.events_channel()
+        //     .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
 
         Ok(())
     }
@@ -455,8 +458,8 @@ impl Node {
         &self,
         scratchpad: Scratchpad,
         record_key: RecordKey,
-        is_client_put: bool,
-        payment: Option<ProofOfPayment>,
+        _is_client_put: bool,
+        _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
         let addr = scratchpad.address();
@@ -509,17 +512,19 @@ impl Node {
 
         self.record_metrics(Marker::ValidScratchpadRecordPutFromNetwork(&pretty_key));
 
-        if is_client_put {
-            let content_hash = XorName::from_content(&record.value);
-            // ScratchPad update is a special upload that without payment,
-            // but must have an existing copy to update.
-            self.replicate_valid_fresh_record(
-                scratchpad_key,
-                DataTypes::Scratchpad,
-                ValidationType::NonChunk(content_hash),
-                payment,
-            );
-        }
+        // Client changed to upload to ALL payees, hence no longer need this.
+        // May need again once client change back to upload to just one to save traffic.
+        // if is_client_put {
+        //     let content_hash = XorName::from_content(&record.value);
+        //     // ScratchPad update is a special upload that without payment,
+        //     // but must have an existing copy to update.
+        //     self.replicate_valid_fresh_record(
+        //         scratchpad_key,
+        //         DataTypes::Scratchpad,
+        //         ValidationType::NonChunk(content_hash),
+        //         payment,
+        //     );
+        // }
 
         Ok(())
     }
@@ -621,7 +626,6 @@ impl Node {
     ) -> Result<()> {
         let key = address.to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
-        debug!("Validating record payment for {pretty_key}");
 
         // check if the quote is valid
         let self_peer_id = self.network().peer_id();
@@ -666,7 +670,6 @@ impl Node {
             .collect();
         // check if payment is valid on chain
         let payments_to_verify = payment.digest();
-        debug!("Verifying payment for record {pretty_key}");
         let reward_amount =
             verify_data_payment(self.evm_network(), owned_payment_quotes, payments_to_verify)
                 .await
@@ -690,11 +693,12 @@ impl Node {
                 .current_reward_wallet_balance
                 .set(new_value);
         }
-        self.events_channel()
-            .broadcast(crate::NodeEvent::RewardReceived(
-                AttoTokens::from(reward_amount),
-                address.clone(),
-            ));
+        // TODO: currently ignored, re-enable once going to handle this.
+        // self.events_channel()
+        //     .broadcast(crate::NodeEvent::RewardReceived(
+        //         AttoTokens::from(reward_amount),
+        //         address.clone(),
+        //     ));
 
         // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
         info!("Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}");
@@ -787,8 +791,8 @@ impl Node {
         &self,
         pointer: Pointer,
         key: RecordKey,
-        is_client_put: bool,
-        payment: Option<ProofOfPayment>,
+        _is_client_put: bool,
+        _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
         if !pointer.verify_signature() {
@@ -825,15 +829,17 @@ impl Node {
         };
         self.network().put_local_record(record.clone());
 
-        if is_client_put {
-            let content_hash = XorName::from_content(&record.value);
-            self.replicate_valid_fresh_record(
-                key.clone(),
-                DataTypes::Pointer,
-                ValidationType::NonChunk(content_hash),
-                payment,
-            );
-        }
+        // Client changed to upload to ALL payees, hence no longer need this.
+        // May need again once client change back to upload to just one to save traffic.
+        // if is_client_put {
+        //     let content_hash = XorName::from_content(&record.value);
+        //     self.replicate_valid_fresh_record(
+        //         key.clone(),
+        //         DataTypes::Pointer,
+        //         ValidationType::NonChunk(content_hash),
+        //         payment,
+        //     );
+        // }
 
         info!("Successfully stored Pointer record at {key:?}");
         Ok(())

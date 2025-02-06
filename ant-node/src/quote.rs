@@ -45,7 +45,6 @@ impl Node {
             signature,
         };
 
-        debug!("Created payment quote for {address:?}: {quote:?}");
         Ok(quote)
     }
 }

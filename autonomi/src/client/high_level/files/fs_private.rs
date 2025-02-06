@@ -133,7 +133,7 @@ impl Client {
 
     /// Upload a private file to the network.
     /// Reads file, splits into chunks, uploads chunks, uploads datamap, returns [`DataMapChunk`] (pointing to the datamap)
-    async fn file_upload(
+    pub async fn file_upload(
         &self,
         path: PathBuf,
         wallet: &Wallet,

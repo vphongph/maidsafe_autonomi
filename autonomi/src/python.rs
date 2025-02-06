@@ -101,10 +101,12 @@ impl PyClient {
     }
 
     /// Fetch a blob of data from the network
-    fn data_get_public<'a>(&self, py: Python<'a>, addr: &str) -> PyResult<Bound<'a, PyAny>> {
+    fn data_get_public<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+    ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
-        let addr = crate::client::address::str_to_addr(addr)
-            .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))?;
 
         future_into_py(py, async move {
             let data = client
@@ -361,6 +363,10 @@ impl PyPointer {
             inner: PointerTarget::ChunkAddress(ChunkAddress::new(self.inner.xorname())),
         }
     }
+
+    fn __str__(&self) -> PyResult<String> {
+        Ok(self.hex())
+    }
 }
 
 /// The target that a pointer points to on the network.
@@ -407,6 +413,10 @@ impl PyPointerTarget {
             inner: PointerTarget::ChunkAddress(addr.inner),
         }
     }
+
+    fn __str__(&self) -> PyResult<String> {
+        Ok(self.hex())
+    }
 }
 
 /// An address of a chunk of data on the network. Used to locate and retrieve data chunks.
@@ -432,10 +442,7 @@ impl From<PyChunkAddress> for ChunkAddress {
 impl PyChunkAddress {
     /// Creates a new chunk address from a string representation.
     #[new]
-    fn new(addr: &str) -> PyResult<Self> {
-        let addr = crate::client::address::str_to_addr(addr)
-            .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))?;
-
+    fn new(#[pyo3(from_py_with = "str_to_addr")] addr: XorName) -> PyResult<Self> {
         Ok(Self {
             inner: ChunkAddress::new(addr),
         })
@@ -774,4 +781,11 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNetwork>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
     Ok(())
+}
+
+// Helper function to convert argument hex string to XorName.
+fn str_to_addr(addr: &Bound<'_, PyAny>) -> PyResult<XorName> {
+    let addr: String = addr.extract()?;
+    crate::client::address::str_to_addr(&addr)
+        .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))
 }

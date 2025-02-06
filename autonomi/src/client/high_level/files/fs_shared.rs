@@ -10,8 +10,9 @@ impl Client {
         uploads: Vec<(String, Result<usize, UploadError>)>,
         receipt: Receipt,
         skipped_payments_amount: usize,
-    ) -> AttoTokens {
+    ) -> Result<AttoTokens, UploadError> {
         let mut total_chunks_uploaded = 0;
+        let mut last_err: Option<UploadError> = None;
 
         for (name, result) in uploads {
             match result {
@@ -22,8 +23,16 @@ impl Client {
                     error!("Error uploading file {name}: {err:?}");
                     #[cfg(feature = "loud")]
                     println!("Error uploading file {name}: {err:?}");
+
+                    last_err = Some(err);
                 }
             }
+        }
+
+        // todo: bundle the errors together in a new error type
+        // Throw an error if not all files were uploaded successfully
+        if let Some(err) = last_err {
+            return Err(err);
         }
 
         let tokens_spent = receipt
@@ -43,6 +52,6 @@ impl Client {
             }
         }
 
-        AttoTokens::from_atto(tokens_spent)
+        Ok(AttoTokens::from_atto(tokens_spent))
     }
 }

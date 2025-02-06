@@ -233,7 +233,7 @@ impl Client {
 
         let total_cost = self
             .process_upload_results(uploads, receipt, skipped_payments_amount)
-            .await;
+            .await?;
 
         Ok((total_cost, public_archive))
     }

@@ -23,7 +23,7 @@
 //!
 //!     // Put and fetch data.
 //!     let (cost, data_addr) = client.data_put_public(Bytes::from("Hello, World"), (&wallet).into()).await?;
-//!     let _data_fetched = client.data_get_public(data_addr).await?;
+//!     let _data_fetched = client.data_get_public(&data_addr).await?;
 //!
 //!     // Put and fetch directory from local file system.
 //!     let (cost, dir_addr) = client.dir_and_archive_upload_public("files/to/upload".into(), &wallet).await?;

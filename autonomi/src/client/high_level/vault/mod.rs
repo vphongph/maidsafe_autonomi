@@ -90,7 +90,7 @@ impl Client {
         let mut has_end_reached = false;
 
         while !has_end_reached {
-            let graph_entry = self.graph_entry_get(cur_graph_entry_addr).await?;
+            let graph_entry = self.graph_entry_get(&cur_graph_entry_addr).await?;
 
             // The first descendant is reserved for `expand GraphEntry`.
             match graph_entry.descendants.split_first() {
@@ -344,7 +344,7 @@ impl Client {
                 .public_key();
             let cur_graph_entry_addr = GraphEntryAddress::from_owner(public_key.into());
 
-            match self.graph_entry_get(cur_graph_entry_addr).await {
+            match self.graph_entry_get(&cur_graph_entry_addr).await {
                 Ok(entry) => {
                     // A GraphEntry was created with all NUM_OF_SCRATCHPADS_PER_GRAPHENTRY
                     // scratchpad claimed:

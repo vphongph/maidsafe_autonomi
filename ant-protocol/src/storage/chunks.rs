@@ -57,8 +57,13 @@ impl Chunk {
     }
 
     /// Returns size of this chunk after serialisation.
-    pub fn serialised_size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.value.len()
+    }
+
+    /// Returns true if the chunk is too big
+    pub fn is_too_big(&self) -> bool {
+        self.size() > Self::DEFAULT_MAX_SIZE
     }
 }
 

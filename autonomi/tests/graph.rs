@@ -45,7 +45,7 @@ async fn graph_entry_put() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the graph_entry is stored
-    let txs = client.graph_entry_get(graph_entry.address()).await?;
+    let txs = client.graph_entry_get(&graph_entry.address()).await?;
     assert_eq!(txs, graph_entry.clone());
     println!("graph_entry got 1");
 
@@ -75,7 +75,7 @@ async fn graph_entry_put() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the graph_entry is stored
-    let txs = client.graph_entry_get(graph_entry3.address()).await?;
+    let txs = client.graph_entry_get(&graph_entry3.address()).await?;
     assert_eq!(txs, graph_entry3.clone());
     println!("graph_entry got 2");
 

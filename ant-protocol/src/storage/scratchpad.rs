@@ -156,12 +156,12 @@ impl Scratchpad {
         XorName::from_content(&self.encrypted_data)
     }
 
-    /// Returns the owner.
+    /// Returns the owner of the scratchpad
     pub fn owner(&self) -> &PublicKey {
         self.address.owner()
     }
 
-    /// Returns the address.
+    /// Returns the address of the scratchpad
     pub fn address(&self) -> &ScratchpadAddress {
         &self.address
     }

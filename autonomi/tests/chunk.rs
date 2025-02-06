@@ -37,7 +37,7 @@ async fn chunk_put_manual() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // check that the chunk is stored
-    let got = client.chunk_get(addr).await?;
+    let got = client.chunk_get(&addr).await?;
     assert_eq!(got, chunk.clone());
     println!("chunk got 1");
 

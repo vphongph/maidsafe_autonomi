@@ -48,11 +48,13 @@ impl PyClient {
     ) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let payment = payment.inner.clone();
+
         future_into_py(py, async move {
-            match client.data_put(Bytes::from(data), payment).await {
-                Ok(access) => Ok(PyDataMapChunk { inner: access }),
-                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to put data: {e}"))),
-            }
+            let (cost, data_map) = client
+                .data_put(Bytes::from(data), payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put data: {e}")))?;
+            Ok((cost.to_string(), PyDataMapChunk { inner: data_map }))
         })
     }
 
@@ -61,10 +63,11 @@ impl PyClient {
         let access = access.inner.clone();
 
         future_into_py(py, async move {
-            match client.data_get(access).await {
-                Ok(data) => Ok(data.to_vec()),
-                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to get data: {e}"))),
-            }
+            let data = client
+                .data_get(&access)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get data: {e}")))?;
+            Ok(data.to_vec())
         })
     }
 
@@ -78,16 +81,12 @@ impl PyClient {
         let payment = payment.inner.clone();
 
         future_into_py(py, async move {
-            match client
+            let (cost, addr) = client
                 .data_put_public(bytes::Bytes::from(data), payment)
                 .await
-            {
-                Ok(addr) => Ok(crate::client::address::addr_to_str(addr)),
-                Err(e) => Err(PyRuntimeError::new_err(format!(
-                    "Failed to put data: {:?}",
-                    eyre::Report::from(e)
-                ))),
-            }
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put data: {e}")))?;
+
+            Ok((cost.to_string(), crate::client::address::addr_to_str(addr)))
         })
     }
 
@@ -97,10 +96,12 @@ impl PyClient {
             .map_err(|e| PyValueError::new_err(format!("`addr` has invalid format: {e:?}")))?;
 
         future_into_py(py, async move {
-            match client.data_get_public(addr).await {
-                Ok(data) => Ok(data.to_vec()),
-                Err(e) => Err(PyRuntimeError::new_err(format!("Failed to put data: {e}"))),
-            }
+            let data = client
+                .data_get_public(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put data: {e}")))?;
+
+            Ok(data.to_vec())
         })
     }
 
@@ -217,7 +218,7 @@ impl PyClient {
         let client = self.inner.clone();
 
         future_into_py(py, async move {
-            match client.pointer_get(addr.inner).await {
+            match client.pointer_get(&addr.inner).await {
                 Ok(pointer) => Ok(PyPointer { inner: pointer }),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get pointer: {e}"
@@ -250,7 +251,7 @@ impl PyClient {
         let key = key.inner;
 
         future_into_py(py, async move {
-            match client.pointer_cost(key).await {
+            match client.pointer_cost(&key).await {
                 Ok(cost) => Ok(cost.to_string()),
                 Err(e) => Err(PyRuntimeError::new_err(format!(
                     "Failed to get pointer cost: {e}"
@@ -301,9 +302,9 @@ impl PyPointer {
         })
     }
 
-    pub fn network_address(&self) -> PyPointerAddress {
+    pub fn address(&self) -> PyPointerAddress {
         PyPointerAddress {
-            inner: self.inner.network_address(),
+            inner: self.inner.address(),
         }
     }
 

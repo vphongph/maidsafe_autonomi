@@ -13,6 +13,9 @@ pub mod archive_public;
 pub mod fs_private;
 pub mod fs_public;
 
+pub use archive_private::PrivateArchive;
+pub use archive_public::PublicArchive;
+
 /// Number of files to upload in parallel.
 ///
 /// Can be overridden by the `FILE_UPLOAD_BATCH_SIZE` environment variable.

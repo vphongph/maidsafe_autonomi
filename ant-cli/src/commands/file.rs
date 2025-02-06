@@ -64,14 +64,14 @@ pub async fn upload(
     // upload dir
     let local_addr;
     let archive = if public {
-        let xor_name = client
+        let (_cost, xor_name) = client
             .dir_and_archive_upload_public(dir_path, &wallet)
             .await
             .wrap_err("Failed to upload file")?;
         local_addr = addr_to_str(xor_name);
         local_addr.clone()
     } else {
-        let private_data_access = client
+        let (_cost, private_data_access) = client
             .dir_and_archive_upload(dir_path, &wallet)
             .await
             .wrap_err("Failed to upload dir and archive")?;

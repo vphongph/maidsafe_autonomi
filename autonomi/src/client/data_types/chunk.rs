@@ -71,6 +71,7 @@ pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
 });
 
 /// Private data on the network can be accessed with this
+/// Uploading this data in a chunk makes it publicly accessible from the address of that Chunk
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DataMapChunk(pub(crate) Chunk);
 
@@ -105,10 +106,10 @@ fn hash_to_short_string(input: &str) -> String {
 
 impl Client {
     /// Get a chunk from the network.
-    pub async fn chunk_get(&self, addr: ChunkAddress) -> Result<Chunk, GetError> {
+    pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         info!("Getting chunk: {addr:?}");
 
-        let key = NetworkAddress::from_chunk_address(addr).to_record_key();
+        let key = NetworkAddress::from_chunk_address(*addr).to_record_key();
         debug!("Fetching chunk from network at: {key:?}");
 
         let get_cfg = self.config.chunks.get_cfg();
@@ -146,7 +147,7 @@ impl Client {
         let (payment_proofs, _skipped_payments) = self
             .pay_for_content_addrs(
                 DataTypes::Chunk,
-                std::iter::once((xor_name, chunk.serialised_size())),
+                std::iter::once((xor_name, chunk.size())),
                 payment_option,
             )
             .await
@@ -366,7 +367,7 @@ impl Client {
         for info in data_map.infos() {
             download_tasks.push(async move {
                 match self
-                    .chunk_get(ChunkAddress::new(info.dst_hash))
+                    .chunk_get(&ChunkAddress::new(info.dst_hash))
                     .await
                     .inspect_err(|err| {
                         error!(

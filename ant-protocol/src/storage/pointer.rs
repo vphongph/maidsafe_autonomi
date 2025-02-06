@@ -91,6 +91,11 @@ impl Pointer {
         PointerAddress::from_owner(self.owner)
     }
 
+    /// Get the owner of the pointer
+    pub fn owner(&self) -> &PublicKey {
+        &self.owner
+    }
+
     /// Get the target of the pointer
     pub fn target(&self) -> &PointerTarget {
         &self.target
@@ -109,11 +114,6 @@ impl Pointer {
     /// Similarly to counter CRDTs only the latest version (highest counter) of the pointer is kept on the network
     pub fn counter(&self) -> u32 {
         self.counter
-    }
-
-    /// Get the network address for this pointer
-    pub fn network_address(&self) -> PointerAddress {
-        PointerAddress::from_owner(self.owner)
     }
 
     /// Verifies if the pointer has a valid signature

@@ -58,7 +58,7 @@ impl Client {
     /// # let wallet = todo!();
     /// let data = Bytes::from("Hello, World");
     /// let (total_cost, data_map) = client.data_put(data, wallet).await?;
-    /// let data_fetched = client.data_get(data_map).await?;
+    /// let data_fetched = client.data_get(&data_map).await?;
     /// assert_eq!(data, data_fetched);
     /// # Ok(())
     /// # }

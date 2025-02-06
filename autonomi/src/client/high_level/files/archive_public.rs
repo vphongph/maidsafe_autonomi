@@ -135,7 +135,7 @@ impl Client {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::init().await?;
-    /// let archive = client.archive_get_public(ArchiveAddr::random(&mut rand::thread_rng())).await?;
+    /// let archive = client.archive_get_public(&ArchiveAddr::random(&mut rand::thread_rng())).await?;
     /// # Ok(())
     /// # }
     /// ```

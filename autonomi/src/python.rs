@@ -832,7 +832,7 @@ pub struct PyMetadata {
 
 #[pymethods]
 impl PyMetadata {
-    /// Create new metadata with the given size
+    /// Create new metadata with the given file size
     #[new]
     fn new(size: u64) -> Self {
         Self {
@@ -842,20 +842,38 @@ impl PyMetadata {
 
     /// Get the creation time as Unix timestamp in seconds
     #[getter]
-    fn created(&self) -> u64 {
+    fn get_created(&self) -> u64 {
         self.inner.created
+    }
+
+    /// Set the creation time as Unix timestamp in seconds
+    #[setter]
+    fn set_created(&mut self, value: u64) {
+        self.inner.created = value;
     }
 
     /// Get the modification time as Unix timestamp in seconds
     #[getter]
-    fn modified(&self) -> u64 {
+    fn get_modified(&self) -> u64 {
         self.inner.modified
+    }
+
+    /// Set the modification time as Unix timestamp in seconds
+    #[setter]
+    fn set_modified(&mut self, value: u64) {
+        self.inner.modified = value;
     }
 
     /// Get the file size in bytes
     #[getter]
-    fn size(&self) -> u64 {
+    fn get_size(&self) -> u64 {
         self.inner.size
+    }
+
+    /// Set the file size in bytes
+    #[setter]
+    fn set_size(&mut self, value: u64) {
+        self.inner.size = value;
     }
 }
 

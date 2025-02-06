@@ -11,12 +11,15 @@ use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::client::high_level::files::{
     get_relative_file_path_from_abs_file_and_folder_path, FILE_UPLOAD_BATCH_SIZE,
 };
-use crate::client::Client;
 use crate::client::{high_level::data::DataAddr, utils::process_tasks_with_max_concurrency};
+use crate::client::{Client, PutError};
+use crate::self_encryption::encrypt;
 use crate::{Amount, AttoTokens, Wallet};
 use ant_networking::time::{Duration, SystemTime};
+use ant_protocol::storage::{Chunk, DataTypes};
 use bytes::Bytes;
 use std::path::PathBuf;
+use xor_name::XorName;
 
 impl Client {
     /// Download file from network to local file system
@@ -67,53 +70,172 @@ impl Client {
         info!("Uploading directory: {dir_path:?}");
         let start = tokio::time::Instant::now();
 
-        // start upload of files in parallel
-        let mut upload_tasks = Vec::new();
-        for entry in walkdir::WalkDir::new(dir_path.clone()) {
+        let mut encryption_tasks = vec![];
+
+        for entry in walkdir::WalkDir::new(&dir_path) {
             let entry = entry?;
-            if !entry.file_type().is_file() {
+
+            if entry.file_type().is_dir() {
                 continue;
             }
 
-            let metadata = metadata_from_entry(&entry);
-            let path = entry.path().to_path_buf();
-            upload_tasks.push(async move {
-                let res = self.file_upload_public(path.clone(), wallet).await;
-                (path, metadata, res)
+            let dir_path = dir_path.clone();
+
+            encryption_tasks.push(async move {
+                let file_path = entry.path().to_path_buf();
+
+                info!("Encrypting file: {file_path:?}..");
+                #[cfg(feature = "loud")]
+                println!("Encrypting file: {file_path:?}..");
+
+                let data = tokio::fs::read(&file_path)
+                    .await
+                    .map_err(|err| format!("Could not read file {file_path:?}: {err:?}"))?;
+                let data = Bytes::from(data);
+
+                if data.len() < 3 {
+                    let err_msg =
+                        format!("Skipping file {file_path:?}, as it is smaller than 3 bytes");
+                    return Err(err_msg);
+                }
+
+                let now = ant_networking::time::Instant::now();
+
+                let (data_map_chunk, mut chunks) = encrypt(data).map_err(|err| err.to_string())?;
+
+                debug!("Encryption of {file_path:?} took: {:.2?}", now.elapsed());
+
+                let data_address = *data_map_chunk.name();
+
+                chunks.push(data_map_chunk);
+
+                let xor_names: Vec<_> = chunks
+                    .iter()
+                    .map(|chunk| (*chunk.name(), chunk.size()))
+                    .collect();
+
+                let metadata = metadata_from_entry(&entry);
+
+                let relative_path =
+                    get_relative_file_path_from_abs_file_and_folder_path(&file_path, &dir_path);
+
+                Ok((
+                    file_path.to_string_lossy().to_string(),
+                    xor_names,
+                    chunks,
+                    (relative_path, data_address, metadata),
+                ))
             });
         }
 
-        // wait for all files to be uploaded
-        let uploads =
-            process_tasks_with_max_concurrency(upload_tasks, *FILE_UPLOAD_BATCH_SIZE).await;
-        info!(
-            "Upload of {} files completed in {:?}",
-            uploads.len(),
-            start.elapsed()
-        );
-        let mut archive = PublicArchive::new();
-        let mut total_cost = AttoTokens::zero();
-        for (path, metadata, maybe_file) in uploads.into_iter() {
-            let rel_path = get_relative_file_path_from_abs_file_and_folder_path(&path, &dir_path);
+        let mut combined_xor_names: Vec<(XorName, usize)> = vec![];
+        let mut combined_chunks: Vec<((String, XorName), Vec<Chunk>)> = vec![];
+        let mut public_archive = PublicArchive::new();
 
-            match maybe_file {
-                Ok((cost, file)) => {
-                    archive.add_file(rel_path, file, metadata);
-                    total_cost = total_cost.checked_add(cost).unwrap_or_else(|| {
-                        error!("Total cost overflowed: {total_cost:?} + {cost:?}");
-                        total_cost
-                    });
+        let encryption_results =
+            process_tasks_with_max_concurrency(encryption_tasks, *FILE_UPLOAD_BATCH_SIZE).await;
+
+        for encryption_result in encryption_results {
+            match encryption_result {
+                Ok((file_path, xor_names, chunks, file_data)) => {
+                    info!("Successfully encrypted file: {file_path:?}");
+                    #[cfg(feature = "loud")]
+                    println!("Successfully encrypted file: {file_path:?}");
+
+                    combined_xor_names.extend(xor_names);
+                    let (relative_path, data_address, file_metadata) = file_data;
+                    combined_chunks.push(((file_path, data_address), chunks));
+                    public_archive.add_file(relative_path, data_address, file_metadata);
                 }
-                Err(err) => {
-                    error!("Failed to upload file: {path:?}: {err:?}");
-                    return Err(err);
+                Err(err_msg) => {
+                    error!("Error during file encryption: {err_msg}");
                 }
             }
         }
 
+        info!("Paying for {} chunks..", combined_xor_names.len());
         #[cfg(feature = "loud")]
-        println!("Upload completed in {:?}", start.elapsed());
-        Ok((total_cost, archive))
+        println!("Paying for {} chunks..", combined_xor_names.len());
+
+        let (receipt, skipped_payments_amount) = self
+            .pay_for_content_addrs(
+                DataTypes::Chunk,
+                combined_xor_names.into_iter(),
+                wallet.into(),
+            )
+            .await
+            .inspect_err(|err| error!("Error paying for data: {err:?}"))
+            .map_err(PutError::from)?;
+
+        info!("{skipped_payments_amount} chunks were free");
+
+        let files_to_upload_amount = combined_chunks.len();
+
+        let mut upload_tasks = vec![];
+
+        for ((name, data_address), chunks) in combined_chunks {
+            let receipt_clone = receipt.clone();
+
+            upload_tasks.push(async move {
+                info!("Uploading file: {name} ({} chunks)..", chunks.len());
+                #[cfg(feature = "loud")]
+                println!("Uploading file: {name} ({} chunks)..", chunks.len());
+
+                // todo: handle failed uploads
+                let mut failed_uploads = self
+                    .upload_chunks_with_retries(chunks.iter().collect(), &receipt_clone)
+                    .await;
+
+                let chunks_uploaded = chunks.len() - failed_uploads.len();
+
+                // Return the last chunk upload error
+                if let Some(last_chunk_fail) = failed_uploads.pop() {
+                    error!(
+                        "Error uploading chunk ({:?}): {:?}",
+                        last_chunk_fail.0.address(),
+                        last_chunk_fail.1
+                    );
+
+                    (name, Err(UploadError::from(last_chunk_fail.1)))
+                } else {
+                    info!(
+                        "Successfully uploaded {name} ({} chunks) to: {}",
+                        chunks.len(),
+                        hex::encode(data_address.0)
+                    );
+                    #[cfg(feature = "loud")]
+                    println!(
+                        "Successfully uploaded {name} ({} chunks) to: {}",
+                        chunks.len(),
+                        hex::encode(data_address.0)
+                    );
+
+                    (name, Ok(chunks_uploaded))
+                }
+            });
+        }
+
+        let uploads =
+            process_tasks_with_max_concurrency(upload_tasks, *FILE_UPLOAD_BATCH_SIZE).await;
+
+        info!(
+            "Upload of {} files completed in {:?}",
+            files_to_upload_amount,
+            start.elapsed()
+        );
+
+        #[cfg(feature = "loud")]
+        println!(
+            "Upload of {} files completed in {:?}",
+            files_to_upload_amount,
+            start.elapsed()
+        );
+
+        let total_cost = self
+            .process_upload_results(uploads, receipt, skipped_payments_amount)
+            .await?;
+
+        Ok((total_cost, public_archive))
     }
 
     /// Same as [`Client::dir_upload_public`] but also uploads the archive to the network.
@@ -135,7 +257,7 @@ impl Client {
 
     /// Upload a file to the network.
     /// Reads file, splits into chunks, uploads chunks, uploads datamap, returns DataAddr (pointing to the datamap)
-    async fn file_upload_public(
+    pub async fn file_upload_public(
         &self,
         path: PathBuf,
         wallet: &Wallet,

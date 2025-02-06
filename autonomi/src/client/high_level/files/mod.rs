@@ -12,6 +12,7 @@ pub mod archive_private;
 pub mod archive_public;
 pub mod fs_private;
 pub mod fs_public;
+mod fs_shared;
 
 pub use archive_private::PrivateArchive;
 pub use archive_public::PublicArchive;

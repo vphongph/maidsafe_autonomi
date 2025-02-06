@@ -1,8 +1,12 @@
-use crate::client::{
-    chunk::DataMapChunk,
-    payment::PaymentOption,
-    vault::{UserData, VaultSecretKey},
-    Client,
+use std::path::PathBuf;
+
+use crate::{
+    client::{
+        chunk::DataMapChunk,
+        payment::PaymentOption,
+        vault::{UserData, VaultSecretKey},
+    },
+    Client, PublicArchive,
 };
 use crate::{Bytes, Network, Wallet};
 use ant_protocol::storage::{ChunkAddress, Pointer, PointerAddress, PointerTarget};
@@ -112,9 +116,66 @@ impl PyClient {
             let data = client
                 .data_get_public(&addr)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put data: {e}")))?;
-
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get data: {e}")))?;
             Ok(data.to_vec())
+        })
+    }
+
+    /// Upload a directory as a public archive to the network.
+    /// Returns the network address where the archive is stored.
+    fn dir_and_archive_upload_public<'a>(
+        &self,
+        py: Python<'a>,
+        dir_path: PathBuf,
+        wallet: &PyWallet,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let wallet = wallet.inner.clone();
+
+        future_into_py(py, async move {
+            let addr = client
+                .dir_and_archive_upload_public(dir_path, &wallet)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to upload directory: {e}")))?;
+            Ok(crate::client::address::addr_to_str(&addr))
+        })
+    }
+
+    /// Download a public archive from the network to a local directory.
+    fn dir_download_public<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+        dir_path: PathBuf,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .dir_download_public(&addr, dir_path)
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to download directory: {e}"))
+                })?;
+            Ok(())
+        })
+    }
+
+    /// Get a public archive from the network.
+    fn archive_get_public<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let archive = client
+                .archive_get_public(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get archive: {e}")))?;
+
+            Ok(PyPublicArchive { inner: archive })
         })
     }
 
@@ -761,6 +822,12 @@ impl PyNetwork {
         let inner = Network::new(local).map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(Self { inner })
     }
+}
+
+#[pyclass(name = "PublicArchive")]
+#[derive(Debug, Clone)]
+pub struct PyPublicArchive {
+    inner: PublicArchive,
 }
 
 #[pymodule]

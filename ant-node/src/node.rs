@@ -951,7 +951,7 @@ impl Node {
         while let Some(res) = tasks.join_next().await {
             match res {
                 Ok((peer_id, score)) => {
-                    let is_healthy = score < MIN_ACCEPTABLE_HEALTHY_SCORE;
+                    let is_healthy = score > MIN_ACCEPTABLE_HEALTHY_SCORE;
                     if !is_healthy {
                         info!("Peer {peer_id:?} failed storage challenge with low score {score}/{MIN_ACCEPTABLE_HEALTHY_SCORE}.");
                         // TODO: shall the challenge failure immediately triggers the node to be removed?

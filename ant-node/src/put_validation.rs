@@ -680,37 +680,42 @@ impl Node {
 
         debug!("Payment of {reward_amount:?} is valid for record {pretty_key}");
 
-        // Notify `record_store` that the node received a payment.
-        self.network().notify_payment_received();
+        if !reward_amount.is_zero() {
+            // Notify `record_store` that the node received a payment.
+            self.network().notify_payment_received();
 
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics_recorder) = self.metrics_recorder() {
-            // FIXME: We would reach the MAX if the storecost is scaled up.
-            let current_value = metrics_recorder.current_reward_wallet_balance.get();
-            let new_value =
-                current_value.saturating_add(reward_amount.try_into().unwrap_or(i64::MAX));
-            let _ = metrics_recorder
-                .current_reward_wallet_balance
-                .set(new_value);
-        }
-        // TODO: currently ignored, re-enable once going to handle this.
-        // self.events_channel()
-        //     .broadcast(crate::NodeEvent::RewardReceived(
-        //         AttoTokens::from(reward_amount),
-        //         address.clone(),
-        //     ));
+            #[cfg(feature = "open-metrics")]
+            if let Some(metrics_recorder) = self.metrics_recorder() {
+                // FIXME: We would reach the MAX if the storecost is scaled up.
+                let current_value = metrics_recorder.current_reward_wallet_balance.get();
+                let new_value =
+                    current_value.saturating_add(reward_amount.try_into().unwrap_or(i64::MAX));
+                let _ = metrics_recorder
+                    .current_reward_wallet_balance
+                    .set(new_value);
+            }
 
-        // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
-        info!("Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}");
+            // TODO: currently ignored, re-enable once going to handle this.
+            // self.events_channel()
+            //     .broadcast(crate::NodeEvent::RewardReceived(
+            //         AttoTokens::from(reward_amount),
+            //         address.clone(),
+            //     ));
 
-        // loud mode: print a celebratory message to console
-        #[cfg(feature = "loud")]
-        {
-            println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟   RECEIVED REWARD   🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
-            println!(
+            // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
+            info!(
                 "Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}"
             );
-            println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+
+            // loud mode: print a celebratory message to console
+            #[cfg(feature = "loud")]
+            {
+                println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟   RECEIVED REWARD   🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+                println!(
+                    "Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}"
+                );
+                println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+            }
         }
 
         Ok(())

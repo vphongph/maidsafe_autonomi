@@ -1313,7 +1313,7 @@ impl PyScratchpadAddress {
     /// Return the owner public key.
     pub fn owner(&self) -> PyPublicKey {
         PyPublicKey {
-            inner: self.inner.owner().clone(),
+            inner: *self.inner.owner(),
         }
     }
 

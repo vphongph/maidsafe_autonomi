@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use crate::{
     client::{
@@ -8,7 +8,7 @@ use crate::{
     },
     files::{Metadata, PrivateArchive, PublicArchive},
     register::{RegisterAddress, RegisterHistory},
-    Client,
+    Client, ClientConfig,
 };
 use crate::{Bytes, Network, Wallet};
 use ant_protocol::storage::{
@@ -16,6 +16,7 @@ use ant_protocol::storage::{
     Scratchpad, ScratchpadAddress,
 };
 use bls::{PublicKey, SecretKey};
+use libp2p::Multiaddr;
 use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -45,6 +46,36 @@ impl PyClient {
     fn init_local(py: Python) -> PyResult<Bound<PyAny>> {
         future_into_py(py, async {
             let inner = Client::init_local()
+                .await
+                .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
+            Ok(PyClient { inner })
+        })
+    }
+
+    /// Initialize a client that bootstraps from a list of peers.
+    ///
+    /// If any of the provided peers is a global address, the client will not be local.
+    #[staticmethod]
+    fn init_with_peers(py: Python, peers: Vec<String>) -> PyResult<Bound<PyAny>> {
+        let peers: Vec<Multiaddr> = peers
+            .iter()
+            .map(|p| Multiaddr::from_str(&p))
+            .collect::<Result<_, _>>()
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse peers: {e}")))?;
+
+        future_into_py(py, async {
+            let inner = Client::init_with_peers(peers)
+                .await
+                .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
+            Ok(PyClient { inner })
+        })
+    }
+
+    /// Initialize the client with the given configuration.
+    #[staticmethod]
+    fn init_with_config(py: Python, config: PyClientConfig) -> PyResult<Bound<PyAny>> {
+        future_into_py(py, async {
+            let inner = Client::init_with_config(config.inner)
                 .await
                 .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
             Ok(PyClient { inner })
@@ -1711,6 +1742,7 @@ impl PyRegisterHistory {
             Ok(value)
         })
     }
+
     fn collect<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let arc = Arc::clone(&self.inner);
 
@@ -1724,6 +1756,81 @@ impl PyRegisterHistory {
             Ok(values)
         })
     }
+}
+
+/// Configuration for the `Client` which can be provided through: `init_with_config`.
+#[pyclass(name = "ClientConfig")]
+#[derive(Debug, Clone)]
+pub struct PyClientConfig {
+    inner: ClientConfig,
+}
+
+#[pymethods]
+impl PyClientConfig {
+    #[staticmethod]
+    fn new() -> Self {
+        Self {
+            inner: ClientConfig::default(),
+        }
+    }
+
+    /// Whether we're expected to connect to a local network.
+    #[getter]
+    fn get_local(&self) -> bool {
+        self.inner.local
+    }
+
+    /// Whether we're expected to connect to a local network.
+    #[setter]
+    fn set_local(&mut self, value: bool) {
+        self.inner.local = value;
+    }
+
+    /// List of peers to connect to.
+    ///
+    /// If not provided, the client will use the default bootstrap peers.
+    #[getter]
+    fn get_peers(&self) -> Option<Vec<String>> {
+        match self.inner.peers.as_ref() {
+            Some(peers) => Some(peers.iter().map(|p| p.to_string()).collect()),
+            None => None,
+        }
+    }
+
+    /// List of peers to connect to. If given empty list, the client will use the default bootstrap peers.
+    #[setter]
+    fn set_peers(&mut self, peers: Vec<String>) -> PyResult<()> {
+        if peers.len() == 0 {
+            self.inner.peers = None;
+            return Ok(());
+        }
+
+        let peers: Vec<Multiaddr> = peers
+            .iter()
+            .map(|p| Multiaddr::from_str(&p))
+            .collect::<Result<_, _>>()
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse peers: {e}")))?;
+
+        self.inner.peers = Some(peers);
+        Ok(())
+    }
+
+    /// EVM network to use for quotations and payments.
+    #[getter]
+    fn get_network(&self) -> PyNetwork {
+        PyNetwork {
+            inner: self.inner.evm_network.clone(),
+        }
+    }
+
+    /// EVM network to use for quotations and payments.
+    #[setter]
+    fn set_network(&mut self, network: PyNetwork) {
+        self.inner.evm_network = network.inner;
+    }
+
+    // TODO
+    // fn strategy() { }
 }
 
 #[pymodule]

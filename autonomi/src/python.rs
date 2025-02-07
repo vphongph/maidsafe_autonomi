@@ -10,7 +10,7 @@ use crate::{
     Client,
 };
 use crate::{Bytes, Network, Wallet};
-use ant_protocol::storage::{ChunkAddress, Pointer, PointerAddress, PointerTarget};
+use ant_protocol::storage::{Chunk, ChunkAddress, Pointer, PointerAddress, PointerTarget};
 use bls::{PublicKey, SecretKey};
 use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -44,6 +44,53 @@ impl PyClient {
                 .await
                 .map_err(|e| PyConnectionError::new_err(format!("Failed to connect: {e}")))?;
             Ok(PyClient { inner })
+        })
+    }
+
+    /// Get the cost of storing a chunk on the network
+    fn chunk_cost<'a>(&self, py: Python<'a>, addr: PyChunkAddress) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .chunk_cost(&addr.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get chunk cost: {e}")))?;
+            Ok(cost.to_string())
+        })
+    }
+
+    /// Get a chunk from the network using its address
+    fn chunk_get<'a>(&self, py: Python<'a>, addr: &PyChunkAddress) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = addr.inner;
+
+        future_into_py(py, async move {
+            let chunk = client
+                .chunk_get(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get chunk: {e}")))?;
+            Ok(chunk.value.to_vec())
+        })
+    }
+
+    /// Store a chunk on the network
+    fn chunk_put<'a>(
+        &self,
+        py: Python<'a>,
+        data: Vec<u8>,
+        payment: &PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment.inner.clone();
+        let chunk = Chunk::new(Bytes::from(data));
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .chunk_put(&chunk, payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put chunk: {e}")))?;
+            Ok((cost.to_string(), PyChunkAddress::from(addr)))
         })
     }
 

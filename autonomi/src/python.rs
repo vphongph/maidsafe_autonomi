@@ -83,6 +83,19 @@ impl PyClient {
         })
     }
 
+    /// Get the estimated cost of storing a piece of data.
+    fn data_cost<'a>(&self, py: Python<'a>, data: Vec<u8>) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .data_cost(Bytes::from(data))
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get data cost: {e}")))?;
+            Ok(cost.to_string())
+        })
+    }
+
     /// Upload a piece of data to the network. This data is publicly accessible.
     ///
     /// Returns the Data Address at which the data was stored.

@@ -400,6 +400,60 @@ impl PyClient {
         })
     }
 
+    /// Get the cost to upload a file/dir to the network.
+    fn file_cost<'a>(&self, py: Python<'a>, path: PathBuf) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .file_cost(&path)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get file cost: {e}")))?;
+
+            Ok(cost.to_string())
+        })
+    }
+
+    /// Download a private file from network to local file system.
+    fn file_download<'a>(
+        &self,
+        py: Python<'a>,
+        data_map: PyDataMapChunk,
+        path: PathBuf,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .file_download(&data_map.inner, path)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to download file: {e}")))?;
+
+            Ok(())
+        })
+    }
+
+    /// Download file from network to local file system.
+    fn file_download_public<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+        path: PathBuf,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .file_download_public(&addr, path)
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to download public file: {e}"))
+                })?;
+
+            Ok(())
+        })
+    }
+
     /// Upload a piece of private data to the network. This data will be self-encrypted.
     /// The [`DataMapChunk`] is not uploaded to the network, keeping the data private.
     ///

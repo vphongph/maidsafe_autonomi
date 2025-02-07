@@ -102,9 +102,10 @@ pub enum RegisterError {
 const REGISTER_HEAD_DERIVATION_INDEX: [u8; 32] = [0; 32];
 
 impl Client {
-    /// Create a new register key from a SecretKey and a name
-    /// This derives a new [`SecretKey`] from the owner's [`SecretKey`] using the name
-    /// Note that you will need to keep track of the names you used to create the register key
+    /// Create a new register key from a SecretKey and a name.
+    ///
+    /// This derives a new [`SecretKey`] from the owner's [`SecretKey`] using the name.
+    /// Note that you will need to keep track of the names you used to create the register key.
     pub fn register_key_from_name(owner: &SecretKey, name: &str) -> SecretKey {
         let main_key = MainSecretKey::new(owner.clone());
         let derivation_index =
@@ -122,7 +123,8 @@ impl Client {
         Ok(content)
     }
 
-    /// Create a new register with an initial value
+    /// Create a new register with an initial value.
+    ///
     /// Note that two payments are required, one for the underlying [`GraphEntry`] and one for the [`crate::Pointer`]
     pub async fn register_create(
         &self,
@@ -167,7 +169,8 @@ impl Client {
         ))
     }
 
-    /// Update the value of a register
+    /// Update the value of a register.
+    ///
     /// The register needs to be created first with [`Client::register_create`]
     pub async fn register_update(
         &self,

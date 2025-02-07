@@ -71,8 +71,7 @@ impl PrivateArchive {
         Ok(())
     }
 
-    /// Add a file to a local archive
-    /// Note that this does not upload the archive to the network
+    /// Add a file to a local archive. Note that this does not upload the archive to the network.
     pub fn add_file(&mut self, path: PathBuf, data_map: DataMapChunk, meta: Metadata) {
         self.map.insert(path.clone(), (data_map, meta));
         debug!("Added a new file to the archive, path: {:?}", path);
@@ -86,8 +85,8 @@ impl PrivateArchive {
             .collect()
     }
 
-    /// List all data addresses of the files in the archive
-    pub fn addresses(&self) -> Vec<DataMapChunk> {
+    /// List all data [`DataMapChunk`]s of the files in the archive
+    pub fn data_maps(&self) -> Vec<DataMapChunk> {
         self.map
             .values()
             .map(|(data_map, _)| data_map.clone())

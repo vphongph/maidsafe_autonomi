@@ -136,6 +136,7 @@ impl Client {
     }
 
     /// Put the user data to the vault
+    ///
     /// Returns the total cost of the put operation
     pub async fn put_user_data_to_vault(
         &self,

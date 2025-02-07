@@ -66,10 +66,12 @@ impl RegisterHistory {
 }
 
 impl Client {
-    /// Get the register history, starting from the root to the latest entry
-    /// This returns a [`RegisterHistory`] that can be use to get the register values from the history
-    /// [`RegisterHistory::next`] can be used to get the values one by one, from the first to the latest entry
-    /// [`RegisterHistory::collect`] can be used to get all the register values from the history from the first to the latest entry
+    /// Get the register history, starting from the root to the latest entry.
+    ///
+    /// This returns a [`RegisterHistory`] that can be use to get the register values from the history.
+    ///
+    /// [`RegisterHistory::next`] can be used to get the values one by one, from the first to the latest entry.
+    /// [`RegisterHistory::collect`] can be used to get all the register values from the history from the first to the latest entry.
     pub fn register_history(&self, addr: &RegisterAddress) -> RegisterHistory {
         let graph_entry_addr = addr.to_underlying_graph_root();
         RegisterHistory::new(self.clone(), addr.owner, graph_entry_addr)

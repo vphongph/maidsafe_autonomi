@@ -56,7 +56,7 @@ impl PublicArchive {
         }
     }
 
-    /// Rename a file in an archive
+    /// Rename a file in an archive.
     /// Note that this does not upload the archive to the network
     pub fn rename_file(&mut self, old_path: &Path, new_path: &Path) -> Result<(), RenameError> {
         let (data_addr, mut meta) = self

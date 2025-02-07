@@ -30,9 +30,9 @@ impl Client {
         Ok(data)
     }
 
-    /// Upload a piece of data to the network.
+    /// Upload a piece of data to the network. This data is publicly accessible.
+    ///
     /// Returns the Data Address at which the data was stored.
-    /// This data is publicly accessible.
     pub async fn data_put_public(
         &self,
         data: Bytes,

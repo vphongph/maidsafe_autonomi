@@ -42,8 +42,8 @@ impl PointerTarget {
 
 impl Pointer {
     /// Create a new pointer, signing it with the provided secret key.
-    /// This pointer would be stored on the network at the provided key's public key
-    /// There can only be one pointer at a time at the same address (one per key)
+    /// This pointer would be stored on the network at the provided key's public key.
+    /// There can only be one pointer at a time at the same address (one per key).
     pub fn new(owner: &SecretKey, counter: u32, target: PointerTarget) -> Self {
         let pubkey = owner.public_key();
         let bytes_to_sign = Self::bytes_to_sign(&pubkey, counter, &target);

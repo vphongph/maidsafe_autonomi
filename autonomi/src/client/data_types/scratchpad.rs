@@ -47,8 +47,8 @@ pub enum ScratchpadError {
 }
 
 impl Client {
-    /// Get Scratchpad from the Network
-    /// A Scratchpad is stored at the owner's public key so we can derive the address from it
+    /// Get Scratchpad from the Network.
+    /// A Scratchpad is stored at the owner's public key so we can derive the address from it.
     pub async fn scratchpad_get_from_public_key(
         &self,
         public_key: &PublicKey,
@@ -227,11 +227,13 @@ impl Client {
         Ok((total_cost, *address))
     }
 
-    /// Create a new scratchpad to the network
-    /// Make sure that the owner key is not already used for another scratchpad as each key is associated with one scratchpad
-    /// The data will be encrypted with the owner key before being stored on the network
-    /// The content type is used to identify the type of data stored in the scratchpad, the choice is up to the caller
-    /// Returns the cost and the address of the scratchpad
+    /// Create a new scratchpad to the network.
+    ///
+    /// Make sure that the owner key is not already used for another scratchpad as each key is associated with one scratchpad.
+    /// The data will be encrypted with the owner key before being stored on the network.
+    /// The content type is used to identify the type of data stored in the scratchpad, the choice is up to the caller.
+    ///
+    /// Returns the cost and the address of the scratchpad.
     pub async fn scratchpad_create(
         &self,
         owner: &SecretKey,
@@ -250,10 +252,10 @@ impl Client {
         self.scratchpad_put(scratchpad, payment_option).await
     }
 
-    /// Update an existing scratchpad to the network
-    /// The scratchpad needs to be created first with [`Client::scratchpad_create`]
-    /// This operation is free as the scratchpad was already paid for at creation
-    /// Only the latest version of the scratchpad is kept on the Network, previous versions will be overwritten and unrecoverable
+    /// Update an existing scratchpad to the network.
+    /// The scratchpad needs to be created first with [`Client::scratchpad_create`].
+    /// This operation is free as the scratchpad was already paid for at creation.
+    /// Only the latest version of the scratchpad is kept on the Network, previous versions will be overwritten and unrecoverable.
     pub async fn scratchpad_update(
         &self,
         owner: &SecretKey,

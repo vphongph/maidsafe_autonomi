@@ -449,6 +449,24 @@ impl PyClient {
         })
     }
 
+    /// Check if a pointer exists on the network
+    fn pointer_check_existance<'a>(
+        &self,
+        py: Python<'a>,
+        addr: PyPointerAddress,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let exists = client
+                .pointer_check_existance(&addr.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get pointer: {e}")))?;
+
+            Ok(exists)
+        })
+    }
+
     /// Manually store a pointer on the network
     fn pointer_put<'a>(
         &self,
@@ -466,6 +484,52 @@ impl PyClient {
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to put pointer: {e}")))?;
             Ok(PyPointerAddress { inner: addr })
+        })
+    }
+
+    /// Create a new pointer on the network.
+    ///
+    /// Make sure that the owner key is not already used for another pointer as each key is associated with one pointer
+    fn pointer_create<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        target: PyPointerTarget,
+        payment_option: &PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment_option.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .pointer_create(&owner.inner, target.inner, payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to create pointer: {e}")))?;
+
+            Ok((cost.to_string(), PyPointerAddress { inner: addr }))
+        })
+    }
+
+    /// Update an existing pointer to point to a new target on the network.
+    ///
+    /// The pointer needs to be created first with `pointer_put`.
+    /// This operation is free as the pointer was already paid for at creation.
+    /// Only the latest version of the pointer is kept on the Network, previous versions will be overwritten and unrecoverable.
+    fn pointer_update<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        target: PyPointerTarget,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .pointer_update(&owner.inner, target.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to update pointer: {e}")))?;
+
+            Ok(())
         })
     }
 

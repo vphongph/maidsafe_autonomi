@@ -182,7 +182,8 @@ impl Client {
         Ok((total_cost, address))
     }
 
-    /// Create a new pointer on the network
+    /// Create a new pointer on the network.
+    ///
     /// Make sure that the owner key is not already used for another pointer as each key is associated with one pointer
     pub async fn pointer_create(
         &self,
@@ -200,10 +201,11 @@ impl Client {
         self.pointer_put(pointer, payment_option).await
     }
 
-    /// Update an existing pointer to point to a new target on the network
-    /// The pointer needs to be created first with [`Client::pointer_put`]
-    /// This operation is free as the pointer was already paid for at creation
-    /// Only the latest version of the pointer is kept on the Network, previous versions will be overwritten and unrecoverable
+    /// Update an existing pointer to point to a new target on the network.
+    ///
+    /// The pointer needs to be created first with [`Client::pointer_put`].
+    /// This operation is free as the pointer was already paid for at creation.
+    /// Only the latest version of the pointer is kept on the Network, previous versions will be overwritten and unrecoverable.
     pub async fn pointer_update(
         &self,
         owner: &SecretKey,

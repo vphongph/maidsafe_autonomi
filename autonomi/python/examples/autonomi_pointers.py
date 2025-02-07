@@ -24,7 +24,7 @@ async def main():
     print(f"Target data uploaded to: {target_addr}")
 
     # Create a pointer target from the address
-    target = PointerTarget.from_chunk_address(ChunkAddress(target_addr))
+    target = PointerTarget.new_chunk(ChunkAddress(target_addr))
     
     # Create owner key pair
     key = SecretKey()

@@ -324,6 +324,82 @@ impl PyClient {
         })
     }
 
+    /// Get the cost of storing an archive on the network
+    fn archive_cost<'a>(
+        &self,
+        py: Python<'a>,
+        archive: PyPublicArchive,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .archive_cost(&archive.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get archive cost: {e}")))?;
+            Ok(cost.to_string())
+        })
+    }
+
+    /// Fetch a private archive from the network using its data map
+    fn archive_get<'a>(
+        &self,
+        py: Python<'a>,
+        data_map: &PyDataMapChunk,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let data_map = data_map.inner.clone();
+
+        future_into_py(py, async move {
+            let archive = client
+                .archive_get(&data_map)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get archive: {e}")))?;
+
+            Ok(PyPrivateArchive { inner: archive })
+        })
+    }
+
+    /// Upload a private archive to the network
+    fn archive_put<'a>(
+        &self,
+        py: Python<'a>,
+        archive: PyPrivateArchive,
+        payment: PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, data_map) = client
+                .archive_put(&archive.inner, payment.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put archive: {e}")))?;
+
+            Ok((cost.to_string(), PyDataMapChunk { inner: data_map }))
+        })
+    }
+
+    /// Upload a public archive to the network
+    fn archive_put_public<'a>(
+        &self,
+        py: Python<'a>,
+        archive: PyPublicArchive,
+        wallet: PyWallet,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .archive_put_public(&archive.inner, &wallet.inner)
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to put public archive: {e}"))
+                })?;
+
+            Ok((cost.to_string(), crate::client::address::addr_to_str(addr)))
+        })
+    }
+
     /// Upload a piece of private data to the network. This data will be self-encrypted.
     /// The [`DataMapChunk`] is not uploaded to the network, keeping the data private.
     ///
@@ -899,6 +975,7 @@ impl PyChunkAddress {
 /// A wallet for interacting with the network's payment system.
 /// Handles token transfers, balance checks, and payments for network operations.
 #[pyclass(name = "Wallet")]
+#[derive(Clone)]
 pub struct PyWallet {
     pub(crate) inner: Wallet,
 }
@@ -961,6 +1038,7 @@ impl PyWallet {
 
 /// Options for making payments on the network.
 #[pyclass(name = "PaymentOption")]
+#[derive(Clone)]
 pub struct PyPaymentOption {
     pub(crate) inner: PaymentOption,
 }

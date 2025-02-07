@@ -23,6 +23,13 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use xor_name::XorName;
 
 /// Represents a client for the Autonomi network.
+// Missing methods:
+// - upload_chunks_with_retries
+// - enable_client_events
+// - evm_network
+// - get_store_quotes
+// - pointer_verify
+// - scratchpad_verify
 #[pyclass(name = "Client")]
 pub(crate) struct PyClient {
     inner: Client,
@@ -1850,6 +1857,12 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPublicKey>()?;
     m.add_class::<PyNetwork>()?;
     m.add_class::<PyMetadata>()?;
+    m.add_class::<PyPublicArchive>()?;
+    m.add_class::<PyPrivateArchive>()?;
+    m.add_class::<PyGraphEntry>()?;
+    m.add_class::<PyScratchpad>()?;
+    m.add_class::<PyRegisterHistory>()?;
+    m.add_class::<PyClientConfig>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
     Ok(())
 }

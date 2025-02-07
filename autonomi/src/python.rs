@@ -6,7 +6,7 @@ use crate::{
         payment::PaymentOption,
         vault::{UserData, VaultSecretKey},
     },
-    files::{Metadata, PublicArchive},
+    files::{Metadata, PrivateArchive, PublicArchive},
     Client,
 };
 use crate::{Bytes, Network, Wallet};
@@ -931,6 +931,57 @@ impl PyPublicArchive {
             .addresses()
             .into_iter()
             .map(|addr| crate::client::address::addr_to_str(addr))
+            .collect()
+    }
+}
+
+/// A public archive containing files that can be accessed by anyone on the network.
+#[pyclass(name = "PublicArchive")]
+#[derive(Debug, Clone)]
+pub struct PyPrivateArchive {
+    inner: PrivateArchive,
+}
+
+#[pymethods]
+impl PyPrivateArchive {
+    /// Create a new empty archive
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: PrivateArchive::new(),
+        }
+    }
+
+    /// Rename a file in the archive.
+    ///
+    /// Returns None on success, or error message on failure
+    fn rename_file(&mut self, old_path: PathBuf, new_path: PathBuf) -> PyResult<()> {
+        self.inner
+            .rename_file(&old_path, &new_path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to rename file: {e}")))
+    }
+
+    /// Add a file to a local archive. Note that this does not upload the archive to the network.
+    fn add_file(&mut self, path: PathBuf, data_map: &PyDataMapChunk, metadata: &PyMetadata) {
+        self.inner
+            .add_file(path, data_map.inner.clone(), metadata.inner.clone());
+    }
+
+    /// List all files in the archive.
+    fn files(&self) -> Vec<(PathBuf, PyMetadata)> {
+        self.inner
+            .files()
+            .into_iter()
+            .map(|(path, meta)| (path, PyMetadata { inner: meta }))
+            .collect()
+    }
+
+    /// List all data maps of files in the archive
+    fn data_maps(&self) -> Vec<PyDataMapChunk> {
+        self.inner
+            .data_maps()
+            .into_iter()
+            .map(|data_map| PyDataMapChunk { inner: data_map })
             .collect()
     }
 }

@@ -12,6 +12,7 @@ use crate::{
 use crate::{Bytes, Network, Wallet};
 use ant_protocol::storage::{
     Chunk, ChunkAddress, GraphEntry, GraphEntryAddress, Pointer, PointerAddress, PointerTarget,
+    Scratchpad, ScratchpadAddress,
 };
 use bls::{PublicKey, SecretKey};
 use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
@@ -163,6 +164,161 @@ impl PyClient {
             let cost = client.graph_entry_cost(&key.inner).await.map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to get graph entry cost: {e}"))
             })?;
+
+            Ok(cost.to_string())
+        })
+    }
+
+    /// Get Scratchpad from the Network.
+    /// A Scratchpad is stored at the owner's public key so we can derive the address from it.
+    fn scratchpad_get_from_public_key<'a>(
+        &self,
+        py: Python<'a>,
+        public_key: PyPublicKey,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let scratchpad = client
+                .scratchpad_get_from_public_key(&public_key.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+
+            Ok(PyScratchpad { inner: scratchpad })
+        })
+    }
+
+    /// Get Scratchpad from the Network using the scratpad address in hex string format.
+    fn scratchpad_get<'a>(&self, py: Python<'a>, addr: String) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = ScratchpadAddress::from_hex(&addr)
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse address: {e}")))?;
+
+        future_into_py(py, async move {
+            let scratchpad = client
+                .scratchpad_get(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+
+            Ok(PyScratchpad { inner: scratchpad })
+        })
+    }
+
+    /// Check if a scratchpad exists on the network
+    fn scratchpad_check_existance<'a>(
+        &self,
+        py: Python<'a>,
+        addr: String,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = ScratchpadAddress::from_hex(&addr)
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse address: {e}")))?;
+
+        future_into_py(py, async move {
+            let exists = client
+                .scratchpad_check_existance(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+
+            Ok(exists)
+        })
+    }
+
+    /// Manually store a scratchpad on the network
+    fn scratchpad_put<'a>(
+        &self,
+        py: Python<'a>,
+        scratchpad: PyScratchpad,
+        payment_option: &PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment_option.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .scratchpad_put(scratchpad.inner, payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put scratchpad: {e}")))?;
+
+            Ok((cost.to_string(), addr.to_hex()))
+        })
+    }
+
+    /// Create a new scratchpad to the network.
+    ///
+    /// Make sure that the owner key is not already used for another scratchpad as each key is associated with one scratchpad.
+    /// The data will be encrypted with the owner key before being stored on the network.
+    /// The content type is used to identify the type of data stored in the scratchpad, the choice is up to the caller.
+    ///
+    /// Returns the cost and the address of the scratchpad.
+    fn scratchpad_create<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        content_type: u64,
+        initial_data: Vec<u8>,
+        payment_option: &PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment_option.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .scratchpad_create(
+                    &owner.inner,
+                    content_type,
+                    &Bytes::from(initial_data),
+                    payment,
+                )
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to create scratchpad: {e}"))
+                })?;
+
+            Ok((cost.to_string(), addr.to_hex()))
+        })
+    }
+
+    /// Update an existing scratchpad to the network.
+    /// The scratchpad needs to be created first with `scratchpad_create`.
+    /// This operation is free as the scratchpad was already paid for at creation.
+    /// Only the latest version of the scratchpad is kept on the Network, previous versions will be overwritten and unrecoverable.
+    fn scratchpad_update<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        content_type: u64,
+        data: Vec<u8>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .scratchpad_update(&owner.inner, content_type, &Bytes::from(data))
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to update scratchpad: {e}"))
+                })?;
+
+            Ok(())
+        })
+    }
+
+    /// Get the cost of creating a new Scratchpad
+    fn scratchpad_cost<'a>(
+        &self,
+        py: Python<'a>,
+        public_key: PyPublicKey,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .scratchpad_cost(&public_key.inner)
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to get scratchpad cost: {e}"))
+                })?;
 
             Ok(cost.to_string())
         })
@@ -1196,6 +1352,13 @@ impl PyPrivateArchive {
 #[derive(Debug, Clone)]
 pub struct PyGraphEntry {
     inner: GraphEntry,
+}
+
+/// Scratchpad, a mutable space for encrypted data on the Network
+#[pyclass(name = "Scratchpad")]
+#[derive(Debug, Clone)]
+pub struct PyScratchpad {
+    inner: Scratchpad,
 }
 
 #[pymodule]

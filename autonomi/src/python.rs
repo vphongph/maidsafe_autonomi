@@ -433,6 +433,45 @@ impl PyClient {
         })
     }
 
+    /// Download a private directory from network to local file system
+    fn dir_download<'a>(
+        &self,
+        py: Python<'a>,
+        data_map: PyDataMapChunk,
+        dir_path: PathBuf,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            client
+                .dir_download(&data_map.inner, dir_path)
+                .await
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to download directory: {e}"))
+                })?;
+            Ok(())
+        })
+    }
+
+    /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
+    /// The data maps of these (private) files are not uploaded but returned within the PrivateArchive return type.
+    fn dir_upload<'a>(
+        &self,
+        py: Python<'a>,
+        dir_path: PathBuf,
+        wallet: PyWallet,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, archive) = client
+                .dir_upload(dir_path, &wallet.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to upload directory: {e}")))?;
+            Ok((cost.to_string(), PyPrivateArchive { inner: archive }))
+        })
+    }
+
     /// Download file from network to local file system.
     fn file_download_public<'a>(
         &self,
@@ -451,6 +490,26 @@ impl PyClient {
                 })?;
 
             Ok(())
+        })
+    }
+
+    /// Same as `dir_upload` but also uploads the archive (privately) to the network.
+    ///
+    /// Returns the data map allowing the private archive to be downloaded from the network.
+    fn dir_and_archive_upload<'a>(
+        &self,
+        py: Python<'a>,
+        dir_path: PathBuf,
+        wallet: PyWallet,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, data_map) = client
+                .dir_and_archive_upload(dir_path, &wallet.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to upload directory: {e}")))?;
+            Ok((cost.to_string(), PyDataMapChunk { inner: data_map }))
         })
     }
 
@@ -579,6 +638,28 @@ impl PyClient {
                     PyRuntimeError::new_err(format!("Failed to download directory: {e}"))
                 })?;
             Ok(())
+        })
+    }
+
+    /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
+    ///
+    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    ///
+    /// This returns, but does not upload (!),the `PublicArchive` containing the data maps of the uploaded files.
+    fn dir_upload_public<'a>(
+        &self,
+        py: Python<'a>,
+        dir_path: PathBuf,
+        wallet: PyWallet,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, archive) = client
+                .dir_upload_public(dir_path, &wallet.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to upload directory: {e}")))?;
+            Ok((cost.to_string(), PyPublicArchive { inner: archive }))
         })
     }
 

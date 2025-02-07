@@ -372,7 +372,9 @@ impl ExternalAddressManager {
             if !removed_confirmed.is_empty() {
                 info!("Removed external addresses due to connection errors on port {port}: {removed_confirmed:?}");
             }
-            Self::print_swarm_state(swarm);
+            if !removed_candidates.is_empty() || !removed_confirmed.is_empty() {
+                Self::print_swarm_state(swarm);
+            }
         }
     }
 
@@ -483,9 +485,9 @@ impl ExternalAddressManager {
 
     fn print_swarm_state(swarm: &Swarm<NodeBehaviour>) {
         let listen_addr = swarm.listeners().collect::<Vec<_>>();
-        info!("All Listen addresses: {listen_addr:?}");
         let external_addr = swarm.external_addresses().collect::<Vec<_>>();
-        info!("All External addresses: {external_addr:?}");
+        // Combined output to reduce cpu/disk usage.
+        info!("All External addresses: {external_addr:?}, and listen addresses: {listen_addr:?}");
     }
 }
 

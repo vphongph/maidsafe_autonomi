@@ -406,6 +406,7 @@ impl AntNode {
     ///  - Windows: C:\Users\<username>\AppData\Roaming\autonomi\node\<peer-id>
     #[allow(clippy::redundant_closure)]
     #[staticmethod]
+    #[pyo3(signature = (peer_id=None))]
     fn get_default_root_dir(peer_id: Option<String>) -> PyResult<String> {
         let peer_id = if let Some(id_str) = peer_id {
             let id = id_str
@@ -467,7 +468,7 @@ impl AntNode {
 /// Python module initialization
 #[pymodule]
 #[pyo3(name = "_antnode")]
-fn init_module(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AntNode>()?;
     Ok(())
 }

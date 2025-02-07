@@ -66,7 +66,7 @@ impl PyClient {
     fn init_with_peers(py: Python, peers: Vec<String>) -> PyResult<Bound<PyAny>> {
         let peers: Vec<Multiaddr> = peers
             .iter()
-            .map(|p| Multiaddr::from_str(&p))
+            .map(|p| Multiaddr::from_str(p))
             .collect::<Result<_, _>>()
             .map_err(|e| PyValueError::new_err(format!("Failed to parse peers: {e}")))?;
 
@@ -775,7 +775,7 @@ impl PyClient {
     ///
     /// [`RegisterHistory::next`] can be used to get the values one by one, from the first to the latest entry.
     /// [`RegisterHistory::collect`] can be used to get all the register values from the history from the first to the latest entry.
-    fn register_history<'a>(&self, addr: String) -> PyResult<PyRegisterHistory> {
+    fn register_history(&self, addr: String) -> PyResult<PyRegisterHistory> {
         let client = self.inner.clone();
         let addr = RegisterAddress::from_hex(&addr)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse address: {e}")))?;
@@ -1642,7 +1642,7 @@ impl PyPublicArchive {
         self.inner
             .addresses()
             .into_iter()
-            .map(|addr| crate::client::address::addr_to_str(addr))
+            .map(crate::client::address::addr_to_str)
             .collect()
     }
 }
@@ -1798,23 +1798,23 @@ impl PyClientConfig {
     /// If not provided, the client will use the default bootstrap peers.
     #[getter]
     fn get_peers(&self) -> Option<Vec<String>> {
-        match self.inner.peers.as_ref() {
-            Some(peers) => Some(peers.iter().map(|p| p.to_string()).collect()),
-            None => None,
-        }
+        self.inner
+            .peers
+            .as_ref()
+            .map(|peers| peers.iter().map(|p| p.to_string()).collect())
     }
 
     /// List of peers to connect to. If given empty list, the client will use the default bootstrap peers.
     #[setter]
     fn set_peers(&mut self, peers: Vec<String>) -> PyResult<()> {
-        if peers.len() == 0 {
+        if peers.is_empty() {
             self.inner.peers = None;
             return Ok(());
         }
 
         let peers: Vec<Multiaddr> = peers
             .iter()
-            .map(|p| Multiaddr::from_str(&p))
+            .map(|p| Multiaddr::from_str(p))
             .collect::<Result<_, _>>()
             .map_err(|e| PyValueError::new_err(format!("Failed to parse peers: {e}")))?;
 

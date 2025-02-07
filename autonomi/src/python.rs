@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     client::{
@@ -7,6 +7,7 @@ use crate::{
         vault::{UserData, VaultSecretKey},
     },
     files::{Metadata, PrivateArchive, PublicArchive},
+    register::{RegisterAddress, RegisterHistory},
     Client,
 };
 use crate::{Bytes, Network, Wallet};
@@ -727,6 +728,112 @@ impl PyClient {
                     "Failed to write to vault: {e}"
                 ))),
             }
+        })
+    }
+
+    /// Get the register history, starting from the root to the latest entry.
+    ///
+    /// This returns a [`RegisterHistory`] that can be use to get the register values from the history.
+    ///
+    /// [`RegisterHistory::next`] can be used to get the values one by one, from the first to the latest entry.
+    /// [`RegisterHistory::collect`] can be used to get all the register values from the history from the first to the latest entry.
+    fn register_history<'a>(&self, addr: String) -> PyResult<PyRegisterHistory> {
+        let client = self.inner.clone();
+        let addr = RegisterAddress::from_hex(&addr)
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse address: {e}")))?;
+
+        let history = client.register_history(&addr);
+        Ok(PyRegisterHistory::new(history))
+    }
+
+    /// Create a new register key from a SecretKey and a name.
+    ///
+    /// This derives a new `SecretKey` from the owner's `SecretKey` using the name.
+    /// Note that you will need to keep track of the names you used to create the register key.
+    #[staticmethod]
+    fn register_key_from_name(owner: PySecretKey, name: &str) -> PyResult<PySecretKey> {
+        let key = Client::register_key_from_name(&owner.inner, name);
+        Ok(PySecretKey { inner: key })
+    }
+
+    /// Create a new RegisterValue from bytes, make sure the bytes are not longer than `REGISTER_VALUE_SIZE`
+    #[staticmethod]
+    fn register_value_from_bytes(bytes: &[u8]) -> PyResult<[u8; 32]> {
+        let value = Client::register_value_from_bytes(bytes)
+            .map_err(|e| PyValueError::new_err(format!("`bytes` has invalid length: {e}")))?;
+        Ok(value)
+    }
+
+    /// Create a new register with an initial value.
+    ///
+    /// Note that two payments are required, one for the underlying `GraphEntry` and one for the `Pointer`.
+    fn register_create<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        value: [u8; 32],
+        payment: PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .register_create(&owner.inner, value, payment.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to create register: {e}")))?;
+
+            Ok((cost.to_string(), addr.to_hex()))
+        })
+    }
+
+    /// Update the value of a register.
+    ///
+    /// The register needs to be created first with `register_create`.
+    fn register_update<'a>(
+        &self,
+        py: Python<'a>,
+        owner: PySecretKey,
+        value: [u8; 32],
+        payment: PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client
+                .register_update(&owner.inner, value, payment.inner)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to update register: {e}")))?;
+
+            Ok(cost.to_string())
+        })
+    }
+
+    /// Get the current value of the register
+    fn register_get<'a>(&self, py: Python<'a>, addr: String) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = RegisterAddress::from_hex(&addr)
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse address: {e}")))?;
+
+        future_into_py(py, async move {
+            let data = client
+                .register_get(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get register: {e}")))?;
+
+            Ok(data)
+        })
+    }
+
+    /// Get the current value of the register
+    fn register_cost<'a>(&self, py: Python<'a>, owner: PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client.register_cost(&owner.inner).await.map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to get register cost: {e}"))
+            })?;
+
+            Ok(cost.to_string())
         })
     }
 
@@ -1572,6 +1679,51 @@ pub struct PyGraphEntry {
 #[derive(Debug, Clone)]
 pub struct PyScratchpad {
     inner: Scratchpad,
+}
+
+/// A handle to the register history
+#[pyclass(name = "RegisterHistory")]
+#[derive(Clone)]
+pub struct PyRegisterHistory {
+    inner: Arc<futures::lock::Mutex<RegisterHistory>>,
+}
+
+impl PyRegisterHistory {
+    fn new(history: RegisterHistory) -> Self {
+        Self {
+            inner: Arc::new(futures::lock::Mutex::new(history)),
+        }
+    }
+}
+
+#[pymethods]
+impl PyRegisterHistory {
+    fn next<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let arc = Arc::clone(&self.inner);
+
+        future_into_py(py, async move {
+            let mut register_history = arc.lock().await;
+            let value = register_history
+                .next()
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("history `next` failed: {e}")))?;
+
+            Ok(value)
+        })
+    }
+    fn collect<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let arc = Arc::clone(&self.inner);
+
+        future_into_py(py, async move {
+            let mut register_history = arc.lock().await;
+            let values = register_history
+                .collect()
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("history `collect` failed: {e}")))?;
+
+            Ok(values)
+        })
+    }
 }
 
 #[pymodule]

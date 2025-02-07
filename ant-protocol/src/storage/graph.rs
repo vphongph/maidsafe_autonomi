@@ -16,11 +16,13 @@ pub use bls::{PublicKey, Signature};
 /// Content of a graph, limited to 32 bytes
 pub type GraphContent = [u8; 32];
 
-/// A generic GraphEntry on the Network
+/// A generic GraphEntry on the Network.
+///
 /// Graph entries are stored at the owner's public key. Note that there can only be one graph entry per owner.
 /// Graph entries can be linked to other graph entries as parents or descendants.
 /// Applications are free to define the meaning of these links, those are not enforced by the protocol.
 /// The protocol only ensures that the graph entry is immutable once uploaded and that the signature is valid and matches the owner.
+///
 /// For convenience it is advised to make use of BLS key derivation to create multiple graph entries from a single key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub struct GraphEntry {

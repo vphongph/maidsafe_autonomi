@@ -10,7 +10,9 @@ use crate::{
     Client,
 };
 use crate::{Bytes, Network, Wallet};
-use ant_protocol::storage::{Chunk, ChunkAddress, Pointer, PointerAddress, PointerTarget};
+use ant_protocol::storage::{
+    Chunk, ChunkAddress, GraphEntry, GraphEntryAddress, Pointer, PointerAddress, PointerTarget,
+};
 use bls::{PublicKey, SecretKey};
 use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -60,7 +62,7 @@ impl PyClient {
         })
     }
 
-    /// Get a chunk from the network using its address
+    /// Get a chunk from the network.
     fn chunk_get<'a>(&self, py: Python<'a>, addr: &PyChunkAddress) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
         let addr = addr.inner;
@@ -74,7 +76,7 @@ impl PyClient {
         })
     }
 
-    /// Store a chunk on the network
+    /// Manually upload a chunk to the network. It is recommended to use the `data_put` method instead to upload data.
     fn chunk_put<'a>(
         &self,
         py: Python<'a>,
@@ -91,6 +93,78 @@ impl PyClient {
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to put chunk: {e}")))?;
             Ok((cost.to_string(), PyChunkAddress::from(addr)))
+        })
+    }
+
+    /// Fetches a GraphEntry from the network.
+    fn graph_entry_get<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = GraphEntryAddress(addr);
+
+        future_into_py(py, async move {
+            let entry = client
+                .graph_entry_get(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get graph entry: {e}")))?;
+            Ok(PyGraphEntry { inner: entry })
+        })
+    }
+
+    /// Check if a graph_entry exists on the network
+    fn graph_entry_check_existance<'a>(
+        &self,
+        py: Python<'a>,
+        #[pyo3(from_py_with = "str_to_addr")] addr: XorName,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let addr = GraphEntryAddress(addr);
+
+        future_into_py(py, async move {
+            let exists = client
+                .graph_entry_check_existance(&addr)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get graph entry: {e}")))?;
+            Ok(exists)
+        })
+    }
+
+    /// Manually puts a GraphEntry to the network.
+    fn graph_entry_put<'a>(
+        &self,
+        py: Python<'a>,
+        entry: PyGraphEntry,
+        payment_option: &PyPaymentOption,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+        let payment = payment_option.inner.clone();
+
+        future_into_py(py, async move {
+            let (cost, addr) = client
+                .graph_entry_put(entry.inner, payment)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get graph entry: {e}")))?;
+
+            Ok((
+                cost.to_string(),
+                crate::client::address::addr_to_str(addr.0),
+            ))
+        })
+    }
+
+    /// Get the cost to create a GraphEntry
+    fn graph_entry_cost<'a>(&self, py: Python<'a>, key: PyPublicKey) -> PyResult<Bound<'a, PyAny>> {
+        let client = self.inner.clone();
+
+        future_into_py(py, async move {
+            let cost = client.graph_entry_cost(&key.inner).await.map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to get graph entry cost: {e}"))
+            })?;
+
+            Ok(cost.to_string())
         })
     }
 
@@ -996,7 +1070,7 @@ impl PyPublicArchive {
 }
 
 /// A public archive containing files that can be accessed by anyone on the network.
-#[pyclass(name = "PublicArchive")]
+#[pyclass(name = "PrivateArchive")]
 #[derive(Debug, Clone)]
 pub struct PyPrivateArchive {
     inner: PrivateArchive,
@@ -1044,6 +1118,20 @@ impl PyPrivateArchive {
             .map(|data_map| PyDataMapChunk { inner: data_map })
             .collect()
     }
+}
+
+/// A generic GraphEntry on the Network.
+///
+/// Graph entries are stored at the owner's public key. Note that there can only be one graph entry per owner.
+/// Graph entries can be linked to other graph entries as parents or descendants.
+/// Applications are free to define the meaning of these links, those are not enforced by the protocol.
+/// The protocol only ensures that the graph entry is immutable once uploaded and that the signature is valid and matches the owner.
+///
+/// For convenience it is advised to make use of BLS key derivation to create multiple graph entries from a single key.
+#[pyclass(name = "GraphEntry")]
+#[derive(Debug, Clone)]
+pub struct PyGraphEntry {
+    inner: GraphEntry,
 }
 
 #[pymodule]

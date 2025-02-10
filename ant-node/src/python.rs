@@ -12,10 +12,11 @@ use libp2p::{
     Multiaddr,
 };
 use pyo3::{exceptions::PyRuntimeError, exceptions::PyValueError, prelude::*, types::PyModule};
-use std::sync::Arc;
+use pyo3_async_runtimes::tokio::future_into_py;
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    sync::Arc,
 };
 use tokio::sync::Mutex;
 use xor_name::XorName;
@@ -24,7 +25,6 @@ use xor_name::XorName;
 #[pyclass(name = "SafeNode")]
 pub struct AntNode {
     node: Arc<Mutex<Option<RunningNode>>>,
-    runtime: Arc<Mutex<Option<tokio::runtime::Runtime>>>,
 }
 
 #[pymethods]
@@ -33,7 +33,6 @@ impl AntNode {
     fn new() -> Self {
         Self {
             node: Arc::new(Mutex::new(None)),
-            runtime: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -49,8 +48,9 @@ impl AntNode {
         home_network = false,
     ))]
     #[allow(clippy::too_many_arguments)]
-    fn run(
-        &self,
+    fn run<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
         rewards_address: String,
         evm_network: String,
         ip: &str,
@@ -59,7 +59,9 @@ impl AntNode {
         local: bool,
         root_dir: Option<String>,
         home_network: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
+
         let rewards_address = RewardsAddress::from_hex(&rewards_address)
             .map_err(|e| PyValueError::new_err(format!("Invalid rewards address: {e}")))?;
 
@@ -86,13 +88,9 @@ impl AntNode {
             .map_err(|e| PyValueError::new_err(format!("Invalid peer address: {e}")))?;
 
         let root_dir = root_dir.map(PathBuf::from);
-
         let keypair = Keypair::generate_ed25519();
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {e}")))?;
-
-        let node = rt.block_on(async {
+        future_into_py(py, async move {
             let mut node_builder = NodeBuilder::new(
                 keypair,
                 rewards_address,
@@ -105,24 +103,17 @@ impl AntNode {
             node_builder.initial_peers(initial_peers);
             node_builder.is_behind_home_network(home_network);
 
-            node_builder
+            let running_node = node_builder
                 .build_and_run()
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to start node: {e}")))
-        })?;
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to start node: {e}")))?;
 
-        let mut node_guard = self
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        *node_guard = Some(node);
+            let mut node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            *node_guard = Some(running_node);
 
-        let mut rt_guard = self
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
-        *rt_guard = Some(rt);
-
-        Ok(())
+            Ok(Python::with_gil(|_py| ()))
+        })
     }
 
     /// Get the node's PeerId as a string
@@ -139,58 +130,65 @@ impl AntNode {
     }
 
     /// Get all record addresses stored by the node
-    fn get_all_record_addresses(self_: PyRef<Self>) -> PyResult<Vec<String>> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    fn get_all_record_addresses<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => {
-                let addresses = rt.block_on(async {
-                    node.get_all_record_addresses().await.map_err(|e| {
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+
+            match &*node_guard {
+                Some(node) => {
+                    let addresses = node.get_all_record_addresses().await.map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to get addresses: {e}"))
-                    })
-                })?;
+                    })?;
 
-                Ok(addresses.into_iter().map(|addr| addr.to_string()).collect())
+                    Ok(Python::with_gil(|_py| {
+                        addresses
+                            .into_iter()
+                            .map(|addr| addr.to_string())
+                            .collect::<Vec<_>>()
+                    }))
+                }
+                None => Err(PyRuntimeError::new_err("Node not started")),
             }
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+        })
     }
 
     /// Get the node's kbuckets information
-    fn get_kbuckets(self_: PyRef<Self>) -> PyResult<Vec<(u32, Vec<String>)>> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    fn get_kbuckets<'p>(self_: PyRef<'p, Self>, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => {
-                let kbuckets = rt.block_on(async {
-                    node.get_kbuckets().await.map_err(|e| {
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+
+            match &*node_guard {
+                Some(node) => {
+                    let kbuckets = node.get_kbuckets().await.map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to get kbuckets: {e}"))
-                    })
-                })?;
+                    })?;
 
-                Ok(kbuckets
-                    .into_iter()
-                    .map(|(distance, peers)| {
-                        (distance, peers.into_iter().map(|p| p.to_string()).collect())
-                    })
-                    .collect())
+                    Ok(Python::with_gil(|_py| {
+                        kbuckets
+                            .into_iter()
+                            .map(|(distance, peers)| {
+                                (
+                                    distance,
+                                    peers.into_iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    }))
+                }
+                None => Err(PyRuntimeError::new_err("Node not started")),
             }
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+        })
     }
 
     /// Get the node's rewards/wallet address as a hex string
@@ -230,32 +228,30 @@ impl AntNode {
     }
 
     /// Store a record in the node's storage
-    fn store_record(
-        self_: PyRef<Self>,
+    fn store_record<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
         key: String,
         value: Vec<u8>,
         _data_type: String,
-    ) -> PyResult<()> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => {
-                let xorname = XorName::from_content(
-                    &hex::decode(key)
-                        .map_err(|e| PyValueError::new_err(format!("Invalid key format: {e}")))?,
-                );
-                let chunk_address = ChunkAddress::new(xorname);
-                let network_address = NetworkAddress::from_chunk_address(chunk_address);
-                let record_key = network_address.to_record_key();
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
-                rt.block_on(async {
+            match &*node_guard {
+                Some(node) => {
+                    let xorname =
+                        XorName::from_content(&hex::decode(key).map_err(|e| {
+                            PyValueError::new_err(format!("Invalid key format: {e}"))
+                        })?);
+                    let chunk_address = ChunkAddress::new(xorname);
+                    let network_address = NetworkAddress::from_chunk_address(chunk_address);
+                    let record_key = network_address.to_record_key();
+
                     let record = KadRecord {
                         key: record_key,
                         value,
@@ -270,116 +266,126 @@ impl AntNode {
                     };
                     node.network.put_record(record, &cfg).await.map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to store record: {e}"))
-                    })
-                })?;
+                    })?;
 
-                Ok(())
+                    Ok(Python::with_gil(|_py| ()))
+                }
+                None => Err(PyRuntimeError::new_err("Node not started")),
             }
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+        })
     }
 
     /// Get a record from the node's storage
-    fn get_record(self_: PyRef<Self>, key: String) -> PyResult<Option<Vec<u8>>> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    fn get_record<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
+        key: String,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => {
-                let xorname = XorName::from_content(
-                    &hex::decode(key)
-                        .map_err(|e| PyValueError::new_err(format!("Invalid key format: {e}")))?,
-                );
-                let chunk_address = ChunkAddress::new(xorname);
-                let network_address = NetworkAddress::from_chunk_address(chunk_address);
-                let record_key = network_address.to_record_key();
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
-                let record = rt.block_on(async {
-                    node.network
+            match &*node_guard {
+                Some(node) => {
+                    let xorname =
+                        XorName::from_content(&hex::decode(key).map_err(|e| {
+                            PyValueError::new_err(format!("Invalid key format: {e}"))
+                        })?);
+                    let chunk_address = ChunkAddress::new(xorname);
+                    let network_address = NetworkAddress::from_chunk_address(chunk_address);
+                    let record_key = network_address.to_record_key();
+
+                    let record = node
+                        .network
                         .get_local_record(&record_key)
                         .await
-                        .map_err(|e| PyRuntimeError::new_err(format!("Failed to get record: {e}")))
-                })?;
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed to get record: {e}"))
+                        })?;
 
-                Ok(record.map(|r| r.value.to_vec()))
+                    Ok(Python::with_gil(|_py| record.map(|r| r.value.to_vec())))
+                }
+                None => Err(PyRuntimeError::new_err("Node not started")),
             }
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+        })
     }
 
     /// Delete a record from the node's storage
-    fn delete_record(self_: PyRef<Self>, key: String) -> PyResult<bool> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    fn delete_record<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
+        key: String,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => {
-                let xorname = XorName::from_content(
-                    &hex::decode(key)
-                        .map_err(|e| PyValueError::new_err(format!("Invalid key format: {e}")))?,
-                );
-                let chunk_address = ChunkAddress::new(xorname);
-                let network_address = NetworkAddress::from_chunk_address(chunk_address);
-                let record_key = network_address.to_record_key();
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
-                rt.block_on(async {
+            match &*node_guard {
+                Some(node) => {
+                    let xorname =
+                        XorName::from_content(&hex::decode(key).map_err(|e| {
+                            PyValueError::new_err(format!("Invalid key format: {e}"))
+                        })?);
+                    let chunk_address = ChunkAddress::new(xorname);
+                    let network_address = NetworkAddress::from_chunk_address(chunk_address);
+                    let record_key = network_address.to_record_key();
+
                     // First check if we have the record using record_key
-                    if let Ok(Some(_)) = node.network.get_local_record(&record_key).await {
-                        // If we have it, remove it
-                        // Note: This is a simplified version - you might want to add proper deletion logic
-                        Ok(true)
-                    } else {
-                        Ok(false)
-                    }
-                })
+                    let exists = node
+                        .network
+                        .get_local_record(&record_key)
+                        .await
+                        .map_err(|e| PyRuntimeError::new_err(format!("Failed to get record: {e}")))?
+                        .is_some();
+
+                    Ok(Python::with_gil(|_py| exists))
+                }
+                None => Err(PyRuntimeError::new_err("Node not started")),
             }
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+        })
     }
 
     /// Get the total size of stored records
-    fn get_stored_records_size(self_: PyRef<Self>) -> PyResult<u64> {
-        let node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-        let rt_guard = self_
-            .runtime
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
+    fn get_stored_records_size<'p>(
+        self_: PyRef<'p, Self>,
+        py: Python<'p>,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let node = self_.node.clone();
 
-        match (&*node_guard, &*rt_guard) {
-            (Some(node), Some(rt)) => rt.block_on(async {
-                let records = node
-                    .network
-                    .get_all_local_record_addresses()
-                    .await
-                    .map_err(|e| PyRuntimeError::new_err(format!("Failed to get records: {e}")))?;
+        future_into_py(py, async move {
+            let node_guard = node
+                .try_lock()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
-                let mut total_size = 0u64;
-                for (key, _) in records {
-                    if let Ok(Some(record)) =
-                        node.network.get_local_record(&key.to_record_key()).await
-                    {
-                        total_size += record.value.len() as u64;
+            match &*node_guard {
+                Some(node) => {
+                    let records = node
+                        .network
+                        .get_all_local_record_addresses()
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed to get records: {e}"))
+                        })?;
+
+                    let mut total_size = 0u64;
+                    for (key, _) in records {
+                        if let Ok(Some(record)) =
+                            node.network.get_local_record(&key.to_record_key()).await
+                        {
+                            total_size += record.value.len() as u64;
+                        }
                     }
+                    Ok(Python::with_gil(|_py| total_size))
                 }
-                Ok(total_size)
-            }),
-            _ => Err(PyRuntimeError::new_err("Node not started")),
-        }
+                None => Err(PyRuntimeError::new_err("Node not started")),
+            }
+        })
     }
 
     /// Get the current root directory path for node data

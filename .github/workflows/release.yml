@@ -266,11 +266,14 @@ jobs:
       - name: publish crates
         shell: bash
         run: |
-          cargo login "${{ secrets.CRATES_IO_TOKEN }}"
+          # We keep running out of disk space on the GHA agent, so I will just run `release-plz`
+          # from my own machine for the time being.
+          echo "This step is temporarily disabled"
+          # cargo login "${{ secrets.CRATES_IO_TOKEN }}"
           # The use of 'awk' suppresses the annoying instrumentation output that makes the log
           # difficult to read.
-          release-plz release --git-token ${{ secrets.AUTONOMI_PAT }} | \
-            awk '{ if (!/^\s*in release with input/ && !/^\s{4}/) print }'
+          # release-plz release --git-token ${{ secrets.AUTONOMI_PAT }} | \
+          #   awk '{ if (!/^\s*in release with input/ && !/^\s{4}/) print }'
 
       - name: post notification to slack on failure
         if: ${{ failure() }}

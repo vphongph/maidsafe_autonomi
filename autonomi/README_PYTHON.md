@@ -17,9 +17,9 @@ Make sure you have installed:
 cd autonomi/
 
 # make a virtual environment
-uv sync
 uv venv
 source .venv/bin/activate
+uv sync
 maturin develop --uv
 
 # Then you can test with pytest

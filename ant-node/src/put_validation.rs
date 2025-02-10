@@ -77,7 +77,7 @@ impl Node {
                 // Writing chunk to disk takes time, hence try to execute it first.
                 // So that when the replicate target asking for the copy,
                 // the node can have a higher chance to respond.
-                let store_chunk_result = self.store_chunk(&chunk);
+                let store_chunk_result = self.store_chunk(&chunk, true);
 
                 if store_chunk_result.is_ok() {
                     Marker::ValidPaidChunkPutFromClient(&PrettyPrintRecordKey::from(&record.key))
@@ -227,7 +227,7 @@ impl Node {
                 }
 
                 let res = self
-                    .validate_merge_and_store_graphentries(vec![graph_entry], &key)
+                    .validate_merge_and_store_graphentries(vec![graph_entry], &key, true)
                     .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
@@ -363,7 +363,7 @@ impl Node {
                     return Ok(());
                 }
 
-                self.store_chunk(&chunk)
+                self.store_chunk(&chunk, false)
             }
             RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 let key = record.key.clone();
@@ -374,7 +374,7 @@ impl Node {
             RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 let record_key = record.key.clone();
                 let graph_entries = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
-                self.validate_merge_and_store_graphentries(graph_entries, &record_key)
+                self.validate_merge_and_store_graphentries(graph_entries, &record_key, false)
                     .await
             }
             RecordKind::DataOnly(DataTypes::Pointer) => {
@@ -424,7 +424,7 @@ impl Node {
     }
 
     /// Store a `Chunk` to the RecordStore
-    pub(crate) fn store_chunk(&self, chunk: &Chunk) -> Result<()> {
+    pub(crate) fn store_chunk(&self, chunk: &Chunk, is_client_put: bool) -> Result<()> {
         let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
 
@@ -436,7 +436,7 @@ impl Node {
         };
 
         // finally store the Record directly into the local storage
-        self.network().put_local_record(record);
+        self.network().put_local_record(record, is_client_put);
 
         self.record_metrics(Marker::ValidChunkRecordPutFromNetwork(&pretty_key));
 
@@ -458,7 +458,7 @@ impl Node {
         &self,
         scratchpad: Scratchpad,
         record_key: RecordKey,
-        _is_client_put: bool,
+        is_client_put: bool,
         _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
@@ -506,7 +506,8 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record.clone());
+        self.network()
+            .put_local_record(record.clone(), is_client_put);
 
         let pretty_key = PrettyPrintRecordKey::from(&scratchpad_key);
 
@@ -535,6 +536,7 @@ impl Node {
         &self,
         entries: Vec<GraphEntry>,
         record_key: &RecordKey,
+        is_client_put: bool,
     ) -> Result<()> {
         let pretty_key = PrettyPrintRecordKey::from(record_key);
         debug!("Validating GraphEntries before storage at {pretty_key:?}");
@@ -602,7 +604,7 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network().put_local_record(record, is_client_put);
         debug!("Successfully stored validated GraphEntries at {pretty_key:?}");
 
         // Just log the multiple GraphEntries
@@ -796,7 +798,7 @@ impl Node {
         &self,
         pointer: Pointer,
         key: RecordKey,
-        _is_client_put: bool,
+        is_client_put: bool,
         _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
@@ -832,7 +834,8 @@ impl Node {
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record.clone());
+        self.network()
+            .put_local_record(record.clone(), is_client_put);
 
         // Client changed to upload to ALL payees, hence no longer need this.
         // May need again once client change back to upload to just one to save traffic.

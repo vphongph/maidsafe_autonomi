@@ -9,7 +9,6 @@ We recommend using `uv` for Python environment management:
 Make sure you have installed:
 - `Python`
 - `uv`
-- `maturin`
 
 ## Quick Start
 
@@ -18,12 +17,12 @@ Make sure you have installed:
 cd autonomi/
 
 # make a virtual environment
+uv sync
 uv venv
 source .venv/bin/activate
 maturin develop --uv
 
 # Then you can test with pytest
-uv add pytest
 pytest tests/python/test_bindings.py
 
 # or you can run the examples or your own scripts!

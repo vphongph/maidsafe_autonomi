@@ -1,9 +1,7 @@
 name: Build and Publish Python Client Package
 
 on:
-  push:
-    tags:
-      - 'autonomi-v*'
+  workflow_dispatch:
 
 # Add top-level permissions block
 permissions:

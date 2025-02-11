@@ -215,8 +215,8 @@ jobs:
           backtrace = "=0.3.71"
           EOL
           
-          # Update all dependency paths to be absolute
-          find build -name "Cargo.toml" -exec sed -i "s|path = \"\.\./|path = \"/home/runner/work/autonomi/autonomi/build/|g" {} \;
+          # Update all dependency paths to be relative
+          find build -name "Cargo.toml" -exec sed -i "s|path = \"/home/runner/work/autonomi/autonomi/build/|path = \"|g" {} \;
           
           # Display directory structure for debugging
           echo "Contents of build directory:"

@@ -6,11 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-#![cfg(feature = "fs")]
-
 use ant_logging::LogBuilder;
 use autonomi::Client;
 use eyre::Result;
+use serial_test::serial;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -20,8 +19,9 @@ use tokio::time::sleep;
 use walkdir::WalkDir;
 
 // With a local evm network, and local network, run:
-// EVM_NETWORK=local cargo test --features="fs,local" --package autonomi --test file
+// EVM_NETWORK=local cargo test --package autonomi --test fs
 #[tokio::test]
+#[serial]
 async fn dir_upload_download() -> Result<()> {
     let _log_appender_guard =
         LogBuilder::init_single_threaded_tokio_test("dir_upload_download", false);
@@ -29,14 +29,14 @@ async fn dir_upload_download() -> Result<()> {
     let client = Client::init_local().await?;
     let wallet = get_funded_wallet();
 
-    let addr = client
+    let (_cost, addr) = client
         .dir_and_archive_upload_public("tests/file/test_dir".into(), &wallet)
         .await?;
 
     sleep(Duration::from_secs(10)).await;
 
     client
-        .dir_download_public(addr, "tests/file/test_dir_fetched".into())
+        .dir_download_public(&addr, "tests/file/test_dir_fetched".into())
         .await?;
 
     // compare the two directories
@@ -76,8 +76,8 @@ fn compute_dir_sha256(dir: &str) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-#[cfg(feature = "vault")]
 #[tokio::test]
+#[serial]
 async fn file_into_vault() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("file", false);
 
@@ -85,12 +85,12 @@ async fn file_into_vault() -> Result<()> {
     let wallet = get_funded_wallet();
     let client_sk = bls::SecretKey::random();
 
-    let addr = client
+    let (_cost, addr) = client
         .dir_and_archive_upload_public("tests/file/test_dir".into(), &wallet)
         .await?;
     sleep(Duration::from_secs(2)).await;
 
-    let archive = client.archive_get_public(addr).await?;
+    let archive = client.archive_get_public(&addr).await?;
     let set_version = 0;
     client
         .write_bytes_to_vault(archive.to_bytes()?, wallet.into(), &client_sk, set_version)

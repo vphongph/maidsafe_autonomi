@@ -3,16 +3,12 @@
 
 use crate::{NodeBuilder, RunningNode};
 use ant_evm::{EvmNetwork, RewardsAddress};
-use ant_networking::PutRecordCfg;
-use ant_protocol::{
-    node::get_antnode_root_dir,
-    storage::{ChunkAddress, RecordType},
-    NetworkAddress,
-};
+use ant_networking::{PutRecordCfg, ResponseQuorum};
+use ant_protocol::{node::get_antnode_root_dir, storage::ChunkAddress, NetworkAddress};
 use const_hex::FromHex;
 use libp2p::{
     identity::{Keypair, PeerId},
-    kad::{Quorum, Record as KadRecord},
+    kad::Record as KadRecord,
     Multiaddr,
 };
 use pyo3::{exceptions::PyRuntimeError, exceptions::PyValueError, prelude::*, types::PyModule};
@@ -104,7 +100,6 @@ impl AntNode {
                 node_socket_addr,
                 local,
                 root_dir.unwrap_or_else(|| PathBuf::from(".")),
-                #[cfg(feature = "upnp")]
                 false,
             );
             node_builder.initial_peers(initial_peers);
@@ -239,7 +234,7 @@ impl AntNode {
         self_: PyRef<Self>,
         key: String,
         value: Vec<u8>,
-        record_type: String,
+        _data_type: String,
     ) -> PyResult<()> {
         let node_guard = self_
             .node
@@ -249,12 +244,6 @@ impl AntNode {
             .runtime
             .try_lock()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire runtime lock"))?;
-
-        let _record_type = match record_type.to_lowercase().as_str() {
-            "chunk" => RecordType::Chunk,
-            "scratchpad" => RecordType::Scratchpad,
-            _ => return Err(PyValueError::new_err("Invalid record type. Must be one of: 'chunk', 'register', 'scratchpad', 'transaction'")),
-        };
 
         match (&*node_guard, &*rt_guard) {
             (Some(node), Some(rt)) => {
@@ -274,8 +263,8 @@ impl AntNode {
                         expires: None,
                     };
                     let cfg = PutRecordCfg {
-                        put_quorum: Quorum::One,
-                        retry_strategy: None,
+                        put_quorum: ResponseQuorum::One,
+                        retry_strategy: Default::default(),
                         use_put_record_to: None,
                         verification: None,
                     };
@@ -417,6 +406,7 @@ impl AntNode {
     ///  - Windows: C:\Users\<username>\AppData\Roaming\autonomi\node\<peer-id>
     #[allow(clippy::redundant_closure)]
     #[staticmethod]
+    #[pyo3(signature = (peer_id=None))]
     fn get_default_root_dir(peer_id: Option<String>) -> PyResult<String> {
         let peer_id = if let Some(id_str) = peer_id {
             let id = id_str
@@ -478,7 +468,7 @@ impl AntNode {
 /// Python module initialization
 #[pymodule]
 #[pyo3(name = "_antnode")]
-fn init_module(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AntNode>()?;
     Ok(())
 }

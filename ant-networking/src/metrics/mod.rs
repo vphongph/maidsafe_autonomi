@@ -8,14 +8,14 @@
 
 // Implementation to record `libp2p::upnp::Event` metrics
 mod bad_node;
+mod relay_client;
 pub mod service;
-#[cfg(feature = "upnp")]
 mod upnp;
 
 use std::sync::atomic::AtomicU64;
 
 use crate::MetricsRegistries;
-use crate::{log_markers::Marker, target_arch::sleep};
+use crate::{log_markers::Marker, time::sleep};
 use bad_node::{BadNodeMetrics, BadNodeMetricsMsg, TimeFrame};
 use libp2p::{
     metrics::{Metrics as Libp2pMetrics, Recorder},
@@ -37,8 +37,8 @@ pub(crate) struct NetworkMetricsRecorder {
     // Must directly call self.libp2p_metrics.record(libp2p_event) with Recorder trait in scope. But since we have
     // re-implemented the trait for the wrapper struct, we can instead call self.record(libp2p_event)
     libp2p_metrics: Libp2pMetrics,
-    #[cfg(feature = "upnp")]
     upnp_events: Family<upnp::UpnpEventLabels, Counter>,
+    relay_client_events: Family<relay_client::RelayClientEventLabels, Counter>,
 
     // metrics from ant-networking
     pub(crate) connected_peers: Gauge,
@@ -46,6 +46,7 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
     pub(crate) records_stored: Gauge,
+    pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
 
     // quoting metrics
     relevant_records: Gauge,
@@ -85,6 +86,12 @@ impl NetworkMetricsRecorder {
             "records_stored",
             "The number of records stored locally",
             records_stored.clone(),
+        );
+        let relay_reservation_health = Gauge::<f64, AtomicU64>::default();
+        sub_registry.register(
+            "relay_reservation_health",
+            "The average health of all the relay reservation connections. Value is between 0-1",
+            relay_reservation_health.clone(),
         );
 
         let connected_peers = Gauge::default();
@@ -127,13 +134,18 @@ impl NetworkMetricsRecorder {
             bad_peers_count.clone(),
         );
 
-        #[cfg(feature = "upnp")]
         let upnp_events = Family::default();
-        #[cfg(feature = "upnp")]
         sub_registry.register(
             "upnp_events",
             "Events emitted by the UPnP behaviour",
             upnp_events.clone(),
+        );
+
+        let relay_client_events = Family::default();
+        sub_registry.register(
+            "relay_client_events",
+            "Events emitted by the relay client",
+            relay_client_events.clone(),
         );
 
         let process_memory_used_mb = Gauge::<f64, AtomicU64>::default();
@@ -209,13 +221,14 @@ impl NetworkMetricsRecorder {
         );
         let network_metrics = Self {
             libp2p_metrics,
-            #[cfg(feature = "upnp")]
             upnp_events,
+            relay_client_events,
 
             records_stored,
             estimated_network_size,
             connected_peers,
             open_connections,
+            relay_reservation_health,
             peers_in_routing_table,
             relevant_records,
             max_records,
@@ -279,7 +292,7 @@ impl NetworkMetricsRecorder {
                 let _ = self.shunned_count.inc();
                 let bad_nodes_notifier = self.bad_nodes_notifier.clone();
                 let flagged_by = *flagged_by;
-                crate::target_arch::spawn(async move {
+                crate::time::spawn(async move {
                     if let Err(err) = bad_nodes_notifier
                         .send(BadNodeMetricsMsg::ShunnedByPeer(flagged_by))
                         .await
@@ -310,7 +323,7 @@ impl NetworkMetricsRecorder {
 
     pub(crate) fn record_change_in_close_group(&self, new_close_group: Vec<PeerId>) {
         let bad_nodes_notifier = self.bad_nodes_notifier.clone();
-        crate::target_arch::spawn(async move {
+        crate::time::spawn(async move {
             if let Err(err) = bad_nodes_notifier
                 .send(BadNodeMetricsMsg::CloseGroupUpdated(new_close_group))
                 .await

@@ -1,4 +1,5 @@
-use crate::client::data::PutError;
+use crate::client::quote::DataTypes;
+use crate::client::PutError;
 use crate::self_encryption::encrypt;
 use crate::Client;
 use ant_evm::QuotePayment;
@@ -17,7 +18,8 @@ impl Client {
     /// Returns a cost map, data payments to be executed and a list of free (already paid for) chunks.
     pub async fn get_quotes_for_content_addresses(
         &self,
-        content_addrs: impl Iterator<Item = XorName> + Clone,
+        data_type: DataTypes,
+        content_addrs: impl Iterator<Item = (XorName, usize)> + Clone,
     ) -> Result<
         (
             HashMap<XorName, QuoteForAddress>,
@@ -26,14 +28,20 @@ impl Client {
         ),
         PutError,
     > {
-        let quote = self.get_store_quotes(content_addrs.clone()).await?;
+        let quote = self
+            .get_store_quotes(data_type, content_addrs.clone())
+            .await?;
         let payments = quote.payments();
-        let free_chunks = content_addrs
-            .filter(|addr| !quote.0.contains_key(addr))
+        let free_chunks: Vec<_> = content_addrs
+            .filter(|(addr, _)| !quote.0.contains_key(addr))
             .collect();
         let quotes_per_addr: HashMap<_, _> = quote.0.into_iter().collect();
 
-        Ok((quotes_per_addr, payments, free_chunks))
+        Ok((
+            quotes_per_addr,
+            payments,
+            free_chunks.iter().map(|(addr, _)| *addr).collect(),
+        ))
     }
 }
 
@@ -41,7 +49,7 @@ impl Client {
 ///
 /// Returns the data map chunk and file chunks.
 pub fn encrypt_data(data: Bytes) -> Result<(Chunk, Vec<Chunk>), PutError> {
-    let now = ant_networking::target_arch::Instant::now();
+    let now = ant_networking::time::Instant::now();
     let result = encrypt(data)?;
 
     debug!("Encryption took: {:.2?}", now.elapsed());

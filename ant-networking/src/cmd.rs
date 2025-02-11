@@ -7,23 +7,24 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
+    config::GetRecordCfg,
     driver::{PendingGetClosestType, SwarmDriver},
     error::{NetworkError, Result},
     event::TerminateNodeReason,
     log_markers::Marker,
-    multiaddr_pop_p2p, GetRecordCfg, GetRecordError, MsgResponder, NetworkEvent, CLOSE_GROUP_SIZE,
+    multiaddr_pop_p2p, GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum,
+    CLOSE_GROUP_SIZE,
 };
-use ant_evm::{PaymentQuote, QuotingMetrics, U256};
+use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
-    convert_distance_to_u256,
     messages::{Cmd, Request, Response},
-    storage::{RecordHeader, RecordKind, RecordType},
+    storage::{DataTypes, RecordHeader, RecordKind, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
     kad::{
         store::{Error as StoreError, RecordStore},
-        KBucketDistance as Distance, Quorum, Record, RecordKey,
+        KBucketDistance as Distance, Record, RecordKey, K_VALUE,
     },
     Multiaddr, PeerId,
 };
@@ -35,7 +36,7 @@ use std::{
 use tokio::sync::oneshot;
 use xor_name::XorName;
 
-use crate::target_arch::Instant;
+use crate::time::Instant;
 
 const MAX_CONTINUOUS_HDD_WRITE_ERROR: usize = 5;
 
@@ -45,8 +46,10 @@ const REPLICATION_TIMEOUT: Duration = Duration::from_secs(45);
 // Throttles replication to at most once every 30 seconds
 const MIN_REPLICATION_INTERVAL_S: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum NodeIssue {
+    /// Some connections might be considered to be critical and should be tracked.
+    ConnectionIssue,
     /// Data Replication failed
     ReplicationFailure,
     /// Close nodes have reported this peer as bad
@@ -55,6 +58,18 @@ pub enum NodeIssue {
     BadQuoting,
     /// Peer failed to pass the chunk proof verification
     FailedChunkProofCheck,
+}
+
+impl std::fmt::Display for NodeIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            NodeIssue::ConnectionIssue => write!(f, "CriticalConnectionIssue"),
+            NodeIssue::ReplicationFailure => write!(f, "ReplicationFailure"),
+            NodeIssue::CloseNodesShunning => write!(f, "CloseNodesShunning"),
+            NodeIssue::BadQuoting => write!(f, "BadQuoting"),
+            NodeIssue::FailedChunkProofCheck => write!(f, "FailedChunkProofCheck"),
+        }
+    }
 }
 
 /// Commands to send to the Swarm
@@ -72,7 +87,7 @@ pub enum LocalSwarmCmd {
     /// In case the range is too narrow, returns at lease CLOSE_GROUP_SIZE peers.
     GetReplicateCandidates {
         data_addr: NetworkAddress,
-        sender: oneshot::Sender<Vec<PeerId>>,
+        sender: oneshot::Sender<Result<Vec<PeerId>>>,
     },
     // Returns up to K_VALUE peers from all the k-buckets from the local Routing Table.
     // And our PeerId as well.
@@ -88,11 +103,11 @@ pub enum LocalSwarmCmd {
     /// Check if the local RecordStore contains the provided key
     RecordStoreHasKey {
         key: RecordKey,
-        sender: oneshot::Sender<bool>,
+        sender: oneshot::Sender<Result<bool>>,
     },
     /// Get the Addresses of all the Records held locally
     GetAllLocalRecordAddresses {
-        sender: oneshot::Sender<HashMap<NetworkAddress, RecordType>>,
+        sender: oneshot::Sender<Result<HashMap<NetworkAddress, ValidationType>>>,
     },
     /// Get data from the local RecordStore
     GetLocalRecord {
@@ -103,13 +118,16 @@ pub enum LocalSwarmCmd {
     /// Returns the quoting metrics and whether the record at `key` is already stored locally
     GetLocalQuotingMetrics {
         key: RecordKey,
-        sender: oneshot::Sender<(QuotingMetrics, bool)>,
+        data_type: u32,
+        data_size: usize,
+        sender: oneshot::Sender<Result<(QuotingMetrics, bool)>>,
     },
     /// Notify the node received a payment.
     PaymentReceived,
     /// Put record to the local RecordStore
     PutLocalRecord {
         record: Record,
+        is_client_put: bool,
     },
     /// Remove a local record from the RecordStore
     /// Typically because the write failed
@@ -120,7 +138,8 @@ pub enum LocalSwarmCmd {
     /// This should be done after the record has been stored to disk
     AddLocalRecordAsStored {
         key: RecordKey,
-        record_type: RecordType,
+        record_type: ValidationType,
+        data_type: DataTypes,
     },
     /// Add a peer to the blocklist
     AddPeerToBlockList {
@@ -141,7 +160,7 @@ pub enum LocalSwarmCmd {
         quotes: Vec<(PeerId, PaymentQuote)>,
     },
     // Notify a fetch completion
-    FetchCompleted((RecordKey, RecordType)),
+    FetchCompleted((RecordKey, ValidationType)),
     /// Triggers interval repliation
     /// NOTE: This does result in outgoing messages, but is produced locally
     TriggerIntervalReplication,
@@ -150,6 +169,15 @@ pub enum LocalSwarmCmd {
     /// Add a network density sample
     AddNetworkDensitySample {
         distance: Distance,
+    },
+    /// Send peer scores (collected from storage challenge) to replication_fetcher
+    NotifyPeerScores {
+        peer_scores: Vec<(PeerId, bool)>,
+    },
+    /// Add fresh replicate records into replication_fetcher
+    AddFreshReplicateRecords {
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType)>,
     },
 }
 
@@ -194,14 +222,14 @@ pub enum NetworkSwarmCmd {
     PutRecord {
         record: Record,
         sender: oneshot::Sender<Result<()>>,
-        quorum: Quorum,
+        quorum: ResponseQuorum,
     },
     /// Put record to specific node
     PutRecordTo {
         peers: Vec<PeerId>,
         record: Record,
         sender: oneshot::Sender<Result<()>>,
-        quorum: Quorum,
+        quorum: ResponseQuorum,
     },
 }
 
@@ -210,10 +238,13 @@ pub enum NetworkSwarmCmd {
 impl Debug for LocalSwarmCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LocalSwarmCmd::PutLocalRecord { record } => {
+            LocalSwarmCmd::PutLocalRecord {
+                record,
+                is_client_put,
+            } => {
                 write!(
                     f,
-                    "LocalSwarmCmd::PutLocalRecord {{ key: {:?} }}",
+                    "LocalSwarmCmd::PutLocalRecord {{ key: {:?}, is_client_put: {is_client_put:?} }}",
                     PrettyPrintRecordKey::from(&record.key)
                 )
             }
@@ -224,10 +255,14 @@ impl Debug for LocalSwarmCmd {
                     PrettyPrintRecordKey::from(key)
                 )
             }
-            LocalSwarmCmd::AddLocalRecordAsStored { key, record_type } => {
+            LocalSwarmCmd::AddLocalRecordAsStored {
+                key,
+                record_type,
+                data_type,
+            } => {
                 write!(
                     f,
-                    "LocalSwarmCmd::AddLocalRecordAsStored {{ key: {:?}, record_type: {record_type:?} }}",
+                    "LocalSwarmCmd::AddLocalRecordAsStored {{ key: {:?}, record_type: {record_type:?}, data_type: {data_type:?} }}",
                     PrettyPrintRecordKey::from(key)
                 )
             }
@@ -309,6 +344,15 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::AddNetworkDensitySample { distance } => {
                 write!(f, "LocalSwarmCmd::AddNetworkDensitySample({distance:?})")
+            }
+            LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
+                write!(f, "LocalSwarmCmd::NotifyPeerScores({peer_scores:?})")
+            }
+            LocalSwarmCmd::AddFreshReplicateRecords { holder, keys } => {
+                write!(
+                    f,
+                    "LocalSwarmCmd::AddFreshReplicateRecords({holder:?}, {keys:?})"
+                )
             }
         }
     }
@@ -431,7 +475,7 @@ impl SwarmDriver {
                     .swarm
                     .behaviour_mut()
                     .kademlia
-                    .put_record(record, quorum)
+                    .put_record(record, quorum.get_kad_quorum())
                 {
                     Ok(request_id) => {
                         debug!("Sent record {record_key:?} to network. Request id: {request_id:?} to network");
@@ -463,7 +507,7 @@ impl SwarmDriver {
                 let request_id = self.swarm.behaviour_mut().kademlia.put_record_to(
                     record,
                     peers.into_iter(),
-                    quorum,
+                    quorum.get_kad_quorum(),
                 );
                 debug!("Sent record {record_key:?} to {peers_count:?} peers. Request id: {request_id:?}");
 
@@ -575,7 +619,12 @@ impl SwarmDriver {
                 cmd_string = "TriggerIntervalReplication";
                 self.try_interval_replication()?;
             }
-            LocalSwarmCmd::GetLocalQuotingMetrics { key, sender } => {
+            LocalSwarmCmd::GetLocalQuotingMetrics {
+                key,
+                data_type,
+                data_size,
+                sender,
+            } => {
                 cmd_string = "GetLocalQuotingMetrics";
                 let (
                     _index,
@@ -586,13 +635,23 @@ impl SwarmDriver {
                 ) = self.kbuckets_status();
                 let estimated_network_size =
                     Self::estimate_network_size(peers_in_non_full_buckets, num_of_full_buckets);
-                let (quoting_metrics, is_already_stored) = self
+                let (quoting_metrics, is_already_stored) = match self
                     .swarm
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .quoting_metrics(&key, Some(estimated_network_size as u64));
-
+                    .quoting_metrics(
+                        &key,
+                        data_type,
+                        data_size,
+                        Some(estimated_network_size as u64),
+                    ) {
+                    Ok(res) => res,
+                    Err(err) => {
+                        let _res = sender.send(Err(err));
+                        return Ok(());
+                    }
+                };
                 self.record_metrics(Marker::QuotingMetrics {
                     quoting_metrics: &quoting_metrics,
                 });
@@ -631,7 +690,7 @@ impl SwarmDriver {
                         .retain(|peer_addr| key_address.distance(peer_addr) < boundary_distance);
                 }
 
-                let _res = sender.send((quoting_metrics, is_already_stored));
+                let _res = sender.send(Ok((quoting_metrics, is_already_stored)));
             }
             LocalSwarmCmd::PaymentReceived => {
                 cmd_string = "PaymentReceived";
@@ -653,7 +712,10 @@ impl SwarmDriver {
                 let _ = sender.send(record);
             }
 
-            LocalSwarmCmd::PutLocalRecord { record } => {
+            LocalSwarmCmd::PutLocalRecord {
+                record,
+                is_client_put,
+            } => {
                 cmd_string = "PutLocalRecord";
                 let key = record.key.clone();
                 let record_key = PrettyPrintRecordKey::from(&key);
@@ -661,16 +723,12 @@ impl SwarmDriver {
                 let record_type = match RecordHeader::from_record(&record) {
                     Ok(record_header) => {
                         match record_header.kind {
-                            RecordKind::Chunk => RecordType::Chunk,
-                            RecordKind::Scratchpad => RecordType::Scratchpad,
-                            RecordKind::Transaction | RecordKind::Register => {
+                            RecordKind::DataOnly(DataTypes::Chunk) => ValidationType::Chunk,
+                            RecordKind::DataOnly(_) => {
                                 let content_hash = XorName::from_content(&record.value);
-                                RecordType::NonChunk(content_hash)
+                                ValidationType::NonChunk(content_hash)
                             }
-                            RecordKind::ChunkWithPayment
-                            | RecordKind::RegisterWithPayment
-                            | RecordKind::TransactionWithPayment
-                            | RecordKind::ScratchpadWithPayment => {
+                            RecordKind::DataWithPayment(_) => {
                                 error!("Record {record_key:?} with payment shall not be stored locally.");
                                 return Err(NetworkError::InCorrectRecordHeader);
                             }
@@ -687,7 +745,7 @@ impl SwarmDriver {
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .put_verified(record, record_type.clone());
+                    .put_verified(record, record_type.clone(), is_client_put);
 
                 match result {
                     Ok(_) => {
@@ -706,7 +764,7 @@ impl SwarmDriver {
                             .behaviour_mut()
                             .kademlia
                             .store_mut()
-                            .get_farthest();
+                            .get_farthest()?;
                         self.replication_fetcher.set_farthest_on_full(farthest);
                     }
                     Err(_) => {
@@ -734,7 +792,7 @@ impl SwarmDriver {
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .get_farthest_replication_distance()
+                    .get_farthest_replication_distance()?
                 {
                     self.replication_fetcher
                         .set_replication_distance_range(distance);
@@ -747,17 +805,17 @@ impl SwarmDriver {
                     return Err(err.into());
                 };
             }
-            LocalSwarmCmd::AddLocalRecordAsStored { key, record_type } => {
-                info!(
-                    "Adding Record locally, for {:?} and {record_type:?}",
-                    PrettyPrintRecordKey::from(&key)
-                );
+            LocalSwarmCmd::AddLocalRecordAsStored {
+                key,
+                record_type,
+                data_type,
+            } => {
                 cmd_string = "AddLocalRecordAsStored";
                 self.swarm
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .mark_as_stored(key, record_type);
+                    .mark_as_stored(key, record_type, data_type);
                 // Reset counter on any success HDD write.
                 self.hard_disk_write_error = 0;
             }
@@ -924,6 +982,14 @@ impl SwarmDriver {
                 cmd_string = "AddNetworkDensitySample";
                 self.network_density_samples.add(distance);
             }
+            LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
+                cmd_string = "NotifyPeerScores";
+                self.replication_fetcher.add_peer_scores(peer_scores);
+            }
+            LocalSwarmCmd::AddFreshReplicateRecords { holder, keys } => {
+                cmd_string = "AddFreshReplicateRecords";
+                let _ = self.add_keys_to_replication_fetcher(holder, keys, true);
+            }
         }
 
         self.log_handling(cmd_string.to_string(), start.elapsed());
@@ -931,12 +997,11 @@ impl SwarmDriver {
         Ok(())
     }
 
-    fn record_node_issue(&mut self, peer_id: PeerId, issue: NodeIssue) {
+    pub(crate) fn record_node_issue(&mut self, peer_id: PeerId, issue: NodeIssue) {
         info!("Peer {peer_id:?} is reported as having issue {issue:?}");
         let (issue_vec, is_bad) = self.bad_nodes.entry(peer_id).or_default();
-
-        let mut is_new_bad = false;
-        let mut bad_behaviour: String = "".to_string();
+        let mut new_bad_behaviour = None;
+        let mut is_connection_issue = false;
 
         // If being considered as bad already, skip certain operations
         if !(*is_bad) {
@@ -969,9 +1034,13 @@ impl SwarmDriver {
                     .filter(|(i, _timestamp)| *issue == *i)
                     .count();
                 if issue_counts >= 3 {
-                    *is_bad = true;
-                    is_new_bad = true;
-                    bad_behaviour = format!("{issue:?}");
+                    // If it is a connection issue, we don't need to consider it as a bad node
+                    if matches!(issue, NodeIssue::ConnectionIssue) {
+                        is_connection_issue = true;
+                    } else {
+                        *is_bad = true;
+                    }
+                    new_bad_behaviour = Some(issue.clone());
                     info!("Peer {peer_id:?} accumulated {issue_counts} times of issue {issue:?}. Consider it as a bad node now.");
                     // Once a bad behaviour detected, no point to continue
                     break;
@@ -979,16 +1048,28 @@ impl SwarmDriver {
             }
         }
 
+        // Give the faulty connection node more chances by removing the issue from the list. It is still evicted from
+        // the routing table.
+        if is_connection_issue {
+            issue_vec.retain(|(issue, _timestamp)| !matches!(issue, NodeIssue::ConnectionIssue));
+            info!("Evicting bad peer {peer_id:?} due to connection issue from RT.");
+            if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
+                self.update_on_peer_removal(*dead_peer.node.key.preimage());
+            }
+            return;
+        }
+
         if *is_bad {
-            warn!("Cleaning out bad_peer {peer_id:?}. Will be added to the blocklist after informing that peer.");
+            info!("Evicting bad peer {peer_id:?} from RT.");
             if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
                 self.update_on_peer_removal(*dead_peer.node.key.preimage());
             }
 
-            if is_new_bad {
+            if let Some(bad_behaviour) = new_bad_behaviour {
+                // inform the bad node about it and add to the blocklist after that (not for connection issues)
                 self.record_metrics(Marker::PeerConsideredAsBad { bad_peer: &peer_id });
-                // inform the bad node about it and add to the blocklist after that.
 
+                warn!("Peer {peer_id:?} is considered as bad due to {bad_behaviour:?}. Informing the peer and adding to blocklist.");
                 // response handling
                 let (tx, rx) = oneshot::channel();
                 let local_swarm_cmd_sender = self.local_cmd_sender.clone();
@@ -1013,7 +1094,7 @@ impl SwarmDriver {
                 let request = Request::Cmd(Cmd::PeerConsideredAsBad {
                     detected_by: NetworkAddress::from_peer(self.self_peer_id),
                     bad_peer: NetworkAddress::from_peer(peer_id),
-                    bad_behaviour,
+                    bad_behaviour: bad_behaviour.to_string(),
                 });
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request,
@@ -1052,7 +1133,7 @@ impl SwarmDriver {
         self.last_replication = Some(Instant::now());
 
         let self_addr = NetworkAddress::from_peer(self.self_peer_id);
-        let mut replicate_targets = self.get_replicate_candidates(&self_addr);
+        let mut replicate_targets = self.get_replicate_candidates(&self_addr)?;
 
         let now = Instant::now();
         self.replication_targets
@@ -1068,7 +1149,7 @@ impl SwarmDriver {
             .behaviour_mut()
             .kademlia
             .store_mut()
-            .record_addresses_ref()
+            .record_addresses_ref()?
             .values()
             .cloned()
             .collect();
@@ -1080,7 +1161,10 @@ impl SwarmDriver {
             );
             let request = Request::Cmd(Cmd::Replicate {
                 holder: NetworkAddress::from_peer(self.self_peer_id),
-                keys: all_records,
+                keys: all_records
+                    .into_iter()
+                    .map(|(addr, val_type, _data_type)| (addr, val_type))
+                    .collect(),
             });
             for peer_id in replicate_targets {
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
@@ -1099,11 +1183,22 @@ impl SwarmDriver {
     }
 
     // Replies with in-range replicate candidates
-    // Fall back to CLOSE_GROUP_SIZE peers if range is too narrow.
+    // Fall back to expected_candidates peers if range is too narrow.
     // Note that:
-    //   * For general replication, replicate candidates shall be the closest to self
+    //   * For general replication, replicate candidates shall be closest to self, but with wider range
     //   * For replicate fresh records, the replicate candidates shall be the closest to data
-    pub(crate) fn get_replicate_candidates(&mut self, target: &NetworkAddress) -> Vec<PeerId> {
+
+    pub(crate) fn get_replicate_candidates(
+        &mut self,
+        target: &NetworkAddress,
+    ) -> Result<Vec<PeerId>> {
+        let is_periodic_replicate = target.as_peer_id().is_some();
+        let expected_candidates = if is_periodic_replicate {
+            CLOSE_GROUP_SIZE * 2
+        } else {
+            CLOSE_GROUP_SIZE
+        };
+
         // get closest peers from buckets, sorted by increasing distance to the target
         let kbucket_key = target.as_kbucket_key();
         let closest_k_peers: Vec<PeerId> = self
@@ -1113,6 +1208,7 @@ impl SwarmDriver {
             .get_closest_local_peers(&kbucket_key)
             // Map KBucketKey<PeerId> to PeerId.
             .map(|key| key.into_preimage())
+            .take(K_VALUE.get())
             .collect();
 
         if let Some(responsible_range) = self
@@ -1120,32 +1216,30 @@ impl SwarmDriver {
             .behaviour_mut()
             .kademlia
             .store_mut()
-            .get_farthest_replication_distance()
+            .get_farthest_replication_distance()?
         {
             let peers_in_range = get_peers_in_range(&closest_k_peers, target, responsible_range);
 
-            if peers_in_range.len() >= CLOSE_GROUP_SIZE {
-                return peers_in_range;
+            if peers_in_range.len() >= expected_candidates {
+                return Ok(peers_in_range);
             }
         }
 
-        // In case the range is too narrow, fall back to at least CLOSE_GROUP_SIZE peers.
-        closest_k_peers
+        // In case the range is too narrow, fall back to at least expected_candidates peers.
+        Ok(closest_k_peers
             .iter()
-            .take(CLOSE_GROUP_SIZE)
+            .take(expected_candidates)
             .cloned()
-            .collect()
+            .collect())
     }
 }
 
 /// Returns the nodes that within the defined distance.
-fn get_peers_in_range(peers: &[PeerId], address: &NetworkAddress, range: U256) -> Vec<PeerId> {
+fn get_peers_in_range(peers: &[PeerId], address: &NetworkAddress, range: Distance) -> Vec<PeerId> {
     peers
         .iter()
         .filter_map(|peer_id| {
-            let distance =
-                convert_distance_to_u256(&address.distance(&NetworkAddress::from_peer(*peer_id)));
-            if distance <= range {
+            if address.distance(&NetworkAddress::from_peer(*peer_id)) <= range {
                 Some(*peer_id)
             } else {
                 None

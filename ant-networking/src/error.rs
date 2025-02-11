@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::storage::TransactionAddress;
+use ant_protocol::storage::GraphEntryAddress;
 use ant_protocol::{messages::Response, storage::RecordKind, NetworkAddress, PrettyPrintRecordKey};
 use libp2p::{
     kad::{self, QueryId, Record},
@@ -45,8 +45,7 @@ pub enum GetRecordError {
     RecordNotFound,
     // Avoid logging the whole `Record` content by accident.
     /// The split record error will be handled at the network layer.
-    /// For transactions, it accumulates the transactions
-    /// For registers, it merges the registers and returns the merged record.
+    /// For GraphEntry, it accumulates them
     #[error("Split Record has {} different copies", result_map.len())]
     SplitRecord {
         result_map: HashMap<XorName, (Record, HashSet<PeerId>)>,
@@ -123,21 +122,21 @@ pub enum NetworkError {
     #[error("Record header is incorrect")]
     InCorrectRecordHeader,
 
-    // ---------- Transfer Errors
-    #[error("Failed to get transaction: {0}")]
-    FailedToGetSpend(String),
-    #[error("Transfer is invalid: {0}")]
-    InvalidTransfer(String),
+    #[error("The operation is not allowed on a client record store")]
+    OperationNotAllowedOnClientRecordStore,
 
     // ---------- Chunk Errors
     #[error("Failed to verify the ChunkProof with the provided quorum")]
     FailedToVerifyChunkProof(NetworkAddress),
 
-    // ---------- Transaction Errors
-    #[error("Transaction not found: {0:?}")]
-    NoTransactionFoundInsideRecord(TransactionAddress),
+    // ---------- Graph Errors
+    #[error("Graph entry not found: {0:?}")]
+    NoGraphEntryFoundInsideRecord(GraphEntryAddress),
 
     // ---------- Store Error
+    #[error("Not Enough Peers for Store Cost Request")]
+    NotEnoughPeersForStoreCostRequest,
+
     #[error("No Store Cost Responses")]
     NoStoreCostResponses,
 
@@ -179,9 +178,6 @@ pub enum NetworkError {
 
     #[error("Error setting up behaviour: {0}")]
     BehaviourErr(String),
-
-    #[error("Register already exists at this address")]
-    RegisterAlreadyExists,
 }
 
 #[cfg(test)]

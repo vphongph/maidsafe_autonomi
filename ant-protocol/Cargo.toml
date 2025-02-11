@@ -7,30 +7,27 @@ license = "GPL-3.0"
 name = "ant-protocol"
 readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
-version = "0.3.3"
+version = "1.0.0"
 
 [features]
 default = []
 rpc = ["tonic", "prost"]
 
 [dependencies]
-ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
-ant-evm = { path = "../ant-evm", version = "0.1.8" }
-ant-registers = { path = "../ant-registers", version = "0.4.7" }
+ant-build-info = { path = "../ant-build-info", version = "0.1.24" }
+ant-evm = { path = "../ant-evm", version = "0.1.9" }
 bls = { package = "blsttc", version = "8.0.1" }
 bytes = { version = "1.0.1", features = ["serde"] }
-color-eyre = "0.6.2"
+color-eyre = "0.6.3"
 crdts = { version = "7.3", default-features = false, features = ["merkle"] }
 custom_debug = "~0.6.1"
 dirs-next = "~2.0.0"
-exponential-backoff = "2.0.0"
 hex = "~0.4.3"
 lazy_static = "1.4.0"
-libp2p = { version = "0.54.1", features = ["identify", "kad"] }
-# # watch out updating this, protoc compiler needs to be installed on all build systems
-# # arm builds + musl are very problematic
-# prost and tonic are needed for the RPC server messages, not the underlying protocol
+libp2p = { version = "0.55.0", features = ["identify", "kad"] }
+prometheus-client = { version = "0.22" }
 prost = { version = "0.9", optional = true }
+rand = "0.8"
 rmp-serde = "1.1.1"
 serde = { version = "1.0.133", features = ["derive", "rc"] }
 serde_json = "1.0"
@@ -38,13 +35,18 @@ sha2 = "0.10.7"
 thiserror = "1.0.23"
 tiny-keccak = { version = "~2.0.2", features = ["sha3"] }
 tracing = { version = "~0.1.26" }
-tonic = { version = "0.6.2", optional = true, default-features = false, features = ["prost", "tls", "codegen"] }
+tonic = { version = "0.6.2", optional = true, default-features = false, features = [
+    "prost",
+    "tls",
+    "codegen",
+] }
 xor_name = "5.0.0"
 
 [build-dependencies]
-# watch out updating this, protoc compiler needs to be installed on all build systems
-# arm builds + musl are very problematic
 tonic-build = { version = "~0.6.2" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rand = "0.8"

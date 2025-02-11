@@ -17,7 +17,7 @@ pub mod messages;
 pub mod node;
 /// RPC commands to node
 pub mod node_rpc;
-/// Storage types for transactions, chunks and registers.
+/// Storage types for GraphEntry and Chunk
 pub mod storage;
 /// Network versioning
 pub mod version;
@@ -29,26 +29,24 @@ pub mod antnode_proto {
     tonic::include_proto!("antnode_proto");
 }
 pub use error::Error;
+pub use error::Error as NetworkError;
 use storage::ScratchpadAddress;
 
-use self::storage::{ChunkAddress, RegisterAddress, TransactionAddress};
+use self::storage::{ChunkAddress, GraphEntryAddress, PointerAddress};
 
 /// Re-export of Bytes used throughout the protocol
 pub use bytes::Bytes;
 
-use ant_evm::U256;
 use libp2p::{
     kad::{KBucketDistance as Distance, KBucketKey as Key, RecordKey},
     multiaddr::Protocol,
     Multiaddr, PeerId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::str::FromStr;
 use std::{
     borrow::Cow,
     fmt::{self, Debug, Display, Formatter, Write},
 };
-use xor_name::XorName;
 
 /// The maximum number of peers to return in a `GetClosestPeers` response.
 /// This is the group size used in safe network protocol to be responsible for
@@ -68,18 +66,6 @@ pub fn get_port_from_multiaddr(multi_addr: &Multiaddr) -> Option<u16> {
     None
 }
 
-// This conversion shall no longer be required once updated to the latest libp2p.
-// Which can has the direct access to the Distance private field of U256.
-pub fn convert_distance_to_u256(distance: &Distance) -> U256 {
-    let addr_str = format!("{distance:?}");
-    let numeric_part = addr_str
-        .trim_start_matches("Distance(")
-        .trim_end_matches(")")
-        .to_string();
-    let distance_value = U256::from_str(&numeric_part);
-    distance_value.unwrap_or(U256::ZERO)
-}
-
 /// This is the address in the network by which proximity/distance
 /// to other items (whether nodes or data chunks) are calculated.
 ///
@@ -94,14 +80,14 @@ pub enum NetworkAddress {
     PeerId(Bytes),
     /// The NetworkAddress is representing a ChunkAddress.
     ChunkAddress(ChunkAddress),
-    /// The NetworkAddress is representing a TransactionAddress.
-    TransactionAddress(TransactionAddress),
-    /// The NetworkAddress is representing a ChunkAddress.
-    RegisterAddress(RegisterAddress),
-    /// The NetworkAddress is representing a RecordKey.
-    RecordKey(Bytes),
+    /// The NetworkAddress is representing a GraphEntryAddress.
+    GraphEntryAddress(GraphEntryAddress),
     /// The NetworkAddress is representing a ScratchpadAddress.
     ScratchpadAddress(ScratchpadAddress),
+    /// The NetworkAddress is representing a PointerAddress.
+    PointerAddress(PointerAddress),
+    /// The NetworkAddress is representing a RecordKey.
+    RecordKey(Bytes),
 }
 
 impl NetworkAddress {
@@ -110,18 +96,14 @@ impl NetworkAddress {
         NetworkAddress::ChunkAddress(chunk_address)
     }
 
-    /// Return a `NetworkAddress` representation of the `TransactionAddress`.
-    pub fn from_transaction_address(transaction_address: TransactionAddress) -> Self {
-        NetworkAddress::TransactionAddress(transaction_address)
-    }
-    /// Return a `NetworkAddress` representation of the `TransactionAddress`.
-    pub fn from_scratchpad_address(address: ScratchpadAddress) -> Self {
-        NetworkAddress::ScratchpadAddress(address)
+    /// Return a `NetworkAddress` representation of the `GraphEntryAddress`.
+    pub fn from_graph_entry_address(graph_entry_address: GraphEntryAddress) -> Self {
+        NetworkAddress::GraphEntryAddress(graph_entry_address)
     }
 
-    /// Return a `NetworkAddress` representation of the `RegisterAddress`.
-    pub fn from_register_address(register_address: RegisterAddress) -> Self {
-        NetworkAddress::RegisterAddress(register_address)
+    /// Return a `NetworkAddress` representation of the `GraphEntryAddress`.
+    pub fn from_scratchpad_address(address: ScratchpadAddress) -> Self {
+        NetworkAddress::ScratchpadAddress(address)
     }
 
     /// Return a `NetworkAddress` representation of the `PeerId` by encapsulating its bytes.
@@ -134,18 +116,21 @@ impl NetworkAddress {
         NetworkAddress::RecordKey(Bytes::copy_from_slice(record_key.as_ref()))
     }
 
+    /// Return a `NetworkAddress` representation of the `PointerAddress`.
+    pub fn from_pointer_address(pointer_address: PointerAddress) -> Self {
+        NetworkAddress::PointerAddress(pointer_address)
+    }
+
     /// Return the encapsulated bytes of this `NetworkAddress`.
     pub fn as_bytes(&self) -> Vec<u8> {
         match self {
             NetworkAddress::PeerId(bytes) | NetworkAddress::RecordKey(bytes) => bytes.to_vec(),
             NetworkAddress::ChunkAddress(chunk_address) => chunk_address.xorname().0.to_vec(),
-            NetworkAddress::TransactionAddress(transaction_address) => {
-                transaction_address.xorname().0.to_vec()
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
+                graph_entry_address.xorname().0.to_vec()
             }
             NetworkAddress::ScratchpadAddress(addr) => addr.xorname().0.to_vec(),
-            NetworkAddress::RegisterAddress(register_address) => {
-                register_address.xorname().0.to_vec()
-            }
+            NetworkAddress::PointerAddress(pointer_address) => pointer_address.0.to_vec(),
         }
     }
 
@@ -156,21 +141,7 @@ impl NetworkAddress {
                 return Some(peer_id);
             }
         }
-
         None
-    }
-
-    /// Try to return the represented `XorName`.
-    pub fn as_xorname(&self) -> Option<XorName> {
-        match self {
-            NetworkAddress::TransactionAddress(transaction_address) => {
-                Some(*transaction_address.xorname())
-            }
-            NetworkAddress::ChunkAddress(chunk_address) => Some(*chunk_address.xorname()),
-            NetworkAddress::RegisterAddress(register_address) => Some(register_address.xorname()),
-            NetworkAddress::ScratchpadAddress(address) => Some(address.xorname()),
-            _ => None,
-        }
     }
 
     /// Try to return the represented `RecordKey`.
@@ -186,11 +157,11 @@ impl NetworkAddress {
         match self {
             NetworkAddress::RecordKey(bytes) => RecordKey::new(bytes),
             NetworkAddress::ChunkAddress(chunk_address) => RecordKey::new(chunk_address.xorname()),
-            NetworkAddress::RegisterAddress(register_address) => {
-                RecordKey::new(&register_address.xorname())
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
+                RecordKey::new(graph_entry_address.xorname())
             }
-            NetworkAddress::TransactionAddress(transaction_address) => {
-                RecordKey::new(transaction_address.xorname())
+            NetworkAddress::PointerAddress(pointer_address) => {
+                RecordKey::new(pointer_address.xorname())
             }
             NetworkAddress::ScratchpadAddress(addr) => RecordKey::new(&addr.xorname()),
             NetworkAddress::PeerId(bytes) => RecordKey::new(bytes),
@@ -211,16 +182,6 @@ impl NetworkAddress {
     pub fn distance(&self, other: &NetworkAddress) -> Distance {
         self.as_kbucket_key().distance(&other.as_kbucket_key())
     }
-
-    // NB: Leaving this here as to demonstrate what we can do with this.
-    // /// Return the uniquely determined key with the given distance to `self`.
-    // ///
-    // /// This implements the following equivalence:
-    // ///
-    // /// `self xor other = distance <==> other = self xor distance`
-    // pub fn for_distance(&self, d: Distance) -> libp2p::kad::kbucket::KeyBytes {
-    //     self.as_kbucket_key().for_distance(d)
-    // }
 }
 
 impl Debug for NetworkAddress {
@@ -239,10 +200,10 @@ impl Debug for NetworkAddress {
                     &chunk_address.to_hex()[0..6]
                 )
             }
-            NetworkAddress::TransactionAddress(transaction_address) => {
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
                 format!(
-                    "NetworkAddress::TransactionAddress({} - ",
-                    &transaction_address.to_hex()[0..6]
+                    "NetworkAddress::GraphEntryAddress({} - ",
+                    &graph_entry_address.to_hex()[0..6]
                 )
             }
             NetworkAddress::ScratchpadAddress(scratchpad_address) => {
@@ -251,19 +212,21 @@ impl Debug for NetworkAddress {
                     &scratchpad_address.to_hex()[0..6]
                 )
             }
-            NetworkAddress::RegisterAddress(register_address) => format!(
-                "NetworkAddress::RegisterAddress({} - ",
-                &register_address.to_hex()[0..6]
-            ),
-            NetworkAddress::RecordKey(bytes) => format!(
-                "NetworkAddress::RecordKey({} - ",
-                &PrettyPrintRecordKey::from(&RecordKey::new(bytes)).no_kbucket_log()[0..6]
-            ),
+            NetworkAddress::PointerAddress(pointer_address) => {
+                format!(
+                    "NetworkAddress::PointerAddress({} - ",
+                    &pointer_address.to_hex()[0..6]
+                )
+            }
+            NetworkAddress::RecordKey(bytes) => {
+                format!("NetworkAddress::RecordKey({:?} - ", hex::encode(bytes))
+            }
         };
+
         write!(
             f,
             "{name_str}{:?})",
-            PrettyPrintKBucketKey(self.as_kbucket_key()),
+            PrettyPrintKBucketKey(self.as_kbucket_key())
         )
     }
 }
@@ -277,17 +240,17 @@ impl Display for NetworkAddress {
             NetworkAddress::ChunkAddress(addr) => {
                 write!(f, "NetworkAddress::ChunkAddress({addr:?})")
             }
-            NetworkAddress::TransactionAddress(addr) => {
-                write!(f, "NetworkAddress::TransactionAddress({addr:?})")
+            NetworkAddress::GraphEntryAddress(addr) => {
+                write!(f, "NetworkAddress::GraphEntryAddress({addr:?})")
             }
             NetworkAddress::ScratchpadAddress(addr) => {
                 write!(f, "NetworkAddress::ScratchpadAddress({addr:?})")
             }
-            NetworkAddress::RegisterAddress(addr) => {
-                write!(f, "NetworkAddress::RegisterAddress({addr:?})")
-            }
             NetworkAddress::RecordKey(key) => {
                 write!(f, "NetworkAddress::RecordKey({})", hex::encode(key))
+            }
+            NetworkAddress::PointerAddress(addr) => {
+                write!(f, "NetworkAddress::PointerAddress({addr:?})")
             }
         }
     }
@@ -413,19 +376,19 @@ impl std::fmt::Debug for PrettyPrintRecordKey<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::TransactionAddress;
+    use crate::storage::GraphEntryAddress;
     use crate::NetworkAddress;
     use bls::rand::thread_rng;
 
     #[test]
-    fn verify_transaction_addr_is_actionable() {
+    fn verify_graph_entry_addr_is_actionable() {
         let xorname = xor_name::XorName::random(&mut thread_rng());
-        let transaction_addr = TransactionAddress::new(xorname);
-        let net_addr = NetworkAddress::from_transaction_address(transaction_addr);
+        let graph_entry_addr = GraphEntryAddress::new(xorname);
+        let net_addr = NetworkAddress::from_graph_entry_address(graph_entry_addr);
 
-        let transaction_addr_hex = &transaction_addr.to_hex()[0..6]; // we only log the first 6 chars
+        let graph_entry_addr_hex = &graph_entry_addr.to_hex()[0..6]; // we only log the first 6 chars
         let net_addr_fmt = format!("{net_addr}");
 
-        assert!(net_addr_fmt.contains(transaction_addr_hex));
+        assert!(net_addr_fmt.contains(graph_entry_addr_hex));
     }
 }

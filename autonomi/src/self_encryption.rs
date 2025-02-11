@@ -8,6 +8,7 @@
 
 use ant_protocol::storage::Chunk;
 use bytes::{BufMut, Bytes, BytesMut};
+use rayon::prelude::*;
 use self_encryption::{DataMap, MAX_CHUNK_SIZE};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -30,14 +31,14 @@ pub(crate) enum DataMapLevel {
     Additional(DataMap),
 }
 
-pub(crate) fn encrypt(data: Bytes) -> Result<(Chunk, Vec<Chunk>), Error> {
+pub fn encrypt(data: Bytes) -> Result<(Chunk, Vec<Chunk>), Error> {
     let (data_map, chunks) = self_encryption::encrypt(data)?;
     let (data_map_chunk, additional_chunks) = pack_data_map(data_map)?;
 
     // Transform `EncryptedChunk` into `Chunk`
     let chunks: Vec<Chunk> = chunks
-        .into_iter()
-        .map(|c| Chunk::new(c.content))
+        .into_par_iter()
+        .map(|c| Chunk::new(c.content.clone()))
         .chain(additional_chunks)
         .collect();
 
@@ -58,7 +59,7 @@ fn pack_data_map(data_map: DataMap) -> Result<(Chunk, Vec<Chunk>), Error> {
         debug!("Max chunk size: {}", *MAX_CHUNK_SIZE);
         let chunk = Chunk::new(chunk_content);
         // If datamap chunk is less than `MAX_CHUNK_SIZE` return it so it can be directly sent to the network.
-        if *MAX_CHUNK_SIZE >= chunk.serialised_size() {
+        if *MAX_CHUNK_SIZE >= chunk.size() {
             chunks.reverse();
             // Returns the last datamap, and all the chunks produced.
             break (chunk, chunks);

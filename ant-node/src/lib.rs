@@ -32,6 +32,10 @@ mod put_validation;
 mod python;
 mod quote;
 mod replication;
+#[allow(missing_docs)]
+pub mod spawn;
+#[allow(missing_docs)]
+pub mod utils;
 
 pub use self::{
     event::{NodeEvent, NodeEventsChannel, NodeEventsReceiver},
@@ -41,20 +45,22 @@ pub use self::{
 
 use crate::error::{Error, Result};
 
+use ant_evm::RewardsAddress;
 use ant_networking::{Network, SwarmLocalState};
 use ant_protocol::{get_port_from_multiaddr, NetworkAddress};
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
+
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
 };
-
-use ant_evm::RewardsAddress;
+use tokio::sync::watch;
 
 /// Once a node is started and running, the user obtains
 /// a `NodeRunning` object which can be used to interact with it.
 #[derive(Clone)]
 pub struct RunningNode {
+    shutdown_sender: watch::Sender<bool>,
     network: Network,
     node_events_channel: NodeEventsChannel,
     root_dir_path: PathBuf,
@@ -83,6 +89,24 @@ impl RunningNode {
     pub async fn get_swarm_local_state(&self) -> Result<SwarmLocalState> {
         let state = self.network.get_swarm_local_state().await?;
         Ok(state)
+    }
+
+    /// Return the node's listening addresses.
+    pub async fn get_listen_addrs(&self) -> Result<Vec<Multiaddr>> {
+        let listeners = self.network.get_swarm_local_state().await?.listeners;
+        Ok(listeners)
+    }
+
+    /// Return the node's listening addresses with the peer id appended.
+    pub async fn get_listen_addrs_with_peer_id(&self) -> Result<Vec<Multiaddr>> {
+        let listeners = self.get_listen_addrs().await?;
+
+        let multi_addrs: Vec<Multiaddr> = listeners
+            .into_iter()
+            .filter_map(|listen_addr| listen_addr.with_p2p(self.peer_id()).ok())
+            .collect();
+
+        Ok(multi_addrs)
     }
 
     /// Return the node's listening port
@@ -124,5 +148,11 @@ impl RunningNode {
     /// Returns the node's reward address
     pub fn reward_address(&self) -> &RewardsAddress {
         &self.rewards_address
+    }
+
+    /// Shutdown the SwarmDriver loop and the node (NetworkEvents) loop.
+    pub fn shutdown(self) {
+        // Send the shutdown signal to the swarm driver and node loop
+        let _ = self.shutdown_sender.send(true);
     }
 }

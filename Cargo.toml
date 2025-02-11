@@ -12,7 +12,6 @@ members = [
     "ant-node-manager",
     "ant-node-rpc-client",
     "ant-protocol",
-    "ant-registers",
     "ant-service-management",
     "ant-token-supplies",
     "autonomi",
@@ -50,3 +49,6 @@ pre-release-commit-message = "chore(release): release commit, tags, deps and cha
 publish = false
 push = false
 tag = false
+
+[workspace.dependencies]
+backtrace = "=0.3.71"

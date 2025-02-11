@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::target_arch::Instant;
+use crate::time::Instant;
 use ant_protocol::NetworkAddress;
 use libp2p::{kad::KBucketKey, PeerId};
 use rand::{thread_rng, Rng};

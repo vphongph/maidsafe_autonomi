@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::target_arch::interval;
+use crate::time::interval;
 use ant_protocol::CLOSE_GROUP_SIZE;
 use libp2p::PeerId;
 use prometheus_client::{
@@ -46,7 +46,7 @@ struct ShunnedByCloseGroup {
     old_new_group_shunned_list: HashSet<PeerId>,
 }
 
-/// A struct to record the the number of reports against our node across different time frames.
+/// A struct to record the number of reports against our node across different time frames.
 struct ShunnedCountAcrossTimeFrames {
     metric: Family<TimeFrame, Gauge>,
     shunned_report_tracker: Vec<ShunnedReportTracker>,

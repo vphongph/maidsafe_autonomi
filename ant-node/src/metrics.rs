@@ -7,11 +7,12 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::Marker;
-use ant_networking::target_arch::Instant;
+use ant_networking::time::Instant;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
+use ant_protocol::storage::DataTypes;
 use prometheus_client::{
-    encoding::{EncodeLabelSet, EncodeLabelValue},
+    encoding::EncodeLabelSet,
     metrics::{
         counter::Counter,
         family::Family,
@@ -47,14 +48,7 @@ pub(crate) struct NodeMetricsRecorder {
 
 #[derive(EncodeLabelSet, Hash, Clone, Eq, PartialEq, Debug)]
 struct PutRecordOk {
-    record_type: RecordType,
-}
-
-#[derive(EncodeLabelValue, Hash, Clone, Eq, PartialEq, Debug)]
-enum RecordType {
-    Chunk,
-    Register,
-    Spend,
+    record_type: DataTypes,
 }
 
 impl NodeMetricsRecorder {
@@ -157,25 +151,16 @@ impl NodeMetricsRecorder {
                 let _ = self
                     .put_record_ok
                     .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Chunk,
+                        record_type: DataTypes::Chunk,
                     })
                     .inc();
             }
 
-            Marker::ValidRegisterRecordPutFromNetwork(_) => {
+            Marker::ValidGraphEntryRecordPutFromNetwork(_) => {
                 let _ = self
                     .put_record_ok
                     .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Register,
-                    })
-                    .inc();
-            }
-
-            Marker::ValidTransactionRecordPutFromNetwork(_) => {
-                let _ = self
-                    .put_record_ok
-                    .get_or_create(&PutRecordOk {
-                        record_type: RecordType::Spend,
+                        record_type: DataTypes::GraphEntry,
                     })
                     .inc();
             }

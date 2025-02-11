@@ -7,25 +7,21 @@ license = "GPL-3.0"
 name = "ant-networking"
 readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
-version = "0.3.4"
+version = "0.3.5"
 
 [features]
 default = []
-encrypt-records = []
-local = ["libp2p/mdns"]
 loud = []
 open-metrics = ["libp2p/metrics", "prometheus-client", "hyper", "sysinfo"]
-# tcp is automatically enabled when compiling for wasm32
-upnp = ["libp2p/upnp"]
 
 [dependencies]
 aes-gcm-siv = "0.11.1"
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.4" }
-ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
-ant-evm = { path = "../ant-evm", version = "0.1.8" }
-ant-protocol = { path = "../ant-protocol", version = "0.3.3" }
-ant-registers = { path = "../ant-registers", version = "0.4.7" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.5" }
+ant-build-info = { path = "../ant-build-info", version = "0.1.24" }
+ant-evm = { path = "../ant-evm", version = "0.1.9" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.0" }
 async-trait = "0.1"
+bls = { package = "blsttc", version = "8.0.2" }
 bytes = { version = "1.0.1", features = ["serde"] }
 custom_debug = "~0.6.1"
 exponential-backoff = "2.0.0"
@@ -38,10 +34,10 @@ hyper = { version = "0.14", features = [
     "http1",
 ], optional = true }
 itertools = "~0.12.1"
-lazy_static = "~1.4.0"
-libp2p = { version = "0.54.1", features = [
+libp2p = { version = "0.55.0", features = [
     "tokio",
     "dns",
+    "upnp",
     "kad",
     "macros",
     "request-response",
@@ -58,13 +54,11 @@ prometheus-client = { version = "0.22", optional = true }
 rand = { version = "~0.8.5", features = ["small_rng"] }
 rayon = "1.8.0"
 rmp-serde = "1.1.1"
-self_encryption = "~0.30.0"
 serde = { version = "1.0.133", features = ["derive", "rc"] }
 sha2 = "0.10"
 strum = { version = "0.26.2", features = ["derive"] }
 sysinfo = { version = "0.30.8", default-features = false, optional = true }
 thiserror = "1.0.23"
-tiny-keccak = { version = "~2.0.2", features = ["sha3"] }
 tokio = { version = "1.32.0", features = [
     "io-util",
     "macros",
@@ -79,7 +73,6 @@ xor_name = "5.0.0"
 
 [dev-dependencies]
 assert_fs = "1.0.0"
-bls = { package = "blsttc", version = "8.0.1" }
 eyre = "0.6.8"
 # add rand to libp2p
 libp2p-identity = { version = "0.2.7", features = ["rand"] }
@@ -89,25 +82,5 @@ uuid = { version = "1.5.0", features = ["v4"] }
 [lints]
 workspace = true
 
-# wasm build requirements
 [lib]
 crate-type = ["cdylib", "rlib"]
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2.12", features = ["js"] }
-libp2p = { version = "0.54.1", features = [
-    "tokio",
-    "dns",
-    "kad",
-    "tcp",
-    "macros",
-    "request-response",
-    "cbor",
-    "identify",
-    "noise",
-    "yamux",
-    "websocket-websys",
-    "wasm-bindgen",
-] }
-wasmtimer = "0.2.0"
-wasm-bindgen-futures = "0.4.40"

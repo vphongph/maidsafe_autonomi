@@ -7,7 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 #![allow(clippy::mutable_key_type)] // for Bytes in NetworkAddress
 
-use crate::{storage::RecordType, NetworkAddress};
+use crate::storage::DataTypes;
+use crate::{storage::ValidationType, NetworkAddress};
+use ant_evm::ProofOfPayment;
 use serde::{Deserialize, Serialize};
 
 /// Ant protocol cmds
@@ -25,7 +27,21 @@ pub enum Cmd {
         /// Holder of the replication keys.
         holder: NetworkAddress,
         /// Keys of copy that shall be replicated.
-        keys: Vec<(NetworkAddress, RecordType)>,
+        keys: Vec<(NetworkAddress, ValidationType)>,
+    },
+    /// Write operation to notify peer fetch a list of fresh [`NetworkAddress`] from the holder.
+    ///
+    /// [`NetworkAddress`]: crate::NetworkAddress
+    FreshReplicate {
+        /// Holder of the replication keys.
+        holder: NetworkAddress,
+        /// Keys of copy that shall be replicated.
+        keys: Vec<(
+            NetworkAddress,
+            DataTypes,
+            ValidationType,
+            Option<ProofOfPayment>,
+        )>,
     },
     /// Notify the peer it is now being considered as BAD due to the included behaviour
     PeerConsideredAsBad {
@@ -41,6 +57,14 @@ impl std::fmt::Debug for Cmd {
             Cmd::Replicate { holder, keys } => {
                 let first_ten_keys: Vec<_> = keys.iter().take(10).collect();
                 f.debug_struct("Cmd::Replicate")
+                    .field("holder", holder)
+                    .field("keys_len", &keys.len())
+                    .field("first_ten_keys", &first_ten_keys)
+                    .finish()
+            }
+            Cmd::FreshReplicate { holder, keys } => {
+                let first_ten_keys: Vec<_> = keys.iter().take(10).collect();
+                f.debug_struct("Cmd::FreshReplicate")
                     .field("holder", holder)
                     .field("keys_len", &keys.len())
                     .field("first_ten_keys", &first_ten_keys)
@@ -65,6 +89,7 @@ impl Cmd {
     pub fn dst(&self) -> NetworkAddress {
         match self {
             Cmd::Replicate { holder, .. } => holder.clone(),
+            Cmd::FreshReplicate { holder, .. } => holder.clone(),
             Cmd::PeerConsideredAsBad { bad_peer, .. } => bad_peer.clone(),
         }
     }
@@ -74,6 +99,14 @@ impl std::fmt::Display for Cmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Cmd::Replicate { holder, keys } => {
+                write!(
+                    f,
+                    "Cmd::Replicate({:?} has {} keys)",
+                    holder.as_peer_id(),
+                    keys.len()
+                )
+            }
+            Cmd::FreshReplicate { holder, keys } => {
                 write!(
                     f,
                     "Cmd::Replicate({:?} has {} keys)",

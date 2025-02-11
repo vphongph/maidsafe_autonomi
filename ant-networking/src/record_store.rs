@@ -10,16 +10,15 @@
 use crate::cmd::LocalSwarmCmd;
 use crate::driver::MAX_PACKET_SIZE;
 use crate::send_local_swarm_cmd;
-use crate::target_arch::{spawn, Instant};
+use crate::time::{spawn, Instant};
 use crate::{event::NetworkEvent, log_markers::Marker};
 use aes_gcm_siv::{
     aead::{Aead, KeyInit},
     Aes256GcmSiv, Key as AesKey, Nonce,
 };
-use ant_evm::{QuotingMetrics, U256};
+use ant_evm::QuotingMetrics;
 use ant_protocol::{
-    convert_distance_to_u256,
-    storage::{RecordHeader, RecordKind, RecordType},
+    storage::{DataTypes, RecordHeader, RecordKind, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use hkdf::Hkdf;
@@ -44,13 +43,13 @@ use std::{
     time::SystemTime,
     vec,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::Duration};
 use walkdir::{DirEntry, WalkDir};
 use xor_name::XorName;
 
-// A transaction record is at the size of 4KB roughly.
+// A GraphEntry record is at the size of 4KB roughly.
 // Given chunk record is maxed at size of 4MB.
-// During Beta phase, it's almost one transaction per chunk,
+// During Beta phase, it's almost one GraphEntry per chunk,
 // which makes the average record size is around 2MB.
 // Given we are targeting node size to be 32GB,
 // this shall allow around 16K records.
@@ -61,6 +60,10 @@ const MAX_RECORDS_CACHE_SIZE: usize = 25;
 
 /// File name of the recorded historical quoting metrics.
 const HISTORICAL_QUOTING_METRICS_FILENAME: &str = "historic_quoting_metrics";
+
+/// Defines when the entries inside the cache shall be pruned to free space up.
+/// Shall be two times of the PERIODIC_REPLICATION_INTERVAL_MAX_S
+const CACHE_TIMEOUT: Duration = Duration::from_secs(360);
 
 fn derive_aes256gcm_siv_from_seed(seed: &[u8; 16]) -> (Aes256GcmSiv, [u8; 4]) {
     // shall be unique for purpose.
@@ -87,13 +90,15 @@ fn derive_aes256gcm_siv_from_seed(seed: &[u8; 16]) -> (Aes256GcmSiv, [u8; 4]) {
 struct RecordCache {
     records_cache: HashMap<Key, (Record, SystemTime)>,
     cache_size: usize,
+    cache_timeout: Duration,
 }
 
 impl RecordCache {
-    fn new(cache_size: usize) -> Self {
+    fn new(cache_size: usize, cache_timeout: Duration) -> Self {
         RecordCache {
             records_cache: HashMap::new(),
             cache_size,
+            cache_timeout,
         }
     }
 
@@ -108,26 +113,36 @@ impl RecordCache {
     fn push_back(&mut self, key: Key, record: Record) {
         self.free_up_space();
 
-        let _ = self.records_cache.insert(key, (record, SystemTime::now()));
+        let _ = self
+            .records_cache
+            .insert(key, (record, SystemTime::now() + self.cache_timeout));
     }
 
     fn free_up_space(&mut self) {
+        let current = SystemTime::now();
+        // Remove outdated entries first
+        self.records_cache
+            .retain(|_key, (_record, timestamp)| *timestamp > current);
+
         while self.records_cache.len() >= self.cache_size {
             self.remove_oldest_entry()
         }
     }
 
     fn remove_oldest_entry(&mut self) {
-        let mut oldest_timestamp = SystemTime::now();
+        let mut oldest_timestamp = SystemTime::now() + self.cache_timeout;
+        let mut key_to_remove = None;
 
-        for (_record, timestamp) in self.records_cache.values() {
+        for (key, (_record, timestamp)) in self.records_cache.iter() {
             if *timestamp < oldest_timestamp {
                 oldest_timestamp = *timestamp;
+                key_to_remove = Some(key.clone());
             }
         }
 
-        self.records_cache
-            .retain(|_key, (_record, timestamp)| *timestamp != oldest_timestamp);
+        if let Some(key) = key_to_remove {
+            let _ = self.records_cache.remove(&key);
+        }
     }
 }
 
@@ -138,9 +153,9 @@ pub struct NodeRecordStore {
     /// The configuration of the store.
     config: NodeRecordStoreConfig,
     /// Main records store remains unchanged for compatibility
-    records: HashMap<Key, (NetworkAddress, RecordType)>,
+    records: HashMap<Key, (NetworkAddress, ValidationType, DataTypes)>,
     /// Additional index organizing records by distance
-    records_by_distance: BTreeMap<U256, Key>,
+    records_by_distance: BTreeMap<Distance, Key>,
     /// FIFO simple cache of records to reduce read times
     records_cache: RecordCache,
     /// Send network events to the node layer.
@@ -150,7 +165,7 @@ pub struct NodeRecordStore {
     /// ilog2 distance range of responsible records
     /// AKA: how many buckets of data do we consider "close"
     /// None means accept all records.
-    responsible_distance_range: Option<U256>,
+    responsible_distance_range: Option<Distance>,
     #[cfg(feature = "open-metrics")]
     /// Used to report the number of records held by the store to the metrics server.
     record_count_metric: Option<Gauge>,
@@ -218,7 +233,7 @@ impl NodeRecordStore {
     fn update_records_from_an_existing_store(
         config: &NodeRecordStoreConfig,
         encryption_details: &(Aes256GcmSiv, [u8; 4]),
-    ) -> HashMap<Key, (NetworkAddress, RecordType)> {
+    ) -> HashMap<Key, (NetworkAddress, ValidationType, DataTypes)> {
         let process_entry = |entry: &DirEntry| -> _ {
             let path = entry.path();
             if path.is_file() {
@@ -269,11 +284,19 @@ impl NodeRecordStore {
                     }
                 };
 
-                let record_type = match RecordHeader::is_record_of_type_chunk(&record) {
-                    Ok(true) => RecordType::Chunk,
-                    Ok(false) => {
-                        let xorname_hash = XorName::from_content(&record.value);
-                        RecordType::NonChunk(xorname_hash)
+                match RecordHeader::get_data_type(&record) {
+                    Ok(data_type) => {
+                        let validate_type = match data_type {
+                            DataTypes::Chunk => ValidationType::Chunk,
+                            _ => {
+                                let xorname_hash = XorName::from_content(&record.value);
+                                ValidationType::NonChunk(xorname_hash)
+                            }
+                        };
+
+                        let address = NetworkAddress::from_record_key(&key);
+                        info!("Existing record {address:?} loaded from: {path:?}");
+                        return Some((key, (address, validate_type, data_type)));
                     }
                     Err(error) => {
                         warn!(
@@ -290,11 +313,7 @@ impl NodeRecordStore {
                         }
                         return None;
                     }
-                };
-
-                let address = NetworkAddress::from_record_key(&key);
-                info!("Existing record loaded: {path:?}");
-                return Some((key, (address, record_type)));
+                }
             }
             None
         };
@@ -348,6 +367,7 @@ impl NodeRecordStore {
         config: NodeRecordStoreConfig,
         network_event_sender: mpsc::Sender<NetworkEvent>,
         swarm_cmd_sender: mpsc::Sender<LocalSwarmCmd>,
+        #[cfg(feature = "open-metrics")] record_count_metric: Option<Gauge>,
     ) -> Self {
         info!("Using encryption_seed of {:?}", config.encryption_seed);
         let encryption_details = derive_aes256gcm_siv_from_seed(&config.encryption_seed);
@@ -369,10 +389,10 @@ impl NodeRecordStore {
         let local_address = NetworkAddress::from_peer(local_id);
 
         // Initialize records_by_distance
-        let mut records_by_distance: BTreeMap<U256, Key> = BTreeMap::new();
-        for (key, (addr, _record_type)) in records.iter() {
-            let distance = convert_distance_to_u256(&local_address.distance(addr));
-            let _ = records_by_distance.insert(distance, key.clone());
+        let mut records_by_distance: BTreeMap<Distance, Key> = BTreeMap::new();
+        for (key, (addr, _record_type, _data_type)) in records.iter() {
+            let distance = &local_address.distance(addr);
+            let _ = records_by_distance.insert(*distance, key.clone());
         }
 
         let cache_size = config.records_cache_size;
@@ -381,12 +401,12 @@ impl NodeRecordStore {
             config,
             records,
             records_by_distance,
-            records_cache: RecordCache::new(cache_size),
+            records_cache: RecordCache::new(cache_size, CACHE_TIMEOUT),
             network_event_sender,
             local_swarm_cmd_sender: swarm_cmd_sender,
             responsible_distance_range: None,
             #[cfg(feature = "open-metrics")]
-            record_count_metric: None,
+            record_count_metric,
             received_payment_count,
             encryption_details,
             timestamp,
@@ -397,18 +417,16 @@ impl NodeRecordStore {
 
         record_store.flush_historic_quoting_metrics();
 
+        #[cfg(feature = "open-metrics")]
+        if let Some(metric) = &record_store.record_count_metric {
+            let _ = metric.set(record_store.records.len() as i64);
+        }
+
         record_store
     }
 
-    /// Set the record_count_metric to report the number of records stored to the metrics server
-    #[cfg(feature = "open-metrics")]
-    pub fn set_record_count_metric(mut self, metric: Gauge) -> Self {
-        self.record_count_metric = Some(metric);
-        self
-    }
-
     /// Returns the current distance ilog2 (aka bucket) range of CLOSE_GROUP nodes.
-    pub fn get_responsible_distance_range(&self) -> Option<U256> {
+    pub fn get_responsible_distance_range(&self) -> Option<Distance> {
         self.responsible_distance_range
     }
 
@@ -434,24 +452,17 @@ impl NodeRecordStore {
         key: &Key,
         encryption_details: &(Aes256GcmSiv, [u8; 4]),
     ) -> Option<Cow<'a, Record>> {
-        let mut record = Record {
-            key: key.clone(),
-            value: bytes,
-            publisher: None,
-            expires: None,
-        };
-
-        // if we're not encrypting, lets just return the record
-        if !cfg!(feature = "encrypt-records") {
-            return Some(Cow::Owned(record));
-        }
-
         let (cipher, nonce_starter) = encryption_details;
         let nonce = generate_nonce_for_record(nonce_starter, key);
 
-        match cipher.decrypt(&nonce, record.value.as_ref()) {
+        match cipher.decrypt(&nonce, bytes.as_slice()) {
             Ok(value) => {
-                record.value = value;
+                let record = Record {
+                    key: key.clone(),
+                    value,
+                    publisher: None,
+                    expires: None,
+                };
                 Some(Cow::Owned(record))
             }
             Err(error) => {
@@ -592,32 +603,40 @@ impl NodeRecordStore {
 
     /// Returns the set of `NetworkAddress::RecordKey` held by the store
     /// Use `record_addresses_ref` to get a borrowed type
-    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, RecordType> {
+    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, ValidationType> {
         self.records
             .iter()
-            .map(|(_record_key, (addr, record_type))| (addr.clone(), record_type.clone()))
+            .map(|(_record_key, (addr, record_type, _data_type))| {
+                (addr.clone(), record_type.clone())
+            })
             .collect()
     }
 
     /// Returns the reference to the set of `NetworkAddress::RecordKey` held by the store
-    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, RecordType)> {
+    pub(crate) fn record_addresses_ref(
+        &self,
+    ) -> &HashMap<Key, (NetworkAddress, ValidationType, DataTypes)> {
         &self.records
     }
 
     /// The follow up to `put_verified`, this only registers the RecordKey
     /// in the RecordStore records set. After this it should be safe
     /// to return the record as stored.
-    pub(crate) fn mark_as_stored(&mut self, key: Key, record_type: RecordType) {
+    pub(crate) fn mark_as_stored(
+        &mut self,
+        key: Key,
+        validate_type: ValidationType,
+        data_type: DataTypes,
+    ) {
         let addr = NetworkAddress::from_record_key(&key);
         let distance = self.local_address.distance(&addr);
-        let distance_u256 = convert_distance_to_u256(&distance);
 
         // Update main records store
         self.records
-            .insert(key.clone(), (addr.clone(), record_type));
+            .insert(key.clone(), (addr.clone(), validate_type, data_type));
 
         // Update bucket index
-        let _ = self.records_by_distance.insert(distance_u256, key.clone());
+        let _ = self.records_by_distance.insert(distance, key.clone());
 
         // Update farthest record if needed (unchanged)
         if let Some((_farthest_record, farthest_record_distance)) = self.farthest_record.clone() {
@@ -630,15 +649,11 @@ impl NodeRecordStore {
     }
 
     /// Prepare record bytes for storage
-    /// If feats are enabled, this will eg, encrypt the record for storage
+    /// This will encrypt the record for storage
     fn prepare_record_bytes(
         record: Record,
         encryption_details: (Aes256GcmSiv, [u8; 4]),
     ) -> Option<Vec<u8>> {
-        if !cfg!(feature = "encrypt-records") {
-            return Some(record.value);
-        }
-
         let (cipher, nonce_starter) = encryption_details;
         let nonce = generate_nonce_for_record(&nonce_starter, &record.key);
 
@@ -659,7 +674,12 @@ impl NodeRecordStore {
     ///
     /// The record is marked as written to disk once `mark_as_stored` is called,
     /// this avoids us returning half-written data or registering it as stored before it is.
-    pub(crate) fn put_verified(&mut self, r: Record, record_type: RecordType) -> Result<()> {
+    pub(crate) fn put_verified(
+        &mut self,
+        r: Record,
+        record_type: ValidationType,
+        is_client_put: bool,
+    ) -> Result<()> {
         let key = &r.key;
         let record_key = PrettyPrintRecordKey::from(&r.key).into_owned();
         debug!("PUTting a verified Record: {record_key:?}");
@@ -678,8 +698,10 @@ impl NodeRecordStore {
             }
         }
 
-        // Store the new record to the cache
-        self.records_cache.push_back(key.clone(), r.clone());
+        // Only cash the record that put by client. For a quick response to the ChunkProof check.
+        if is_client_put {
+            self.records_cache.push_back(key.clone(), r.clone());
+        }
 
         self.prune_records_if_needed(key)?;
 
@@ -697,13 +719,26 @@ impl NodeRecordStore {
         let record_key2 = record_key.clone();
         spawn(async move {
             let key = r.key.clone();
+            let data_type = match RecordHeader::get_data_type(&r) {
+                Ok(data_type) => data_type,
+                Err(err) => {
+                    error!(
+                        "Error get data_type of record {record_key2:?} filename: {filename}, error: {err:?}"
+                    );
+                    return;
+                }
+            };
             if let Some(bytes) = Self::prepare_record_bytes(r, encryption_details) {
                 let cmd = match fs::write(&file_path, bytes) {
                     Ok(_) => {
                         // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
                         info!("Wrote record {record_key2:?} to disk! filename: {filename}");
 
-                        LocalSwarmCmd::AddLocalRecordAsStored { key, record_type }
+                        LocalSwarmCmd::AddLocalRecordAsStored {
+                            key,
+                            record_type,
+                            data_type,
+                        }
                     }
                     Err(err) => {
                         error!(
@@ -725,9 +760,12 @@ impl NodeRecordStore {
     pub(crate) fn quoting_metrics(
         &self,
         key: &Key,
+        data_type: u32,
+        data_size: usize,
         network_size: Option<u64>,
     ) -> (QuotingMetrics, bool) {
         let records_stored = self.records.len();
+        let records_per_type = self.records_per_type();
 
         let live_time = if let Ok(elapsed) = self.timestamp.elapsed() {
             elapsed.as_secs()
@@ -736,7 +774,10 @@ impl NodeRecordStore {
         };
 
         let mut quoting_metrics = QuotingMetrics {
+            data_type,
+            data_size,
             close_records_stored: records_stored,
+            records_per_type,
             max_records: self.config.max_records,
             received_payment_count: self.received_payment_count,
             live_time,
@@ -748,7 +789,7 @@ impl NodeRecordStore {
             let relevant_records = self.get_records_within_distance_range(distance_range);
 
             // The `responsible_range` is the network density
-            quoting_metrics.network_density = Some(distance_range.to_be_bytes());
+            quoting_metrics.network_density = Some(distance_range.0.to_big_endian());
 
             quoting_metrics.close_records_stored = relevant_records;
         } else {
@@ -771,7 +812,7 @@ impl NodeRecordStore {
     }
 
     /// Calculate how many records are stored within a distance range
-    pub fn get_records_within_distance_range(&self, range: U256) -> usize {
+    pub fn get_records_within_distance_range(&self, range: Distance) -> usize {
         let within_range = self
             .records_by_distance
             .range(..range)
@@ -784,8 +825,16 @@ impl NodeRecordStore {
     }
 
     /// Setup the distance range.
-    pub(crate) fn set_responsible_distance_range(&mut self, responsible_distance: U256) {
+    pub(crate) fn set_responsible_distance_range(&mut self, responsible_distance: Distance) {
         self.responsible_distance_range = Some(responsible_distance);
+    }
+
+    fn records_per_type(&self) -> Vec<(u32, u32)> {
+        let mut map = BTreeMap::new();
+        for (_, _, data_type) in self.records.values() {
+            *map.entry(data_type.get_index()).or_insert(0) += 1;
+        }
+        map.into_iter().collect()
     }
 }
 
@@ -831,20 +880,25 @@ impl RecordStore for NodeRecordStore {
         match RecordHeader::from_record(&record) {
             Ok(record_header) => {
                 match record_header.kind {
-                    RecordKind::ChunkWithPayment | RecordKind::RegisterWithPayment => {
+                    RecordKind::DataWithPayment(_) => {
                         debug!("Record {record_key:?} with payment shall always be processed.");
                     }
-                    _ => {
+                    // Shall not use wildcard, to avoid mis-match during enum update.
+                    RecordKind::DataOnly(_) => {
                         // Chunk with existing key do not to be stored again.
-                        // `Spend` or `Register` with same content_hash do not to be stored again,
-                        // otherwise shall be passed further to allow
-                        // double transaction to be detected or register op update.
+                        // Others with same content_hash do not to be stored again,
+                        // otherwise shall be passed further to allow different version of nonchunk
+                        // to be detected or updated.
                         match self.records.get(&record.key) {
-                            Some((_addr, RecordType::Chunk)) => {
+                            Some((_addr, ValidationType::Chunk, _data_type)) => {
                                 debug!("Chunk {record_key:?} already exists.");
                                 return Ok(());
                             }
-                            Some((_addr, RecordType::NonChunk(existing_content_hash))) => {
+                            Some((
+                                _addr,
+                                ValidationType::NonChunk(existing_content_hash),
+                                _data_type,
+                            )) => {
                                 let content_hash = XorName::from_content(&record.value);
                                 if content_hash == *existing_content_hash {
                                     debug!("A non-chunk record {record_key:?} with same content_hash {content_hash:?} already exists.");
@@ -879,8 +933,8 @@ impl RecordStore for NodeRecordStore {
 
     fn remove(&mut self, k: &Key) {
         // Remove from main store
-        if let Some((addr, _)) = self.records.remove(k) {
-            let distance = convert_distance_to_u256(&self.local_address.distance(&addr));
+        if let Some((addr, _, _)) = self.records.remove(k) {
+            let distance = self.local_address.distance(&addr);
             let _ = self.records_by_distance.remove(&distance);
         }
 
@@ -939,29 +993,7 @@ impl RecordStore for NodeRecordStore {
 
 /// A place holder RecordStore impl for the client that does nothing
 #[derive(Default, Debug)]
-pub struct ClientRecordStore {
-    empty_record_addresses: HashMap<Key, (NetworkAddress, RecordType)>,
-}
-
-impl ClientRecordStore {
-    pub(crate) fn contains(&self, _key: &Key) -> bool {
-        false
-    }
-
-    pub(crate) fn record_addresses(&self) -> HashMap<NetworkAddress, RecordType> {
-        HashMap::new()
-    }
-
-    pub(crate) fn record_addresses_ref(&self) -> &HashMap<Key, (NetworkAddress, RecordType)> {
-        &self.empty_record_addresses
-    }
-
-    pub(crate) fn put_verified(&mut self, _r: Record, _record_type: RecordType) -> Result<()> {
-        Ok(())
-    }
-
-    pub(crate) fn mark_as_stored(&mut self, _r: Key, _t: RecordType) {}
-}
+pub struct ClientRecordStore {}
 
 impl RecordStore for ClientRecordStore {
     type RecordsIter<'a> = vec::IntoIter<Cow<'a, Record>>;
@@ -1003,9 +1035,8 @@ mod tests {
     use bls::SecretKey;
     use xor_name::XorName;
 
-    use ant_protocol::convert_distance_to_u256;
     use ant_protocol::storage::{
-        try_deserialize_record, try_serialize_record, Chunk, ChunkAddress, Scratchpad,
+        try_deserialize_record, try_serialize_record, Chunk, ChunkAddress, DataTypes, Scratchpad,
     };
     use assert_fs::{
         fixture::{PathChild, PathCreateDir},
@@ -1038,7 +1069,7 @@ mod tests {
         fn arbitrary(g: &mut Gen) -> ArbitraryRecord {
             let value = match try_serialize_record(
                 &(0..50).map(|_| rand::random::<u8>()).collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),
@@ -1076,6 +1107,8 @@ mod tests {
             Default::default(),
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // An initial unverified put should not write to disk
@@ -1095,12 +1128,12 @@ mod tests {
         let returned_record_key = returned_record.key.clone();
 
         assert!(store
-            .put_verified(returned_record, RecordType::Chunk)
+            .put_verified(returned_record, ValidationType::Chunk, true)
             .is_ok());
 
         // We must also mark the record as stored (which would be triggered after the async write in nodes
         // via NetworkEvent::CompletedWrite)
-        store.mark_as_stored(returned_record_key, RecordType::Chunk);
+        store.mark_as_stored(returned_record_key, ValidationType::Chunk, DataTypes::Chunk);
 
         // loop over store.get max_iterations times to ensure async disk write had time to complete.
         let max_iterations = 10;
@@ -1144,14 +1177,18 @@ mod tests {
             ..Default::default()
         };
         let self_id = PeerId::random();
-        let (network_event_sender, _) = mpsc::channel(1);
-        let (swarm_cmd_sender, _) = mpsc::channel(1);
+
+        // Create channels with proper receivers
+        let (network_event_sender, _network_event_receiver) = mpsc::channel(1);
+        let (swarm_cmd_sender, mut swarm_cmd_receiver) = mpsc::channel(1);
 
         let mut store = NodeRecordStore::with_config(
             self_id,
             store_config.clone(),
             network_event_sender.clone(),
             swarm_cmd_sender.clone(),
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a chunk
@@ -1162,41 +1199,62 @@ mod tests {
         // Create a record from the chunk
         let record = Record {
             key: NetworkAddress::ChunkAddress(chunk_address).to_record_key(),
-            value: try_serialize_record(&chunk, RecordKind::Chunk)?.to_vec(),
+            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))?.to_vec(),
             expires: None,
             publisher: None,
         };
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), RecordType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk, true)
             .is_ok());
 
-        // Mark as stored (simulating the CompletedWrite event)
-        store.mark_as_stored(record.key.clone(), RecordType::Chunk);
+        // Wait for the async write operation to complete
+        if let Some(cmd) = swarm_cmd_receiver.recv().await {
+            match cmd {
+                LocalSwarmCmd::AddLocalRecordAsStored {
+                    key,
+                    record_type,
+                    data_type,
+                } => {
+                    store.mark_as_stored(key, record_type, data_type);
+                }
+                _ => panic!("Unexpected command received"),
+            }
+        }
 
         // Verify the chunk is stored
         let stored_record = store.get(&record.key);
-        assert!(stored_record.is_some(), "Chunk should be stored");
+        assert!(stored_record.is_some(), "Chunk should be stored initially");
 
         // Sleep a while to let OS completes the flush to disk
-        sleep(Duration::from_secs(5)).await;
+        sleep(Duration::from_secs(1)).await;
 
-        // Restart the store with same encrypt_seed
+        // Create new channels for the restarted store
+        let (new_network_event_sender, _new_network_event_receiver) = mpsc::channel(1);
+        let (new_swarm_cmd_sender, _new_swarm_cmd_receiver) = mpsc::channel(1);
+
+        // Restart the store with same encrypt_seed but new channels
         drop(store);
         let store = NodeRecordStore::with_config(
             self_id,
             store_config,
-            network_event_sender.clone(),
-            swarm_cmd_sender.clone(),
+            new_network_event_sender,
+            new_swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
-
-        // Sleep a lit bit to let OS completes restoring
-        sleep(Duration::from_secs(1)).await;
 
         // Verify the record still exists
         let stored_record = store.get(&record.key);
-        assert!(stored_record.is_some(), "Chunk should be stored");
+        assert!(
+            stored_record.is_some(),
+            "Chunk should be stored after restart with same key"
+        );
+
+        // Create new channels for the different seed test
+        let (diff_network_event_sender, _diff_network_event_receiver) = mpsc::channel(1);
+        let (diff_swarm_cmd_sender, _diff_swarm_cmd_receiver) = mpsc::channel(1);
 
         // Restart the store with different encrypt_seed
         let self_id_diff = PeerId::random();
@@ -1208,25 +1266,18 @@ mod tests {
         let store_diff = NodeRecordStore::with_config(
             self_id_diff,
             store_config_diff,
-            network_event_sender,
-            swarm_cmd_sender,
+            diff_network_event_sender,
+            diff_swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
-        // Sleep a lit bit to let OS completes restoring (if has)
-        sleep(Duration::from_secs(1)).await;
-
-        // Verify the record existence, shall get removed when encryption enabled
-        if cfg!(feature = "encrypt-records") {
-            assert!(
-                store_diff.get(&record.key).is_none(),
-                "Chunk should be gone"
-            );
-        } else {
-            assert!(
-                store_diff.get(&record.key).is_some(),
-                "Chunk shall persists without encryption"
-            );
-        }
+        // When encryption is enabled, the record should be gone because it can't be decrypted
+        // with the different encryption seed
+        assert!(
+            store_diff.get(&record.key).is_none(),
+            "Chunk should be gone with different encryption key"
+        );
 
         Ok(())
     }
@@ -1247,6 +1298,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a chunk
@@ -1264,11 +1317,11 @@ mod tests {
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), RecordType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk, true)
             .is_ok());
 
         // Mark as stored (simulating the CompletedWrite event)
-        store.mark_as_stored(record.key.clone(), RecordType::Chunk);
+        store.mark_as_stored(record.key.clone(), ValidationType::Chunk, DataTypes::Chunk);
 
         // Verify the chunk is stored
         let stored_record = store.get(&record.key);
@@ -1311,24 +1364,23 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         // Create a scratchpad
         let unencrypted_scratchpad_data = Bytes::from_static(b"Test scratchpad data");
         let owner_sk = SecretKey::random();
-        let owner_pk = owner_sk.public_key();
 
-        let mut scratchpad = Scratchpad::new(owner_pk, 0);
-
-        let _next_version =
-            scratchpad.update_and_sign(unencrypted_scratchpad_data.clone(), &owner_sk);
+        let scratchpad = Scratchpad::new(&owner_sk, 0, &unencrypted_scratchpad_data, 0);
 
         let scratchpad_address = *scratchpad.address();
 
         // Create a record from the scratchpad
         let record = Record {
             key: NetworkAddress::ScratchpadAddress(scratchpad_address).to_record_key(),
-            value: try_serialize_record(&scratchpad, RecordKind::Scratchpad)?.to_vec(),
+            value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))?
+                .to_vec(),
             expires: None,
             publisher: None,
         };
@@ -1337,14 +1389,16 @@ mod tests {
         assert!(store
             .put_verified(
                 record.clone(),
-                RecordType::NonChunk(XorName::from_content(&record.value))
+                ValidationType::NonChunk(XorName::from_content(&record.value)),
+                true,
             )
             .is_ok());
 
         // Mark as stored (simulating the CompletedWrite event)
         store.mark_as_stored(
             record.key.clone(),
-            RecordType::NonChunk(XorName::from_content(&record.value)),
+            ValidationType::NonChunk(XorName::from_content(&record.value)),
+            DataTypes::Scratchpad,
         );
 
         // Verify the scratchpad is stored
@@ -1404,6 +1458,8 @@ mod tests {
             store_config.clone(),
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
         // keep track of everything ever stored, to check missing at the end are further away
         let mut stored_records_at_some_point: Vec<RecordKey> = vec![];
@@ -1418,7 +1474,7 @@ mod tests {
             let record_key = NetworkAddress::from_peer(PeerId::random()).to_record_key();
             let value = match try_serialize_record(
                 &(0..50).map(|_| rand::random::<u8>()).collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),
@@ -1431,7 +1487,9 @@ mod tests {
             };
 
             // Will be stored anyway.
-            let succeeded = store.put_verified(record, RecordType::Chunk).is_ok();
+            let succeeded = store
+                .put_verified(record, ValidationType::Chunk, true)
+                .is_ok();
 
             if !succeeded {
                 failed_records.push(record_key.clone());
@@ -1439,7 +1497,7 @@ mod tests {
             } else {
                 // We must also mark the record as stored (which would be triggered
                 // after the async write in nodes via NetworkEvent::CompletedWrite)
-                store.mark_as_stored(record_key.clone(), RecordType::Chunk);
+                store.mark_as_stored(record_key.clone(), ValidationType::Chunk, DataTypes::Chunk);
 
                 println!("success sotred len: {:?} ", store.record_addresses().len());
                 stored_records_at_some_point.push(record_key.clone());
@@ -1493,7 +1551,7 @@ mod tests {
             // now for any stored data. It either shoudl still be stored OR further away than `most_distant_data`
             for data in stored_records_at_some_point {
                 let data_addr = NetworkAddress::from_record_key(&data);
-                if !sorted_stored_data.contains(&(&data_addr, &RecordType::Chunk)) {
+                if !sorted_stored_data.contains(&(&data_addr, &ValidationType::Chunk)) {
                     assert!(
                         self_address.distance(&data_addr)
                             > self_address.distance(most_distant_data),
@@ -1528,6 +1586,8 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         let mut stored_records: Vec<RecordKey> = vec![];
@@ -1541,7 +1601,7 @@ mod tests {
                 &(0..max_records)
                     .map(|_| rand::random::<u8>())
                     .collect::<Bytes>(),
-                RecordKind::Chunk,
+                RecordKind::DataOnly(DataTypes::Chunk),
             ) {
                 Ok(value) => value.to_vec(),
                 Err(err) => panic!("Cannot generate record value {err:?}"),
@@ -1552,12 +1612,14 @@ mod tests {
                 publisher: None,
                 expires: None,
             };
-            assert!(store.put_verified(record, RecordType::Chunk).is_ok());
+            assert!(store
+                .put_verified(record, ValidationType::Chunk, true)
+                .is_ok());
             // We must also mark the record as stored (which would be triggered after the async write in nodes
             // via NetworkEvent::CompletedWrite)
-            store.mark_as_stored(record_key.clone(), RecordType::Chunk);
+            store.mark_as_stored(record_key.clone(), ValidationType::Chunk, DataTypes::Chunk);
 
-            stored_records.push(record_key);
+            stored_records.push(record_key.clone());
             stored_records.sort_by(|a, b| {
                 let a = NetworkAddress::from_record_key(a);
                 let b = NetworkAddress::from_record_key(b);
@@ -1572,12 +1634,12 @@ mod tests {
                 .wrap_err("Could not parse record store key")?,
         );
         // get the distance to this record from our local key
-        let distance = convert_distance_to_u256(&self_address.distance(&halfway_record_address));
+        let distance = &self_address.distance(&halfway_record_address);
 
         // must be plus one bucket from the halfway record
-        store.set_responsible_distance_range(distance);
+        store.set_responsible_distance_range(*distance);
 
-        let records_in_range = store.get_records_within_distance_range(distance);
+        let records_in_range = store.get_records_within_distance_range(*distance);
 
         // check that the number of records returned is larger than half our records
         // (ie, that we cover _at least_ all the records within our distance range)
@@ -1612,6 +1674,8 @@ mod tests {
             store_config.clone(),
             network_event_sender.clone(),
             swarm_cmd_sender.clone(),
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         store.payment_received();
@@ -1624,11 +1688,86 @@ mod tests {
             store_config,
             network_event_sender,
             swarm_cmd_sender,
+            #[cfg(feature = "open-metrics")]
+            None,
         );
 
         assert_eq!(1, new_store.received_payment_count);
         assert_eq!(store.timestamp, new_store.timestamp);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_pruning_and_size_limit() {
+        // Create cache with small size and short timeout for testing
+        let cache_size = 3;
+        let cache_timeout = Duration::from_millis(100);
+        let mut cache = RecordCache::new(cache_size, cache_timeout);
+
+        // Create test records
+        let record1 = Record {
+            key: RecordKey::new(b"key1"),
+            value: b"value1".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record2 = Record {
+            key: RecordKey::new(b"key2"),
+            value: b"value2".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record3 = Record {
+            key: RecordKey::new(b"key3"),
+            value: b"value3".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record4 = Record {
+            key: RecordKey::new(b"key4"),
+            value: b"value4".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+
+        // Add records up to cache size
+        cache.push_back(record1.key.clone(), record1.clone());
+        cache.push_back(record2.key.clone(), record2.clone());
+        cache.push_back(record3.key.clone(), record3.clone());
+
+        // Verify all records are present
+        assert!(cache.get(&record1.key).is_some());
+        assert!(cache.get(&record2.key).is_some());
+        assert!(cache.get(&record3.key).is_some());
+
+        // Add one more record to trigger size-based pruning
+        cache.push_back(record4.key.clone(), record4.clone());
+
+        // Verify cache size is maintained
+        assert_eq!(cache.records_cache.len(), cache_size);
+
+        // Verify oldest record was removed
+        assert!(cache.get(&record1.key).is_none());
+
+        // Wait for timeout to expire
+        sleep(cache_timeout + Duration::from_millis(10)).await;
+
+        // Add another record to trigger time-based pruning
+        let record5 = Record {
+            key: RecordKey::new(b"key5"),
+            value: b"value5".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        cache.push_back(record5.key.clone(), record5.clone());
+
+        // Verify all timed-out records were removed
+        assert!(cache.get(&record2.key).is_none());
+        assert!(cache.get(&record3.key).is_none());
+        assert!(cache.get(&record4.key).is_none());
+
+        // Verify new record is present
+        assert!(cache.get(&record5.key).is_some());
     }
 }

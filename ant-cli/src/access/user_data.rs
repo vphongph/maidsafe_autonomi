@@ -10,16 +10,14 @@ use std::collections::HashMap;
 
 use autonomi::client::{
     address::{addr_to_str, str_to_addr},
-    files::{archive::PrivateArchiveAccess, archive_public::ArchiveAddr},
-    registers::{RegisterAddress, RegisterSecretKey},
+    files::archive_private::PrivateArchiveAccess,
+    files::archive_public::ArchiveAddr,
+    register::RegisterAddress,
     vault::UserData,
 };
 use color_eyre::eyre::Result;
 
-use super::{
-    data_dir::get_client_data_dir_path,
-    keys::{create_register_signing_key_file, get_register_signing_key},
-};
+use super::data_dir::get_client_data_dir_path;
 
 use serde::{Deserialize, Serialize};
 
@@ -30,16 +28,14 @@ struct PrivateFileArchive {
 }
 
 pub fn get_local_user_data() -> Result<UserData> {
-    let register_sk = get_register_signing_key().map(|k| k.to_hex()).ok();
-    let registers = get_local_registers()?;
     let file_archives = get_local_public_file_archives()?;
     let private_file_archives = get_local_private_file_archives()?;
+    let registers = get_local_registers()?;
 
     let user_data = UserData {
-        register_sk,
-        registers,
         file_archives,
         private_file_archives,
+        register_addresses: registers,
     };
     Ok(user_data)
 }
@@ -98,6 +94,15 @@ pub fn get_local_registers() -> Result<HashMap<RegisterAddress, String>> {
     Ok(registers)
 }
 
+pub fn get_name_of_local_register_with_address(address: &RegisterAddress) -> Result<String> {
+    let data_dir = get_client_data_dir_path()?;
+    let user_data_path = data_dir.join("user_data");
+    let registers_path = user_data_path.join("registers");
+    let file_path = registers_path.join(address.to_hex());
+    let file_content = std::fs::read_to_string(file_path)?;
+    Ok(file_content)
+}
+
 pub fn get_local_public_file_archives() -> Result<HashMap<ArchiveAddr, String>> {
     let data_dir = get_client_data_dir_path()?;
     let user_data_path = data_dir.join("user_data");
@@ -119,21 +124,16 @@ pub fn get_local_public_file_archives() -> Result<HashMap<ArchiveAddr, String>> 
 }
 
 pub fn write_local_user_data(user_data: &UserData) -> Result<()> {
-    if let Some(register_key) = &user_data.register_sk {
-        let sk = RegisterSecretKey::from_hex(register_key)?;
-        create_register_signing_key_file(sk)?;
-    }
-
-    for (register, name) in user_data.registers.iter() {
-        write_local_register(register, name)?;
-    }
-
     for (archive, name) in user_data.file_archives.iter() {
         write_local_public_file_archive(addr_to_str(*archive), name)?;
     }
 
     for (archive, name) in user_data.private_file_archives.iter() {
         write_local_private_file_archive(archive.to_hex(), archive.address(), name)?;
+    }
+
+    for (register, name) in user_data.register_addresses.iter() {
+        write_local_register(register, name)?;
     }
 
     Ok(())

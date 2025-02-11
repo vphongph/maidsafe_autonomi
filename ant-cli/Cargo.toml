@@ -3,7 +3,7 @@ authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 name = "ant-cli"
 description = "CLI client for the Autonomi network"
 license = "GPL-3.0"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 homepage = "https://maidsafe.net"
 readme = "README.md"
@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [features]
 default = ["metrics"]
-local = ["ant-bootstrap/local", "autonomi/local", "ant-logging/process-metrics"]
 metrics = ["ant-logging/process-metrics"]
 nightly = []
 
@@ -24,18 +23,13 @@ name = "files"
 harness = false
 
 [dependencies]
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.4" }
-ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
-ant-logging = { path = "../ant-logging", version = "0.2.45" }
-ant-protocol = { path = "../ant-protocol", version = "0.3.3" }
-autonomi = { path = "../autonomi", version = "0.3.5", features = [
-    "fs",
-    "vault",
-    "registers",
-    "loud",
-]}
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.5" }
+ant-build-info = { path = "../ant-build-info", version = "0.1.24" }
+ant-logging = { path = "../ant-logging", version = "0.2.46" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.0" }
+autonomi = { path = "../autonomi", version = "0.3.6", features = [ "loud" ] }
 clap = { version = "4.2.1", features = ["derive"] }
-color-eyre = "~0.6"
+color-eyre = "0.6.3"
 const-hex = "1.13.1"
 dirs-next = "~2.0.0"
 hex = "0.4.3"
@@ -55,12 +49,12 @@ tokio = { version = "1.32.0", features = [
     "sync",
     "time",
     "fs",
-]}
+] }
 tracing = { version = "~0.1.26" }
 walkdir = "2.5.0"
 
 [dev-dependencies]
-autonomi = { path = "../autonomi", version = "0.3.5", features = ["fs"]}
+autonomi = { path = "../autonomi", version = "0.3.6" }
 criterion = "0.5.1"
 eyre = "0.6.8"
 rand = { version = "~0.8.5", features = ["small_rng"] }

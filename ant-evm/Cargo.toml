@@ -7,19 +7,18 @@ license = "GPL-3.0"
 name = "ant-evm"
 readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
-version = "0.1.8"
+version = "0.1.9"
 
 [features]
-local = ["evmlib/local"]
 external-signer = ["evmlib/external-signer"]
 test-utils = []
 
 [dependencies]
 custom_debug = "~0.6.1"
-evmlib = { path = "../evmlib", version = "0.1.8" }
+evmlib = { path = "../evmlib", version = "0.1.9" }
 hex = "~0.4.3"
-lazy_static = "~1.4.0"
-libp2p = { version = "0.54.1", features = ["identify", "kad"] }
+lazy_static = "1.4.0"
+libp2p = { version = "0.55.0", features = ["identify", "kad"] }
 rand = { version = "~0.8.5", features = ["small_rng"] }
 ring = "0.17.8"
 rmp-serde = "1.1.1"
@@ -33,9 +32,6 @@ xor_name = "5.0.0"
 
 [dev-dependencies]
 tokio = { version = "1.32.0", features = ["macros", "rt"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasmtimer = { version = "0.2.0", features = ["serde"] }
 
 [lints]
 workspace = true

@@ -12,6 +12,8 @@ use thiserror::Error;
 
 pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
+const SCRATCHPAD_MAX_SIZE: usize = ant_protocol::storage::Scratchpad::MAX_SIZE;
+
 /// Internal error.
 #[derive(Debug, Error)]
 #[allow(missing_docs)]
@@ -21,9 +23,6 @@ pub enum Error {
 
     #[error("Protocol error {0}")]
     Protocol(#[from] ant_protocol::Error),
-
-    #[error("Register error {0}")]
-    Register(#[from] ant_registers::Error),
 
     #[error("Transfers Error {0}")]
     Transfers(#[from] ant_evm::EvmError),
@@ -41,12 +40,16 @@ pub enum Error {
     #[error("The Record::key does not match with the key derived from Record::value")]
     RecordKeyMismatch,
 
-    // Scratchpad is old version
+    // ------------ Scratchpad Errors
     #[error("A newer version of this Scratchpad already exists")]
     IgnoringOutdatedScratchpadPut,
-    // Scratchpad is invalid
-    #[error("Scratchpad signature is invalid over the counter + content hash")]
+    #[error("Scratchpad signature is invalid")]
     InvalidScratchpadSignature,
+    #[error("Scratchpad too big: {0}, max size is {SCRATCHPAD_MAX_SIZE}")]
+    ScratchpadTooBig(usize),
+
+    #[error("Invalid signature")]
+    InvalidSignature,
 
     // ---------- Payment Errors
     #[error("The content of the payment quote is invalid")]

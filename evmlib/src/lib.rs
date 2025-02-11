@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::common::Address;
+use crate::utils::get_evm_network;
 use alloy::primitives::address;
 use alloy::transports::http::reqwest;
 use serde::{Deserialize, Serialize};
@@ -23,9 +24,13 @@ pub mod cryptography;
 #[cfg(feature = "external-signer")]
 pub mod external_signer;
 pub mod quoting_metrics;
+mod retry;
 pub mod testnet;
 pub mod utils;
 pub mod wallet;
+
+/// Timeout for transactions
+const TX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(24); // Should differ per chain
 
 static PUBLIC_ARBITRUM_ONE_HTTP_RPC_URL: LazyLock<reqwest::Url> = LazyLock::new(|| {
     "https://arb1.arbitrum.io/rpc"
@@ -40,20 +45,22 @@ static PUBLIC_ARBITRUM_SEPOLIA_HTTP_RPC_URL: LazyLock<reqwest::Url> = LazyLock::
 });
 
 const ARBITRUM_ONE_PAYMENT_TOKEN_ADDRESS: Address =
-    address!("4bc1aCE0E66170375462cB4E6Af42Ad4D5EC689C");
+    address!("0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684");
 
 const ARBITRUM_SEPOLIA_PAYMENT_TOKEN_ADDRESS: Address =
     address!("BE1802c27C324a28aeBcd7eeC7D734246C807194");
 
-// Should be updated when the smart contract changes!
+const ARBITRUM_SEPOLIA_TEST_PAYMENT_TOKEN_ADDRESS: Address =
+    address!("4bc1aCE0E66170375462cB4E6Af42Ad4D5EC689C");
+
 const ARBITRUM_ONE_DATA_PAYMENTS_ADDRESS: Address =
-    address!("607483B50C5F06c25cDC316b6d1E071084EeC9f5");
+    address!("B1b5219f8Aaa18037A2506626Dd0406a46f70BcC");
 
 const ARBITRUM_SEPOLIA_DATA_PAYMENTS_ADDRESS: Address =
     address!("993C7739f50899A997fEF20860554b8a28113634");
 
-/// Timeout for transactions
-const TX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const ARBITRUM_SEPOLIA_TEST_DATA_PAYMENTS_ADDRESS: Address =
+    address!("7f0842a78f7d4085d975ba91d630d680f91b1295");
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -81,6 +88,7 @@ pub enum Network {
     #[default]
     ArbitrumOne,
     ArbitrumSepolia,
+    ArbitrumSepoliaTest,
     Custom(CustomNetwork),
 }
 
@@ -89,12 +97,19 @@ impl std::fmt::Display for Network {
         match self {
             Network::ArbitrumOne => write!(f, "evm-arbitrum-one"),
             Network::ArbitrumSepolia => write!(f, "evm-arbitrum-sepolia"),
+            Network::ArbitrumSepoliaTest => write!(f, "evm-arbitrum-sepolia-test"),
             Network::Custom(_) => write!(f, "evm-custom"),
         }
     }
 }
 
 impl Network {
+    pub fn new(local: bool) -> Result<Self, utils::Error> {
+        get_evm_network(local).inspect_err(|err| {
+            warn!("Failed to select EVM network from ENV: {err}");
+        })
+    }
+
     pub fn new_custom(rpc_url: &str, payment_token_addr: &str, chunk_payments_addr: &str) -> Self {
         Self::Custom(CustomNetwork::new(
             rpc_url,
@@ -107,6 +122,7 @@ impl Network {
         match self {
             Network::ArbitrumOne => "arbitrum-one",
             Network::ArbitrumSepolia => "arbitrum-sepolia",
+            Network::ArbitrumSepoliaTest => "arbitrum-sepolia-test",
             Network::Custom(_) => "custom",
         }
     }
@@ -115,6 +131,7 @@ impl Network {
         match self {
             Network::ArbitrumOne => &PUBLIC_ARBITRUM_ONE_HTTP_RPC_URL,
             Network::ArbitrumSepolia => &PUBLIC_ARBITRUM_SEPOLIA_HTTP_RPC_URL,
+            Network::ArbitrumSepoliaTest => &PUBLIC_ARBITRUM_SEPOLIA_HTTP_RPC_URL,
             Network::Custom(custom) => &custom.rpc_url_http,
         }
     }
@@ -123,6 +140,7 @@ impl Network {
         match self {
             Network::ArbitrumOne => &ARBITRUM_ONE_PAYMENT_TOKEN_ADDRESS,
             Network::ArbitrumSepolia => &ARBITRUM_SEPOLIA_PAYMENT_TOKEN_ADDRESS,
+            Network::ArbitrumSepoliaTest => &ARBITRUM_SEPOLIA_TEST_PAYMENT_TOKEN_ADDRESS,
             Network::Custom(custom) => &custom.payment_token_address,
         }
     }
@@ -131,6 +149,7 @@ impl Network {
         match self {
             Network::ArbitrumOne => &ARBITRUM_ONE_DATA_PAYMENTS_ADDRESS,
             Network::ArbitrumSepolia => &ARBITRUM_SEPOLIA_DATA_PAYMENTS_ADDRESS,
+            Network::ArbitrumSepoliaTest => &ARBITRUM_SEPOLIA_TEST_DATA_PAYMENTS_ADDRESS,
             Network::Custom(custom) => &custom.data_payments_address,
         }
     }

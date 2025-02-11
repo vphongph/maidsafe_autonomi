@@ -8,13 +8,11 @@
 
 #![allow(deprecated)]
 
-use crate::utils::collect_upload_summary;
+use crate::network::NetworkPeers;
 use crate::wallet::load_wallet;
-use autonomi::client::registers::RegisterAddress;
-use autonomi::client::registers::RegisterPermissions;
-use autonomi::client::registers::RegisterSecretKey;
+use autonomi::client::register::RegisterAddress;
+use autonomi::client::register::SecretKey as RegisterSecretKey;
 use autonomi::Client;
-use autonomi::Multiaddr;
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
@@ -39,13 +37,14 @@ pub fn generate_key(overwrite: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn cost(name: &str, peers: Vec<Multiaddr>) -> Result<()> {
-    let register_key = crate::keys::get_register_signing_key()
+pub async fn cost(name: &str, peers: NetworkPeers) -> Result<()> {
+    let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
+    let key_for_name = Client::register_key_from_name(&main_registers_key, name);
 
     let cost = client
-        .register_cost(name.to_string(), register_key)
+        .register_cost(&key_for_name.public_key())
         .await
         .wrap_err("Failed to get cost for register")?;
     info!("Estimated cost to create a register with name {name}: {cost}");
@@ -53,65 +52,28 @@ pub async fn cost(name: &str, peers: Vec<Multiaddr>) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(name: &str, value: &str, public: bool, peers: Vec<Multiaddr>) -> Result<()> {
-    let wallet = load_wallet()?;
-    let register_key = crate::keys::get_register_signing_key()
+pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> {
+    let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
-    let mut client = crate::actions::connect_to_network(peers).await?;
-    let event_receiver = client.enable_client_events();
-    let (upload_summary_thread, upload_completed_tx) = collect_upload_summary(event_receiver);
+    let client = crate::actions::connect_to_network(peers).await?;
+    let wallet = load_wallet(client.evm_network())?;
+    let register_key = Client::register_key_from_name(&main_registers_key, name);
 
     println!("Creating register with name: {name}");
     info!("Creating register with name: {name}");
-    let register = if public {
-        println!("With public write access");
-        info!("With public write access");
-        let permissions = RegisterPermissions::new_anyone_can_write();
-        client
-            .register_create_with_permissions(
-                Some(value.as_bytes().to_vec().into()),
-                name,
-                register_key,
-                permissions,
-                &wallet,
-            )
-            .await
-            .wrap_err("Failed to create register")?
-    } else {
-        println!("With private write access");
-        info!("With private write access");
-        client
-            .register_create(
-                Some(value.as_bytes().to_vec().into()),
-                name,
-                register_key,
-                &wallet,
-            )
-            .await
-            .wrap_err("Failed to create register")?
-    };
+    let content = Client::register_value_from_bytes(value.as_bytes())?;
+    let (cost, address) = client
+        .register_create(&register_key, content, wallet.into())
+        .await
+        .wrap_err("Failed to create register")?;
 
-    let address = register.address();
+    println!("✅ Register created at address: {address}");
+    println!("With name: {name}");
+    println!("And initial value: [{value}]");
+    info!("Register created at address: {address} with name: {name}");
+    println!("Total cost: {cost} AttoTokens");
 
-    if let Err(e) = upload_completed_tx.send(()) {
-        error!("Failed to send upload completed event: {e:?}");
-        eprintln!("Failed to send upload completed event: {e:?}");
-    }
-
-    let summary = upload_summary_thread.await?;
-    if summary.record_count == 0 {
-        println!("✅ The register already exists on the network at address: {address}.");
-        println!("No tokens were spent.");
-    } else {
-        println!("✅ Register created at address: {address}");
-        println!("With name: {name}");
-        println!("And initial value: [{value}]");
-        info!("Register created at address: {address} with name: {name}");
-        println!("Total cost: {} AttoTokens", summary.tokens_spent);
-    }
-    info!("Summary of register creation: {summary:?}");
-
-    crate::user_data::write_local_register(address, name)
+    crate::user_data::write_local_register(&address, name)
         .wrap_err("Failed to save register to local user data")
         .with_suggestion(|| "Local user data saves the register address above to disk, without it you need to keep track of the address yourself")?;
     info!("Saved register to local user data");
@@ -119,51 +81,54 @@ pub async fn create(name: &str, value: &str, public: bool, peers: Vec<Multiaddr>
     Ok(())
 }
 
-pub async fn edit(address: String, name: bool, value: &str, peers: Vec<Multiaddr>) -> Result<()> {
-    let register_key = crate::keys::get_register_signing_key()
+pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers) -> Result<()> {
+    let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
+    let wallet = load_wallet(client.evm_network())?;
+    let value_bytes = Client::register_value_from_bytes(value.as_bytes())?;
 
-    let address = if name {
-        Client::register_address(&address, &register_key)
+    let register_key = if name {
+        let name_str = address.clone();
+        Client::register_key_from_name(&main_registers_key, &name_str)
     } else {
-        RegisterAddress::from_hex(&address)
+        let addr = RegisterAddress::from_hex(&address)
             .wrap_err(format!("Failed to parse register address: {address}"))
             .with_suggestion(|| {
                 "if you want to use the name as the address, run the command with the --name flag"
-            })?
+            })?;
+        let name_str = crate::user_data::get_name_of_local_register_with_address(&addr)
+            .wrap_err(format!("Could not find a register with address in local user data: {address}"))
+            .with_suggestion(|| "This register is not known to this client, try to create it first.")
+            .with_suggestion(|| "If you indeed have created this register before, retry using its name by using the --name flag")?;
+        Client::register_key_from_name(&main_registers_key, &name_str)
     };
 
-    println!("Getting register at address: {address}");
-    info!("Getting register at address: {address}");
-    let register = client
-        .register_get(address)
-        .await
-        .wrap_err(format!("Failed to get register at address: {address}"))?;
+    println!("Attempting to update register at {address} with new value: {value}");
+    info!("Attempting to update register at {address} with new value: {value}");
 
-    println!("Found register at address: {address}");
-    println!("Updating register with new value: {value}");
-    info!("Updating register at address: {address} with new value: {value}");
-
-    client
-        .register_update(register, value.as_bytes().to_vec().into(), register_key)
+    let cost = client
+        .register_update(&register_key, value_bytes, wallet.into())
         .await
         .wrap_err(format!("Failed to update register at address: {address}"))?;
 
     println!("✅ Successfully updated register");
     println!("With value: [{value}]");
+    println!("Total cost: {cost} AttoTokens");
     info!("Successfully updated register at address: {address}");
 
     Ok(())
 }
 
-pub async fn get(address: String, name: bool, peers: Vec<Multiaddr>) -> Result<()> {
-    let register_key = crate::keys::get_register_signing_key()
-        .wrap_err("The register key is required to perform this action")?;
+pub async fn get(address: String, name: bool, peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
 
-    let address = if name {
-        Client::register_address(&address, &register_key)
+    let addr = if name {
+        let name_str = address.clone();
+        let main_registers_key = crate::keys::get_register_signing_key()
+            .wrap_err("The register key is required to perform this action")?;
+        let register_key = Client::register_key_from_name(&main_registers_key, &name_str);
+        RegisterAddress::new(register_key.public_key())
     } else {
         RegisterAddress::from_hex(&address)
             .wrap_err(format!("Failed to parse register address: {address}"))
@@ -172,25 +137,24 @@ pub async fn get(address: String, name: bool, peers: Vec<Multiaddr>) -> Result<(
             })?
     };
 
-    println!("Getting register at address: {address}");
-    info!("Getting register at address: {address}");
-    let register = client
-        .register_get(address)
-        .await
-        .wrap_err(format!("Failed to get register at address: {address}"))?;
-    let values = register.values();
-
-    println!("✅ Register found at address: {address}");
-    info!("Register found at address: {address}");
-    match values.as_slice() {
-        [one] => println!("With value: [{:?}]", String::from_utf8_lossy(one)),
-        _ => {
-            println!("With multiple concurrent values:");
-            for value in values.iter() {
-                println!("[{:?}]", String::from_utf8_lossy(value));
-            }
-        }
+    if name {
+        println!("Getting register with name: {address}");
+        info!("Getting register with name: {address}");
+    } else {
+        println!("Getting register at address: {address}");
+        info!("Getting register at address: {address}");
     }
+    let value_bytes = client
+        .register_get(&addr)
+        .await
+        .wrap_err(format!("Error getting register at: {address}"))?;
+
+    println!("✅ Register found at: {address}");
+    info!("Register found at: {address}");
+    let value = String::from_utf8_lossy(&value_bytes);
+    println!("With value: [{value}]");
+    info!("With value: [{value}]");
+
     Ok(())
 }
 

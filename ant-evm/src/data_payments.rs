@@ -10,14 +10,10 @@ use crate::EvmError;
 use evmlib::{
     common::{Address as RewardsAddress, QuoteHash},
     quoting_metrics::QuotingMetrics,
-    utils::dummy_address,
 };
 use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_arch = "wasm32"))]
 pub use std::time::SystemTime;
-#[cfg(target_arch = "wasm32")]
-pub use wasmtimer::std::SystemTime;
 use xor_name::XorName;
 
 /// The time in seconds that a quote is valid for
@@ -92,6 +88,9 @@ impl ProofOfPayment {
     pub fn verify_for(&self, peer_id: PeerId) -> bool {
         // make sure I am in the list of payees
         if !self.payees().contains(&peer_id) {
+            warn!("Payment does not contain node peer id");
+            debug!("Payment contains peer ids: {:?}", self.payees());
+            debug!("Node peer id: {:?}", peer_id);
             return false;
         }
 
@@ -105,9 +104,21 @@ impl ProofOfPayment {
                 }
             };
             if !quote.check_is_signed_by_claimed_peer(peer_id) {
+                warn!("Payment is not signed by claimed peer");
                 return false;
             }
         }
+        true
+    }
+
+    /// Verifies whether all quotes were made for the expected data type.
+    pub fn verify_data_type(&self, data_type: u32) -> bool {
+        for (_, quote) in self.peer_quotes.iter() {
+            if quote.quoting_metrics.data_type != data_type {
+                return false;
+            }
+        }
+
         true
     }
 }
@@ -134,18 +145,6 @@ pub struct PaymentQuote {
 }
 
 impl PaymentQuote {
-    /// create an empty PaymentQuote
-    pub fn zero() -> Self {
-        Self {
-            content: Default::default(),
-            timestamp: SystemTime::now(),
-            quoting_metrics: Default::default(),
-            rewards_address: dummy_address(),
-            pub_key: vec![],
-            signature: vec![],
-        }
-    }
-
     pub fn hash(&self) -> QuoteHash {
         let mut bytes = self.bytes_for_sig();
         bytes.extend_from_slice(self.pub_key.as_slice());
@@ -189,7 +188,7 @@ impl PaymentQuote {
         if let Ok(pub_key) = libp2p::identity::PublicKey::try_decode_protobuf(&self.pub_key) {
             Ok(PeerId::from(pub_key.clone()))
         } else {
-            error!("Cann't parse PublicKey from protobuf");
+            error!("Can't parse PublicKey from protobuf");
             Err(EvmError::InvalidQuotePublicKey)
         }
     }
@@ -199,7 +198,7 @@ impl PaymentQuote {
         let pub_key = if let Ok(pub_key) = PublicKey::try_decode_protobuf(&self.pub_key) {
             pub_key
         } else {
-            error!("Cann't parse PublicKey from protobuf");
+            error!("Can't parse PublicKey from protobuf");
             return false;
         };
 
@@ -232,11 +231,24 @@ impl PaymentQuote {
     }
 
     /// test utility to create a dummy quote
+    #[cfg(test)]
     pub fn test_dummy(xorname: XorName) -> Self {
+        use evmlib::utils::dummy_address;
+
         Self {
             content: xorname,
             timestamp: SystemTime::now(),
-            quoting_metrics: Default::default(),
+            quoting_metrics: QuotingMetrics {
+                data_size: 0,
+                data_type: 0,
+                close_records_stored: 0,
+                records_per_type: vec![],
+                max_records: 0,
+                received_payment_count: 0,
+                live_time: 0,
+                network_density: None,
+                network_size: None,
+            },
             pub_key: vec![],
             signature: vec![],
             rewards_address: dummy_address(),
@@ -328,9 +340,9 @@ mod tests {
 
     #[test]
     fn test_is_newer_than() {
-        let old_quote = PaymentQuote::zero();
+        let old_quote = PaymentQuote::test_dummy(Default::default());
         sleep(Duration::from_millis(100));
-        let new_quote = PaymentQuote::zero();
+        let new_quote = PaymentQuote::test_dummy(Default::default());
         assert!(new_quote.is_newer_than(&old_quote));
         assert!(!old_quote.is_newer_than(&new_quote));
     }
@@ -342,7 +354,7 @@ mod tests {
 
         let false_peer = PeerId::random();
 
-        let mut quote = PaymentQuote::zero();
+        let mut quote = PaymentQuote::test_dummy(Default::default());
         let bytes = quote.bytes_for_sig();
         let signature = if let Ok(sig) = keypair.sign(&bytes) {
             sig
@@ -373,9 +385,9 @@ mod tests {
 
     #[test]
     fn test_historical_verify() {
-        let mut old_quote = PaymentQuote::zero();
+        let mut old_quote = PaymentQuote::test_dummy(Default::default());
         sleep(Duration::from_millis(100));
-        let mut new_quote = PaymentQuote::zero();
+        let mut new_quote = PaymentQuote::test_dummy(Default::default());
 
         // historical_verify will swap quotes to compare based on timeline automatically
         assert!(new_quote.historical_verify(&old_quote));

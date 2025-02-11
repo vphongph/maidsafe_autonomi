@@ -11,7 +11,7 @@ use libp2p::kad::K_VALUE;
 use rand::{rngs::OsRng, Rng};
 use tokio::time::Duration;
 
-use crate::target_arch::{interval, Instant, Interval};
+use crate::time::{interval, Instant, Interval};
 
 /// The default interval at which NetworkDiscovery is triggered.
 /// The interval is increased as more peers are added to the routing table.
@@ -53,19 +53,22 @@ impl SwarmDriver {
         let now = Instant::now();
 
         // Find the farthest bucket that is not full. This is used to skip refreshing the RT of farthest full buckets.
-        let mut farthest_unfilled_bucket = 0;
+        let mut first_filled_bucket = 0;
+        // unfilled kbuckets will not be returned, hence the value shall be:
+        //   * first_filled_kbucket.ilog2() - 1
         for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
             let Some(ilog2) = kbucket.range().0.ilog2() else {
                 continue;
             };
-            if kbucket.num_entries() < K_VALUE.get() && ilog2 > farthest_unfilled_bucket {
-                farthest_unfilled_bucket = ilog2;
+            if kbucket.num_entries() >= K_VALUE.get() {
+                first_filled_bucket = ilog2;
+                break;
             }
         }
-        let farthest_unfilled_bucket = if farthest_unfilled_bucket == 0 {
+        let farthest_unfilled_bucket = if first_filled_bucket == 0 {
             None
         } else {
-            Some(farthest_unfilled_bucket)
+            Some(first_filled_bucket - 1)
         };
 
         let addrs = self.network_discovery.candidates(farthest_unfilled_bucket);
@@ -131,7 +134,6 @@ impl ContinuousNetworkDiscover {
 
     /// Returns `true` if we should carry out the Kademlia Bootstrap process immediately.
     /// Also optionally returns the new interval for network discovery.
-    #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_async))]
     pub(crate) async fn should_we_discover(
         &self,
         peers_in_rt: u32,
@@ -161,10 +163,7 @@ impl ContinuousNetworkDiscover {
                     "It has been {LAST_PEER_ADDED_TIME_LIMIT:?} since we last added a peer to RT. Slowing down the continuous network discovery process. Old interval: {current_interval:?}, New interval: {no_peer_added_slowdown_interval_duration:?}"
                 );
 
-            // `Interval` ticks immediately for Tokio, but not for `wasmtimer`, which is used for wasm32.
-            #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
             let mut new_interval = interval(no_peer_added_slowdown_interval_duration);
-            #[cfg(not(target_arch = "wasm32"))]
             new_interval.tick().await;
 
             return (should_network_discover, Some(new_interval));
@@ -177,10 +176,7 @@ impl ContinuousNetworkDiscover {
         let new_interval = if new_interval > current_interval {
             info!("More peers have been added to our RT!. Slowing down the continuous network discovery process. Old interval: {current_interval:?}, New interval: {new_interval:?}");
 
-            // `Interval` ticks immediately for Tokio, but not for `wasmtimer`, which is used for wasm32.
-            #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
             let mut interval = interval(new_interval);
-            #[cfg(not(target_arch = "wasm32"))]
             interval.tick().await;
 
             Some(interval)

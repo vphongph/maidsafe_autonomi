@@ -12,7 +12,8 @@ mod vault;
 mod wallet;
 
 use crate::opt::Opt;
-use clap::Subcommand;
+use autonomi::ResponseQuorum;
+use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
 use color_eyre::Result;
 
 #[derive(Subcommand, Debug)]
@@ -57,6 +58,11 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
+        /// Experimental: Optionally specify the quorum for the verification of the upload.
+        ///
+        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
+        #[arg(short, long)]
+        quorum: Option<ResponseQuorum>,
     },
 
     /// Download a file from the given address.
@@ -65,6 +71,11 @@ pub enum FileCmd {
         addr: String,
         /// The destination file path.
         dest_file: String,
+        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunks).
+        ///
+        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
+        #[arg(short, long)]
+        quorum: Option<ResponseQuorum>,
     },
 
     /// List previous uploads
@@ -88,17 +99,16 @@ pub enum RegisterCmd {
     },
 
     /// Create a new register with the given name and value.
+    /// Note that anyone with the register address can read its value.
     Create {
         /// The name of the register.
         name: String,
         /// The value to store in the register.
         value: String,
-        /// Create the register with public write access.
-        #[arg(long, default_value = "false")]
-        public: bool,
     },
 
     /// Edit an existing register.
+    /// Note that anyone with the register address can read its value.
     Edit {
         /// Use the name of the register instead of the address
         /// Note that only the owner of the register can use this shorthand as the address can be generated from the name and register key.
@@ -129,7 +139,11 @@ pub enum RegisterCmd {
 #[derive(Subcommand, Debug)]
 pub enum VaultCmd {
     /// Estimate cost to create a vault.
-    Cost,
+    Cost {
+        /// Expected max_size of a vault, only for cost estimation.
+        #[clap(default_value = "3145728")]
+        expected_max_size: u64,
+    },
 
     /// Create a vault at a deterministic address based on your `SECRET_KEY`.
     /// Pushing an encrypted backup of your local user data to the network
@@ -140,7 +154,7 @@ pub enum VaultCmd {
     /// You need to have your original `SECRET_KEY` to load the vault.
     Load,
 
-    /// Sync vault with the network, including registers and files.
+    /// Sync vault with the network, safeguarding local user data.
     /// Loads existing user data from the network and merges it with your local user data.
     /// Pushes your local user data to the network.
     Sync {
@@ -189,20 +203,24 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     match cmd {
         Some(SubCmd::File { command }) => match command {
             FileCmd::Cost { file } => file::cost(&file, peers.await?).await,
-            FileCmd::Upload { file, public } => file::upload(&file, public, peers.await?).await,
-            FileCmd::Download { addr, dest_file } => {
-                file::download(&addr, &dest_file, peers.await?).await
-            }
+            FileCmd::Upload {
+                file,
+                public,
+                quorum,
+            } => file::upload(&file, public, peers.await?, quorum).await,
+            FileCmd::Download {
+                addr,
+                dest_file,
+                quorum,
+            } => file::download(&addr, &dest_file, peers.await?, quorum).await,
             FileCmd::List => file::list(),
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
             RegisterCmd::Cost { name } => register::cost(&name, peers.await?).await,
-            RegisterCmd::Create {
-                name,
-                value,
-                public,
-            } => register::create(&name, &value, public, peers.await?).await,
+            RegisterCmd::Create { name, value } => {
+                register::create(&name, &value, peers.await?).await
+            }
             RegisterCmd::Edit {
                 address,
                 name,
@@ -212,10 +230,12 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             RegisterCmd::List => register::list(),
         },
         Some(SubCmd::Vault { command }) => match command {
-            VaultCmd::Cost => vault::cost(peers.await?).await,
+            VaultCmd::Cost { expected_max_size } => {
+                vault::cost(peers.await?, expected_max_size).await
+            }
             VaultCmd::Create => vault::create(peers.await?).await,
             VaultCmd::Load => vault::load(peers.await?).await,
-            VaultCmd::Sync { force } => vault::sync(peers.await?, force).await,
+            VaultCmd::Sync { force } => vault::sync(force, peers.await?).await,
         },
         Some(SubCmd::Wallet { command }) => match command {
             WalletCmd::Create {
@@ -228,8 +248,13 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => wallet::balance().await,
+            WalletCmd::Balance => wallet::balance(peers.await?.is_local()).await,
         },
-        None => Ok(()),
+        None => {
+            // If no subcommand is given, default to clap's error behaviour.
+            Opt::command()
+                .error(ErrorKind::MissingSubcommand, "Please provide a subcommand")
+                .exit();
+        }
     }
 }

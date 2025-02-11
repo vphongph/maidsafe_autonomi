@@ -12,6 +12,7 @@ use ant_networking::Network;
 use ant_protocol::{error::Error as ProtocolError, storage::ChunkAddress, NetworkAddress};
 use libp2p::PeerId;
 use std::time::Duration;
+use xor_name::XorName;
 
 impl Node {
     pub(crate) fn create_quote_for_storecost(
@@ -20,7 +21,13 @@ impl Node {
         quoting_metrics: &QuotingMetrics,
         payment_address: &RewardsAddress,
     ) -> Result<PaymentQuote, ProtocolError> {
-        let content = address.as_xorname().unwrap_or_default();
+        let content = match address {
+            NetworkAddress::ChunkAddress(addr) => *addr.xorname(),
+            NetworkAddress::GraphEntryAddress(addr) => *addr.xorname(),
+            NetworkAddress::ScratchpadAddress(addr) => addr.xorname(),
+            NetworkAddress::PointerAddress(addr) => *addr.xorname(),
+            NetworkAddress::PeerId(_) | NetworkAddress::RecordKey(_) => XorName::default(),
+        };
         let timestamp = std::time::SystemTime::now();
         let bytes =
             PaymentQuote::bytes_for_signing(content, timestamp, quoting_metrics, payment_address);
@@ -38,7 +45,6 @@ impl Node {
             signature,
         };
 
-        debug!("Created payment quote for {address:?}: {quote:?}");
         Ok(quote)
     }
 }
@@ -51,7 +57,14 @@ pub(crate) fn verify_quote_for_storecost(
     debug!("Verifying payment quote for {address:?}: {quote:?}");
 
     // check address
-    if address.as_xorname().unwrap_or_default() != quote.content {
+    let content = match address {
+        NetworkAddress::ChunkAddress(addr) => *addr.xorname(),
+        NetworkAddress::GraphEntryAddress(addr) => *addr.xorname(),
+        NetworkAddress::ScratchpadAddress(addr) => addr.xorname(),
+        NetworkAddress::PointerAddress(addr) => *addr.xorname(),
+        NetworkAddress::PeerId(_) | NetworkAddress::RecordKey(_) => XorName::default(),
+    };
+    if content != quote.content {
         return Err(Error::InvalidQuoteContent);
     }
 

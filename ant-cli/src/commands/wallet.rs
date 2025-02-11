@@ -6,9 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::wallet::fs::{select_wallet, select_wallet_private_key, store_private_key};
+use crate::wallet::fs::{select_wallet_private_key, store_private_key};
 use crate::wallet::input::request_password;
 use crate::wallet::DUMMY_NETWORK;
+use autonomi::get_evm_network;
 use autonomi::Wallet;
 use color_eyre::eyre::eyre;
 use color_eyre::Result;
@@ -22,7 +23,7 @@ pub fn create(no_password: bool, password: Option<String>) -> Result<()> {
     let wallet_private_key = Wallet::random_private_key();
 
     let wallet_address = Wallet::new_from_private_key(DUMMY_NETWORK, &wallet_private_key)
-        .expect("Infallible")
+        .map_err(|e| eyre!("Unexpected error: Failed to create wallet from private key: {e}"))?
         .address()
         .to_string();
 
@@ -48,7 +49,7 @@ pub fn import(
     let maybe_encryption_password = maybe_request_password(no_password, password)?;
 
     let wallet_address = Wallet::new_from_private_key(DUMMY_NETWORK, &wallet_private_key)
-        .expect("Infallible")
+        .map_err(|e| eyre!("Unexpected error: Failed to create wallet from private key: {e}"))?
         .address()
         .to_string();
 
@@ -70,7 +71,7 @@ pub fn export() -> Result<()> {
     let wallet_private_key = select_wallet_private_key()?;
 
     let wallet_address = Wallet::new_from_private_key(DUMMY_NETWORK, &wallet_private_key)
-        .expect("Infallible")
+        .map_err(|e| eyre!("Failed to create wallet from private key loaded from disk: {e}"))?
         .address()
         .to_string();
 
@@ -80,8 +81,9 @@ pub fn export() -> Result<()> {
     Ok(())
 }
 
-pub async fn balance() -> Result<()> {
-    let wallet = select_wallet()?;
+pub async fn balance(local: bool) -> Result<()> {
+    let network = get_evm_network(local)?;
+    let wallet = crate::wallet::load_wallet(&network)?;
 
     let token_balance = wallet.balance_of_tokens().await?;
     let gas_balance = wallet.balance_of_gas_tokens().await?;

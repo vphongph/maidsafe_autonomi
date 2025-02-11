@@ -10,6 +10,8 @@ use crate::{
     bootstrap::{ContinuousNetworkDiscover, NETWORK_DISCOVER_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
+    config::GetRecordCfg,
+    driver::kad::U256,
     error::{NetworkError, Result},
     event::{NetworkEvent, NodeEvent},
     external_address::ExternalAddressManager,
@@ -21,8 +23,7 @@ use crate::{
     record_store_api::UnifiedRecordStore,
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    target_arch::Interval,
-    target_arch::{interval, spawn, Instant},
+    time::{interval, spawn, Instant, Interval},
     transport, GetRecordError, Network, NodeIssue, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
@@ -30,26 +31,21 @@ use crate::{
     metrics::service::run_metrics_server, metrics::NetworkMetricsRecorder, MetricsRegistries,
 };
 use ant_bootstrap::BootstrapCacheStore;
-use ant_evm::{PaymentQuote, U256};
+use ant_evm::PaymentQuote;
 use ant_protocol::{
-    convert_distance_to_u256,
-    messages::{ChunkProof, Nonce, Request, Response},
-    storage::{try_deserialize_record, RetryStrategy},
+    messages::{Request, Response},
     version::{
         get_network_id, IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_NODE_VERSION_STR,
         IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR,
     },
-    NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey,
+    NetworkAddress, PrettyPrintKBucketKey,
 };
-use ant_registers::SignedRegister;
 use futures::future::Either;
 use futures::StreamExt;
-#[cfg(feature = "local")]
-use libp2p::mdns;
-use libp2p::{core::muxing::StreamMuxerBox, relay};
+use libp2p::{core::muxing::StreamMuxerBox, relay, swarm::behaviour::toggle::Toggle};
 use libp2p::{
     identity::Keypair,
-    kad::{self, QueryId, Quorum, Record, RecordKey, K_VALUE},
+    kad::{self, KBucketDistance as Distance, QueryId, Record, RecordKey, K_VALUE},
     multiaddr::Protocol,
     request_response::{self, Config as RequestResponseConfig, OutboundRequestId, ProtocolSupport},
     swarm::{
@@ -72,7 +68,7 @@ use std::{
     num::NonZeroUsize,
     path::PathBuf,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Duration;
 use tracing::warn;
 use xor_name::XorName;
@@ -140,105 +136,6 @@ const REPLICATION_FACTOR: NonZeroUsize = match NonZeroUsize::new(CLOSE_GROUP_SIZ
     None => panic!("CLOSE_GROUP_SIZE should not be zero"),
 };
 
-/// The various settings to apply to when fetching a record from network
-#[derive(Clone)]
-pub struct GetRecordCfg {
-    /// The query will result in an error if we get records less than the provided Quorum
-    pub get_quorum: Quorum,
-    /// If enabled, the provided `RetryStrategy` is used to retry if a GET attempt fails.
-    pub retry_strategy: Option<RetryStrategy>,
-    /// Only return if we fetch the provided record.
-    pub target_record: Option<Record>,
-    /// Logs if the record was not fetched from the provided set of peers.
-    pub expected_holders: HashSet<PeerId>,
-    /// For register record, only root value shall be checked, not the entire content.
-    pub is_register: bool,
-}
-
-impl GetRecordCfg {
-    pub fn does_target_match(&self, record: &Record) -> bool {
-        if let Some(ref target_record) = self.target_record {
-            if self.is_register {
-                let pretty_key = PrettyPrintRecordKey::from(&target_record.key);
-
-                let fetched_register = match try_deserialize_record::<SignedRegister>(record) {
-                    Ok(fetched_register) => fetched_register,
-                    Err(err) => {
-                        error!("When try to deserialize register from fetched record {pretty_key:?}, have error {err:?}");
-                        return false;
-                    }
-                };
-                let target_register = match try_deserialize_record::<SignedRegister>(target_record)
-                {
-                    Ok(target_register) => target_register,
-                    Err(err) => {
-                        error!("When try to deserialize register from target record {pretty_key:?}, have error {err:?}");
-                        return false;
-                    }
-                };
-
-                target_register.base_register() == fetched_register.base_register()
-                    && target_register.ops() == fetched_register.ops()
-            } else {
-                target_record == record
-            }
-        } else {
-            // Not have target_record to check with
-            true
-        }
-    }
-}
-
-impl Debug for GetRecordCfg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("GetRecordCfg");
-        f.field("get_quorum", &self.get_quorum)
-            .field("retry_strategy", &self.retry_strategy);
-
-        match &self.target_record {
-            Some(record) => {
-                let pretty_key = PrettyPrintRecordKey::from(&record.key);
-                f.field("target_record", &pretty_key);
-            }
-            None => {
-                f.field("target_record", &"None");
-            }
-        };
-
-        f.field("expected_holders", &self.expected_holders).finish()
-    }
-}
-
-/// The various settings related to writing a record to the network.
-#[derive(Debug, Clone)]
-pub struct PutRecordCfg {
-    /// The quorum used by KAD PUT. KAD still sends out the request to all the peers set by the `replication_factor`, it
-    /// just makes sure that we get atleast `n` successful responses defined by the Quorum.
-    /// Our nodes currently send `Ok()` response for every KAD PUT. Thus this field does not do anything atm.
-    pub put_quorum: Quorum,
-    /// If enabled, the provided `RetryStrategy` is used to retry if a PUT attempt fails.
-    pub retry_strategy: Option<RetryStrategy>,
-    /// Use the `kad::put_record_to` to PUT the record only to the specified peers. If this option is set to None, we
-    /// will be using `kad::put_record` which would PUT the record to all the closest members of the record.
-    pub use_put_record_to: Option<Vec<PeerId>>,
-    /// Enables verification after writing. The VerificationKind is used to determine the method to use.
-    pub verification: Option<(VerificationKind, GetRecordCfg)>,
-}
-
-/// The methods in which verification on a PUT can be carried out.
-#[derive(Debug, Clone)]
-pub enum VerificationKind {
-    /// Uses the default KAD GET to perform verification.
-    Network,
-    /// Uses the default KAD GET to perform verification, but don't error out on split records
-    Crdt,
-    /// Uses the hash based verification for chunks.
-    ChunkProof {
-        expected_proof: ChunkProof,
-        nonce: Nonce,
-    },
-}
-
 impl From<std::convert::Infallible> for NodeEvent {
     fn from(_: std::convert::Infallible) -> Self {
         panic!("NodeBehaviour is not Infallible!")
@@ -254,10 +151,7 @@ pub(super) struct NodeBehaviour {
     pub(super) blocklist:
         libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
     pub(super) identify: libp2p::identify::Behaviour,
-    #[cfg(feature = "local")]
-    pub(super) mdns: mdns::tokio::Behaviour,
-    #[cfg(feature = "upnp")]
-    pub(super) upnp: libp2p::swarm::behaviour::toggle::Toggle<libp2p::upnp::tokio::Behaviour>,
+    pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
     pub(super) relay_server: libp2p::relay::Behaviour,
     pub(super) kademlia: kad::Behaviour<UnifiedRecordStore>,
@@ -277,7 +171,6 @@ pub struct NetworkBuilder {
     #[cfg(feature = "open-metrics")]
     metrics_server_port: Option<u16>,
     request_timeout: Option<Duration>,
-    #[cfg(feature = "upnp")]
     upnp: bool,
 }
 
@@ -295,7 +188,6 @@ impl NetworkBuilder {
             #[cfg(feature = "open-metrics")]
             metrics_server_port: None,
             request_timeout: None,
-            #[cfg(feature = "upnp")]
             upnp: false,
         }
     }
@@ -333,7 +225,6 @@ impl NetworkBuilder {
         self.metrics_server_port = port;
     }
 
-    #[cfg(feature = "upnp")]
     pub fn upnp(&mut self, upnp: bool) {
         self.upnp = upnp;
     }
@@ -423,17 +314,10 @@ impl NetworkBuilder {
         };
 
         let listen_addr = self.listen_addr;
-        #[cfg(feature = "upnp")]
         let upnp = self.upnp;
 
-        let (network, events_receiver, mut swarm_driver) = self.build(
-            kad_cfg,
-            Some(store_cfg),
-            false,
-            ProtocolSupport::Full,
-            #[cfg(feature = "upnp")]
-            upnp,
-        )?;
+        let (network, events_receiver, mut swarm_driver) =
+            self.build(kad_cfg, Some(store_cfg), false, ProtocolSupport::Full, upnp);
 
         // Listen on the provided address
         let listen_socket_addr = listen_addr.ok_or(NetworkError::ListenAddressNotProvided)?;
@@ -450,7 +334,7 @@ impl NetworkBuilder {
     }
 
     /// Same as `build_node` API but creates the network components in client mode
-    pub fn build_client(self) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+    pub fn build_client(self) -> (Network, mpsc::Receiver<NetworkEvent>, SwarmDriver) {
         // Create a Kademlia behaviour for client mode, i.e. set req/resp protocol
         // to outbound-only mode and don't listen on any address
         let mut kad_cfg = kad::Config::new(KAD_STREAM_PROTOCOL_ID); // default query timeout is 60 secs
@@ -465,16 +349,10 @@ impl NetworkBuilder {
             // How many nodes _should_ store data.
             .set_replication_factor(REPLICATION_FACTOR);
 
-        let (network, net_event_recv, driver) = self.build(
-            kad_cfg,
-            None,
-            true,
-            ProtocolSupport::Outbound,
-            #[cfg(feature = "upnp")]
-            false,
-        )?;
+        let (network, net_event_recv, driver) =
+            self.build(kad_cfg, None, true, ProtocolSupport::Outbound, false);
 
-        Ok((network, net_event_recv, driver))
+        (network, net_event_recv, driver)
     }
 
     /// Private helper to create the network components with the provided config and req/res behaviour
@@ -484,8 +362,8 @@ impl NetworkBuilder {
         record_store_cfg: Option<NodeRecordStoreConfig>,
         is_client: bool,
         req_res_protocol: ProtocolSupport,
-        #[cfg(feature = "upnp")] upnp: bool,
-    ) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+        upnp: bool,
+    ) -> (Network, mpsc::Receiver<NetworkEvent>, SwarmDriver) {
         let identify_protocol_str = IDENTIFY_PROTOCOL_STR
             .read()
             .expect("Failed to obtain read lock for IDENTIFY_PROTOCOL_STR")
@@ -493,7 +371,6 @@ impl NetworkBuilder {
 
         let peer_id = PeerId::from(self.keypair.public());
         // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
-        #[cfg(not(target_arch = "wasm32"))]
         info!(
             "Process (PID: {}) with PeerId: {peer_id}",
             std::process::id()
@@ -594,19 +471,17 @@ impl NetworkBuilder {
         let kademlia = {
             match record_store_cfg {
                 Some(store_cfg) => {
+                    #[cfg(feature = "open-metrics")]
+                    let record_stored_metrics =
+                        metrics_recorder.as_ref().map(|r| r.records_stored.clone());
                     let node_record_store = NodeRecordStore::with_config(
                         peer_id,
                         store_cfg,
                         network_event_sender.clone(),
                         local_swarm_cmd_sender.clone(),
+                        #[cfg(feature = "open-metrics")]
+                        record_stored_metrics,
                     );
-                    #[cfg(feature = "open-metrics")]
-                    let mut node_record_store = node_record_store;
-                    #[cfg(feature = "open-metrics")]
-                    if let Some(metrics_recorder) = &metrics_recorder {
-                        node_record_store = node_record_store
-                            .set_record_count_metric(metrics_recorder.records_stored.clone());
-                    }
 
                     let store = UnifiedRecordStore::Node(node_record_store);
                     debug!("Using Kademlia with NodeRecordStore!");
@@ -620,18 +495,6 @@ impl NetworkBuilder {
                 }
             }
         };
-
-        #[cfg(feature = "local")]
-        let mdns_config = mdns::Config {
-            // lower query interval to speed up peer discovery
-            // this increases traffic, but means we no longer have clients unable to connect
-            // after a few minutes
-            query_interval: Duration::from_secs(5),
-            ..Default::default()
-        };
-
-        #[cfg(feature = "local")]
-        let mdns = mdns::tokio::Behaviour::new(mdns_config, peer_id)?;
 
         let agent_version = if is_client {
             IDENTIFY_CLIENT_VERSION_STR
@@ -650,11 +513,11 @@ impl NetworkBuilder {
             let cfg = libp2p::identify::Config::new(identify_protocol_str, self.keypair.public())
                 .with_agent_version(agent_version)
                 // Enlength the identify interval from default 5 mins to 1 hour.
-                .with_interval(RESEND_IDENTIFY_INVERVAL);
+                .with_interval(RESEND_IDENTIFY_INVERVAL)
+                .with_hide_listen_addrs(true);
             libp2p::identify::Behaviour::new(cfg)
         };
 
-        #[cfg(feature = "upnp")]
         let upnp = if !self.local && !is_client && upnp {
             debug!("Enabling UPnP port opening behavior");
             Some(libp2p::upnp::tokio::Behaviour::default())
@@ -680,20 +543,13 @@ impl NetworkBuilder {
             blocklist: libp2p::allow_block_list::Behaviour::default(),
             relay_client: relay_behaviour,
             relay_server,
-            #[cfg(feature = "upnp")]
             upnp,
             request_response,
             kademlia,
             identify,
-            #[cfg(feature = "local")]
-            mdns,
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
         let swarm_config = libp2p::swarm::Config::with_tokio_executor()
-            .with_idle_connection_timeout(CONNECTION_KEEP_ALIVE_TIMEOUT);
-        #[cfg(target_arch = "wasm32")]
-        let swarm_config = libp2p::swarm::Config::with_wasm_executor()
             .with_idle_connection_timeout(CONNECTION_KEEP_ALIVE_TIMEOUT);
 
         let swarm = Swarm::new(transport, behaviour, peer_id, swarm_config);
@@ -704,6 +560,14 @@ impl NetworkBuilder {
         // Enable relay manager for nodes behind home network
         let relay_manager = if !is_client && self.is_behind_home_network {
             let relay_manager = RelayManager::new(peer_id);
+            #[cfg(feature = "open-metrics")]
+            let mut relay_manager = relay_manager;
+            #[cfg(feature = "open-metrics")]
+            if let Some(metrics_recorder) = &metrics_recorder {
+                relay_manager.set_reservation_health_metrics(
+                    metrics_recorder.relay_reservation_health.clone(),
+                );
+            }
             Some(relay_manager)
         } else {
             info!("Relay manager is disabled for this node.");
@@ -770,7 +634,7 @@ impl NetworkBuilder {
             self.keypair,
         );
 
-        Ok((network, network_event_receiver, swarm_driver))
+        (network, network_event_receiver, swarm_driver)
     }
 }
 
@@ -881,7 +745,7 @@ impl SwarmDriver {
     /// The `tokio::select` macro is used to concurrently process swarm events
     /// and command receiver messages, ensuring efficient handling of multiple
     /// asynchronous tasks.
-    pub async fn run(mut self) {
+    pub async fn run(mut self, mut shutdown_rx: watch::Receiver<bool>) {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
@@ -935,6 +799,13 @@ impl SwarmDriver {
                         trace!("SwarmCmd handled in {:?}: {cmd_string:?}", start.elapsed());
                     },
                     None =>  continue,
+                },
+                // Check for a shutdown command.
+                result = shutdown_rx.changed() => {
+                    if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                        info!("Shutdown signal received or sender dropped. Exiting swarm driver loop.");
+                        break;
+                    }
                 },
                 // next take and react to external swarm events
                 swarm_event = self.swarm.select_next_some() => {
@@ -1000,9 +871,8 @@ impl SwarmDriver {
                         // Note: self is included
                         let self_addr = NetworkAddress::from_peer(self.self_peer_id);
                         let close_peers_distance = self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE + 1]));
-                        let close_peers_u256 = convert_distance_to_u256(&close_peers_distance);
 
-                        let distance = std::cmp::max(density_distance, close_peers_u256);
+                        let distance = std::cmp::max(Distance(density_distance), close_peers_distance);
 
                         // The sampling approach has severe impact to the node side performance
                         // Hence suggested to be only used by client side.
@@ -1021,7 +891,7 @@ impl SwarmDriver {
                         //     self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE]))
                         // };
 
-                        info!("Set responsible range to {distance:?}({:?})", distance.log2());
+                        info!("Set responsible range to {distance:?}({:?})", distance.ilog2());
 
                         // set any new distance to farthest record in the store
                         self.swarm.behaviour_mut().kademlia.store_mut().set_distance_range(distance);
@@ -1075,9 +945,7 @@ impl SwarmDriver {
                     let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
                     info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
 
-                    // `Interval` ticks immediately for Tokio, but not for `wasmtimer`, which is used for wasm32.
                     *current_interval = interval(new_duration);
-                    #[cfg(not(target_arch = "wasm32"))]
                     current_interval.tick().await;
 
                     trace!("Bootstrap cache synced in {:?}", start.elapsed());
@@ -1134,23 +1002,22 @@ impl SwarmDriver {
     /// get closest k_value the peers from our local RoutingTable. Contains self.
     /// Is sorted for closeness to self.
     pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<PeerId> {
-        let self_peer_id = self.self_peer_id.into();
+        let k_bucket_key = NetworkAddress::from_peer(self.self_peer_id).as_kbucket_key();
 
         // get closest peers from buckets, sorted by increasing distance to us
-        let peers = self
+        let peers: Vec<_> = self
             .swarm
             .behaviour_mut()
             .kademlia
-            .get_closest_local_peers(&self_peer_id)
+            .get_closest_local_peers(&k_bucket_key)
             // Map KBucketKey<PeerId> to PeerId.
-            .map(|key| key.into_preimage());
+            .map(|key| key.into_preimage())
+            // Limit ourselves to K_VALUE (20) peers.
+            .take(K_VALUE.get() - 1)
+            .collect();
 
         // Start with our own PeerID and chain the closest.
-        std::iter::once(self.self_peer_id)
-            .chain(peers)
-            // Limit ourselves to K_VALUE (20) peers.
-            .take(K_VALUE.get())
-            .collect()
+        std::iter::once(self.self_peer_id).chain(peers).collect()
     }
 
     /// Dials the given multiaddress. If address contains a peer ID, simultaneous

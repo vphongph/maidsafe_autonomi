@@ -6,15 +6,23 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::{data::CostError, Client};
-use crate::client::rate_limiter::RateLimiter;
+use super::Client;
+use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use ant_evm::payment_vault::get_market_price;
-use ant_evm::{Amount, EvmNetwork, PaymentQuote, QuotePayment, QuotingMetrics};
+use ant_evm::{Amount, PaymentQuote, QuotePayment, QuotingMetrics};
 use ant_networking::{Network, NetworkError};
 use ant_protocol::{storage::ChunkAddress, NetworkAddress, CLOSE_GROUP_SIZE};
 use libp2p::PeerId;
 use std::collections::HashMap;
 use xor_name::XorName;
+
+pub use ant_protocol::storage::DataTypes;
+
+// todo: limit depends per RPC endpoint. We should make this configurable
+// todo: test the limit for the Arbitrum One public RPC endpoint
+// Working limit of the Arbitrum Sepolia public RPC endpoint
+const GET_MARKET_PRICE_BATCH_LIMIT: usize = 2000;
 
 /// A quote for a single address
 pub struct QuoteForAddress(pub(crate) Vec<(PeerId, PaymentQuote, Amount)>);
@@ -52,83 +60,131 @@ impl StoreQuote {
     }
 }
 
+/// Errors that can occur during the cost calculation.
+#[derive(Debug, thiserror::Error)]
+pub enum CostError {
+    #[error("Failed to self-encrypt data.")]
+    SelfEncryption(#[from] crate::self_encryption::Error),
+    #[error("Could not get store quote for: {0:?} after several retries")]
+    CouldNotGetStoreQuote(XorName),
+    #[error("Could not get store costs: {0:?}")]
+    CouldNotGetStoreCosts(NetworkError),
+    #[error("Not enough node quotes for {0:?}, got: {1:?} and need at least {2:?}")]
+    NotEnoughNodeQuotes(XorName, usize, usize),
+    #[error("Failed to serialize {0}")]
+    Serialization(String),
+    #[error("Market price error: {0:?}")]
+    MarketPriceError(#[from] ant_evm::payment_vault::error::Error),
+    #[error("Received invalid cost")]
+    InvalidCost,
+}
+
 impl Client {
-    pub(crate) async fn get_store_quotes(
+    pub async fn get_store_quotes(
         &self,
-        content_addrs: impl Iterator<Item = XorName>,
+        data_type: DataTypes,
+        content_addrs: impl Iterator<Item = (XorName, usize)>,
     ) -> Result<StoreQuote, CostError> {
-        // get all quotes from nodes
         let futures: Vec<_> = content_addrs
             .into_iter()
-            .map(|content_addr| fetch_store_quote_with_retries(&self.network, content_addr))
+            .map(|(content_addr, data_size)| {
+                fetch_store_quote_with_retries(
+                    &self.network,
+                    content_addr,
+                    data_type.get_index(),
+                    data_size,
+                )
+            })
             .collect();
-        let raw_quotes_per_addr = futures::future::try_join_all(futures).await?;
 
-        // choose the quotes to pay for each address
-        let mut quotes_to_pay_per_addr = HashMap::new();
+        let raw_quotes_per_addr =
+            process_tasks_with_max_concurrency(futures, *FILE_UPLOAD_BATCH_SIZE).await;
 
-        let mut rate_limiter = RateLimiter::new();
+        let mut all_quotes = Vec::new();
 
-        for (content_addr, raw_quotes) in raw_quotes_per_addr {
-            // FIXME: find better way to deal with paid content addrs and feedback to the user
-            // assume that content addr is already paid for and uploaded
+        for result in raw_quotes_per_addr {
+            let (content_addr, mut raw_quotes) = result?;
+            debug!(
+                "fetched raw quotes for content_addr: {content_addr}, with {} quotes.",
+                raw_quotes.len()
+            );
+
             if raw_quotes.is_empty() {
+                debug!("content_addr: {content_addr} is already paid for. No need to fetch market price.");
                 continue;
             }
 
-            // ask smart contract for the market price
-            let quoting_metrics: Vec<QuotingMetrics> = raw_quotes
-                .clone()
+            let target_addr = NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr));
+
+            // Only keep the quotes of the 5 closest nodes
+            raw_quotes.sort_by_key(|(peer_id, _)| {
+                NetworkAddress::from_peer(*peer_id).distance(&target_addr)
+            });
+            raw_quotes.truncate(CLOSE_GROUP_SIZE);
+
+            for (peer_id, quote) in raw_quotes.into_iter() {
+                all_quotes.push((content_addr, peer_id, quote));
+            }
+        }
+
+        let mut all_prices = Vec::new();
+
+        for chunk in all_quotes.chunks(GET_MARKET_PRICE_BATCH_LIMIT) {
+            let quoting_metrics: Vec<QuotingMetrics> = chunk
                 .iter()
-                .map(|(_, q)| q.quoting_metrics.clone())
+                .map(|(_, _, quote)| quote.quoting_metrics.clone())
                 .collect();
 
-            let all_prices = get_market_price_with_rate_limiter_and_retries(
-                &self.evm_network,
-                &mut rate_limiter,
-                quoting_metrics.clone(),
-            )
-            .await?;
+            debug!(
+                "Getting market prices for {} quoting metrics",
+                quoting_metrics.len()
+            );
 
-            let mut prices: Vec<(PeerId, PaymentQuote, Amount)> = all_prices
-                .into_iter()
-                .zip(raw_quotes.into_iter())
-                .map(|(price, (peer, quote))| (peer, quote, price))
-                .collect();
+            let batch_prices = get_market_price(&self.evm_network, quoting_metrics).await?;
 
-            // sort by price
-            prices.sort_by(|(_, _, price_a), (_, _, price_b)| price_a.cmp(price_b));
+            all_prices.extend(batch_prices);
+        }
 
-            // we need at least 5 valid quotes to pay for the data
-            const MINIMUM_QUOTES_TO_PAY: usize = 5;
-            match &prices[..] {
-                [first, second, third, fourth, fifth, ..] => {
-                    let (p1, q1, _) = first;
-                    let (p2, q2, _) = second;
+        let quotes_with_prices: Vec<(XorName, PeerId, PaymentQuote, Amount)> = all_quotes
+            .into_iter()
+            .zip(all_prices.into_iter())
+            .map(|((content_addr, peer_id, quote), price)| (content_addr, peer_id, quote, price))
+            .collect();
 
-                    // don't pay for the cheapest 2 quotes but include them
-                    let first = (*p1, q1.clone(), Amount::ZERO);
-                    let second = (*p2, q2.clone(), Amount::ZERO);
+        let mut quotes_per_addr: HashMap<XorName, Vec<(PeerId, PaymentQuote, Amount)>> =
+            HashMap::new();
 
-                    // pay for the rest
-                    quotes_to_pay_per_addr.insert(
-                        content_addr,
-                        QuoteForAddress(vec![
-                            first,
-                            second,
-                            third.clone(),
-                            fourth.clone(),
-                            fifth.clone(),
-                        ]),
-                    );
-                }
-                _ => {
-                    return Err(CostError::NotEnoughNodeQuotes(
-                        content_addr,
-                        prices.len(),
-                        MINIMUM_QUOTES_TO_PAY,
-                    ));
-                }
+        for (content_addr, peer_id, quote, price) in quotes_with_prices {
+            let entry = quotes_per_addr.entry(content_addr).or_default();
+            entry.push((peer_id, quote, price));
+            entry.sort_by_key(|(_, _, price)| *price);
+        }
+
+        let mut quotes_to_pay_per_addr = HashMap::new();
+
+        const MINIMUM_QUOTES_TO_PAY: usize = 5;
+
+        for (content_addr, quotes) in quotes_per_addr {
+            if quotes.len() >= MINIMUM_QUOTES_TO_PAY {
+                let (p1, q1, _) = &quotes[0];
+                let (p2, q2, _) = &quotes[1];
+
+                quotes_to_pay_per_addr.insert(
+                    content_addr,
+                    QuoteForAddress(vec![
+                        (*p1, q1.clone(), Amount::ZERO),
+                        (*p2, q2.clone(), Amount::ZERO),
+                        quotes[2].clone(),
+                        quotes[3].clone(),
+                        quotes[4].clone(),
+                    ]),
+                );
+            } else {
+                return Err(CostError::NotEnoughNodeQuotes(
+                    content_addr,
+                    quotes.len(),
+                    MINIMUM_QUOTES_TO_PAY,
+                ));
             }
         }
 
@@ -140,10 +196,14 @@ impl Client {
 async fn fetch_store_quote(
     network: &Network,
     content_addr: XorName,
+    data_type: u32,
+    data_size: usize,
 ) -> Result<Vec<(PeerId, PaymentQuote)>, NetworkError> {
     network
         .get_store_quote_from_network(
             NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr)),
+            data_type,
+            data_size,
             vec![],
         )
         .await
@@ -153,12 +213,18 @@ async fn fetch_store_quote(
 async fn fetch_store_quote_with_retries(
     network: &Network,
     content_addr: XorName,
+    data_type: u32,
+    data_size: usize,
 ) -> Result<(XorName, Vec<(PeerId, PaymentQuote)>), CostError> {
     let mut retries = 0;
 
     loop {
-        match fetch_store_quote(network, content_addr).await {
+        match fetch_store_quote(network, content_addr, data_type, data_size).await {
             Ok(quote) => {
+                if quote.is_empty() {
+                    // Empty quotes indicates the record already exists.
+                    break Ok((content_addr, quote));
+                }
                 if quote.len() < CLOSE_GROUP_SIZE {
                     retries += 1;
                     error!("Error while fetching store quote: not enough quotes ({}/{CLOSE_GROUP_SIZE}), retry #{retries}, quotes {quote:?}",
@@ -182,39 +248,6 @@ async fn fetch_store_quote_with_retries(
         }
         // Shall have a sleep between retries to avoid choking the network.
         // This shall be rare to happen though.
-        std::thread::sleep(std::time::Duration::from_secs(5));
-    }
-}
-
-async fn get_market_price_with_rate_limiter_and_retries(
-    evm_network: &EvmNetwork,
-    rate_limiter: &mut RateLimiter,
-    quoting_metrics: Vec<QuotingMetrics>,
-) -> Result<Vec<Amount>, ant_evm::payment_vault::error::Error> {
-    const MAX_RETRIES: u64 = 2;
-    let mut retries: u64 = 0;
-    let mut interval_in_ms: u64 = 1000;
-
-    loop {
-        rate_limiter
-            .wait_interval_since_last_request(interval_in_ms)
-            .await;
-
-        match get_market_price(evm_network, quoting_metrics.clone()).await {
-            Ok(amounts) => {
-                break Ok(amounts);
-            }
-            Err(err) => {
-                if err.to_string().contains("429") && retries < MAX_RETRIES {
-                    retries += 1;
-                    interval_in_ms *= retries * 2;
-                    error!("Error while fetching quote market price: {err:?}, retry #{retries}");
-                    continue;
-                } else {
-                    error!("Error while fetching quote market price: {err:?}, stopping after {retries} retries");
-                    break Err(err);
-                }
-            }
-        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }

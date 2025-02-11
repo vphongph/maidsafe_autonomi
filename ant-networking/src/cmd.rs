@@ -127,6 +127,7 @@ pub enum LocalSwarmCmd {
     /// Put record to the local RecordStore
     PutLocalRecord {
         record: Record,
+        is_client_put: bool,
     },
     /// Remove a local record from the RecordStore
     /// Typically because the write failed
@@ -237,10 +238,13 @@ pub enum NetworkSwarmCmd {
 impl Debug for LocalSwarmCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LocalSwarmCmd::PutLocalRecord { record } => {
+            LocalSwarmCmd::PutLocalRecord {
+                record,
+                is_client_put,
+            } => {
                 write!(
                     f,
-                    "LocalSwarmCmd::PutLocalRecord {{ key: {:?} }}",
+                    "LocalSwarmCmd::PutLocalRecord {{ key: {:?}, is_client_put: {is_client_put:?} }}",
                     PrettyPrintRecordKey::from(&record.key)
                 )
             }
@@ -708,7 +712,10 @@ impl SwarmDriver {
                 let _ = sender.send(record);
             }
 
-            LocalSwarmCmd::PutLocalRecord { record } => {
+            LocalSwarmCmd::PutLocalRecord {
+                record,
+                is_client_put,
+            } => {
                 cmd_string = "PutLocalRecord";
                 let key = record.key.clone();
                 let record_key = PrettyPrintRecordKey::from(&key);
@@ -738,7 +745,7 @@ impl SwarmDriver {
                     .behaviour_mut()
                     .kademlia
                     .store_mut()
-                    .put_verified(record, record_type.clone());
+                    .put_verified(record, record_type.clone(), is_client_put);
 
                 match result {
                     Ok(_) => {

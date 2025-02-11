@@ -1,6 +1,3 @@
-// TODO: Shall be removed once the python binding warnings resolved
-#![allow(non_local_definitions)]
-
 use crate::{
     spawn::{
         network_spawner::{NetworkSpawner, RunningNetwork},
@@ -24,13 +21,13 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use xor_name::XorName;
 
 /// Python wrapper for the Autonomi Node
 #[pyclass(name = "AntNode")]
 pub struct PyAntNode {
-    node: Arc<Mutex<RunningNode>>,
+    node: Arc<RwLock<RunningNode>>,
 }
 
 #[pymethods]
@@ -51,7 +48,7 @@ impl PyAntNode {
     fn init<'p>(
         py: Python<'p>,
         rewards_address: String,
-        evm_network: String,
+        evm_network: PyNetwork,
         ip: &str,
         port: u16,
         initial_peers: Vec<String>,
@@ -61,16 +58,6 @@ impl PyAntNode {
     ) -> PyResult<Bound<'p, PyAny>> {
         let rewards_address = RewardsAddress::from_hex(&rewards_address)
             .map_err(|e| PyValueError::new_err(format!("Invalid rewards address: {e}")))?;
-
-        let evm_network = match evm_network.as_str() {
-            "arbitrum_one" => EvmNetwork::ArbitrumOne,
-            "arbitrum_sepolia" => EvmNetwork::ArbitrumSepolia,
-            _ => {
-                return Err(PyValueError::new_err(
-                    "Invalid EVM network. Must be 'arbitrum_one' or 'arbitrum_sepolia'",
-                ))
-            }
-        };
 
         let ip: IpAddr = ip
             .parse()
@@ -91,7 +78,7 @@ impl PyAntNode {
             let mut node_builder = NodeBuilder::new(
                 keypair,
                 rewards_address,
-                evm_network,
+                evm_network.0,
                 node_socket_addr,
                 local,
                 root_dir.unwrap_or_else(|| PathBuf::from(".")),
@@ -105,7 +92,7 @@ impl PyAntNode {
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to start node: {e}")))?;
 
             Ok(PyAntNode {
-                node: Arc::new(Mutex::new(running_node)),
+                node: Arc::new(RwLock::new(running_node)),
             })
         })
     }
@@ -114,7 +101,7 @@ impl PyAntNode {
     fn peer_id(self_: PyRef<Self>) -> PyResult<String> {
         let node_guard = self_
             .node
-            .try_lock()
+            .try_read()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
         Ok(node_guard.peer_id().to_string())
@@ -125,12 +112,10 @@ impl PyAntNode {
         self_: PyRef<'p, Self>,
         py: Python<'p>,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
+        let node = Arc::clone(&self_.node);
 
         future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            let node_guard = node.read().await;
 
             let addresses = node_guard
                 .get_all_record_addresses()
@@ -146,29 +131,25 @@ impl PyAntNode {
 
     /// Get the node's kbuckets information
     fn get_kbuckets<'p>(self_: PyRef<'p, Self>, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
+        let node = Arc::clone(&self_.node);
 
         future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            let node_guard = node.read().await;
 
             let kbuckets = node_guard
                 .get_kbuckets()
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to get kbuckets: {e}")))?;
 
-            Ok(Python::with_gil(|_py| {
-                kbuckets
-                    .into_iter()
-                    .map(|(distance, peers)| {
-                        (
-                            distance,
-                            peers.into_iter().map(|p| p.to_string()).collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            }))
+            Ok(kbuckets
+                .into_iter()
+                .map(|(distance, peers)| {
+                    (
+                        distance,
+                        peers.into_iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>())
         })
     }
 
@@ -176,30 +157,10 @@ impl PyAntNode {
     fn get_rewards_address(self_: PyRef<Self>) -> PyResult<String> {
         let node_guard = self_
             .node
-            .try_lock()
+            .try_read()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
         Ok(format!("0x{}", hex::encode(node_guard.reward_address())))
-    }
-
-    /// Set a new rewards/wallet address for the node
-    /// The address should be a hex string starting with "0x"
-    fn set_rewards_address(self_: PyRef<Self>, address: String) -> PyResult<()> {
-        let _node_guard = self_
-            .node
-            .try_lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-
-        // Remove "0x" prefix if present
-        let address = address.strip_prefix("0x").unwrap_or(&address);
-
-        // Validate the address format
-        let _new_address = RewardsAddress::from_hex(address)
-            .map_err(|e| PyValueError::new_err(format!("Invalid rewards address: {e}")))?;
-
-        Err(PyRuntimeError::new_err(
-            "Changing rewards address requires node restart. Please create a new node with the new address.",
-        ))
     }
 
     /// Store a record in the node's storage
@@ -210,12 +171,10 @@ impl PyAntNode {
         value: Vec<u8>,
         _data_type: String,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
+        let node = Arc::clone(&self_.node);
 
         future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            let node_guard = node.read().await;
 
             let xorname = XorName::from_content(
                 &hex::decode(key)
@@ -253,12 +212,10 @@ impl PyAntNode {
         py: Python<'p>,
         key: String,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
+        let node = Arc::clone(&self_.node);
 
         future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            let node_guard = node.read().await;
 
             let xorname = XorName::from_content(
                 &hex::decode(key)
@@ -278,50 +235,15 @@ impl PyAntNode {
         })
     }
 
-    /// Delete a record from the node's storage
-    fn delete_record<'p>(
-        self_: PyRef<'p, Self>,
-        py: Python<'p>,
-        key: String,
-    ) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
-
-        future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
-
-            let xorname = XorName::from_content(
-                &hex::decode(key)
-                    .map_err(|e| PyValueError::new_err(format!("Invalid key format: {e}")))?,
-            );
-            let chunk_address = ChunkAddress::new(xorname);
-            let network_address = NetworkAddress::from_chunk_address(chunk_address);
-            let record_key = network_address.to_record_key();
-
-            // First check if we have the record using record_key
-            let exists = node_guard
-                .network
-                .get_local_record(&record_key)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get record: {e}")))?
-                .is_some();
-
-            Ok(Python::with_gil(|_py| exists))
-        })
-    }
-
     /// Get the total size of stored records
     fn get_stored_records_size<'p>(
         self_: PyRef<'p, Self>,
         py: Python<'p>,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let node = self_.node.clone();
+        let node = Arc::clone(&self_.node);
 
         future_into_py(py, async move {
-            let node_guard = node
-                .try_lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
+            let node_guard = node.read().await;
 
             let records = node_guard
                 .network
@@ -339,7 +261,7 @@ impl PyAntNode {
                     total_size += record.value.len() as u64;
                 }
             }
-            Ok(Python::with_gil(|_py| total_size))
+            Ok(total_size)
         })
     }
 
@@ -347,7 +269,7 @@ impl PyAntNode {
     fn get_root_dir(self_: PyRef<Self>) -> PyResult<String> {
         let node_guard = self_
             .node
-            .try_lock()
+            .try_read()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
         Ok(node_guard
@@ -366,16 +288,13 @@ impl PyAntNode {
     #[staticmethod]
     #[pyo3(signature = (peer_id=None))]
     fn get_default_root_dir(peer_id: Option<String>) -> PyResult<String> {
-        let peer_id = if let Some(id_str) = peer_id {
-            let id = id_str
-                .parse::<PeerId>()
-                .map_err(|e| PyValueError::new_err(format!("Invalid peer ID: {e}")))?;
-            Some(id)
-        } else {
-            None
-        };
+        let peer_id = peer_id
+            .map(|id| id.parse::<PeerId>()) // Parse peer ID string
+            .transpose() // Convert `Option<Result>` to `Result<Option>`.
+            .map_err(|e| PyValueError::new_err(format!("Invalid peer ID: {e}")))? // Throw parse error if applicable.
+            .unwrap_or_else(|| PeerId::random());
 
-        let path = get_antnode_root_dir(peer_id.unwrap_or_else(|| PeerId::random()))
+        let path = get_antnode_root_dir(peer_id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get default root dir: {e}")))?;
 
         Ok(path
@@ -388,7 +307,7 @@ impl PyAntNode {
     fn get_logs_dir(self_: PyRef<Self>) -> PyResult<String> {
         let node_guard = self_
             .node
-            .try_lock()
+            .try_read()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
         let logs_path = node_guard.root_dir_path().join("logs");
@@ -402,7 +321,7 @@ impl PyAntNode {
     fn get_data_dir(self_: PyRef<Self>) -> PyResult<String> {
         let node_guard = self_
             .node
-            .try_lock()
+            .try_read()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire node lock"))?;
 
         let data_path = node_guard.root_dir_path().join("data");
@@ -472,18 +391,9 @@ impl PyNodeSpawner {
     }
 
     /// Set the EVM network for the node to connect to.
-    pub fn with_evm_network(&mut self, network: &str) -> PyResult<()> {
+    pub fn with_evm_network(&mut self, network: PyNetwork) -> PyResult<()> {
         if let Some(self_) = self.0.take() {
-            let network = match network {
-                "arbitrum_one" => EvmNetwork::ArbitrumOne,
-                "arbitrum_sepolia" => EvmNetwork::ArbitrumSepolia,
-                _ => {
-                    return Err(PyValueError::new_err(
-                        "Invalid EVM network. Must be 'arbitrum_one' or 'arbitrum_sepolia'",
-                    ))
-                }
-            };
-            self.0 = Some(self_.with_evm_network(network));
+            self.0 = Some(self_.with_evm_network(network.0));
         } else {
             return Err(PyRuntimeError::new_err("NodeSpawner inner error"));
         }
@@ -563,7 +473,7 @@ impl PyNodeSpawner {
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to spawn node: {e}")))?;
 
             Ok(PyAntNode {
-                node: Arc::new(Mutex::new(running_node)),
+                node: Arc::new(RwLock::new(running_node)),
             })
         })
     }
@@ -589,18 +499,9 @@ impl PyNetworkSpawner {
     }
 
     /// Set the EVM network for the network to use.
-    pub fn with_evm_network(&mut self, network: &str) -> PyResult<()> {
+    pub fn with_evm_network(&mut self, network: PyNetwork) -> PyResult<()> {
         if let Some(self_) = self.0.take() {
-            let network = match network {
-                "arbitrum_one" => EvmNetwork::ArbitrumOne,
-                "arbitrum_sepolia" => EvmNetwork::ArbitrumSepolia,
-                _ => {
-                    return Err(PyValueError::new_err(
-                        "Invalid EVM network. Must be 'arbitrum_one' or 'arbitrum_sepolia'",
-                    ))
-                }
-            };
-            self.0 = Some(self_.with_evm_network(network));
+            self.0 = Some(self_.with_evm_network(network.0));
         } else {
             return Err(PyRuntimeError::new_err("NetworkSpawner inner error"));
         }
@@ -682,6 +583,37 @@ impl PyNetworkSpawner {
     }
 }
 
+#[pyclass(name = "Network", eq)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PyNetwork(EvmNetwork);
+
+#[pymethods]
+impl PyNetwork {
+    /// Creates a new network configuration.
+    ///
+    /// If `local` is true, configures for local network connections.
+    #[new]
+    fn new(local: bool) -> PyResult<Self> {
+        let network =
+            EvmNetwork::new(local).map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
+        Ok(Self(network))
+    }
+
+    /// Creates a new custom network configuration.
+    ///
+    /// Can be one of:
+    /// - "evm-arbitrum-one"
+    /// - "evm-arbitrum-sepolia"
+    /// - "evm-arbitrum-sepolia-test"
+    #[staticmethod]
+    fn from_str(s: &str) -> PyResult<Self> {
+        let network = s
+            .parse()
+            .map_err(|_| PyValueError::new_err("Invalid network name"))?;
+        Ok(Self(network))
+    }
+}
+
 /// Python module initialization
 #[pymodule]
 #[pyo3(name = "_antnode")]
@@ -690,5 +622,6 @@ fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNodeSpawner>()?;
     m.add_class::<PyNetworkSpawner>()?;
     m.add_class::<PyRunningNetwork>()?;
+    m.add_class::<PyNetwork>()?;
     Ok(())
 }

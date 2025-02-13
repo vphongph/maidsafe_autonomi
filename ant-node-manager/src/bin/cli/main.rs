@@ -217,11 +217,11 @@ pub enum SubCmd {
         /// services, which in this case would be 5. The range must also go from lower to higher.
         #[clap(long, value_parser = PortRange::parse)]
         rpc_port: Option<PortRange>,
-        /// Try to use UPnP to open a port in the home router and allow incoming connections.
+        /// Disables UPnP.
         ///
-        /// This requires a antnode binary built with the 'upnp' feature.
+        /// By default, antnode will try to use UPnP if available. Use this flag to disable UPnP.
         #[clap(long, default_value_t = false)]
-        upnp: bool,
+        no_upnp: bool,
         /// Provide a antnode binary using a URL.
         ///
         /// The binary must be inside a zip or gzipped tar archive.
@@ -947,7 +947,7 @@ async fn main() -> Result<()> {
             rpc_address,
             rpc_port,
             url,
-            upnp,
+            no_upnp,
             user,
             version,
         }) => {
@@ -973,7 +973,7 @@ async fn main() -> Result<()> {
                 rpc_address,
                 rpc_port,
                 path,
-                upnp,
+                no_upnp,
                 url,
                 user,
                 version,

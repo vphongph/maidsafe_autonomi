@@ -194,7 +194,7 @@ pub struct AddNodeServiceOptions {
     pub rpc_port: Option<PortRange>,
     pub service_data_dir_path: PathBuf,
     pub service_log_dir_path: PathBuf,
-    pub upnp: bool,
+    pub no_upnp: bool,
     pub user: Option<String>,
     pub user_mode: bool,
     pub version: String,

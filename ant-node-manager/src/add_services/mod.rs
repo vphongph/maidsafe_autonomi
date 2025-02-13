@@ -170,21 +170,21 @@ pub async fn add_node(
 
             match nat_status {
                 NatDetectionStatus::Public => {
-                    options.upnp = false;
+                    options.no_upnp = true; // UPnP not needed
                     options.home_network = false;
                 }
                 NatDetectionStatus::UPnP => {
-                    options.upnp = true;
+                    options.no_upnp = false;
                     options.home_network = false;
                 }
                 NatDetectionStatus::Private => {
-                    options.upnp = false;
+                    options.no_upnp = true;
                     options.home_network = true;
                 }
             }
             debug!(
                 "Auto-setting NAT flags: upnp={}, home_network={}",
-                options.upnp, options.home_network
+                !options.no_upnp, options.home_network
             );
         }
 
@@ -208,7 +208,7 @@ pub async fn add_node(
             rpc_socket_addr,
             antnode_path: service_antnode_path.clone(),
             service_user: options.user.clone(),
-            upnp: options.upnp,
+            upnp: !options.no_upnp,
         }
         .build()?;
 
@@ -248,7 +248,7 @@ pub async fn add_node(
                     pid: None,
                     service_name,
                     status: ServiceStatus::Added,
-                    upnp: options.upnp,
+                    upnp: !options.no_upnp,
                     user: options.user.clone(),
                     user_mode: options.user_mode,
                     version: options.version.clone(),

@@ -238,10 +238,9 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 value,
             } => register::edit(address, name, &value, peers.await?).await,
             RegisterCmd::Get { address, name } => register::get(address, name, peers.await?).await,
-            RegisterCmd::History {
-                address,
-                name,
-            } => register::history(address, name, peers.await?).await,
+            RegisterCmd::History { address, name } => {
+                register::history(address, name, peers.await?).await
+            }
             RegisterCmd::List => register::list(),
         },
         Some(SubCmd::Vault { command }) => match command {

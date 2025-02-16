@@ -199,7 +199,8 @@ pub async fn history(address: String, name: bool, peers: NetworkPeers) -> Result
     info!("Register history found at: {address}");
     println!("History of values:");
 
-    let values = history.collect()
+    let values = history
+        .collect()
         .await
         .wrap_err(format!("Error getting register history at: {address}"))?;
 

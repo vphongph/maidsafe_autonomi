@@ -132,6 +132,17 @@ pub enum RegisterCmd {
         address: String,
     },
 
+    /// Show the history of values for a register.
+    History {
+        /// Use the name of the register instead of the address
+        /// Note that only the owner of the register can use this shorthand as the address can be generated from the name and register key.
+        #[arg(short, long)]
+        name: bool,
+        /// The address of the register
+        /// With the name option on the address will be used as a name
+        address: String,
+    },
+
     /// List previous registers
     List,
 }
@@ -227,6 +238,10 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 value,
             } => register::edit(address, name, &value, peers.await?).await,
             RegisterCmd::Get { address, name } => register::get(address, name, peers.await?).await,
+            RegisterCmd::History {
+                address,
+                name,
+            } => register::history(address, name, peers.await?).await,
             RegisterCmd::List => register::list(),
         },
         Some(SubCmd::Vault { command }) => match command {

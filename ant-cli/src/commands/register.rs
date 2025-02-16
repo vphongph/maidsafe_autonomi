@@ -167,3 +167,46 @@ pub fn list() -> Result<()> {
     }
     Ok(())
 }
+
+pub async fn history(address: String, name: bool, peers: NetworkPeers) -> Result<()> {
+    let client = crate::actions::connect_to_network(peers).await?;
+
+    let addr = if name {
+        let name_str = address.clone();
+        let main_registers_key = crate::keys::get_register_signing_key()
+            .wrap_err("The register key is required to perform this action")?;
+        let register_key = Client::register_key_from_name(&main_registers_key, &name_str);
+        RegisterAddress::new(register_key.public_key())
+    } else {
+        RegisterAddress::from_hex(&address)
+            .wrap_err(format!("Failed to parse register address: {address}"))
+            .with_suggestion(|| {
+                "if you want to use the name as the address, run the command with the --name flag"
+            })?
+    };
+
+    if name {
+        println!("Getting register history with name: {address}");
+        info!("Getting register history with name: {address}");
+    } else {
+        println!("Getting register history at address: {address}");
+        info!("Getting register history at address: {address}");
+    }
+
+    let mut history = client.register_history(&addr);
+
+    println!("✅ Register history found at: {address}");
+    info!("Register history found at: {address}");
+    println!("History of values:");
+
+    let values = history.collect()
+        .await
+        .wrap_err(format!("Error getting register history at: {address}"))?;
+
+    for value in values {
+        let value_str = String::from_utf8_lossy(&value[..]);
+        println!("[{value_str}]");
+    }
+
+    Ok(())
+}

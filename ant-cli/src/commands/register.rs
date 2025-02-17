@@ -17,6 +17,7 @@ use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
+use hex;
 
 pub fn generate_key(overwrite: bool) -> Result<()> {
     // check if the key already exists
@@ -52,7 +53,7 @@ pub async fn cost(name: &str, peers: NetworkPeers) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> {
+pub async fn create(name: &str, value: &str, hex: bool, peers: NetworkPeers) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
@@ -61,7 +62,16 @@ pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> 
 
     println!("Creating register with name: {name}");
     info!("Creating register with name: {name}");
-    let content = Client::register_value_from_bytes(value.as_bytes())?;
+
+    let value_bytes = if hex {
+        hex::decode(value.trim_start_matches("0x"))
+            .wrap_err("Failed to decode hex value")
+            .with_suggestion(|| "Make sure the value is a valid hex string")?
+    } else {
+        value.as_bytes().to_vec()
+    };
+    let content = Client::register_value_from_bytes(&value_bytes)?;
+
     let (cost, address) = client
         .register_create(&register_key, content, wallet.into())
         .await
@@ -69,7 +79,11 @@ pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> 
 
     println!("✅ Register created at address: {address}");
     println!("With name: {name}");
-    println!("And initial value: [{value}]");
+    if hex {
+        println!("And initial hex value: [{}]", hex::encode(&value_bytes));
+    } else {
+        println!("And initial value: [{value}]");
+    }
     info!("Register created at address: {address} with name: {name}");
     println!("Total cost: {cost} AttoTokens");
 
@@ -81,12 +95,26 @@ pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> 
     Ok(())
 }
 
-pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers) -> Result<()> {
+pub async fn edit(
+    address: String,
+    name: bool,
+    value: &str,
+    hex: bool,
+    peers: NetworkPeers,
+) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
     let wallet = load_wallet(client.evm_network())?;
-    let value_bytes = Client::register_value_from_bytes(value.as_bytes())?;
+
+    let value_bytes = if hex {
+        hex::decode(value.trim_start_matches("0x"))
+            .wrap_err("Failed to decode hex value")
+            .with_suggestion(|| "Make sure the value is a valid hex string")?
+    } else {
+        value.as_bytes().to_vec()
+    };
+    let value_bytes = Client::register_value_from_bytes(&value_bytes)?;
 
     let register_key = if name {
         let name_str = address.clone();
@@ -120,7 +148,7 @@ pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers)
     Ok(())
 }
 
-pub async fn get(address: String, name: bool, peers: NetworkPeers) -> Result<()> {
+pub async fn get(address: String, name: bool, hex: bool, peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
 
     let addr = if name {
@@ -151,9 +179,16 @@ pub async fn get(address: String, name: bool, peers: NetworkPeers) -> Result<()>
 
     println!("✅ Register found at: {address}");
     info!("Register found at: {address}");
-    let value = String::from_utf8_lossy(&value_bytes);
-    println!("With value: [{value}]");
-    info!("With value: [{value}]");
+
+    if hex {
+        let hex_value = hex::encode(&value_bytes);
+        println!("With hex value: [{}]", hex_value);
+        info!("With hex value: [{hex_value}]");
+    } else {
+        let value = String::from_utf8_lossy(&value_bytes);
+        println!("With value: [{value}]");
+        info!("With value: [{value}]");
+    }
 
     Ok(())
 }
@@ -168,7 +203,7 @@ pub fn list() -> Result<()> {
     Ok(())
 }
 
-pub async fn history(address: String, name: bool, peers: NetworkPeers) -> Result<()> {
+pub async fn history(address: String, name: bool, hex: bool, peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
 
     let addr = if name {
@@ -205,8 +240,13 @@ pub async fn history(address: String, name: bool, peers: NetworkPeers) -> Result
         .wrap_err(format!("Error getting register history at: {address}"))?;
 
     for value in values {
-        let value_str = String::from_utf8_lossy(&value[..]);
-        println!("[{value_str}]");
+        if hex {
+            let hex_value = hex::encode(&value);
+            println!("[{}]", hex_value);
+        } else {
+            let value_str = String::from_utf8_lossy(&value[..]);
+            println!("[{value_str}]");
+        }
     }
 
     Ok(())

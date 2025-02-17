@@ -17,7 +17,6 @@ use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
-use hex;
 
 pub fn generate_key(overwrite: bool) -> Result<()> {
     // check if the key already exists
@@ -181,8 +180,8 @@ pub async fn get(address: String, name: bool, hex: bool, peers: NetworkPeers) ->
     info!("Register found at: {address}");
 
     if hex {
-        let hex_value = hex::encode(&value_bytes);
-        println!("With hex value: [{}]", hex_value);
+        let hex_value = hex::encode(value_bytes);
+        println!("With hex value: [{hex_value}]");
         info!("With hex value: [{hex_value}]");
     } else {
         let value = String::from_utf8_lossy(&value_bytes);
@@ -241,8 +240,8 @@ pub async fn history(address: String, name: bool, hex: bool, peers: NetworkPeers
 
     for value in values {
         if hex {
-            let hex_value = hex::encode(&value);
-            println!("[{}]", hex_value);
+            let hex_value = hex::encode(value);
+            println!("[{hex_value}]");
         } else {
             let value_str = String::from_utf8_lossy(&value[..]);
             println!("[{value_str}]");

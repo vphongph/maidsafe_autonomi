@@ -887,13 +887,16 @@ impl Network {
 
     /// Put `Record` to the local RecordStore
     /// Must be called after the validations are performed on the Record
-    pub fn put_local_record(&self, record: Record) {
+    pub fn put_local_record(&self, record: Record, is_client_put: bool) {
         debug!(
             "Writing Record locally, for {:?} - length {:?}",
             PrettyPrintRecordKey::from(&record.key),
             record.value.len()
         );
-        self.send_local_swarm_cmd(LocalSwarmCmd::PutLocalRecord { record })
+        self.send_local_swarm_cmd(LocalSwarmCmd::PutLocalRecord {
+            record,
+            is_client_put,
+        })
     }
 
     /// Returns true if a RecordKey is present locally in the RecordStore

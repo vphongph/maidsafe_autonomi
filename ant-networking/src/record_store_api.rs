@@ -121,13 +121,14 @@ impl UnifiedRecordStore {
         &mut self,
         r: Record,
         record_type: ValidationType,
+        is_client_put: bool,
     ) -> libp2p::kad::store::Result<()> {
         match self {
             Self::Client(_) => {
                 error!("Calling put_verified at Client. This should not happen");
                 Ok(())
             }
-            Self::Node(store) => store.put_verified(r, record_type),
+            Self::Node(store) => store.put_verified(r, record_type, is_client_put),
         }
     }
 

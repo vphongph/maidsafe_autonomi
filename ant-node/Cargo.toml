@@ -2,7 +2,7 @@
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "The Autonomi node binary"
 name = "ant-node"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 license = "GPL-3.0"
 homepage = "https://maidsafe.net"
@@ -15,20 +15,20 @@ path = "src/bin/antnode/main.rs"
 
 [features]
 default = ["open-metrics"]
-extension-module = ["pyo3/extension-module"]
+extension-module = ["pyo3/extension-module", "pyo3-async-runtimes"]
 loud = ["ant-networking/loud"] # loud mode: print important messages to console
 nightly = []
 open-metrics = ["ant-networking/open-metrics", "prometheus-client"]
 otlp = ["ant-logging/otlp"]
 
 [dependencies]
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.4" }
-ant-build-info = { path = "../ant-build-info", version = "0.1.23" }
-ant-evm = { path = "../ant-evm", version = "0.1.8" }
-ant-logging = { path = "../ant-logging", version = "0.2.45", features = ["process-metrics"] }
-ant-networking = { path = "../ant-networking", version = "0.3.3" }
-ant-protocol = { path = "../ant-protocol", version = "0.3.3" }
-ant-service-management = { path = "../ant-service-management", version = "0.4.7" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.5" }
+ant-build-info = { path = "../ant-build-info", version = "0.1.24" }
+ant-evm = { path = "../ant-evm", version = "0.1.9" }
+ant-logging = { path = "../ant-logging", version = "0.2.46", features = ["process-metrics"] }
+ant-networking = { path = "../ant-networking", version = "0.3.5" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.0" }
+ant-service-management = { path = "../ant-service-management", version = "0.4.8" }
 async-trait = "0.1"
 bls = { package = "blsttc", version = "8.0.1" }
 bytes = { version = "1.0.1", features = ["serde"] }
@@ -50,7 +50,8 @@ prometheus-client = { version = "0.22", optional = true }
 # watch out updating this, protoc compiler needs to be installed on all build systems
 # arm builds + musl are very problematic
 prost = { version = "0.9" }
-pyo3 = { version = "0.23.4", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.23.4", features = ["extension-module", "abi3-py38"], optional = true }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"], optional = true }
 rand = { version = "~0.8.5", features = ["small_rng"] }
 rmp-serde = "1.1.1"
 rayon = "1.8.0"
@@ -77,10 +78,10 @@ walkdir = "~2.5.0"
 xor_name = "5.0.0"
 
 [dev-dependencies]
-ant-protocol = { path = "../ant-protocol", version = "0.3.3", features = ["rpc"] }
+ant-protocol = { path = "../ant-protocol", version = "1.0.0", features = ["rpc"] }
 assert_fs = "1.0.0"
-evmlib = { path = "../evmlib", version = "0.1.8" }
-autonomi = { path = "../autonomi", version = "0.3.5" }
+evmlib = { path = "../evmlib", version = "0.1.9" }
+autonomi = { path = "../autonomi", version = "0.3.6" }
 reqwest = { version = "0.12.2", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }

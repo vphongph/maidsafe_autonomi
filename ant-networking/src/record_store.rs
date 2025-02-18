@@ -43,7 +43,7 @@ use std::{
     time::SystemTime,
     vec,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::Duration};
 use walkdir::{DirEntry, WalkDir};
 use xor_name::XorName;
 
@@ -60,6 +60,10 @@ const MAX_RECORDS_CACHE_SIZE: usize = 25;
 
 /// File name of the recorded historical quoting metrics.
 const HISTORICAL_QUOTING_METRICS_FILENAME: &str = "historic_quoting_metrics";
+
+/// Defines when the entries inside the cache shall be pruned to free space up.
+/// Shall be two times of the PERIODIC_REPLICATION_INTERVAL_MAX_S
+const CACHE_TIMEOUT: Duration = Duration::from_secs(360);
 
 fn derive_aes256gcm_siv_from_seed(seed: &[u8; 16]) -> (Aes256GcmSiv, [u8; 4]) {
     // shall be unique for purpose.
@@ -86,13 +90,15 @@ fn derive_aes256gcm_siv_from_seed(seed: &[u8; 16]) -> (Aes256GcmSiv, [u8; 4]) {
 struct RecordCache {
     records_cache: HashMap<Key, (Record, SystemTime)>,
     cache_size: usize,
+    cache_timeout: Duration,
 }
 
 impl RecordCache {
-    fn new(cache_size: usize) -> Self {
+    fn new(cache_size: usize, cache_timeout: Duration) -> Self {
         RecordCache {
             records_cache: HashMap::new(),
             cache_size,
+            cache_timeout,
         }
     }
 
@@ -107,26 +113,36 @@ impl RecordCache {
     fn push_back(&mut self, key: Key, record: Record) {
         self.free_up_space();
 
-        let _ = self.records_cache.insert(key, (record, SystemTime::now()));
+        let _ = self
+            .records_cache
+            .insert(key, (record, SystemTime::now() + self.cache_timeout));
     }
 
     fn free_up_space(&mut self) {
+        let current = SystemTime::now();
+        // Remove outdated entries first
+        self.records_cache
+            .retain(|_key, (_record, timestamp)| *timestamp > current);
+
         while self.records_cache.len() >= self.cache_size {
             self.remove_oldest_entry()
         }
     }
 
     fn remove_oldest_entry(&mut self) {
-        let mut oldest_timestamp = SystemTime::now();
+        let mut oldest_timestamp = SystemTime::now() + self.cache_timeout;
+        let mut key_to_remove = None;
 
-        for (_record, timestamp) in self.records_cache.values() {
+        for (key, (_record, timestamp)) in self.records_cache.iter() {
             if *timestamp < oldest_timestamp {
                 oldest_timestamp = *timestamp;
+                key_to_remove = Some(key.clone());
             }
         }
 
-        self.records_cache
-            .retain(|_key, (_record, timestamp)| *timestamp != oldest_timestamp);
+        if let Some(key) = key_to_remove {
+            let _ = self.records_cache.remove(&key);
+        }
     }
 }
 
@@ -385,7 +401,7 @@ impl NodeRecordStore {
             config,
             records,
             records_by_distance,
-            records_cache: RecordCache::new(cache_size),
+            records_cache: RecordCache::new(cache_size, CACHE_TIMEOUT),
             network_event_sender,
             local_swarm_cmd_sender: swarm_cmd_sender,
             responsible_distance_range: None,
@@ -658,7 +674,12 @@ impl NodeRecordStore {
     ///
     /// The record is marked as written to disk once `mark_as_stored` is called,
     /// this avoids us returning half-written data or registering it as stored before it is.
-    pub(crate) fn put_verified(&mut self, r: Record, record_type: ValidationType) -> Result<()> {
+    pub(crate) fn put_verified(
+        &mut self,
+        r: Record,
+        record_type: ValidationType,
+        is_client_put: bool,
+    ) -> Result<()> {
         let key = &r.key;
         let record_key = PrettyPrintRecordKey::from(&r.key).into_owned();
         debug!("PUTting a verified Record: {record_key:?}");
@@ -677,8 +698,10 @@ impl NodeRecordStore {
             }
         }
 
-        // Store the new record to the cache
-        self.records_cache.push_back(key.clone(), r.clone());
+        // Only cash the record that put by client. For a quick response to the ChunkProof check.
+        if is_client_put {
+            self.records_cache.push_back(key.clone(), r.clone());
+        }
 
         self.prune_records_if_needed(key)?;
 
@@ -1105,7 +1128,7 @@ mod tests {
         let returned_record_key = returned_record.key.clone();
 
         assert!(store
-            .put_verified(returned_record, ValidationType::Chunk)
+            .put_verified(returned_record, ValidationType::Chunk, true)
             .is_ok());
 
         // We must also mark the record as stored (which would be triggered after the async write in nodes
@@ -1183,7 +1206,7 @@ mod tests {
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), ValidationType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk, true)
             .is_ok());
 
         // Wait for the async write operation to complete
@@ -1294,7 +1317,7 @@ mod tests {
 
         // Store the chunk using put_verified
         assert!(store
-            .put_verified(record.clone(), ValidationType::Chunk)
+            .put_verified(record.clone(), ValidationType::Chunk, true)
             .is_ok());
 
         // Mark as stored (simulating the CompletedWrite event)
@@ -1366,7 +1389,8 @@ mod tests {
         assert!(store
             .put_verified(
                 record.clone(),
-                ValidationType::NonChunk(XorName::from_content(&record.value))
+                ValidationType::NonChunk(XorName::from_content(&record.value)),
+                true,
             )
             .is_ok());
 
@@ -1463,7 +1487,9 @@ mod tests {
             };
 
             // Will be stored anyway.
-            let succeeded = store.put_verified(record, ValidationType::Chunk).is_ok();
+            let succeeded = store
+                .put_verified(record, ValidationType::Chunk, true)
+                .is_ok();
 
             if !succeeded {
                 failed_records.push(record_key.clone());
@@ -1586,7 +1612,9 @@ mod tests {
                 publisher: None,
                 expires: None,
             };
-            assert!(store.put_verified(record, ValidationType::Chunk).is_ok());
+            assert!(store
+                .put_verified(record, ValidationType::Chunk, true)
+                .is_ok());
             // We must also mark the record as stored (which would be triggered after the async write in nodes
             // via NetworkEvent::CompletedWrite)
             store.mark_as_stored(record_key.clone(), ValidationType::Chunk, DataTypes::Chunk);
@@ -1668,5 +1696,78 @@ mod tests {
         assert_eq!(store.timestamp, new_store.timestamp);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_pruning_and_size_limit() {
+        // Create cache with small size and short timeout for testing
+        let cache_size = 3;
+        let cache_timeout = Duration::from_millis(100);
+        let mut cache = RecordCache::new(cache_size, cache_timeout);
+
+        // Create test records
+        let record1 = Record {
+            key: RecordKey::new(b"key1"),
+            value: b"value1".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record2 = Record {
+            key: RecordKey::new(b"key2"),
+            value: b"value2".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record3 = Record {
+            key: RecordKey::new(b"key3"),
+            value: b"value3".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        let record4 = Record {
+            key: RecordKey::new(b"key4"),
+            value: b"value4".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+
+        // Add records up to cache size
+        cache.push_back(record1.key.clone(), record1.clone());
+        cache.push_back(record2.key.clone(), record2.clone());
+        cache.push_back(record3.key.clone(), record3.clone());
+
+        // Verify all records are present
+        assert!(cache.get(&record1.key).is_some());
+        assert!(cache.get(&record2.key).is_some());
+        assert!(cache.get(&record3.key).is_some());
+
+        // Add one more record to trigger size-based pruning
+        cache.push_back(record4.key.clone(), record4.clone());
+
+        // Verify cache size is maintained
+        assert_eq!(cache.records_cache.len(), cache_size);
+
+        // Verify oldest record was removed
+        assert!(cache.get(&record1.key).is_none());
+
+        // Wait for timeout to expire
+        sleep(cache_timeout + Duration::from_millis(10)).await;
+
+        // Add another record to trigger time-based pruning
+        let record5 = Record {
+            key: RecordKey::new(b"key5"),
+            value: b"value5".to_vec(),
+            publisher: None,
+            expires: None,
+        };
+        cache.push_back(record5.key.clone(), record5.clone());
+
+        // Verify all timed-out records were removed
+        assert!(cache.get(&record2.key).is_none());
+        assert!(cache.get(&record3.key).is_none());
+        assert!(cache.get(&record4.key).is_none());
+
+        // Verify new record is present
+        assert!(cache.get(&record5.key).is_some());
     }
 }

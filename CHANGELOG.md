@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-02-11
+
+### Network
+
+#### Changed
+
+- Removed encrypt data compile time flag (now always on).
+- Refactor of data types.
+- Removed the default trait for `QuotingMetrics` and it is now initialized with the correct values
+  everywhere.
+- Compile UPnP support by default; will still require `--upnp` when launching the node to activate.
+- Removed the old flawed `Register` native data type.
+- Creating `DataTypes` as the sole place to show network natively supported data types. And use it to
+  replace existing `RecordKind`.
+- Rename `RecordType` to `ValidationType`.
+- Remove MDNS. For local nodes will bootstrap via the peer cache mechanism.
+- Upgrade `libp2p` to `0.55.0` and use some small configuration changes it makes available.
+
+#### Added
+
+- `GraphEntry` data native type as a generic graph for building collections.
+- `Pointer` data native type that points to other data on the network.
+- Relay client events to the metrics endpoint.
+- Relay reservation score to the metrics endpoint. This measures the health of a relay server that
+  we are connected to, by tracking all the recent connections that were routed through that server.
+- Allow override QUIC max stream window with `ANT_MAX_STREAM_DATA`.
+- Added an easy way to spawn nodes or an entire network from code, with `ant_node::spawn::node_spawner::NodeSpawner` and `ant_node::spawn::network_spawner::NetworkSpawner`.
+- Added a `data_type` verification when receiving records with proof of  payment.
+- Added extra logging around payment verification.
+- Make `QuotingMetrics` support data type variant pricing.
+- Avoid free upload via replication.
+
+#### Fixed
+
+- External Address Manager will not consider `IncomingConnectionError` that originates from multiple
+  dial attempts as a serious issue.
+- `MultiAddressNotSupported` error is not considered as a critical error if the error set contains
+  at least one different error.
+- The record count metrics is now set as soon as a node is restarted.
+- Push our Identify info if we make a new reservation with a relay server. This reduces the number
+  of `CircuitReqDenied` errors throughout the network.
+- All connection errors are now more forgiving and does not result in a peer being evicted from the
+  routing table immediately. These errors are tracked and the action is taken only if we go over a
+  threshold.
+- Only replicate fresh uploads to other payees.
+- During quoting re-attempts, use non-blocking sleep instead.
+
+### Client
+
+#### Changed
+
+- Update python bindings and docs. Added initial NodeJS typescript integration.
+- Updated test suit and added comprehensive documentation.
+- Deprecate storing registers references in user data.
+- Correctly report on chunks that were already uploaded to the network when syncing or re-uploading
+  the same data.
+- Add version field to archive data structure for backwards compatibility. And add future
+  compatibility serialization into file metadata.
+- Changed default EVM network to `Arbitrum One`.
+- Removed the deprecated `Client::connect` function! Please use `Client::init` instead.
+- Removed the old `Register` native data type, although the new `Register` high level type does the
+  same job but better.
+- Removed the feature flags and the complexities around those, now everything is configurable at
+  runtime (no need to recompile).
+
+#### Added
+
+- NodeJS/Typescript bindings.
+- 36 different configurations for publish Python bindings.
+- Client examples.
+- Added `evm_network` field to client config.
+- Added a better retry strategy for getting market prices and sending transactions. This reduces the
+  frequency of RPC related upload errors significantly.
+- Added a `data_type` verification when receiving quotes from nodes.
+- Client API for all four data types: `Chunk`, `GraphEntry`, `Scratchpad`, `Pointer`.
+- High level `Register` data type that works similarly to old registers but without the update limit
+  they had: now infinitely mutable.
+- key derivation tooling
+
+#### Fixed
+
+- Rust optimization: Use parallelised chunk cloning in self encryption.
+- Deterministically serialize archives. This leads to de-duplication and less payments when syncing
+  folders and files.
+- Patched and refactored client Python bindings to reflect almost the whole Rust API.
+- EVM network uses default if not supplied by ENV.
+- Event receiver panic after completing client operations.
+
 ## 2025-01-21
 
 ### Client

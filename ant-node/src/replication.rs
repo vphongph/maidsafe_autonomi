@@ -46,39 +46,33 @@ impl Node {
                     requester,
                     key: NetworkAddress::from_record_key(&key),
                 });
-                let record_opt = if let Ok(resp) = node.network().send_request(req, holder).await {
-                    match resp {
-                        Response::Query(QueryResponse::GetReplicatedRecord(result)) => match result
-                        {
-                            Ok((_holder, record_content)) => Some(record_content),
-                            Err(err) => {
-                                debug!("Failed fetch record {pretty_key:?} from node {holder:?}, with error {err:?}");
-                                None
-                            }
-                        },
-                        other => {
-                            debug!("Cannot fetch record {pretty_key:?} from node {holder:?}, with response {other:?}");
-                            None
+
+                let record = match node.network().send_request(req, holder).await {
+                    Ok(Response::Query(QueryResponse::GetReplicatedRecord(result))) => match result
+                    {
+                        Ok((_holder, record_content)) => {
+                            debug!("Fecthed record {pretty_key:?} from holder {holder:?}");
+                            Record::new(key, record_content.to_vec())
                         }
+                        Err(err) => {
+                            info!("Failed fetch record {pretty_key:?} from holder {holder:?}, with error {err:?}");
+                            return;
+                        }
+                    },
+                    Ok(other) => {
+                        info!("Cannot fetch record {pretty_key:?} from holder {holder:?}, with response {other:?}");
+                        return;
                     }
-                } else {
-                    None
+                    Err(err) => {
+                        info!("Failed to send request to fetch record {pretty_key:?} from holder {holder:?}, with error {err:?}");
+                        return;
+                    }
                 };
 
-                let record = if let Some(record_content) = record_opt {
-                    Record::new(key, record_content.to_vec())
-                } else {
-                    debug!("Can not fetch record {pretty_key:?} from node {holder:?}");
-                    return;
-                };
-
-                debug!(
-                    "Got Replication Record {pretty_key:?} from network, validating and storing it"
-                );
                 if let Err(err) = node.store_replicated_in_record(record).await {
-                    error!("During store replication fetched {pretty_key:?}, got error {err:?}");
+                    error!("During store replication fetched {pretty_key:?} from holder {holder:?}, got error {err:?}");
                 } else {
-                    debug!("Completed storing Replication Record {pretty_key:?} from network.");
+                    debug!("Completed storing Replication Record {pretty_key:?} from holder {holder:?}.");
                 }
             });
         }

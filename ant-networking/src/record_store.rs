@@ -1733,8 +1733,11 @@ mod tests {
 
         // Add records up to cache size
         cache.push_back(record1.key.clone(), record1.clone());
+        sleep(Duration::from_millis(1)).await;
         cache.push_back(record2.key.clone(), record2.clone());
+        sleep(Duration::from_millis(1)).await;
         cache.push_back(record3.key.clone(), record3.clone());
+        sleep(Duration::from_millis(1)).await;
 
         // Verify all records are present
         assert!(cache.get(&record1.key).is_some());

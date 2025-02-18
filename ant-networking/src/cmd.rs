@@ -1039,9 +1039,12 @@ impl SwarmDriver {
                     // If it is a connection issue, we don't need to consider it as a bad node
                     if matches!(issue, NodeIssue::ConnectionIssue) {
                         is_connection_issue = true;
-                    } else {
-                        *is_bad = true;
                     }
+                    // TODO: disable black_list currently.
+                    //       re-enable once got more statistics from large scaled network
+                    // else {
+                    //     *is_bad = true;
+                    // }
                     new_bad_behaviour = Some(issue.clone());
                     info!("Peer {peer_id:?} accumulated {issue_counts} times of issue {issue:?}. Consider it as a bad node now.");
                     // Once a bad behaviour detected, no point to continue

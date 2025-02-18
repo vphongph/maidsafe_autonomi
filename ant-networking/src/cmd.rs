@@ -1024,6 +1024,8 @@ impl SwarmDriver {
 
             if is_new_issue {
                 issue_vec.push((issue, Instant::now()));
+            } else {
+                return;
             }
 
             // Only consider candidate as a bad node when:

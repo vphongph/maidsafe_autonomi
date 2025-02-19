@@ -47,6 +47,34 @@ pub fn dummy_hash() -> Hash {
     Hash::new(rand::rngs::OsRng.gen())
 }
 
+use std::sync::OnceLock;
+
+static EVM_NETWORK: OnceLock<Network> = OnceLock::new();
+
+/// Initialize the EVM Network parameters from environment variables or local CSV file.
+///
+/// It will first try to get the network from the environment variables.
+/// If it fails and `local` is true, it will try to get the network from the local CSV file.
+/// If both fail, it will return the default network.
+pub fn get_evm_network(local: bool) -> Result<Network, Error> {
+    if let Some(network) = EVM_NETWORK.get() {
+        return Ok(network.clone());
+    }
+
+    let res = match get_evm_network_from_env() {
+        Ok(evm_network) => Ok(evm_network),
+        Err(_) if local => Ok(local_evm_network_from_csv()
+            .map_err(|e| Error::FailedToGetEvmNetwork(e.to_string()))?),
+        Err(_) => Ok(Network::default()),
+    };
+
+    if let Ok(network) = res.as_ref() {
+        let _ = EVM_NETWORK.set(network.clone());
+    }
+
+    res
+}
+
 pub fn get_evm_testnet_csv_path() -> Result<PathBuf, Error> {
     let file = data_dir()
         .ok_or(Error::FailedToGetEvmNetwork(
@@ -57,23 +85,10 @@ pub fn get_evm_testnet_csv_path() -> Result<PathBuf, Error> {
     Ok(file)
 }
 
-/// Create a custom `Network` from the given values
-pub fn get_evm_network(
-    rpc_url: &str,
-    payment_token_address: &str,
-    data_payments_address: &str,
-) -> Network {
-    Network::Custom(CustomNetwork::new(
-        rpc_url,
-        payment_token_address,
-        data_payments_address,
-    ))
-}
-
 /// Get the `Network` from environment variables.
 ///
 /// Returns an error if we cannot obtain the network from any means.
-pub fn get_evm_network_from_env() -> Result<Network, Error> {
+fn get_evm_network_from_env() -> Result<Network, Error> {
     let evm_vars = [
         env::var(RPC_URL)
             .ok()
@@ -93,15 +108,11 @@ pub fn get_evm_network_from_env() -> Result<Network, Error> {
     })
     .collect::<Result<Vec<String>, Error>>();
 
-    let mut use_local_evm = std::env::var("EVM_NETWORK")
+    let use_local_evm = std::env::var("EVM_NETWORK")
         .map(|v| v == "local")
         .unwrap_or(false);
     if use_local_evm {
         info!("Using local EVM network as EVM_NETWORK is set to 'local'");
-    }
-    if cfg!(feature = "local") {
-        use_local_evm = true;
-        info!("Using local EVM network as 'local' feature flag is enabled");
     }
 
     let use_arbitrum_one = std::env::var("EVM_NETWORK")
@@ -112,12 +123,19 @@ pub fn get_evm_network_from_env() -> Result<Network, Error> {
         .map(|v| v == "arbitrum-sepolia")
         .unwrap_or(false);
 
+    let use_arbitrum_sepolia_test = std::env::var("EVM_NETWORK")
+        .map(|v| v == "arbitrum-sepolia-test")
+        .unwrap_or(false);
+
     if use_arbitrum_one {
         info!("Using Arbitrum One EVM network as EVM_NETWORK is set to 'arbitrum-one'");
         Ok(Network::ArbitrumOne)
     } else if use_arbitrum_sepolia {
         info!("Using Arbitrum Sepolia EVM network as EVM_NETWORK is set to 'arbitrum-sepolia'");
         Ok(Network::ArbitrumSepolia)
+    } else if use_arbitrum_sepolia_test {
+        info!("Using Arbitrum Sepolia Test EVM network as EVM_NETWORK is set to 'arbitrum-sepolia-test'");
+        Ok(Network::ArbitrumSepoliaTest)
     } else if let Ok(evm_vars) = evm_vars {
         info!("Using custom EVM network from environment variables");
         Ok(Network::Custom(CustomNetwork::new(

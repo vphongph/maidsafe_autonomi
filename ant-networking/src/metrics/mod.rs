@@ -8,9 +8,11 @@
 
 // Implementation to record `libp2p::upnp::Event` metrics
 mod bad_node;
+mod relay_client;
 pub mod service;
-#[cfg(feature = "upnp")]
 mod upnp;
+
+use std::sync::atomic::AtomicU64;
 
 use crate::MetricsRegistries;
 use crate::{log_markers::Marker, time::sleep};
@@ -26,7 +28,7 @@ use prometheus_client::{
 use sysinfo::{Pid, ProcessRefreshKind, System};
 use tokio::time::Duration;
 
-const UPDATE_INTERVAL: Duration = Duration::from_secs(15);
+const UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 const TO_MB: u64 = 1_000_000;
 
 /// The shared recorders that are used to record metrics.
@@ -35,8 +37,8 @@ pub(crate) struct NetworkMetricsRecorder {
     // Must directly call self.libp2p_metrics.record(libp2p_event) with Recorder trait in scope. But since we have
     // re-implemented the trait for the wrapper struct, we can instead call self.record(libp2p_event)
     libp2p_metrics: Libp2pMetrics,
-    #[cfg(feature = "upnp")]
     upnp_events: Family<upnp::UpnpEventLabels, Counter>,
+    relay_client_events: Family<relay_client::RelayClientEventLabels, Counter>,
 
     // metrics from ant-networking
     pub(crate) connected_peers: Gauge,
@@ -44,6 +46,7 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
     pub(crate) records_stored: Gauge,
+    pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
 
     // quoting metrics
     relevant_records: Gauge,
@@ -62,8 +65,8 @@ pub(crate) struct NetworkMetricsRecorder {
     shunned_by_old_close_group: Gauge,
 
     // system info
-    process_memory_used_mb: Gauge,
-    process_cpu_usage_percentage: Gauge,
+    process_memory_used_mb: Gauge<f64, AtomicU64>,
+    process_cpu_usage_percentage: Gauge<f64, AtomicU64>,
 
     // helpers
     bad_nodes_notifier: tokio::sync::mpsc::Sender<BadNodeMetricsMsg>,
@@ -83,6 +86,12 @@ impl NetworkMetricsRecorder {
             "records_stored",
             "The number of records stored locally",
             records_stored.clone(),
+        );
+        let relay_reservation_health = Gauge::<f64, AtomicU64>::default();
+        sub_registry.register(
+            "relay_reservation_health",
+            "The average health of all the relay reservation connections. Value is between 0-1",
+            relay_reservation_health.clone(),
         );
 
         let connected_peers = Gauge::default();
@@ -125,23 +134,28 @@ impl NetworkMetricsRecorder {
             bad_peers_count.clone(),
         );
 
-        #[cfg(feature = "upnp")]
         let upnp_events = Family::default();
-        #[cfg(feature = "upnp")]
         sub_registry.register(
             "upnp_events",
             "Events emitted by the UPnP behaviour",
             upnp_events.clone(),
         );
 
-        let process_memory_used_mb = Gauge::default();
+        let relay_client_events = Family::default();
+        sub_registry.register(
+            "relay_client_events",
+            "Events emitted by the relay client",
+            relay_client_events.clone(),
+        );
+
+        let process_memory_used_mb = Gauge::<f64, AtomicU64>::default();
         sub_registry.register(
             "process_memory_used_mb",
             "Memory used by the process in MegaBytes",
             process_memory_used_mb.clone(),
         );
 
-        let process_cpu_usage_percentage = Gauge::default();
+        let process_cpu_usage_percentage = Gauge::<f64, AtomicU64>::default();
         sub_registry.register(
             "process_cpu_usage_percentage",
             "The percentage of CPU used by the process. Value is from 0-100",
@@ -207,13 +221,14 @@ impl NetworkMetricsRecorder {
         );
         let network_metrics = Self {
             libp2p_metrics,
-            #[cfg(feature = "upnp")]
             upnp_events,
+            relay_client_events,
 
             records_stored,
             estimated_network_size,
             connected_peers,
             open_connections,
+            relay_reservation_health,
             peers_in_routing_table,
             relevant_records,
             max_records,
@@ -244,7 +259,7 @@ impl NetworkMetricsRecorder {
 
         let pid = Pid::from_u32(std::process::id());
         let process_refresh_kind = ProcessRefreshKind::everything().without_disk_usage();
-        let mut system = System::new_all();
+        let mut system = System::new();
         let physical_core_count = system.physical_core_count();
 
         tokio::spawn(async move {
@@ -253,12 +268,14 @@ impl NetworkMetricsRecorder {
                 if let (Some(process), Some(core_count)) =
                     (system.process(pid), physical_core_count)
                 {
-                    let mem_used = process.memory() / TO_MB;
-                    let _ = process_memory_used_mb.set(mem_used as i64);
-
+                    let mem_used =
+                        ((process.memory() as f64 / TO_MB as f64) * 10000.0).round() / 10000.0;
+                    let _ = process_memory_used_mb.set(mem_used);
                     // divide by core_count to get value between 0-100
-                    let cpu_usage = process.cpu_usage() / core_count as f32;
-                    let _ = process_cpu_usage_percentage.set(cpu_usage as i64);
+                    let cpu_usage = ((process.cpu_usage() as f64 / core_count as f64) * 10000.0)
+                        .round()
+                        / 10000.0;
+                    let _ = process_cpu_usage_percentage.set(cpu_usage);
                 }
                 sleep(UPDATE_INTERVAL).await;
             }

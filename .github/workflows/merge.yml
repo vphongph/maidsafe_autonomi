@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: wagoid/commitlint-github-action@0184f5a228ee06430bb9e67d65f73a1a6767496a
+      - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed
 
   checks:
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
@@ -85,10 +85,6 @@ jobs:
         # We exclude autonomi-cli because it is not published and conflicts with the `autonomi` crate name,
         # resulting in an error when building docs.
         run: RUSTDOCFLAGS="--deny=warnings" cargo doc --no-deps --workspace --exclude=autonomi-cli
-
-      - name: Check local is not a default feature
-        shell: bash
-        run: if [[ ! $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].features.default[]? | select(. == "local")') ]]; then echo "local is not a default feature in any package."; else echo "local is a default feature in at least one package." && exit 1; fi
 
       - name: Clean out the target directory
         run: cargo clean
@@ -125,11 +121,11 @@ jobs:
 
       - name: Run autonomi tests
         timeout-minutes: 25
-        run: cargo test --release --package autonomi --features full,local --lib
+        run: cargo test --release --package autonomi --lib
 
       - name: Run autonomi doc tests
         timeout-minutes: 25
-        run: cargo test --release --package autonomi --features full,local --doc
+        run: cargo test --release --package autonomi --doc
 
       - name: Run bootstrap tests
         timeout-minutes: 25
@@ -172,15 +168,6 @@ jobs:
         timeout-minutes: 25
         run: cargo test --release --package ant-logging
 
-      - name: Run register tests
-        timeout-minutes: 25
-        run: cargo test --release --package ant-registers
-        env:
-          # this will speed up PR merge flows, while giving us a modicum
-          # of proptesting
-          # we do many more runs on the nightly run
-          PROPTEST_CASES: 50
-
   e2e:
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     name: E2E tests
@@ -202,7 +189,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build binaries
-        run: cargo build --release --features local --bin antnode --bin ant
+        run: cargo build --release --bin antnode --bin ant
         timeout-minutes: 30
 
       - name: Start a local network
@@ -249,13 +236,13 @@ jobs:
         shell: pwsh
 
       - name: Get file cost
-        run: ./target/release/ant --log-output-dest=data-dir file cost "./resources"
+        run: ./target/release/ant --log-output-dest=data-dir --local file cost "./resources"
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest=data-dir file upload "./resources" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local file upload "./resources" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -275,16 +262,16 @@ jobs:
         shell: pwsh
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest=data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
+        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Generate register signing key
-        run: ./target/release/ant --log-output-dest=data-dir register generate-key
+        run: ./target/release/ant --log-output-dest=data-dir --local register generate-key
 
       - name: Create register (writeable by owner)
-        run: ./target/release/ant --log-output-dest=data-dir register create baobao 123 > ./register_create_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local register create baobao 123 > ./register_create_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
@@ -304,51 +291,51 @@ jobs:
         shell: pwsh
 
       - name: Get register
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
       - name: Edit register
-        run: ./target/release/ant --log-output-dest=data-dir register edit ${{ env.REGISTER_ADDRESS }} 456
+        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.REGISTER_ADDRESS }} 456
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
 
       - name: Get register (after edit)
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.REGISTER_ADDRESS }}
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: Create Public Register (writeable by anyone)
-        run: ./target/release/ant --log-output-dest=data-dir register create bao 111 --public > ./register_public_create_output 2>&1
+      - name: Create Register
+        run: ./target/release/ant --log-output-dest=data-dir --local register create bao 111 > ./register2_create_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: parse public register address (unix)
+      - name: parse register address (unix)
         if: matrix.os != 'windows-latest'
         run: |
-          PUBLIC_REGISTER_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output)
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" >> $GITHUB_ENV
+          REGISTER2_ADDRESS=$(rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register2_create_output)
+          echo "REGISTER2_ADDRESS=$REGISTER2_ADDRESS" >> $GITHUB_ENV
         shell: bash
 
-      - name: parse public register address (win)
+      - name: parse register address (win)
         if: matrix.os == 'windows-latest'
         run: |
-          $PUBLIC_REGISTER_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register_public_create_output
-          echo "PUBLIC_REGISTER_ADDRESS=$PUBLIC_REGISTER_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $REGISTER2_ADDRESS = rg "Register created at address: ([0-9a-f]*)" -o -r '$1' ./register2_create_output
+          echo "REGISTER2_ADDRESS=$REGISTER2_ADDRESS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
-      - name: Get Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (current key is the owner)
+        run: ./target/release/ant --log-output-dest=data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 5
 
-      - name: Edit Public Register (current key is the owner)
-        run: ./target/release/ant --log-output-dest=data-dir register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 222
+      - name: Edit Register (current key is the owner)
+        run: ./target/release/ant --log-output-dest=data-dir --local register edit ${{ env.REGISTER2_ADDRESS }} 222
         env:
           ANT_LOG: "v"
         timeout-minutes: 10
@@ -360,20 +347,14 @@ jobs:
       - name: Generate new register signing key
         run: ./target/release/ant --log-output-dest data-dir register generate-key
 
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (new signing key is not the owner)
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
-      - name: Edit Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register edit ${{ env.PUBLIC_REGISTER_ADDRESS }} 333
-        env:
-          ANT_LOG: "v"
-        timeout-minutes: 10
-
-      - name: Get Public Register (new signing key is not the owner)
-        run: ./target/release/ant --log-output-dest data-dir register get ${{ env.PUBLIC_REGISTER_ADDRESS }}
+      - name: Get Register (new signing key is not the owner)
+        run: ./target/release/ant --log-output-dest data-dir --local register get ${{ env.REGISTER2_ADDRESS }}
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -385,25 +366,25 @@ jobs:
         timeout-minutes: 2
 
       - name: file upload
-        run: ./target/release/ant --log-output-dest data-dir file upload random.txt
+        run: ./target/release/ant --log-output-dest data-dir --local file upload random.txt
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: create a local register
-        run: ./target/release/ant --log-output-dest data-dir register create sample_new_register 1234
+        run: ./target/release/ant --log-output-dest data-dir --local register create sample_new_register 1234
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: Estimate cost to create a vault
-        run: ./target/release/ant --log-output-dest data-dir vault cost
+        run: ./target/release/ant --log-output-dest data-dir --local vault cost
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: create a vault with existing user data as above
-        run: ./target/release/ant --log-output-dest data-dir vault create
+        run: ./target/release/ant --log-output-dest data-dir --local vault create
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -414,9 +395,9 @@ jobs:
           set -e
           for i in {1..50}; do
             dd if=/dev/urandom of=random_file_$i.bin bs=1M count=1 status=none
-            ./target/release/ant --log-output-dest data-dir file upload random_file_$i.bin --public
-            ./target/release/ant --log-output-dest data-dir file upload random_file_$i.bin
-            ./target/release/ant --log-output-dest data-dir register create $i random_file_$i.bin
+            ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin --public
+            ./target/release/ant --log-output-dest data-dir --local file upload random_file_$i.bin
+            ./target/release/ant --log-output-dest data-dir --local register create $i random_file_$i.bin
           done
         env:
           ANT_LOG: "v"
@@ -433,22 +414,22 @@ jobs:
               [System.IO.File]::WriteAllBytes($fileName, $byteArray)
 
               # Run autonomi commands
-              ./target/release/ant --log-output-dest data-dir file upload "random_file_$i.bin" --public
-              ./target/release/ant --log-output-dest data-dir file upload "random_file_$i.bin"
-              ./target/release/ant --log-output-dest data-dir register create $i "random_file_$i.bin"
+              ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin" --public
+              ./target/release/ant --log-output-dest data-dir --local file upload "random_file_$i.bin"
+              ./target/release/ant --log-output-dest data-dir --local register create $i "random_file_$i.bin"
           }
         env:
           ANT_LOG: "v"
         timeout-minutes: 25
 
       - name: sync the vault
-        run: ./target/release/ant --log-output-dest data-dir vault sync
+        run: ./target/release/ant --log-output-dest data-dir --local vault sync
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
 
       - name: load the vault from network
-        run: ./target/release/ant --log-output-dest data-dir vault load
+        run: ./target/release/ant --log-output-dest data-dir --local vault load
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -463,11 +444,11 @@ jobs:
           NUM_OF_PUBLIC_FILES_IN_VAULT=""
           NUM_OF_PRIVATE_FILES_IN_VAULT=""
 
-          ./target/release/ant --log-output-dest data-dir file list 2>&1 > file_list.txt
+          ./target/release/ant --log-output-dest data-dir --local file list 2>&1 > file_list.txt
 
           NUM_OF_PUBLIC_FILES=`cat file_list.txt | grep "public" | grep -o '[0-9]\+'`
           NUM_OF_PRIVATE_FILES=`cat file_list.txt | grep "private" | grep -o '[0-9]\+'`
-          ./target/release/ant --log-output-dest data-dir vault load 2>&1 > vault_data.txt
+          ./target/release/ant --log-output-dest data-dir --local vault load 2>&1 > vault_data.txt
 
           NUM_OF_PUBLIC_FILES_IN_VAULT=`cat vault_data.txt  | grep "public" | grep -o '[0-9]\+'`
           NUM_OF_PRIVATE_FILES_IN_VAULT=`cat vault_data.txt| grep "private" | grep -o '[0-9]\+'`
@@ -489,8 +470,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          ./target/release/ant --log-output-dest data-dir file list > file_list.txt 2>&1
-          ./target/release/ant --log-output-dest data-dir vault load > vault_data.txt 2>&1
+          ./target/release/ant --log-output-dest data-dir --local file list > file_list.txt 2>&1
+          ./target/release/ant --log-output-dest data-dir --local vault load > vault_data.txt 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -537,7 +518,7 @@ jobs:
         timeout-minutes: 2
 
       - name: load an existing vault from the network
-        run: ./target/release/ant --log-output-dest=data-dir vault load
+        run: ./target/release/ant --log-output-dest data-dir --local vault load
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -555,12 +536,12 @@ jobs:
           # 1 GB
           python3 -c "with open('random_1GB.bin', 'wb') as f: f.write(bytearray([0xff] * 1000 * 1024 * 1024))"
 
-          ./target/release/ant --log-output-dest=data-dir file list
-          time ./target/release/ant --log-output-dest=data-dir file upload random_1MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_10MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_100MB.bin
-          time ./target/release/ant --log-output-dest=data-dir file upload random_1GB.bin
-          ./target/release/ant --log-output-dest=data-dir vault sync
+          ./target/release/ant --log-output-dest=data-dir --local file list
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_1MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_10MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_100MB.bin
+          time ./target/release/ant --log-output-dest=data-dir --local file upload random_1GB.bin
+          ./target/release/ant --log-output-dest=data-dir --local vault sync
           rm -rf random*.bin
           rm -rf ${{ matrix.ant_path }}/autonomi
         env:
@@ -574,138 +555,6 @@ jobs:
           action: stop
           log_file_prefix: safe_test_logs_e2e
           platform: ${{ matrix.os }}
-
-  # transaction_test:
-  #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
-  #   name: transaction tests against network
-  #   runs-on: ${{ matrix.os }}
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest, windows-latest, macos-latest]
-  #   steps:
-  #     - uses: actions/checkout@v4
-
-  #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@stable
-
-  #     - uses: Swatinem/rust-cache@v2
-
-  #     - name: Build binaries
-  #       run: cargo build --release --features=local --bin antnode
-  #       timeout-minutes: 30
-
-  #     - name: Build faucet binary
-  #       run: cargo build --release --bin faucet --features="local,gifting"
-  #       timeout-minutes: 30
-
-  #     - name: Start a local network
-  #       uses: maidsafe/ant-local-testnet-action@main
-  #       with:
-  #         action: start
-  #         interval: 2000
-  #         node-path: target/release/antnode
-  #         faucet-path: target/release/faucet
-  #         platform: ${{ matrix.os }}
-  #         build: true
-
-  #     - name: Check ANT_PEERS was set
-  #       shell: bash
-  #       run: |
-  #         if [[ -z "$ANT_PEERS" ]]; then
-  #           echo "The ANT_PEERS variable has not been set"
-  #           exit 1
-  #         else
-  #           echo "ANT_PEERS has been set to $ANT_PEERS"
-  #         fi
-
-  #     - name: execute the sequential transfers tests
-  #       run: cargo test --release -p ant-node --features="local" --test sequential_transfers -- --nocapture --test-threads=1
-  #       env:
-  #         ANT_LOG: "all"
-  #         CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-  #       timeout-minutes: 25
-
-  #     - name: execute the storage payment tests
-  #       run: cargo test --release -p ant-node --features="local" --test storage_payments -- --nocapture --test-threads=1
-  #       env:
-  #         ANT_LOG: "all"
-  #         CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-  #       timeout-minutes: 25
-
-  #     - name: Stop the local network and upload logs
-  #       if: always()
-  #       uses: maidsafe/ant-local-testnet-action@main
-  #       with:
-  #         action: stop
-  #         log_file_prefix: safe_test_logs_transaction
-  #         platform: ${{ matrix.os }}
-
-  # # runs with increased node count
-  # transaction_simulation:
-  #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
-  #   name: transaction simulation
-  #   runs-on: ${{ matrix.os }}
-  #   strategy:
-  #     matrix:
-  #       os: [ ubuntu-latest, windows-latest, macos-latest ]
-  #   steps:
-  #     - uses: actions/checkout@v4
-
-  #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@stable
-
-  #     - uses: Swatinem/rust-cache@v2
-
-  #     - name: Build binaries
-  #       run: cargo build --release --features=local --bin antnode
-  #       timeout-minutes: 30
-
-  #     - name: Build faucet binary
-  #       run: cargo build --release --bin faucet --features="local,gifting"
-  #       timeout-minutes: 30
-
-  #     - name: Build testing executable
-  #       run: cargo test --release -p ant-node --features=local --test transaction_simulation --no-run
-  #       env:
-  #         # only set the target dir for windows to bypass the linker issue.
-  #         # happens if we build the node manager via testnet action
-  #         CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-  #       timeout-minutes: 30
-
-  #     - name: Start a local network
-  #       uses: maidsafe/ant-local-testnet-action@main
-  #       with:
-  #         action: start
-  #         interval: 2000
-  #         node-count: 50
-  #         node-path: target/release/antnode
-  #         faucet-path: target/release/faucet
-  #         platform: ${{ matrix.os }}
-  #         build: true
-
-  #     - name: Check ANT_PEERS was set
-  #       shell: bash
-  #       run: |
-  #         if [[ -z "$ANT_PEERS" ]]; then
-  #           echo "The ANT_PEERS variable has not been set"
-  #           exit 1
-  #         else
-  #           echo "ANT_PEERS has been set to $ANT_PEERS"
-  #         fi
-
-  #     - name: execute the transaction simulation
-  #       run: cargo test --release -p ant-node --features="local" --test transaction_simulation -- --nocapture
-  #       env:
-  #         CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-  #       timeout-minutes: 25
-
-  #     - name: Stop the local network and upload logs
-  #       if: always()
-  #       uses: maidsafe/ant-local-testnet-action@main
-  #       with:
-  #         action: stop
-  #         log_file_prefix: safe_test_logs_transaction_simulation
-  #         platform: ${{ matrix.os }}
 
   # token_distribution_test:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
@@ -723,15 +572,15 @@ jobs:
   #     - uses: Swatinem/rust-cache@v2
 
   #     - name: Build binaries
-  #       run: cargo build --release --features=local,distribution --bin antnode
+  #       run: cargo build --release --features=distribution --bin antnode
   #       timeout-minutes: 35
 
   #     - name: Build faucet binary
-  #       run: cargo build --release --features=local,distribution,gifting --bin faucet
+  #       run: cargo build --release --features=distribution,gifting --bin faucet
   #       timeout-minutes: 35
 
   #     - name: Build testing executable
-  #       run: cargo test --release --features=local,distribution --no-run
+  #       run: cargo test --release --features=distribution --no-run
   #       env:
   #         # only set the target dir for windows to bypass the linker issue.
   #         # happens if we build the node manager via testnet action
@@ -759,7 +608,7 @@ jobs:
   #         fi
 
   #     - name: execute token_distribution tests
-  #       run: cargo test --release --features=local,distribution token_distribution -- --nocapture --test-threads=1
+  #       run: cargo test --release --features=distribution token_distribution -- --nocapture --test-threads=1
   #       env:
   #         ANT_LOG: "all"
   #         CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
@@ -797,11 +646,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build binaries
-        run: cargo build --release --features local --bin antnode
+        run: cargo build --release --bin antnode
         timeout-minutes: 30
 
       - name: Build churn tests
-        run: cargo test --release -p ant-node --features=local --test data_with_churn --no-run
+        run: cargo test --release -p ant-node --test data_with_churn --no-run
         env:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
@@ -832,7 +681,7 @@ jobs:
           fi
 
       - name: Chunks data integrity during nodes churn
-        run: cargo test --release -p ant-node --features=local --test data_with_churn -- --nocapture
+        run: cargo test --release -p ant-node --test data_with_churn -- --nocapture
         env:
           TEST_DURATION_MINS: 5
           TEST_TOTAL_CHURN_CYCLES: 15
@@ -944,11 +793,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build binaries
-        run: cargo build --release --features local --bin antnode
+        run: cargo build --release --bin antnode
         timeout-minutes: 30
 
       - name: Build data location and routing table tests
-        run: cargo test --release -p ant-node --features=local --test verify_data_location --test verify_routing_table --no-run
+        run: cargo test --release -p ant-node --test verify_data_location --test verify_routing_table --no-run
         env:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
@@ -978,14 +827,8 @@ jobs:
               echo "EVM_NETWORK has been set to $EVM_NETWORK"
           fi
 
-      - name: Verify the routing tables of the nodes
-        run: cargo test --release -p ant-node --features "local" --test verify_routing_table -- --nocapture
-        env:
-          CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-        timeout-minutes: 5
-
       - name: Verify the location of the data on the network
-        run: cargo test --release -p ant-node --features "local" --test verify_data_location -- --nocapture
+        run: cargo test --release -p ant-node --test verify_data_location -- --nocapture
         env:
           CHURN_COUNT: 6
           ANT_LOG: "all"
@@ -993,7 +836,7 @@ jobs:
         timeout-minutes: 25
 
       - name: Verify the routing tables of the nodes
-        run: cargo test --release -p ant-node --features "local" --test verify_routing_table -- --nocapture
+        run: cargo test --release -p ant-node --test verify_routing_table -- --nocapture
         env:
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
         timeout-minutes: 5
@@ -1267,7 +1110,7 @@ jobs:
           ls -l
 
       - name: Build binaries
-        run: cargo build --release --features local --bin antnode --bin ant
+        run: cargo build --release --bin antnode --bin ant
         timeout-minutes: 30
 
       - name: Start a local network
@@ -1310,7 +1153,7 @@ jobs:
         shell: bash
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest data-dir file upload "./test_data_1.tar.gz" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest data-dir --local file upload "./test_data_1.tar.gz" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -1327,7 +1170,7 @@ jobs:
         shell: bash
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources > ./download_output 2>&1
+        run: ./target/release/ant --log-output-dest data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources > ./download_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 5

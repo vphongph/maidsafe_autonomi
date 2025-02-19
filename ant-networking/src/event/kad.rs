@@ -7,11 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    driver::PendingGetClosestType, get_graph_entry_from_record, get_quorum_value, time::Instant,
-    GetRecordCfg, GetRecordError, NetworkError, Result, SwarmDriver, CLOSE_GROUP_SIZE,
+    driver::PendingGetClosestType, get_graph_entry_from_record, time::Instant, GetRecordCfg,
+    GetRecordError, NetworkError, Result, SwarmDriver, CLOSE_GROUP_SIZE,
 };
 use ant_protocol::{
-    storage::{try_serialize_record, GraphEntry, RecordKind},
+    storage::{try_serialize_record, DataTypes, GraphEntry, RecordKind},
     NetworkAddress, PrettyPrintRecordKey,
 };
 use itertools::Itertools;
@@ -380,7 +380,7 @@ impl SwarmDriver {
                     1
                 };
 
-            let expected_answers = get_quorum_value(&cfg.get_quorum);
+            let expected_answers = cfg.get_quorum.get_value();
             debug!("Expecting {expected_answers:?} answers for record {pretty_key:?} task {query_id:?}, received {responded_peers} so far");
 
             if responded_peers >= expected_answers {
@@ -396,26 +396,26 @@ impl SwarmDriver {
                     Self::send_record_after_checking_target(senders, peer_record.record, &cfg)?;
                 } else {
                     debug!("For record {pretty_key:?} task {query_id:?}, fetch completed with split record");
-                    let mut accumulated_transactions = BTreeSet::new();
+                    let mut accumulated_graph_entries = BTreeSet::new();
                     for (record, _) in result_map.values() {
                         match get_graph_entry_from_record(record) {
-                            Ok(transactions) => {
-                                accumulated_transactions.extend(transactions);
+                            Ok(graph_entries) => {
+                                accumulated_graph_entries.extend(graph_entries);
                             }
                             Err(_) => {
                                 continue;
                             }
                         }
                     }
-                    if !accumulated_transactions.is_empty() {
-                        info!("For record {pretty_key:?} task {query_id:?}, found split record for a transaction, accumulated and sending them as a single record");
-                        let accumulated_transactions = accumulated_transactions
+                    if !accumulated_graph_entries.is_empty() {
+                        info!("For record {pretty_key:?} task {query_id:?}, found split record for a GraphEntry, accumulated and sending them as a single record");
+                        let accumulated_graph_entries = accumulated_graph_entries
                             .into_iter()
                             .collect::<Vec<GraphEntry>>();
 
                         let bytes = try_serialize_record(
-                            &accumulated_transactions,
-                            RecordKind::GraphEntry,
+                            &accumulated_graph_entries,
+                            RecordKind::DataOnly(DataTypes::GraphEntry),
                         )?;
 
                         let new_accumulated_record = Record {
@@ -506,12 +506,12 @@ impl SwarmDriver {
                 let result = if let Some((record, peers)) = result_map.values().next() {
                     trace!("one version found for record {data_key_address:?}!");
 
-                    if peers.len() >= get_quorum_value(&cfg.get_quorum) {
+                    if peers.len() >= cfg.get_quorum.get_value() {
                         Ok(record.clone())
                     } else {
                         Err(GetRecordError::NotEnoughCopies {
                             record: record.clone(),
-                            expected: get_quorum_value(&cfg.get_quorum),
+                            expected: cfg.get_quorum.get_value(),
                             got: peers.len(),
                         })
                     }
@@ -582,7 +582,7 @@ impl SwarmDriver {
                         }
                     })?;
 
-                let required_response_count = get_quorum_value(&cfg.get_quorum);
+                let required_response_count = cfg.get_quorum.get_value();
 
                 // if we've a split over the result xorname, then we don't attempt to resolve this here.
                 // Retry and resolve through normal flows without a timeout.

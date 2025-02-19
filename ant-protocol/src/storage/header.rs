@@ -10,20 +10,48 @@ use crate::error::Error;
 use crate::PrettyPrintRecordKey;
 use bytes::{BufMut, Bytes, BytesMut};
 use libp2p::kad::Record;
+use prometheus_client::encoding::EncodeLabelValue;
 use rmp_serde::Serializer;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use xor_name::XorName;
 
-/// Indicates the type of the record content.
-/// Note for `Spend` and `Register`, using its content_hash (in `XorName` format)
-/// to indicate different content body.
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
-pub enum RecordType {
+/// Data types that natively suppported by autonomi network.
+#[derive(EncodeLabelValue, Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum DataTypes {
     Chunk,
-    Scratchpad,
-    Pointer,
     GraphEntry,
+    Pointer,
+    Scratchpad,
+}
+
+impl DataTypes {
+    pub fn get_index(&self) -> u32 {
+        match self {
+            Self::Chunk => 0,
+            Self::GraphEntry => 1,
+            Self::Pointer => 2,
+            Self::Scratchpad => 3,
+        }
+    }
+
+    pub fn from_index(index: u32) -> Option<Self> {
+        match index {
+            0 => Some(Self::Chunk),
+            1 => Some(Self::GraphEntry),
+            2 => Some(Self::Pointer),
+            3 => Some(Self::Scratchpad),
+            _ => None,
+        }
+    }
+}
+
+/// Indicates the type of the record content.
+/// This is to be only used within the node instance to reflect different content version.
+/// Hence, only need to have two entries: Chunk and NonChunk.
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+pub enum ValidationType {
+    Chunk,
     NonChunk(XorName),
 }
 
@@ -32,37 +60,28 @@ pub struct RecordHeader {
     pub kind: RecordKind,
 }
 
+/// To be used between client and nodes, hence need to indicate whehter payment info involved.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum RecordKind {
-    Chunk,
-    ChunkWithPayment,
-    GraphEntry,
-    GraphEntryWithPayment,
-    Register,
-    RegisterWithPayment,
-    Scratchpad,
-    ScratchpadWithPayment,
-    Pointer,
-    PointerWithPayment,
+    DataOnly(DataTypes),
+    DataWithPayment(DataTypes),
 }
+
+/// Allowing 10 data types to be defined, leaving margin for future.
+pub const RECORD_KIND_PAYMENT_STARTING_INDEX: u32 = 10;
 
 impl Serialize for RecordKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        match *self {
-            Self::ChunkWithPayment => serializer.serialize_u32(0),
-            Self::Chunk => serializer.serialize_u32(1),
-            Self::GraphEntry => serializer.serialize_u32(2),
-            Self::Register => serializer.serialize_u32(3),
-            Self::RegisterWithPayment => serializer.serialize_u32(4),
-            Self::Scratchpad => serializer.serialize_u32(5),
-            Self::ScratchpadWithPayment => serializer.serialize_u32(6),
-            Self::GraphEntryWithPayment => serializer.serialize_u32(7),
-            Self::Pointer => serializer.serialize_u32(8),
-            Self::PointerWithPayment => serializer.serialize_u32(9),
-        }
+        let index = match self {
+            Self::DataOnly(ref data_types) => data_types.get_index(),
+            Self::DataWithPayment(ref data_types) => {
+                RECORD_KIND_PAYMENT_STARTING_INDEX + data_types.get_index()
+            }
+        };
+        serializer.serialize_u32(index)
     }
 }
 
@@ -72,20 +91,22 @@ impl<'de> Deserialize<'de> for RecordKind {
         D: serde::Deserializer<'de>,
     {
         let num = u32::deserialize(deserializer)?;
-        match num {
-            0 => Ok(Self::ChunkWithPayment),
-            1 => Ok(Self::Chunk),
-            2 => Ok(Self::GraphEntry),
-            3 => Ok(Self::Register),
-            4 => Ok(Self::RegisterWithPayment),
-            5 => Ok(Self::Scratchpad),
-            6 => Ok(Self::ScratchpadWithPayment),
-            7 => Ok(Self::GraphEntryWithPayment),
-            8 => Ok(Self::Pointer),
-            9 => Ok(Self::PointerWithPayment),
-            _ => Err(serde::de::Error::custom(
-                "Unexpected integer for RecordKind variant",
-            )),
+        let data_type_index = if num < RECORD_KIND_PAYMENT_STARTING_INDEX {
+            num
+        } else {
+            num - RECORD_KIND_PAYMENT_STARTING_INDEX
+        };
+
+        if let Some(data_type) = DataTypes::from_index(data_type_index) {
+            if num < RECORD_KIND_PAYMENT_STARTING_INDEX {
+                Ok(Self::DataOnly(data_type))
+            } else {
+                Ok(Self::DataWithPayment(data_type))
+            }
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Unexpected index {num} for RecordKind variant",
+            )))
         }
     }
 }
@@ -129,7 +150,16 @@ impl RecordHeader {
 
     pub fn is_record_of_type_chunk(record: &Record) -> Result<bool, Error> {
         let kind = Self::from_record(record)?.kind;
-        Ok(kind == RecordKind::Chunk)
+        Ok(kind == RecordKind::DataOnly(DataTypes::Chunk))
+    }
+
+    pub fn get_data_type(record: &Record) -> Result<DataTypes, Error> {
+        let kind = Self::from_record(record)?.kind;
+        match kind {
+            RecordKind::DataOnly(data_type) | RecordKind::DataWithPayment(data_type) => {
+                Ok(data_type)
+            }
+        }
     }
 }
 
@@ -168,61 +198,49 @@ pub fn try_serialize_record<T: serde::Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use super::{RecordHeader, RecordKind};
+    use super::*;
     use crate::error::Result;
 
     #[test]
     fn verify_record_header_encoded_size() -> Result<()> {
         let chunk_with_payment = RecordHeader {
-            kind: RecordKind::ChunkWithPayment,
+            kind: RecordKind::DataWithPayment(DataTypes::Chunk),
         }
         .try_serialize()?;
         assert_eq!(chunk_with_payment.len(), RecordHeader::SIZE);
 
-        let reg_with_payment = RecordHeader {
-            kind: RecordKind::RegisterWithPayment,
-        }
-        .try_serialize()?;
-        assert_eq!(reg_with_payment.len(), RecordHeader::SIZE);
-
         let chunk = RecordHeader {
-            kind: RecordKind::Chunk,
+            kind: RecordKind::DataOnly(DataTypes::Chunk),
         }
         .try_serialize()?;
         assert_eq!(chunk.len(), RecordHeader::SIZE);
 
-        let transaction = RecordHeader {
-            kind: RecordKind::GraphEntry,
+        let graphentry = RecordHeader {
+            kind: RecordKind::DataOnly(DataTypes::GraphEntry),
         }
         .try_serialize()?;
-        assert_eq!(transaction.len(), RecordHeader::SIZE);
-
-        let register = RecordHeader {
-            kind: RecordKind::Register,
-        }
-        .try_serialize()?;
-        assert_eq!(register.len(), RecordHeader::SIZE);
+        assert_eq!(graphentry.len(), RecordHeader::SIZE);
 
         let scratchpad = RecordHeader {
-            kind: RecordKind::Scratchpad,
+            kind: RecordKind::DataOnly(DataTypes::Scratchpad),
         }
         .try_serialize()?;
         assert_eq!(scratchpad.len(), RecordHeader::SIZE);
 
         let scratchpad_with_payment = RecordHeader {
-            kind: RecordKind::ScratchpadWithPayment,
+            kind: RecordKind::DataWithPayment(DataTypes::Scratchpad),
         }
         .try_serialize()?;
         assert_eq!(scratchpad_with_payment.len(), RecordHeader::SIZE);
 
         let pointer = RecordHeader {
-            kind: RecordKind::Pointer,
+            kind: RecordKind::DataOnly(DataTypes::Pointer),
         }
         .try_serialize()?;
         assert_eq!(pointer.len(), RecordHeader::SIZE);
 
         let pointer_with_payment = RecordHeader {
-            kind: RecordKind::PointerWithPayment,
+            kind: RecordKind::DataWithPayment(DataTypes::Pointer),
         }
         .try_serialize()?;
         assert_eq!(pointer_with_payment.len(), RecordHeader::SIZE);
@@ -233,16 +251,14 @@ mod tests {
     #[test]
     fn test_record_kind_serialization() -> Result<()> {
         let kinds = vec![
-            RecordKind::Chunk,
-            RecordKind::ChunkWithPayment,
-            RecordKind::GraphEntry,
-            RecordKind::GraphEntryWithPayment,
-            RecordKind::Register,
-            RecordKind::RegisterWithPayment,
-            RecordKind::Scratchpad,
-            RecordKind::ScratchpadWithPayment,
-            RecordKind::Pointer,
-            RecordKind::PointerWithPayment,
+            RecordKind::DataOnly(DataTypes::Chunk),
+            RecordKind::DataWithPayment(DataTypes::Chunk),
+            RecordKind::DataOnly(DataTypes::GraphEntry),
+            RecordKind::DataWithPayment(DataTypes::GraphEntry),
+            RecordKind::DataOnly(DataTypes::Scratchpad),
+            RecordKind::DataWithPayment(DataTypes::Scratchpad),
+            RecordKind::DataOnly(DataTypes::Pointer),
+            RecordKind::DataWithPayment(DataTypes::Pointer),
         ];
 
         for kind in kinds {

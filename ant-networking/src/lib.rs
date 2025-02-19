@@ -12,6 +12,7 @@ extern crate tracing;
 mod bootstrap;
 mod circular_vec;
 mod cmd;
+mod config;
 mod driver;
 mod error;
 mod event;
@@ -35,9 +36,8 @@ use xor_name::XorName;
 // re-export arch dependent deps for use in the crate, or above
 pub use self::{
     cmd::{NodeIssue, SwarmLocalState},
-    driver::{
-        GetRecordCfg, NetworkBuilder, PutRecordCfg, SwarmDriver, VerificationKind, MAX_PACKET_SIZE,
-    },
+    config::{GetRecordCfg, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind},
+    driver::{NetworkBuilder, SwarmDriver, MAX_PACKET_SIZE},
     error::{GetRecordError, NetworkError},
     event::{MsgResponder, NetworkEvent},
     graph::get_graph_entry_from_record,
@@ -52,13 +52,13 @@ use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
-    storage::{Pointer, RecordType, RetryStrategy, Scratchpad},
+    storage::{DataTypes, Pointer, Scratchpad, ValidationType},
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use futures::future::select_all;
 use libp2p::{
     identity::Keypair,
-    kad::{KBucketDistance, KBucketKey, Quorum, Record, RecordKey},
+    kad::{KBucketDistance, KBucketKey, Record, RecordKey},
     multiaddr::Protocol,
     request_response::OutboundFailure,
     Multiaddr, PeerId,
@@ -79,7 +79,6 @@ use {
     ant_protocol::storage::{
         try_deserialize_record, try_serialize_record, RecordHeader, RecordKind,
     },
-    ant_registers::SignedRegister,
     std::collections::HashSet,
 };
 
@@ -276,9 +275,11 @@ impl Network {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetReplicateCandidates { data_addr, sender });
 
-        receiver
+        let candidate = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+
+        Ok(candidate)
     }
 
     /// Get the Chunk existence proof from the close nodes to the provided chunk address.
@@ -288,15 +289,13 @@ impl Network {
         chunk_address: NetworkAddress,
         nonce: Nonce,
         expected_proof: ChunkProof,
-        quorum: Quorum,
-        retry_strategy: Option<RetryStrategy>,
+        quorum: ResponseQuorum,
+        retry_strategy: RetryStrategy,
     ) -> Result<()> {
-        let total_attempts = retry_strategy
-            .map(|strategy| strategy.attempts())
-            .unwrap_or(1);
+        let total_attempts = retry_strategy.attempts();
 
         let pretty_key = PrettyPrintRecordKey::from(&chunk_address.to_record_key()).into_owned();
-        let expected_n_verified = get_quorum_value(&quorum);
+        let expected_n_verified = quorum.get_value();
 
         let mut close_nodes = Vec::new();
         let mut retry_attempts = 0;
@@ -378,6 +377,8 @@ impl Network {
     pub async fn get_store_quote_from_network(
         &self,
         record_address: NetworkAddress,
+        data_type: u32,
+        data_size: usize,
         ignore_peers: Vec<PeerId>,
     ) -> Result<Vec<(PeerId, PaymentQuote)>> {
         // The requirement of having at least CLOSE_GROUP_SIZE
@@ -394,12 +395,14 @@ impl Network {
 
         if close_nodes.is_empty() {
             error!("Can't get store_cost of {record_address:?}, as all close_nodes are ignored");
-            return Err(NetworkError::NoStoreCostResponses);
+            return Err(NetworkError::NotEnoughPeersForStoreCostRequest);
         }
 
         // Client shall decide whether to carry out storage verification or not.
         let request = Request::Query(Query::GetStoreQuote {
             key: record_address.clone(),
+            data_type,
+            data_size,
             nonce: None,
             difficulty: 0,
         });
@@ -410,6 +413,8 @@ impl Network {
         // consider data to be already paid for if 1/2 of the close nodes already have it
         let mut peer_already_have_it = 0;
         let enough_peers_already_have_it = close_nodes.len() / 2;
+
+        let mut peers_returned_error = 0;
 
         // loop over responses
         let mut all_quotes = vec![];
@@ -425,9 +430,16 @@ impl Network {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
+
                     // Check the quote itself is valid.
                     if !quote.check_is_signed_by_claimed_peer(peer) {
                         warn!("Received invalid quote from {peer_address:?}, {quote:?}");
+                        continue;
+                    }
+
+                    // Check if the returned data type matches the request
+                    if quote.quoting_metrics.data_type != data_type {
+                        warn!("Received invalid quote from {peer_address:?}, {quote:?}. Data type did not match the request.");
                         continue;
                     }
 
@@ -451,66 +463,24 @@ impl Network {
                 }
                 Err(err) => {
                     error!("Got an error while requesting quote from peer {peer:?}: {err}");
+                    peers_returned_error += 1;
                 }
                 _ => {
                     error!("Got an unexpected response while requesting quote from peer {peer:?}: {response:?}");
+                    peers_returned_error += 1;
                 }
             }
+        }
+
+        if quotes_to_pay.is_empty() {
+            error!(
+                "Could not fetch any quotes. {} peers returned an error.",
+                peers_returned_error
+            );
+            return Err(NetworkError::NoStoreCostResponses);
         }
 
         Ok(quotes_to_pay)
-    }
-
-    /// Get register from network.
-    /// Due to the nature of the p2p network, it's not guaranteed there is only one version
-    /// exists in the network all the time.
-    /// The scattering of the register will be more like `ring layered`.
-    /// Meanwhile, `kad::get_record` will terminate with first majority copies returned,
-    /// which has the risk of returning with old versions.
-    /// So, to improve the accuracy, query closest_peers first, then fetch registers
-    /// And merge them if they are with different content.
-    pub async fn get_register_record_from_network(
-        &self,
-        key: RecordKey,
-    ) -> Result<HashMap<XorName, Record>> {
-        let record_address = NetworkAddress::from_record_key(&key);
-        // The requirement of having at least CLOSE_GROUP_SIZE
-        // close nodes will be checked internally automatically.
-        let close_nodes = self
-            .client_get_all_close_peers_in_range_or_close_group(&record_address)
-            .await?;
-
-        let self_address = NetworkAddress::from_peer(self.peer_id());
-        let request = Request::Query(Query::GetRegisterRecord {
-            requester: self_address,
-            key: record_address.clone(),
-        });
-        let responses = self
-            .send_and_get_responses(&close_nodes, &request, true)
-            .await;
-
-        // loop over responses, collecting all fetched register records
-        let mut all_register_copies = HashMap::new();
-        for response in responses.into_values().flatten() {
-            match response {
-                Response::Query(QueryResponse::GetRegisterRecord(Ok((holder, content)))) => {
-                    let register_record = Record::new(key.clone(), content.to_vec());
-                    let content_hash = XorName::from_content(&register_record.value);
-                    debug!(
-                        "RegisterRecordReq of {record_address:?} received register of version {content_hash:?} from {holder:?}"
-                    );
-                    let _ = all_register_copies.insert(content_hash, register_record);
-                }
-                _ => {
-                    error!(
-                        "RegisterRecordReq of {record_address:?} received error response, was {:?}",
-                        response
-                    );
-                }
-            }
-        }
-
-        Ok(all_register_copies)
     }
 
     /// Get the Record from the network
@@ -518,20 +488,14 @@ impl Network {
     /// In case a target_record is provided, only return when fetched target.
     /// Otherwise count it as a failure when all attempts completed.
     ///
-    /// It also handles the split record error for transactions and registers.
-    /// For transactions, it accumulates the transactions and returns an error if more than one.
-    /// For registers, it merges the registers and returns the merged record.
+    /// It also handles the split record error for GraphEntry.
     pub async fn get_record_from_network(
         &self,
         key: RecordKey,
         cfg: &GetRecordCfg,
     ) -> Result<Record> {
         let pretty_key = PrettyPrintRecordKey::from(&key);
-        let mut backoff = cfg
-            .retry_strategy
-            .unwrap_or(RetryStrategy::None)
-            .backoff()
-            .into_iter();
+        let mut backoff = cfg.retry_strategy.backoff().into_iter();
 
         loop {
             info!("Getting record from network of {pretty_key:?}. with cfg {cfg:?}",);
@@ -581,7 +545,7 @@ impl Network {
                 GetRecordError::SplitRecord { result_map } => {
                     error!("Encountered a split record for {pretty_key:?}.");
                     if let Some(record) = Self::handle_split_record_error(result_map, &key)? {
-                        info!("Merged the split record (register) for {pretty_key:?}, into a single record");
+                        info!("Merged the split record for {pretty_key:?}, into a single record");
                         return Ok(record);
                     }
                 }
@@ -601,18 +565,15 @@ impl Network {
     }
 
     /// Handle the split record error.
-    /// Transaction: Accumulate transactions.
-    /// Register: Merge registers and return the merged record.
     fn handle_split_record_error(
         result_map: &HashMap<XorName, (Record, HashSet<PeerId>)>,
         key: &RecordKey,
     ) -> std::result::Result<Option<Record>, NetworkError> {
         let pretty_key = PrettyPrintRecordKey::from(key);
 
-        // attempt to deserialise and accumulate any transactions or registers
+        // attempt to deserialise and accumulate all GraphEntries
         let results_count = result_map.len();
-        let mut accumulated_transactions = HashSet::new();
-        let mut collected_registers = Vec::new();
+        let mut accumulated_graphentries = HashSet::new();
         let mut valid_scratchpad: Option<Scratchpad> = None;
         let mut valid_pointer: Option<Pointer> = None;
 
@@ -632,50 +593,23 @@ impl Network {
                 }
 
                 match kind {
-                    RecordKind::Chunk
-                    | RecordKind::ChunkWithPayment
-                    | RecordKind::GraphEntryWithPayment
-                    | RecordKind::RegisterWithPayment
-                    | RecordKind::PointerWithPayment
-                    | RecordKind::ScratchpadWithPayment => {
+                    RecordKind::DataOnly(DataTypes::Chunk) | RecordKind::DataWithPayment(_) => {
                         error!("Encountered a split record for {pretty_key:?} with unexpected RecordKind {kind:?}, skipping.");
                         continue;
                     }
-                    RecordKind::GraphEntry => {
-                        info!("For record {pretty_key:?}, we have a split record for a transaction attempt. Accumulating transactions");
-
+                    RecordKind::DataOnly(DataTypes::GraphEntry) => {
                         match get_graph_entry_from_record(record) {
-                            Ok(transactions) => {
-                                accumulated_transactions.extend(transactions);
+                            Ok(graphentries) => {
+                                accumulated_graphentries.extend(graphentries);
+                                info!("For record {pretty_key:?}, we have a split record for a GraphEntry. Accumulating GraphEntry: {}", accumulated_graphentries.len());
                             }
                             Err(_) => {
+                                warn!("Failed to deserialize GraphEntry for {pretty_key:?}, skipping accumulation");
                                 continue;
                             }
                         }
                     }
-                    RecordKind::Register => {
-                        info!("For record {pretty_key:?}, we have a split record for a register. Accumulating registers");
-                        let Ok(register) = try_deserialize_record::<SignedRegister>(record) else {
-                            error!(
-                                "Failed to deserialize register {pretty_key}. Skipping accumulation"
-                            );
-                            continue;
-                        };
-
-                        match register.verify() {
-                            Ok(_) => {
-                                collected_registers.push(register);
-                            }
-                            Err(_) => {
-                                error!(
-                                    "Failed to verify register for {pretty_key} at address: {}. Skipping accumulation",
-                                    register.address()
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                    RecordKind::Pointer => {
+                    RecordKind::DataOnly(DataTypes::Pointer) => {
                         info!("For record {pretty_key:?}, we have a split record for a pointer. Selecting the one with the highest count");
                         let Ok(pointer) = try_deserialize_record::<Pointer>(record) else {
                             error!(
@@ -684,20 +618,20 @@ impl Network {
                             continue;
                         };
 
-                        if !pointer.verify() {
+                        if !pointer.verify_signature() {
                             warn!("Rejecting Pointer for {pretty_key} PUT with invalid signature");
                             continue;
                         }
 
                         if let Some(old) = &valid_pointer {
-                            if old.count() >= pointer.count() {
+                            if old.counter() >= pointer.counter() {
                                 info!("Rejecting Pointer for {pretty_key} with lower count than the previous one");
                                 continue;
                             }
                         }
                         valid_pointer = Some(pointer);
                     }
-                    RecordKind::Scratchpad => {
+                    RecordKind::DataOnly(DataTypes::Scratchpad) => {
                         info!("For record {pretty_key:?}, we have a split record for a scratchpad. Selecting the one with the highest count");
                         let Ok(scratchpad) = try_deserialize_record::<Scratchpad>(record) else {
                             error!(
@@ -706,7 +640,7 @@ impl Network {
                             continue;
                         };
 
-                        if !scratchpad.is_valid() {
+                        if !scratchpad.verify_signature() {
                             warn!(
                                 "Rejecting Scratchpad for {pretty_key} PUT with invalid signature"
                             );
@@ -714,7 +648,7 @@ impl Network {
                         }
 
                         if let Some(old) = &valid_scratchpad {
-                            if old.count() >= scratchpad.count() {
+                            if old.counter() >= scratchpad.counter() {
                                 info!("Rejecting Scratchpad for {pretty_key} with lower count than the previous one");
                                 continue;
                             }
@@ -725,18 +659,18 @@ impl Network {
             }
         }
 
-        // Return the accumulated transactions as a single record
-        if accumulated_transactions.len() > 1 {
-            info!("For record {pretty_key:?} task found split record for a transaction, accumulated and sending them as a single record");
-            let accumulated_transactions = accumulated_transactions
+        // Return the accumulated GraphEntries as a single record
+        if accumulated_graphentries.len() > 1 {
+            info!("For record {pretty_key:?} task found split record for a GraphEntry, accumulated and sending them as a single record");
+            let accumulated_graphentries = accumulated_graphentries
                 .into_iter()
                 .collect::<Vec<GraphEntry>>();
             let record = Record {
                 key: key.clone(),
-                value: try_serialize_record(&accumulated_transactions, RecordKind::GraphEntry)
+                value: try_serialize_record(&accumulated_graphentries, RecordKind::DataOnly(DataTypes::GraphEntry))
                     .map_err(|err| {
                         error!(
-                            "Error while serializing the accumulated transactions for {pretty_key:?}: {err:?}"
+                            "Error while serializing the accumulated GraphEntries for {pretty_key:?}: {err:?}"
                         );
                         NetworkError::from(err)
                     })?
@@ -745,39 +679,15 @@ impl Network {
                 expires: None,
             };
             return Ok(Some(record));
-        } else if !collected_registers.is_empty() {
-            info!("For record {pretty_key:?} task found multiple registers, merging them.");
-            let signed_register = collected_registers.iter().fold(collected_registers[0].clone(), |mut acc, x| {
-                if let Err(e) = acc.merge(x) {
-                    warn!("Ignoring forked register as we failed to merge conflicting registers at {}: {e}", x.address());
-                }
-                acc
-            });
-
-            let record_value = try_serialize_record(&signed_register, RecordKind::Register)
-                .map_err(|err| {
-                    error!(
-                        "Error while serializing the merged register for {pretty_key:?}: {err:?}"
-                    );
-                    NetworkError::from(err)
-                })?
-                .to_vec();
-
-            let record = Record {
-                key: key.clone(),
-                value: record_value,
-                publisher: None,
-                expires: None,
-            };
-            return Ok(Some(record));
         } else if let Some(pointer) = valid_pointer {
             info!("For record {pretty_key:?} task found a valid pointer, returning it.");
-            let record_value = try_serialize_record(&pointer, RecordKind::Pointer)
-                .map_err(|err| {
-                    error!("Error while serializing the pointer for {pretty_key:?}: {err:?}");
-                    NetworkError::from(err)
-                })?
-                .to_vec();
+            let record_value =
+                try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))
+                    .map_err(|err| {
+                        error!("Error while serializing the pointer for {pretty_key:?}: {err:?}");
+                        NetworkError::from(err)
+                    })?
+                    .to_vec();
 
             let record = Record {
                 key: key.clone(),
@@ -788,12 +698,15 @@ impl Network {
             return Ok(Some(record));
         } else if let Some(scratchpad) = valid_scratchpad {
             info!("For record {pretty_key:?} task found a valid scratchpad, returning it.");
-            let record_value = try_serialize_record(&scratchpad, RecordKind::Scratchpad)
-                .map_err(|err| {
-                    error!("Error while serializing the scratchpad for {pretty_key:?}: {err:?}");
-                    NetworkError::from(err)
-                })?
-                .to_vec();
+            let record_value =
+                try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))
+                    .map_err(|err| {
+                        error!(
+                            "Error while serializing the scratchpad for {pretty_key:?}: {err:?}"
+                        );
+                        NetworkError::from(err)
+                    })?
+                    .to_vec();
 
             let record = Record {
                 key: key.clone(),
@@ -810,13 +723,21 @@ impl Network {
     pub async fn get_local_quoting_metrics(
         &self,
         key: RecordKey,
+        data_type: u32,
+        data_size: usize,
     ) -> Result<(QuotingMetrics, bool)> {
         let (sender, receiver) = oneshot::channel();
-        self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics { key, sender });
+        self.send_local_swarm_cmd(LocalSwarmCmd::GetLocalQuotingMetrics {
+            key,
+            data_type,
+            data_size,
+            sender,
+        });
 
-        receiver
+        let quoting_metrics = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+        Ok(quoting_metrics)
     }
 
     /// Notify the node receicced a payment.
@@ -852,11 +773,7 @@ impl Network {
     /// If verify is on, we retry.
     pub async fn put_record(&self, record: Record, cfg: &PutRecordCfg) -> Result<()> {
         let pretty_key = PrettyPrintRecordKey::from(&record.key);
-        let mut backoff = cfg
-            .retry_strategy
-            .unwrap_or(RetryStrategy::None)
-            .backoff()
-            .into_iter();
+        let mut backoff = cfg.retry_strategy.backoff().into_iter();
 
         loop {
             info!(
@@ -868,7 +785,7 @@ impl Network {
                 Err(err) => err,
             };
 
-            // FIXME: Skip if we get a permanent error during verification, e.g., DoubleSpendAttempt
+            // FIXME: Skip if we get a permanent error during verification
             warn!("Failed to PUT record with key: {pretty_key:?} to network (retry via backoff) with error: {err:?}");
 
             match backoff.next() {
@@ -963,20 +880,23 @@ impl Network {
     }
 
     /// Notify ReplicationFetch a fetch attempt is completed.
-    /// (but it won't trigger any real writes to disk, say fetched an old version of register)
-    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: RecordType) {
+    /// (but it won't trigger any real writes to disk)
+    pub fn notify_fetch_completed(&self, key: RecordKey, record_type: ValidationType) {
         self.send_local_swarm_cmd(LocalSwarmCmd::FetchCompleted((key, record_type)))
     }
 
     /// Put `Record` to the local RecordStore
     /// Must be called after the validations are performed on the Record
-    pub fn put_local_record(&self, record: Record) {
+    pub fn put_local_record(&self, record: Record, is_client_put: bool) {
         debug!(
             "Writing Record locally, for {:?} - length {:?}",
             PrettyPrintRecordKey::from(&record.key),
             record.value.len()
         );
-        self.send_local_swarm_cmd(LocalSwarmCmd::PutLocalRecord { record })
+        self.send_local_swarm_cmd(LocalSwarmCmd::PutLocalRecord {
+            record,
+            is_client_put,
+        })
     }
 
     /// Returns true if a RecordKey is present locally in the RecordStore
@@ -987,21 +907,24 @@ impl Network {
             sender,
         });
 
-        receiver
+        let is_present = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+
+        Ok(is_present)
     }
 
     /// Returns the Addresses of all the locally stored Records
     pub async fn get_all_local_record_addresses(
         &self,
-    ) -> Result<HashMap<NetworkAddress, RecordType>> {
+    ) -> Result<HashMap<NetworkAddress, ValidationType>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetAllLocalRecordAddresses { sender });
 
-        receiver
+        let addrs = receiver
             .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
+        Ok(addrs)
     }
 
     /// Send `Request` to the given `PeerId` and await for the response. If `self` is the recipient,
@@ -1077,6 +1000,14 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::TriggerIntervalReplication)
     }
 
+    pub fn add_fresh_records_to_the_replication_fetcher(
+        &self,
+        holder: NetworkAddress,
+        keys: Vec<(NetworkAddress, ValidationType)>,
+    ) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::AddFreshReplicateRecords { holder, keys })
+    }
+
     pub fn record_node_issues(&self, peer_id: PeerId, issue: NodeIssue) {
         self.send_local_swarm_cmd(LocalSwarmCmd::RecordNodeIssue { peer_id, issue });
     }
@@ -1091,6 +1022,10 @@ impl Network {
 
     pub fn add_network_density_sample(&self, distance: KBucketDistance) {
         self.send_local_swarm_cmd(LocalSwarmCmd::AddNetworkDensitySample { distance })
+    }
+
+    pub fn notify_peer_scores(&self, peer_scores: Vec<(PeerId, bool)>) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerScores { peer_scores })
     }
 
     /// Helper to send NetworkSwarmCmd
@@ -1193,16 +1128,6 @@ impl Network {
 
         debug!("Received all responses for {req:?}");
         responses
-    }
-}
-
-/// Get the value of the provided Quorum
-pub fn get_quorum_value(quorum: &Quorum) -> usize {
-    match quorum {
-        Quorum::Majority => close_group_majority(),
-        Quorum::All => CLOSE_GROUP_SIZE,
-        Quorum::N(v) => v.get(),
-        Quorum::One => 1,
     }
 }
 
@@ -1322,10 +1247,10 @@ pub(crate) fn send_network_swarm_cmd(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_network_sign_verify() -> eyre::Result<()> {
+    #[tokio::test]
+    async fn test_network_sign_verify() -> eyre::Result<()> {
         let (network, _, _) =
-            NetworkBuilder::new(Keypair::generate_ed25519(), false).build_client()?;
+            NetworkBuilder::new(Keypair::generate_ed25519(), false).build_client();
         let msg = b"test message";
         let sig = network.sign(msg)?;
         assert!(network.verify(msg, &sig));

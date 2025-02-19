@@ -6,45 +6,26 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{driver::GetRecordCfg, Network, NetworkError, Result};
-use ant_protocol::storage::{GraphEntry, GraphEntryAddress};
+use crate::{NetworkError, Result};
+use ant_protocol::storage::{DataTypes, GraphEntry};
 use ant_protocol::{
-    storage::{try_deserialize_record, RecordHeader, RecordKind, RetryStrategy},
-    NetworkAddress, PrettyPrintRecordKey,
+    storage::{try_deserialize_record, RecordHeader, RecordKind},
+    PrettyPrintRecordKey,
 };
-use libp2p::kad::{Quorum, Record};
-
-impl Network {
-    /// Gets GraphEntry at GraphEntryAddress from the Network.
-    pub async fn get_graph_entry(&self, address: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
-        let key = NetworkAddress::from_graph_entry_address(address).to_record_key();
-        let get_cfg = GetRecordCfg {
-            get_quorum: Quorum::All,
-            retry_strategy: Some(RetryStrategy::Quick),
-            target_record: None,
-            expected_holders: Default::default(),
-            is_register: false,
-        };
-        let record = self.get_record_from_network(key.clone(), &get_cfg).await?;
-        debug!(
-            "Got record from the network, {:?}",
-            PrettyPrintRecordKey::from(&record.key)
-        );
-
-        get_graph_entry_from_record(&record)
-    }
-}
+use libp2p::kad::Record;
 
 pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>> {
     let header = RecordHeader::from_record(record)?;
-    if let RecordKind::GraphEntry = header.kind {
-        let transactions = try_deserialize_record::<Vec<GraphEntry>>(record)?;
-        Ok(transactions)
+    if let RecordKind::DataOnly(DataTypes::GraphEntry) = header.kind {
+        let entry = try_deserialize_record::<Vec<GraphEntry>>(record)?;
+        Ok(entry)
     } else {
         warn!(
             "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
-        Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry))
+        Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(
+            DataTypes::GraphEntry,
+        )))
     }
 }

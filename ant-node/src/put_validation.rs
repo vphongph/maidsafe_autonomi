@@ -10,17 +10,16 @@ use std::collections::BTreeSet;
 
 use crate::{node::Node, Error, Marker, Result};
 use ant_evm::payment_vault::verify_data_payment;
-use ant_evm::{AttoTokens, ProofOfPayment};
+use ant_evm::ProofOfPayment;
 use ant_networking::NetworkError;
 use ant_protocol::storage::GraphEntry;
 use ant_protocol::{
     storage::{
-        try_deserialize_record, try_serialize_record, Chunk, GraphEntryAddress, Pointer,
-        RecordHeader, RecordKind, RecordType, Scratchpad,
+        try_deserialize_record, try_serialize_record, Chunk, DataTypes, GraphEntryAddress, Pointer,
+        PointerAddress, RecordHeader, RecordKind, Scratchpad, ValidationType,
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
-use ant_registers::SignedRegister;
 use libp2p::kad::{Record, RecordKey};
 use xor_name::XorName;
 
@@ -30,7 +29,7 @@ impl Node {
         let record_header = RecordHeader::from_record(&record)?;
 
         match record_header.kind {
-            RecordKind::ChunkWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Chunk) => {
                 let record_key = record.key.clone();
                 let (payment, chunk) = try_deserialize_record::<(ProofOfPayment, Chunk)>(&record)?;
                 let already_exists = self
@@ -40,22 +39,30 @@ impl Node {
                 // Validate the payment and that we received what we asked.
                 // This stores any payments to disk
                 let payment_res = self
-                    .payment_for_us_exists_and_is_still_valid(&chunk.network_address(), payment)
+                    .payment_for_us_exists_and_is_still_valid(
+                        &chunk.network_address(),
+                        DataTypes::Chunk,
+                        payment.clone(),
+                    )
                     .await;
 
                 // Now that we've taken any money passed to us, regardless of the payment's validity,
                 // if we already have the data we can return early
                 if already_exists {
-                    // if we're receiving this chunk PUT again, and we have been paid,
-                    // we eagerly retry replicaiton as it seems like other nodes are having trouble
-                    // did not manage to get this chunk as yet
-                    self.replicate_valid_fresh_record(record_key, RecordType::Chunk);
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record_key,
+                    //     DataTypes::Chunk,
+                    //     ValidationType::Chunk,
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network()
-                        .notify_fetch_completed(record.key.clone(), RecordType::Chunk);
+                        .notify_fetch_completed(record.key.clone(), ValidationType::Chunk);
 
                     debug!(
                         "Chunk with addr {:?} already exists: {already_exists}, payment extracted.",
@@ -70,30 +77,37 @@ impl Node {
                 // Writing chunk to disk takes time, hence try to execute it first.
                 // So that when the replicate target asking for the copy,
                 // the node can have a higher chance to respond.
-                let store_chunk_result = self.store_chunk(&chunk);
+                let store_chunk_result = self.store_chunk(&chunk, true);
 
                 if store_chunk_result.is_ok() {
                     Marker::ValidPaidChunkPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(record_key, RecordType::Chunk);
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record_key,
+                    //     DataTypes::Chunk,
+                    //     ValidationType::Chunk,
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network()
-                        .notify_fetch_completed(record.key.clone(), RecordType::Chunk);
+                        .notify_fetch_completed(record.key.clone(), ValidationType::Chunk);
                 }
 
                 store_chunk_result
             }
 
-            RecordKind::Chunk => {
+            RecordKind::DataOnly(DataTypes::Chunk) => {
                 error!("Chunk should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::ScratchpadWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Scratchpad) => {
                 let record_key = record.key.clone();
                 let (payment, scratchpad) =
                     try_deserialize_record::<(ProofOfPayment, Scratchpad)>(&record)?;
@@ -106,7 +120,8 @@ impl Node {
                 let payment_res = self
                     .payment_for_us_exists_and_is_still_valid(
                         &scratchpad.network_address(),
-                        payment,
+                        DataTypes::Scratchpad,
+                        payment.clone(),
                     )
                     .await;
 
@@ -117,7 +132,12 @@ impl Node {
                 // So that when the replicate target asking for the copy,
                 // the node can have a higher chance to respond.
                 let store_scratchpad_result = self
-                    .validate_and_store_scratchpad_record(scratchpad, record_key.clone(), true)
+                    .validate_and_store_scratchpad_record(
+                        scratchpad,
+                        record_key.clone(),
+                        true,
+                        Some(payment),
+                    )
                     .await;
 
                 match store_scratchpad_result {
@@ -125,27 +145,26 @@ impl Node {
                     // we eagerly retry replicaiton as it seems like other nodes are having trouble
                     // did not manage to get this scratchpad as yet.
                     Ok(_) | Err(Error::IgnoringOutdatedScratchpadPut) => {
+                        let content_hash = XorName::from_content(&record.value);
                         Marker::ValidScratchpadRecordPutFromClient(&PrettyPrintRecordKey::from(
                             &record_key,
                         ))
                         .log();
-                        self.replicate_valid_fresh_record(
-                            record_key.clone(),
-                            RecordType::Scratchpad,
-                        );
 
                         // Notify replication_fetcher to mark the attempt as completed.
                         // Send the notification earlier to avoid it got skipped due to:
                         // the record becomes stored during the fetch because of other interleaved process.
-                        self.network()
-                            .notify_fetch_completed(record_key, RecordType::Scratchpad);
+                        self.network().notify_fetch_completed(
+                            record_key,
+                            ValidationType::NonChunk(content_hash),
+                        );
                     }
                     Err(_) => {}
                 }
 
                 store_scratchpad_result
             }
-            RecordKind::Scratchpad => {
+            RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 // make sure we already have this scratchpad locally, else reject it as first time upload needs payment
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
@@ -160,185 +179,127 @@ impl Node {
                 }
 
                 // store the scratchpad
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, true, None)
                     .await
             }
-            RecordKind::GraphEntry => {
+            RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 // Transactions should always be paid for
                 error!("Transaction should not be validated at this point");
                 Err(Error::InvalidPutWithoutPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::GraphEntryWithPayment => {
-                let (payment, transaction) =
+            RecordKind::DataWithPayment(DataTypes::GraphEntry) => {
+                let (payment, graph_entry) =
                     try_deserialize_record::<(ProofOfPayment, GraphEntry)>(&record)?;
 
-                // check if the deserialized value's TransactionAddress matches the record's key
-                let net_addr = NetworkAddress::from_graph_entry_address(transaction.address());
+                // check if the deserialized value's GraphEntryAddress matches the record's key
+                let net_addr = NetworkAddress::from_graph_entry_address(graph_entry.address());
                 let key = net_addr.to_record_key();
                 let pretty_key = PrettyPrintRecordKey::from(&key);
                 if record.key != key {
                     warn!(
-                        "Record's key {pretty_key:?} does not match with the value's TransactionAddress, ignoring PUT."
+                        "Record's key {pretty_key:?} does not match with the value's GraphEntryAddress, ignoring PUT."
                     );
                     return Err(Error::RecordKeyMismatch);
                 }
 
                 let already_exists = self.validate_key_and_existence(&net_addr, &key).await?;
 
-                // The transaction may already exist during the replication.
-                // The payment shall get deposit to self even the transaction already presents.
-                // However, if the transaction is already present, the incoming one shall be
+                // The GraphEntry may already exist during the replication.
+                // The payment shall get deposit to self even the GraphEntry already presents.
+                // However, if the GraphEntry is already present, the incoming one shall be
                 // appended with the existing one, if content is different.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
+                    .payment_for_us_exists_and_is_still_valid(
+                        &net_addr,
+                        DataTypes::GraphEntry,
+                        payment.clone(),
+                    )
                     .await
                 {
                     if already_exists {
-                        debug!("Payment of the incoming exists transaction {pretty_key:?} having error {err:?}");
+                        debug!("Payment of the incoming existing GraphEntry {pretty_key:?} having error {err:?}");
                     } else {
-                        error!("Payment of the incoming non-exist transaction {pretty_key:?} having error {err:?}");
+                        error!("Payment of the incoming new GraphEntry {pretty_key:?} having error {err:?}");
                         return Err(err);
                     }
                 }
 
                 let res = self
-                    .validate_merge_and_store_transactions(vec![transaction], &key)
+                    .validate_merge_and_store_graphentries(vec![graph_entry], &key, true)
                     .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
-                    Marker::ValidTransactionPutFromClient(&PrettyPrintRecordKey::from(&record.key))
+                    Marker::ValidGraphEntryPutFromClient(&PrettyPrintRecordKey::from(&record.key))
                         .log();
-                    self.replicate_valid_fresh_record(
-                        record.key.clone(),
-                        RecordType::NonChunk(content_hash),
-                    );
+                    // Client changed to upload to ALL payees, hence no longer need this.
+                    // May need again once client change back to upload to just one to save traffic.
+                    // self.replicate_valid_fresh_record(
+                    //     record.key.clone(),
+                    //     DataTypes::GraphEntry,
+                    //     ValidationType::NonChunk(content_hash),
+                    //     Some(payment),
+                    // );
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     // Send the notification earlier to avoid it got skipped due to:
                     // the record becomes stored during the fetch because of other interleaved process.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
             }
-            RecordKind::Register => {
-                let register = try_deserialize_record::<SignedRegister>(&record)?;
+            RecordKind::DataOnly(DataTypes::Pointer) => {
+                let pointer = try_deserialize_record::<Pointer>(&record)?;
+                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
+                let pretty_key = PrettyPrintRecordKey::from(&record.key);
+                let already_exists = self
+                    .validate_key_and_existence(&net_addr, &record.key)
+                    .await?;
 
-                // make sure we already have this register locally
-                let net_addr = NetworkAddress::from_register_address(*register.address());
-                let key = net_addr.to_record_key();
-                let pretty_key = PrettyPrintRecordKey::from(&key);
-                debug!("Got record to store without payment for register at {pretty_key:?}");
-                if !self.validate_key_and_existence(&net_addr, &key).await? {
-                    debug!("Ignore store without payment for register at {pretty_key:?}");
+                if !already_exists {
+                    warn!("Pointer at address: {:?}, key: {:?} does not exist locally, rejecting PUT without payment", pointer.address(), pretty_key);
                     return Err(Error::InvalidPutWithoutPayment(
                         PrettyPrintRecordKey::from(&record.key).into_owned(),
                     ));
                 }
 
-                // store the update
-                debug!("Store update without payment as we already had register at {pretty_key:?}");
-                let result = self.validate_and_store_register(register, true).await;
-
-                if result.is_ok() {
-                    debug!("Successfully stored register update at {pretty_key:?}");
-                    Marker::ValidPaidRegisterPutFromClient(&pretty_key).log();
-                    // we dont try and force replicaiton here as there's state to be kept in sync
-                    // which we leave up to the client to enforce
-
-                    let content_hash = XorName::from_content(&record.value);
-
-                    // Notify replication_fetcher to mark the attempt as completed.
-                    // Send the notification earlier to avoid it got skipped due to:
-                    // the record becomes stored during the fetch because of other interleaved process.
-                    self.network().notify_fetch_completed(
-                        record.key.clone(),
-                        RecordType::NonChunk(content_hash),
-                    );
-                } else {
-                    warn!("Failed to store register update at {pretty_key:?}");
-                }
-                result
-            }
-            RecordKind::RegisterWithPayment => {
-                let (payment, register) =
-                    try_deserialize_record::<(ProofOfPayment, SignedRegister)>(&record)?;
-
-                // check if the deserialized value's RegisterAddress matches the record's key
-                let net_addr = NetworkAddress::from_register_address(*register.address());
-                let key = net_addr.to_record_key();
-                let pretty_key = PrettyPrintRecordKey::from(&key);
-                if record.key != key {
-                    warn!(
-                        "Record's key {pretty_key:?} does not match with the value's RegisterAddress, ignoring PUT."
-                    );
-                    return Err(Error::RecordKeyMismatch);
-                }
-
-                let already_exists = self.validate_key_and_existence(&net_addr, &key).await?;
-
-                // The register may already exist during the replication.
-                // The payment shall get deposit to self even the register already presents.
-                // However, if the register already presents, the incoming one maybe for edit only.
-                // Hence the corresponding payment error shall not be thrown out.
-                if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
-                    .await
-                {
-                    if already_exists {
-                        debug!("Payment of the incoming exists register {pretty_key:?} having error {err:?}");
-                    } else {
-                        error!("Payment of the incoming non-exist register {pretty_key:?} having error {err:?}");
-                        return Err(err);
-                    }
-                }
-
-                let res = self.validate_and_store_register(register, true).await;
+                let res = self
+                    .validate_and_store_pointer_record(pointer, record.key.clone(), true, None)
+                    .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
+                    Marker::ValidPointerPutFromClient(&pretty_key).log();
 
                     // Notify replication_fetcher to mark the attempt as completed.
-                    // Send the notification earlier to avoid it got skipped due to:
-                    // the record becomes stored during the fetch because of other interleaved process.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
             }
-            RecordKind::Pointer => {
-                // Pointers should always be paid for
-                error!("Pointer should not be validated at this point");
-                Err(Error::InvalidPutWithoutPayment(
-                    PrettyPrintRecordKey::from(&record.key).into_owned(),
-                ))
-            }
-            RecordKind::PointerWithPayment => {
+            RecordKind::DataWithPayment(DataTypes::Pointer) => {
                 let (payment, pointer) =
                     try_deserialize_record::<(ProofOfPayment, Pointer)>(&record)?;
 
-                // check if the deserialized value's PointerAddress matches the record's key
-                let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
-                let key = net_addr.to_record_key();
-                let pretty_key = PrettyPrintRecordKey::from(&key);
-                if record.key != key {
-                    warn!(
-                        "Record's key {pretty_key:?} does not match with the value's PointerAddress, ignoring PUT."
-                    );
-                    return Err(Error::RecordKeyMismatch);
-                }
-
-                let already_exists = self.validate_key_and_existence(&net_addr, &key).await?;
+                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
+                let pretty_key = PrettyPrintRecordKey::from(&record.key);
+                let already_exists = self
+                    .validate_key_and_existence(&net_addr, &record.key)
+                    .await?;
 
                 // The pointer may already exist during the replication.
                 // The payment shall get deposit to self even if the pointer already exists.
                 if let Err(err) = self
-                    .payment_for_us_exists_and_is_still_valid(&net_addr, payment)
+                    .payment_for_us_exists_and_is_still_valid(
+                        &net_addr,
+                        DataTypes::Pointer,
+                        payment.clone(),
+                    )
                     .await
                 {
                     if already_exists {
@@ -349,20 +310,22 @@ impl Node {
                     }
                 }
 
-                let res = self.validate_and_store_pointer_record(pointer, key);
+                let res = self
+                    .validate_and_store_pointer_record(
+                        pointer,
+                        record.key.clone(),
+                        true,
+                        Some(payment),
+                    )
+                    .await;
                 if res.is_ok() {
                     let content_hash = XorName::from_content(&record.value);
-                    Marker::ValidPointerPutFromClient(&PrettyPrintRecordKey::from(&record.key))
-                        .log();
-                    self.replicate_valid_fresh_record(
-                        record.key.clone(),
-                        RecordType::NonChunk(content_hash),
-                    );
+                    Marker::ValidPointerPutFromClient(&pretty_key).log();
 
                     // Notify replication_fetcher to mark the attempt as completed.
                     self.network().notify_fetch_completed(
                         record.key.clone(),
-                        RecordType::NonChunk(content_hash),
+                        ValidationType::NonChunk(content_hash),
                     );
                 }
                 res
@@ -372,21 +335,20 @@ impl Node {
 
     /// Store a pre-validated, and already paid record to the RecordStore
     pub(crate) async fn store_replicated_in_record(&self, record: Record) -> Result<()> {
-        debug!("Storing record which was replicated to us {:?}", record.key);
+        debug!(
+            "Storing record which was replicated to us {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        );
         let record_header = RecordHeader::from_record(&record)?;
         match record_header.kind {
-            // A separate flow handles payment for chunks and registers
-            RecordKind::ChunkWithPayment
-            | RecordKind::GraphEntryWithPayment
-            | RecordKind::RegisterWithPayment
-            | RecordKind::ScratchpadWithPayment
-            | RecordKind::PointerWithPayment => {
+            // A separate flow handles record with payment
+            RecordKind::DataWithPayment(_) => {
                 warn!("Prepaid record came with Payment, which should be handled in another flow");
                 Err(Error::UnexpectedRecordWithPayment(
                     PrettyPrintRecordKey::from(&record.key).into_owned(),
                 ))
             }
-            RecordKind::Chunk => {
+            RecordKind::DataOnly(DataTypes::Chunk) => {
                 let chunk = try_deserialize_record::<Chunk>(&record)?;
 
                 let record_key = record.key.clone();
@@ -401,45 +363,32 @@ impl Node {
                     return Ok(());
                 }
 
-                self.store_chunk(&chunk)
+                self.store_chunk(&chunk, false)
             }
-            RecordKind::Scratchpad => {
+            RecordKind::DataOnly(DataTypes::Scratchpad) => {
                 let key = record.key.clone();
                 let scratchpad = try_deserialize_record::<Scratchpad>(&record)?;
-                self.validate_and_store_scratchpad_record(scratchpad, key, false)
+                self.validate_and_store_scratchpad_record(scratchpad, key, false, None)
                     .await
             }
-            RecordKind::GraphEntry => {
+            RecordKind::DataOnly(DataTypes::GraphEntry) => {
                 let record_key = record.key.clone();
-                let transactions = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
-                self.validate_merge_and_store_transactions(transactions, &record_key)
+                let graph_entries = try_deserialize_record::<Vec<GraphEntry>>(&record)?;
+                self.validate_merge_and_store_graphentries(graph_entries, &record_key, false)
                     .await
             }
-            RecordKind::Register => {
-                let register = try_deserialize_record::<SignedRegister>(&record)?;
-
-                // check if the deserialized value's RegisterAddress matches the record's key
-                let key =
-                    NetworkAddress::from_register_address(*register.address()).to_record_key();
-                if record.key != key {
-                    warn!(
-                        "Record's key does not match with the value's RegisterAddress, ignoring PUT."
-                    );
-                    return Err(Error::RecordKeyMismatch);
-                }
-                self.validate_and_store_register(register, false).await
-            }
-            RecordKind::Pointer => {
+            RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
                 let key = record.key.clone();
-                self.validate_and_store_pointer_record(pointer, key)
+                self.validate_and_store_pointer_record(pointer, key, false, None)
+                    .await
             }
         }
     }
 
     /// Check key is valid compared to the network name, and if we already have this data or not.
     /// returns true if data already exists locally
-    async fn validate_key_and_existence(
+    pub(crate) async fn validate_key_and_existence(
         &self,
         address: &NetworkAddress,
         expected_record_key: &RecordKey,
@@ -475,28 +424,25 @@ impl Node {
     }
 
     /// Store a `Chunk` to the RecordStore
-    pub(crate) fn store_chunk(&self, chunk: &Chunk) -> Result<()> {
-        let chunk_name = *chunk.name();
-        let chunk_addr = *chunk.address();
-
+    pub(crate) fn store_chunk(&self, chunk: &Chunk, is_client_put: bool) -> Result<()> {
         let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
 
         let record = Record {
             key,
-            value: try_serialize_record(&chunk, RecordKind::Chunk)?.to_vec(),
+            value: try_serialize_record(&chunk, RecordKind::DataOnly(DataTypes::Chunk))?.to_vec(),
             publisher: None,
             expires: None,
         };
 
         // finally store the Record directly into the local storage
-        debug!("Storing chunk {chunk_name:?} as Record locally");
-        self.network().put_local_record(record);
+        self.network().put_local_record(record, is_client_put);
 
         self.record_metrics(Marker::ValidChunkRecordPutFromNetwork(&pretty_key));
 
-        self.events_channel()
-            .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
+        // TODO: currently ignored, re-enable once start to handle
+        // self.events_channel()
+        //     .broadcast(crate::NodeEvent::ChunkStored(chunk_addr));
 
         Ok(())
     }
@@ -513,13 +459,14 @@ impl Node {
         scratchpad: Scratchpad,
         record_key: RecordKey,
         is_client_put: bool,
+        _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // owner PK is defined herein, so as long as record key and this match, we're good
         let addr = scratchpad.address();
-        let count = scratchpad.count();
+        let count = scratchpad.counter();
         debug!("Validating and storing scratchpad {addr:?} with count {count}");
 
-        // check if the deserialized value's RegisterAddress matches the record's key
+        // check if the deserialized value's ScratchpadAddress matches the record's key
         let scratchpad_key = NetworkAddress::ScratchpadAddress(*addr).to_record_key();
         if scratchpad_key != record_key {
             warn!("Record's key does not match with the value's ScratchpadAddress, ignoring PUT.");
@@ -529,16 +476,22 @@ impl Node {
         // check if the Scratchpad is present locally that we don't have a newer version
         if let Some(local_pad) = self.network().get_local_record(&scratchpad_key).await? {
             let local_pad = try_deserialize_record::<Scratchpad>(&local_pad)?;
-            if local_pad.count() >= scratchpad.count() {
+            if local_pad.counter() >= scratchpad.counter() {
                 warn!("Rejecting Scratchpad PUT with counter less than or equal to the current counter");
                 return Err(Error::IgnoringOutdatedScratchpadPut);
             }
         }
 
         // ensure data integrity
-        if !scratchpad.is_valid() {
+        if !scratchpad.verify_signature() {
             warn!("Rejecting Scratchpad PUT with invalid signature");
             return Err(Error::InvalidScratchpadSignature);
+        }
+
+        // ensure the scratchpad is not too big
+        if scratchpad.is_too_big() {
+            warn!("Rejecting Scratchpad PUT with too big size");
+            return Err(Error::ScratchpadTooBig(scratchpad.size()));
         }
 
         info!(
@@ -548,161 +501,133 @@ impl Node {
 
         let record = Record {
             key: scratchpad_key.clone(),
-            value: try_serialize_record(&scratchpad, RecordKind::Scratchpad)?.to_vec(),
+            value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))?
+                .to_vec(),
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network()
+            .put_local_record(record.clone(), is_client_put);
 
         let pretty_key = PrettyPrintRecordKey::from(&scratchpad_key);
 
         self.record_metrics(Marker::ValidScratchpadRecordPutFromNetwork(&pretty_key));
 
-        if is_client_put {
-            self.replicate_valid_fresh_record(scratchpad_key, RecordType::Scratchpad);
-        }
+        // Client changed to upload to ALL payees, hence no longer need this.
+        // May need again once client change back to upload to just one to save traffic.
+        // if is_client_put {
+        //     let content_hash = XorName::from_content(&record.value);
+        //     // ScratchPad update is a special upload that without payment,
+        //     // but must have an existing copy to update.
+        //     self.replicate_valid_fresh_record(
+        //         scratchpad_key,
+        //         DataTypes::Scratchpad,
+        //         ValidationType::NonChunk(content_hash),
+        //         payment,
+        //     );
+        // }
 
         Ok(())
     }
-    /// Validate and store a `Register` to the RecordStore
-    pub(crate) async fn validate_and_store_register(
+
+    /// Validate and store `Vec<GraphEntry>` to the RecordStore
+    /// If we already have a GraphEntry at this address, the Vec is extended and stored.
+    pub(crate) async fn validate_merge_and_store_graphentries(
         &self,
-        register: SignedRegister,
+        entries: Vec<GraphEntry>,
+        record_key: &RecordKey,
         is_client_put: bool,
     ) -> Result<()> {
-        let reg_addr = register.address();
-        debug!("Validating and storing register {reg_addr:?}");
-
-        // check if the Register is present locally
-        let key = NetworkAddress::from_register_address(*reg_addr).to_record_key();
-        let present_locally = self.network().is_record_key_present_locally(&key).await?;
-        let pretty_key = PrettyPrintRecordKey::from(&key);
-
-        // check register and merge if needed
-        let updated_register = match self.register_validation(&register, present_locally).await? {
-            Some(reg) => {
-                debug!("Register {pretty_key:?} needed to be updated");
-                reg
-            }
-            None => {
-                debug!("No update needed for register");
-                return Ok(());
-            }
-        };
-
-        // store in kad
-        let record = Record {
-            key: key.clone(),
-            value: try_serialize_record(&updated_register, RecordKind::Register)?.to_vec(),
-            publisher: None,
-            expires: None,
-        };
-        let content_hash = XorName::from_content(&record.value);
-
-        info!("Storing register {reg_addr:?} with content of {content_hash:?} as Record locally");
-        self.network().put_local_record(record);
-
-        self.record_metrics(Marker::ValidRegisterRecordPutFromNetwork(&pretty_key));
-
-        // Updated register needs to be replicated out as well,
-        // to avoid `leaking` of old version due to the mismatch of
-        // `close_range` and `replication_range`, combined with nodes churning
-        //
-        // However, to avoid `looping of replication`, a `replicated in` register
-        // shall not trigger any further replication out.
-        if is_client_put {
-            self.replicate_valid_fresh_record(key, RecordType::NonChunk(content_hash));
-        }
-
-        Ok(())
-    }
-
-    /// Validate and store `Vec<Transaction>` to the RecordStore
-    /// If we already have a transaction at this address, the Vec is extended and stored.
-    pub(crate) async fn validate_merge_and_store_transactions(
-        &self,
-        transactions: Vec<GraphEntry>,
-        record_key: &RecordKey,
-    ) -> Result<()> {
         let pretty_key = PrettyPrintRecordKey::from(record_key);
-        debug!("Validating transactions before storage at {pretty_key:?}");
+        debug!("Validating GraphEntries before storage at {pretty_key:?}");
 
-        // only keep transactions that match the record key
-        let transactions_for_key: Vec<GraphEntry> = transactions
+        // only keep GraphEntries that match the record key
+        let entries_for_key: Vec<GraphEntry> = entries
             .into_iter()
             .filter(|s| {
-                // get the record key for the transaction
-                let transaction_address = s.address();
-                let network_address = NetworkAddress::from_graph_entry_address(transaction_address);
-                let transaction_record_key = network_address.to_record_key();
-                let transaction_pretty = PrettyPrintRecordKey::from(&transaction_record_key);
-                if &transaction_record_key != record_key {
-                    warn!("Ignoring transaction for another record key {transaction_pretty:?} when verifying: {pretty_key:?}");
+                // get the record key for the GraphEntry
+                let graph_entry_address = s.address();
+                let network_address = NetworkAddress::from_graph_entry_address(graph_entry_address);
+                let graph_entry_record_key = network_address.to_record_key();
+                let graph_entry_pretty = PrettyPrintRecordKey::from(&graph_entry_record_key);
+                if &graph_entry_record_key != record_key {
+                    warn!("Ignoring GraphEntry for another record key {graph_entry_pretty:?} when verifying: {pretty_key:?}");
                     return false;
                 }
                 true
             })
             .collect();
 
-        // if we have no transactions to verify, return early
-        if transactions_for_key.is_empty() {
-            warn!("Found no valid transactions to verify upon validation for {pretty_key:?}");
+        // if we have no GraphEntries to verify, return early
+        if entries_for_key.is_empty() {
+            warn!("Found no valid GraphEntries to verify upon validation for {pretty_key:?}");
             return Err(Error::InvalidRequest(format!(
-                "No transactions to verify when validating {pretty_key:?}"
+                "No GraphEntries to verify when validating {pretty_key:?}"
             )));
         }
 
-        // verify the transactions
-        let mut validated_transactions: BTreeSet<GraphEntry> = transactions_for_key
+        // verify the GraphEntries
+        let mut validated_entries: BTreeSet<GraphEntry> = entries_for_key
             .into_iter()
-            .filter(|t| t.verify())
+            .filter(|t| t.verify_signature())
             .collect();
 
         // skip if none are valid
-        let addr = match validated_transactions.first() {
+        let addr = match validated_entries.first() {
             None => {
-                warn!("Found no validated transactions to store at {pretty_key:?}");
+                warn!("Found no validated GraphEntries to store at {pretty_key:?}");
                 return Ok(());
             }
             Some(t) => t.address(),
         };
 
-        // add local transactions to the validated transactions, turn to Vec
-        let local_txs = self.get_local_transactions(addr).await?;
-        validated_transactions.extend(local_txs.into_iter());
-        let validated_transactions: Vec<GraphEntry> = validated_transactions.into_iter().collect();
+        // add local GraphEntries to the validated GraphEntries, turn to Vec
+        let local_entries = self.get_local_graphentries(addr).await?;
+        let existing_entry = local_entries.len();
+        validated_entries.extend(local_entries.into_iter());
+        let validated_entries: Vec<GraphEntry> = validated_entries.into_iter().collect();
+
+        // No need to write to disk if nothing new.
+        if existing_entry == validated_entries.len() {
+            debug!("No new entry of the GraphEntry {pretty_key:?}");
+            return Ok(());
+        }
 
         // store the record into the local storage
         let record = Record {
             key: record_key.clone(),
-            value: try_serialize_record(&validated_transactions, RecordKind::GraphEntry)?.to_vec(),
+            value: try_serialize_record(
+                &validated_entries,
+                RecordKind::DataOnly(DataTypes::GraphEntry),
+            )?
+            .to_vec(),
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
-        debug!("Successfully stored validated transactions at {pretty_key:?}");
+        self.network().put_local_record(record, is_client_put);
+        debug!("Successfully stored validated GraphEntries at {pretty_key:?}");
 
-        // Just log the multiple transactions
-        if validated_transactions.len() > 1 {
+        // Just log the multiple GraphEntries
+        if validated_entries.len() > 1 {
             debug!(
-                "Got multiple transaction(s) of len {} at {pretty_key:?}",
-                validated_transactions.len()
+                "Got multiple GraphEntry(s) of len {} at {pretty_key:?}",
+                validated_entries.len()
             );
         }
 
-        self.record_metrics(Marker::ValidTransactionRecordPutFromNetwork(&pretty_key));
+        self.record_metrics(Marker::ValidGraphEntryRecordPutFromNetwork(&pretty_key));
         Ok(())
     }
 
     /// Perform validations on the provided `Record`.
-    async fn payment_for_us_exists_and_is_still_valid(
+    pub(crate) async fn payment_for_us_exists_and_is_still_valid(
         &self,
         address: &NetworkAddress,
+        data_type: DataTypes,
         payment: ProofOfPayment,
     ) -> Result<()> {
         let key = address.to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
-        debug!("Validating record payment for {pretty_key}");
 
         // check if the quote is valid
         let self_peer_id = self.network().peer_id();
@@ -712,7 +637,6 @@ impl Node {
                 "Payment is not valid for record {pretty_key}"
             )));
         }
-        debug!("Payment is valid for record {pretty_key}");
 
         // verify quote expiration
         if payment.has_expired() {
@@ -722,11 +646,20 @@ impl Node {
             )));
         }
 
+        // verify data type matches
+        if !payment.verify_data_type(data_type.get_index()) {
+            warn!("Payment quote has wrong data type for record {pretty_key}");
+            return Err(Error::InvalidRequest(format!(
+                "Payment quote has wrong data type for record {pretty_key}"
+            )));
+        }
+
         // verify the claimed payees are all known to us within the certain range.
         let closest_k_peers = self.network().get_closest_k_value_local_peers().await?;
         let mut payees = payment.payees();
         payees.retain(|peer_id| !closest_k_peers.contains(peer_id));
         if !payees.is_empty() {
+            warn!("Payment quote has out-of-range payees for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(
                 "Payment quote has out-of-range payees {payees:?}"
             )));
@@ -739,147 +672,184 @@ impl Node {
             .collect();
         // check if payment is valid on chain
         let payments_to_verify = payment.digest();
-        debug!("Verifying payment for record {pretty_key}");
         let reward_amount =
             verify_data_payment(self.evm_network(), owned_payment_quotes, payments_to_verify)
                 .await
-                .map_err(|e| Error::EvmNetwork(format!("Failed to verify chunk payment: {e}")))?;
+                .inspect_err(|e| {
+                    warn!("Failed to verify record payment: {e}");
+                })
+                .map_err(|e| Error::EvmNetwork(format!("Failed to verify record payment: {e}")))?;
+
         debug!("Payment of {reward_amount:?} is valid for record {pretty_key}");
 
-        // Notify `record_store` that the node received a payment.
-        self.network().notify_payment_received();
+        if !reward_amount.is_zero() {
+            // Notify `record_store` that the node received a payment.
+            self.network().notify_payment_received();
 
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics_recorder) = self.metrics_recorder() {
-            // FIXME: We would reach the MAX if the storecost is scaled up.
-            let current_value = metrics_recorder.current_reward_wallet_balance.get();
-            let new_value =
-                current_value.saturating_add(reward_amount.try_into().unwrap_or(i64::MAX));
-            let _ = metrics_recorder
-                .current_reward_wallet_balance
-                .set(new_value);
-        }
-        self.events_channel()
-            .broadcast(crate::NodeEvent::RewardReceived(
-                AttoTokens::from(reward_amount),
-                address.clone(),
-            ));
+            #[cfg(feature = "open-metrics")]
+            if let Some(metrics_recorder) = self.metrics_recorder() {
+                // FIXME: We would reach the MAX if the storecost is scaled up.
+                let current_value = metrics_recorder.current_reward_wallet_balance.get();
+                let new_value =
+                    current_value.saturating_add(reward_amount.try_into().unwrap_or(i64::MAX));
+                let _ = metrics_recorder
+                    .current_reward_wallet_balance
+                    .set(new_value);
+            }
 
-        // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
-        info!("Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}");
+            // TODO: currently ignored, re-enable once going to handle this.
+            // self.events_channel()
+            //     .broadcast(crate::NodeEvent::RewardReceived(
+            //         AttoTokens::from(reward_amount),
+            //         address.clone(),
+            //     ));
 
-        // loud mode: print a celebratory message to console
-        #[cfg(feature = "loud")]
-        {
-            println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟   RECEIVED REWARD   🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
-            println!(
+            // vdash metric (if modified please notify at https://github.com/happybeing/vdash/issues):
+            info!(
                 "Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}"
             );
-            println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+
+            // loud mode: print a celebratory message to console
+            #[cfg(feature = "loud")]
+            {
+                println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟   RECEIVED REWARD   🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+                println!(
+                    "Total payment of {reward_amount:?} atto tokens accepted for record {pretty_key}"
+                );
+                println!("🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟");
+            }
         }
 
         Ok(())
     }
 
-    async fn register_validation(
-        &self,
-        register: &SignedRegister,
-        present_locally: bool,
-    ) -> Result<Option<SignedRegister>> {
-        // check if register is valid
-        let reg_addr = register.address();
-        register.verify()?;
-
-        // if we don't have it locally return it
-        if !present_locally {
-            debug!("Register with addr {reg_addr:?} is valid and doesn't exist locally");
-            return Ok(Some(register.to_owned()));
-        }
-        debug!("Register with addr {reg_addr:?} exists locally, comparing with local version");
-
-        let key = NetworkAddress::from_register_address(*reg_addr).to_record_key();
-
-        // get local register
-        let maybe_record = self.network().get_local_record(&key).await?;
-        let record = match maybe_record {
-            Some(r) => r,
-            None => {
-                error!("Register with addr {reg_addr:?} already exists locally, but not found in local storage");
-                return Err(Error::InvalidRequest(format!(
-                    "Register with addr {reg_addr:?} claimed to be existing locally was not found"
-                )));
-            }
-        };
-        let local_register: SignedRegister = try_deserialize_record(&record)?;
-
-        // merge the two registers
-        let mut merged_register = local_register.clone();
-        merged_register.verified_merge(register)?;
-        if merged_register == local_register {
-            debug!("Register with addr {reg_addr:?} is the same as the local version");
-            Ok(None)
-        } else {
-            debug!("Register with addr {reg_addr:?} is different from the local version");
-            Ok(Some(merged_register))
-        }
-    }
-
-    /// Get the local transactions for the provided `TransactionAddress`
-    /// This only fetches the transactions from the local store and does not perform any network operations.
-    async fn get_local_transactions(&self, addr: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
-        // get the local transactions
+    /// Get the local GraphEntries for the provided `GraphEntryAddress`
+    /// This only fetches the GraphEntries from the local store and does not perform any network operations.
+    async fn get_local_graphentries(&self, addr: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
+        // get the local GraphEntries
         let record_key = NetworkAddress::from_graph_entry_address(addr).to_record_key();
-        debug!("Checking for local transactions with key: {record_key:?}");
+        debug!("Checking for local GraphEntries with key: {record_key:?}");
         let local_record = match self.network().get_local_record(&record_key).await? {
             Some(r) => r,
             None => {
-                debug!("Transaction is not present locally: {record_key:?}");
+                debug!("GraphEntry is not present locally: {record_key:?}");
                 return Ok(vec![]);
             }
         };
 
-        // deserialize the record and get the transactions
+        // deserialize the record and get the GraphEntries
         let local_header = RecordHeader::from_record(&local_record)?;
         let record_kind = local_header.kind;
-        if !matches!(record_kind, RecordKind::GraphEntry) {
-            error!("Found a {record_kind} when expecting to find Spend at {addr:?}");
-            return Err(NetworkError::RecordKindMismatch(RecordKind::GraphEntry).into());
+        if !matches!(record_kind, RecordKind::DataOnly(DataTypes::GraphEntry)) {
+            error!("Found a {record_kind} when expecting to find GraphEntry at {addr:?}");
+            return Err(NetworkError::RecordKindMismatch(RecordKind::DataOnly(
+                DataTypes::GraphEntry,
+            ))
+            .into());
         }
-        let local_transactions: Vec<GraphEntry> = try_deserialize_record(&local_record)?;
-        Ok(local_transactions)
+        let local_entries: Vec<GraphEntry> = try_deserialize_record(&local_record)?;
+        Ok(local_entries)
+    }
+
+    /// Get the local Pointer for the provided `PointerAddress`
+    /// This only fetches the Pointer from the local store and does not perform any network operations.
+    /// If the local Pointer is not present or corrupted, returns `None`.
+    async fn get_local_pointer(&self, addr: PointerAddress) -> Option<Pointer> {
+        // get the local Pointer
+        let record_key = NetworkAddress::from_pointer_address(addr).to_record_key();
+        debug!("Checking for local Pointer with key: {record_key:?}");
+        let local_record = match self.network().get_local_record(&record_key).await {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                debug!("Pointer is not present locally: {record_key:?}");
+                return None;
+            }
+            Err(e) => {
+                error!("Failed to get Pointer record at {addr:?}: {e}");
+                return None;
+            }
+        };
+
+        // deserialize the record and get the Pointer
+        let local_header = match RecordHeader::from_record(&local_record) {
+            Ok(h) => h,
+            Err(_) => {
+                error!("Failed to deserialize Pointer record at {addr:?}");
+                return None;
+            }
+        };
+        let record_kind = local_header.kind;
+        if !matches!(record_kind, RecordKind::DataOnly(DataTypes::Pointer)) {
+            error!("Found a {record_kind} when expecting to find Pointer at {addr:?}");
+            return None;
+        }
+        let local_pointer: Pointer = match try_deserialize_record(&local_record) {
+            Ok(p) => p,
+            Err(_) => {
+                error!("Failed to deserialize Pointer record at {addr:?}");
+                return None;
+            }
+        };
+        Some(local_pointer)
     }
 
     /// Validate and store a pointer record
-    pub(crate) fn validate_and_store_pointer_record(
+    pub(crate) async fn validate_and_store_pointer_record(
         &self,
         pointer: Pointer,
         key: RecordKey,
+        is_client_put: bool,
+        _payment: Option<ProofOfPayment>,
     ) -> Result<()> {
         // Verify the pointer's signature
-        if !pointer.verify() {
+        if !pointer.verify_signature() {
             warn!("Pointer signature verification failed");
             return Err(Error::InvalidSignature);
         }
 
         // Check if the pointer's address matches the record key
-        let net_addr = NetworkAddress::from_pointer_address(pointer.network_address());
+        let net_addr = NetworkAddress::from_pointer_address(pointer.address());
         if key != net_addr.to_record_key() {
             warn!("Pointer address does not match record key");
             return Err(Error::RecordKeyMismatch);
         }
 
+        // Keep the pointer with the highest counter
+        if let Some(local_pointer) = self.get_local_pointer(pointer.address()).await {
+            if pointer.counter() <= local_pointer.counter() {
+                info!(
+                    "Ignoring Pointer PUT at {key:?} with counter less than or equal to the current counter ({} <= {})",
+                    pointer.counter(),
+                    local_pointer.counter()
+                );
+                return Ok(());
+            }
+        }
+
         // Store the pointer
         let record = Record {
             key: key.clone(),
-            value: try_serialize_record(&pointer, RecordKind::Pointer)?.to_vec(),
+            value: try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))?
+                .to_vec(),
             publisher: None,
             expires: None,
         };
-        self.network().put_local_record(record);
+        self.network()
+            .put_local_record(record.clone(), is_client_put);
 
-        let content_hash = XorName::from_content(&pointer.network_address().to_bytes());
-        self.replicate_valid_fresh_record(key, RecordType::NonChunk(content_hash));
+        // Client changed to upload to ALL payees, hence no longer need this.
+        // May need again once client change back to upload to just one to save traffic.
+        // if is_client_put {
+        //     let content_hash = XorName::from_content(&record.value);
+        //     self.replicate_valid_fresh_record(
+        //         key.clone(),
+        //         DataTypes::Pointer,
+        //         ValidationType::NonChunk(content_hash),
+        //         payment,
+        //     );
+        // }
 
+        info!("Successfully stored Pointer record at {key:?}");
         Ok(())
     }
 }

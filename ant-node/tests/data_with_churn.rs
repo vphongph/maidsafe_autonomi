@@ -6,9 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-// TODO: Remove this once the registers are removed
-#![expect(deprecated)]
-
 mod common;
 
 use crate::common::{
@@ -16,14 +13,19 @@ use crate::common::{
     NodeRestart,
 };
 use ant_logging::LogBuilder;
-use ant_protocol::{storage::ChunkAddress, NetworkAddress};
+use ant_protocol::{
+    storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget, ScratchpadAddress},
+    NetworkAddress,
+};
 use autonomi::{Client, Wallet};
+use bls::{PublicKey, SecretKey};
+use bytes::Bytes;
 use common::client::transfer_to_new_wallet;
 use eyre::{bail, ErrReport, Result};
 use rand::Rng;
 use self_encryption::MAX_CHUNK_SIZE;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     fmt,
     fs::create_dir_all,
     sync::{Arc, LazyLock},
@@ -39,8 +41,10 @@ const TOKENS_TO_TRANSFER: usize = 10000000;
 
 const EXTRA_CHURN_COUNT: u32 = 5;
 const CHURN_CYCLES: u32 = 2;
-const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 15;
-const REGISTER_CREATION_RATIO_TO_CHURN: u32 = 15;
+const CHUNK_CREATION_RATIO_TO_CHURN: u32 = 13;
+const POINTER_CREATION_RATIO_TO_CHURN: u32 = 11;
+const SCRATCHPAD_CREATION_RATIO_TO_CHURN: u32 = 9;
+const GRAPHENTRY_CREATION_RATIO_TO_CHURN: u32 = 7;
 
 static DATA_SIZE: LazyLock<usize> = LazyLock::new(|| *MAX_CHUNK_SIZE / 3);
 
@@ -101,7 +105,7 @@ async fn data_availability_during_churn() -> Result<()> {
     // Create a cross thread usize for tracking churned nodes
     let churn_count = Arc::new(RwLock::new(0_usize));
 
-    // Allow to disable Registers data creation/checks, storing and querying only Chunks during churn.
+    // Allow to disable non-chunk data_types creation/checks.
     // Default to be not carry out chunks only during churn.
     let chunks_only = std::env::var("CHUNKS_ONLY").is_ok();
 
@@ -124,21 +128,6 @@ async fn data_availability_during_churn() -> Result<()> {
     // Shared bucket where we keep track of content created/stored on the network
     let content = ContentList::default();
 
-    // Spawn a task to create Registers at random locations,
-    // at a higher frequency than the churning events
-    let create_register_handle = if !chunks_only {
-        let register_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
-        let create_register_handle = create_registers_task(
-            client.clone(),
-            register_wallet,
-            Arc::clone(&content),
-            churn_period,
-        );
-        Some(create_register_handle)
-    } else {
-        None
-    };
-
     println!("Uploading some chunks before carry out node churning");
     info!("Uploading some chunks before carry out node churning");
 
@@ -150,6 +139,51 @@ async fn data_availability_during_churn() -> Result<()> {
         Arc::clone(&content),
         churn_period,
     );
+
+    // Spawn a task to create Pointers at random locations,
+    // at a higher frequency than the churning events
+    let create_pointer_handle = if !chunks_only {
+        let pointer_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
+        let create_pointer_handle = create_pointers_task(
+            client.clone(),
+            pointer_wallet,
+            Arc::clone(&content),
+            churn_period,
+        );
+        Some(create_pointer_handle)
+    } else {
+        None
+    };
+
+    // Spawn a task to create GraphEntry at random locations,
+    // at a higher frequency than the churning events
+    let create_graph_entry_handle = if !chunks_only {
+        let graph_entry_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
+        let create_graph_entry_handle = create_graph_entry_task(
+            client.clone(),
+            graph_entry_wallet,
+            Arc::clone(&content),
+            churn_period,
+        );
+        Some(create_graph_entry_handle)
+    } else {
+        None
+    };
+
+    // Spawn a task to create ScratchPad at random locations,
+    // at a higher frequency than the churning events
+    let create_scratchpad_handle = if !chunks_only {
+        let scratchpad_wallet = transfer_to_new_wallet(&main_wallet, TOKENS_TO_TRANSFER).await?;
+        let create_scratchpad_handle = create_scratchpad_task(
+            client.clone(),
+            scratchpad_wallet,
+            Arc::clone(&content),
+            churn_period,
+        );
+        Some(create_scratchpad_handle)
+    } else {
+        None
+    };
 
     // Spawn a task to churn nodes
     churn_nodes_task(Arc::clone(&churn_count), test_duration, churn_period);
@@ -187,9 +221,19 @@ async fn data_availability_during_churn() -> Result<()> {
         if store_chunks_handle.is_finished() {
             bail!("Store chunks task has finished before the test duration. Probably due to an error.");
         }
-        if let Some(handle) = &create_register_handle {
+        if let Some(handle) = &create_pointer_handle {
             if handle.is_finished() {
-                bail!("Create registers task has finished before the test duration. Probably due to an error.");
+                bail!("Create Pointers task has finished before the test duration. Probably due to an error.");
+            }
+        }
+        if let Some(handle) = &create_graph_entry_handle {
+            if handle.is_finished() {
+                bail!("Create GraphEntry task has finished before the test duration. Probably due to an error.");
+            }
+        }
+        if let Some(handle) = &create_scratchpad_handle {
+            if handle.is_finished() {
+                bail!("Create ScratchPad task has finished before the test duration. Probably due to an error.");
             }
         }
 
@@ -267,55 +311,342 @@ async fn data_availability_during_churn() -> Result<()> {
     Ok(())
 }
 
-// Spawns a task which periodically creates Registers at random locations.
-fn create_registers_task(
+// Spawns a task which periodically creates ScratchPads at random locations.
+fn create_scratchpad_task(
     client: Client,
     wallet: Wallet,
     content: ContentList,
     churn_period: Duration,
 ) -> JoinHandle<Result<()>> {
     let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
-        // Create Registers at a higher frequency than the churning events
-        let delay = churn_period / REGISTER_CREATION_RATIO_TO_CHURN;
+        // Map of the ownership, allowing the later on update can be undertaken.
+        let mut owners: HashMap<ScratchpadAddress, SecretKey> = HashMap::new();
+
+        // Create ScratchPad at a higher frequency than the churning events
+        let delay = churn_period / SCRATCHPAD_CREATION_RATIO_TO_CHURN;
 
         loop {
-            let owner = Client::register_generate_key();
-            let random_name = XorName(rand::random()).to_string();
-            let random_data = gen_random_data(*DATA_SIZE);
-
             sleep(delay).await;
+
+            // 50% chance to carry out update instead of creation.
+            let is_update: bool = if owners.is_empty() {
+                false
+            } else {
+                rand::random()
+            };
+
+            let content_type: u64 = rand::random();
+            let data_byte: u8 = rand::random();
+            let mut data = vec![data_byte; 100];
+            rand::thread_rng().fill(&mut data[..]);
+            let bytes = Bytes::from(data);
+
+            let mut retries = 1;
+            if is_update {
+                let index = rand::thread_rng().gen_range(0..owners.len());
+                let iterator: Vec<_> = owners.iter().collect();
+                let (addr, owner) = iterator[index];
+
+                loop {
+                    match client.scratchpad_update(owner, content_type, &bytes).await {
+                        Ok(_) => {
+                            println!("Updated ScratchPad at {addr:?} after a delay of: {delay:?}");
+                            break;
+                        }
+                        Err(err) => {
+                            println!("Failed to update ScratchPad at {addr:?}. Retrying ...");
+                            error!("Failed to update ScratchPad at {addr:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                                error!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                                bail!(
+                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                );
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            } else {
+                let owner = SecretKey::random();
+                loop {
+                    match client
+                        .scratchpad_create(&owner, content_type, &bytes, (&wallet).into())
+                        .await
+                    {
+                        Ok((cost, addr)) => {
+                            println!("Created new ScratchPad at {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
+                            let net_addr = NetworkAddress::ScratchpadAddress(addr);
+                            content.write().await.push_back(net_addr);
+                            let _ = owners.insert(addr, owner);
+                            break;
+                        }
+                        Err(err) => {
+                            println!("Failed to create ScratchPad: {err:?}. Retrying ...");
+                            error!("Failed to create ScratchPad: {err:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!("Failed to create ScratchPad after 3 retries: {err}");
+                                error!("Failed to create ScratchPad after 3 retries: {err}");
+                                bail!("Failed to create ScratchPad after 3 retries: {err}");
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    handle
+}
+
+// Spawns a task which periodically creates GraphEntry at random locations.
+fn create_graph_entry_task(
+    client: Client,
+    wallet: Wallet,
+    content_list: ContentList,
+    churn_period: Duration,
+) -> JoinHandle<Result<()>> {
+    let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+        // Map of the ownership, allowing the later on update can be undertaken.
+        // In this test scenario, we only test simple GraphEntry tree structure: 1-parent-1-output
+        // The tree structure is stored as a vector (last one being the latest)
+        let mut growing_history: Vec<Vec<GraphEntryAddress>> = vec![];
+        let mut owners: HashMap<PublicKey, SecretKey> = HashMap::new();
+
+        // Create GraphEntry at a higher frequency than the churning events
+        let delay = churn_period / GRAPHENTRY_CREATION_RATIO_TO_CHURN;
+
+        loop {
+            sleep(delay).await;
+
+            // 50% chance of `growing` (i.e. has existing one as partent) instead of creation new.
+            let is_growing: bool = if growing_history.is_empty() {
+                false
+            } else {
+                rand::random()
+            };
+
+            let output = SecretKey::random();
+            let output_content: [u8; 32] = rand::random();
+            let outputs = vec![(output.public_key(), output_content)];
+
+            #[allow(unused_assignments)]
+            let mut index = growing_history.len();
+            let mut graph_entry_to_put = None;
+            if is_growing {
+                index = rand::thread_rng().gen_range(0..growing_history.len());
+                let Some(addr) = growing_history[index].last() else {
+                    println!("Doesn't have history GraphEntry of {index:?}");
+                    error!("Doesn't have history GraphEntry of {index:?}");
+                    continue;
+                };
+
+                let mut retries = 1;
+                loop {
+                    match client.graph_entry_get(addr).await {
+                        Ok(graph_entry) => {
+                            println!("Fetched graph_entry at {addr:?}");
+
+                            let Some((old_output, old_content)) = graph_entry.descendants.last()
+                            else {
+                                println!("Can't get output from the graph_entry of {addr:?}");
+                                error!("Can't get output from the graph_entry of {addr:?}");
+                                break;
+                            };
+
+                            // The previous output now becomes the owner.
+                            let Some(owner) = owners.get(old_output) else {
+                                println!("Can't get secret_key of {output:?}");
+                                error!("Can't get secret_key of {output:?}");
+                                break;
+                            };
+
+                            let parents = vec![graph_entry.owner];
+                            let graph_entry =
+                                GraphEntry::new(owner, parents, *old_content, outputs);
+
+                            growing_history[index].push(graph_entry.address());
+
+                            graph_entry_to_put = Some(graph_entry);
+                            break;
+                        }
+                        Err(err) => {
+                            println!(
+                                "Failed to get graph_entry at {addr:?}: {err:?}. Retrying ..."
+                            );
+                            error!("Failed to get graph_entry at {addr:?} : {err:?}. Retrying ...");
+                            if retries >= 3 {
+                                println!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                                error!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                                bail!(
+                                    "Failed to get graph_entry at {addr:?} after 3 retries: {err}"
+                                );
+                            }
+                            retries += 1;
+                            sleep(delay).await;
+                        }
+                    }
+                }
+            } else {
+                let owner = SecretKey::random();
+                let content: [u8; 32] = rand::random();
+                let parents = vec![];
+                let graph_entry = GraphEntry::new(&owner, parents, content, outputs);
+
+                growing_history.push(vec![graph_entry.address()]);
+                let _ = owners.insert(owner.public_key(), owner);
+
+                graph_entry_to_put = Some(graph_entry);
+            };
+
+            let Some(graph_entry) = graph_entry_to_put else {
+                println!("Doesn't have graph_entry to put to network.");
+                error!("Doesn't have graph_entry to put to network.");
+                continue;
+            };
+
+            let _ = owners.insert(output.public_key(), output);
 
             let mut retries = 1;
             loop {
                 match client
-                    .register_create(
-                        Some(random_data.clone()),
-                        &random_name,
-                        owner.clone(),
-                        &wallet,
-                    )
+                    .graph_entry_put(graph_entry.clone(), (&wallet).into())
                     .await
                 {
-                    Ok(register) => {
-                        let addr = register.address();
-                        println!("Created new Register ({addr:?}) after a delay of: {delay:?}");
-                        content
-                            .write()
-                            .await
-                            .push_back(NetworkAddress::RegisterAddress(*addr));
+                    Ok((cost, addr)) => {
+                        println!("Uploaded graph_entry to {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
+                        let net_addr = NetworkAddress::GraphEntryAddress(addr);
+                        content_list.write().await.push_back(net_addr);
                         break;
                     }
                     Err(err) => {
-                        println!("Failed to create register: {err:?}. Retrying ...");
-                        error!("Failed to create register: {err:?}. Retrying ...");
+                        println!("Failed to upload graph_entry: {err:?}. Retrying ...");
+                        error!("Failed to upload graph_entry: {err:?}. Retrying ...");
                         if retries >= 3 {
-                            println!("Failed to create register after 3 retries: {err}");
-                            error!("Failed to create register after 3 retries: {err}");
-                            bail!("Failed to create register after 3 retries: {err}");
+                            println!("Failed to upload graph_entry after 3 retries: {err}");
+                            error!("Failed to upload graph_entry after 3 retries: {err}");
+                            bail!("Failed to upload graph_entry after 3 retries: {err}");
                         }
                         retries += 1;
+                        sleep(delay).await;
                     }
                 }
+            }
+        }
+    });
+    handle
+}
+
+// Spawns a task which periodically creates Pointers at random locations.
+fn create_pointers_task(
+    client: Client,
+    wallet: Wallet,
+    content: ContentList,
+    churn_period: Duration,
+) -> JoinHandle<Result<()>> {
+    let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+        // Map of the ownership, allowing the later on update can be undertaken.
+        let mut owners: HashMap<NetworkAddress, (SecretKey, PointerTarget)> = HashMap::new();
+
+        // Create Pointers at a higher frequency than the churning events
+        let delay = churn_period / POINTER_CREATION_RATIO_TO_CHURN;
+
+        loop {
+            sleep(delay).await;
+
+            #[allow(unused_assignments)]
+            let mut pointer_addr = None;
+
+            // 50% chance to carry out update instead of creation.
+            let is_update: bool = if owners.is_empty() {
+                false
+            } else {
+                rand::random()
+            };
+
+            let mut retries = 1;
+
+            if is_update {
+                let index = rand::thread_rng().gen_range(0..owners.len());
+                let iterator: Vec<_> = owners.iter().collect();
+                let (addr, (owner, old_target)) = iterator[index];
+
+                let new_target =
+                    PointerTarget::ChunkAddress(ChunkAddress::new(XorName(rand::random())));
+                loop {
+                    match client.pointer_update(owner, new_target.clone()).await {
+                        Ok(_) => {
+                            println!("Updated Pointer at {addr:?} with {old_target:?} to new target {new_target:?} after a delay of: {delay:?}");
+                            pointer_addr = Some((addr.clone(), None, new_target));
+                            break;
+                        }
+                        Err(err) => {
+                            println!(
+                                "Failed to update pointer at {addr:?} with {old_target:?}: {err:?}. Retrying ..."
+                            );
+                            error!(
+                                "Failed to update pointer at {addr:?} with {old_target:?}: {err:?}. Retrying ..."
+                            );
+                            if retries >= 3 {
+                                println!("Failed to update pointer at {addr:?} with {old_target:?} after 3 retries: {err}");
+                                error!("Failed to update pointer at {addr:?} with {old_target:?} after 3 retries: {err}");
+                                bail!("Failed to update pointer at {addr:?} with {old_target:?} after 3 retries: {err}");
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            } else {
+                let owner = SecretKey::random();
+                let pointer_target =
+                    PointerTarget::ChunkAddress(ChunkAddress::new(XorName(rand::random())));
+                loop {
+                    match client
+                        .pointer_create(&owner, pointer_target.clone(), (&wallet).into())
+                        .await
+                    {
+                        Ok((cost, addr)) => {
+                            println!("Created new Pointer ({pointer_target:?}) at {addr:?} with cost of {cost:?} after a delay of: {delay:?}");
+                            let net_addr = NetworkAddress::PointerAddress(addr);
+                            pointer_addr = Some((net_addr.clone(), Some(owner), pointer_target));
+                            content.write().await.push_back(net_addr);
+                            break;
+                        }
+                        Err(err) => {
+                            println!(
+                                "Failed to create pointer {pointer_target:?}: {err:?}. Retrying ..."
+                            );
+                            error!(
+                                "Failed to create pointer {pointer_target:?}: {err:?}. Retrying ..."
+                            );
+                            if retries >= 3 {
+                                println!("Failed to create pointer {pointer_target:?} after 3 retries: {err}");
+                                error!("Failed to create pointer {pointer_target:?} after 3 retries: {err}");
+                                bail!("Failed to create pointer {pointer_target:?} after 3 retries: {err}");
+                            }
+                            retries += 1;
+                        }
+                    }
+                }
+            }
+            match pointer_addr {
+                Some((addr, Some(owner), target)) => {
+                    let _ = owners.insert(addr, (owner, target));
+                }
+                Some((addr, None, new_target)) => {
+                    if let Some((_owner, target)) = owners.get_mut(&addr) {
+                        *target = new_target;
+                    }
+                }
+                _ => {}
             }
         }
     });
@@ -352,7 +683,7 @@ fn store_chunks_task(
                         println!("Error to put chunk: {err:?}");
                         error!("Error to put chunk: {err:?}")
                     }) {
-                    Ok(data_map) => {
+                    Ok((_cost, data_map)) => {
                         println!("Stored Chunk/s at {data_map:?} after a delay of: {delay:?}");
                         info!("Stored Chunk/s at {data_map:?} after a delay of: {delay:?}");
 
@@ -526,7 +857,7 @@ async fn final_retry_query_content(
             } else {
                 attempts += 1;
                 let delay = 2 * churn_period;
-                debug!("Delaying last check for {delay:?} ...");
+                debug!("Delaying last check of {net_addr:?} for {delay:?} ...");
                 sleep(delay).await;
                 continue;
             }
@@ -540,14 +871,23 @@ async fn final_retry_query_content(
 
 async fn query_content(client: &Client, net_addr: &NetworkAddress) -> Result<()> {
     match net_addr {
-        NetworkAddress::RegisterAddress(addr) => {
-            let _ = client.register_get(*addr).await?;
-            Ok(())
-        }
         NetworkAddress::ChunkAddress(addr) => {
-            client.data_get_public(*addr.xorname()).await?;
+            client.data_get_public(addr.xorname()).await?;
             Ok(())
         }
-        _other => Ok(()), // we don't create/store any other type of content in this test yet
+        NetworkAddress::PointerAddress(addr) => {
+            let _ = client.pointer_get(addr).await?;
+            Ok(())
+        }
+        NetworkAddress::GraphEntryAddress(addr) => {
+            let _ = client.graph_entry_get(addr).await?;
+            Ok(())
+        }
+        NetworkAddress::ScratchpadAddress(addr) => {
+            let _ = client.scratchpad_get(addr).await?;
+            Ok(())
+        }
+        // Drain the enum to ensure all native supported data_types are covered
+        NetworkAddress::PeerId(_) | NetworkAddress::RecordKey(_) => Ok(()),
     }
 }

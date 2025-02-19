@@ -36,7 +36,7 @@ jobs:
         run: sudo apt-get install -y ripgrep
 
       - name: Build binaries
-        run: cargo build --release --features local --bin antnode --bin ant
+        run: cargo build --release --bin antnode --bin ant
         timeout-minutes: 30
 
       - name: Start a local network
@@ -70,7 +70,7 @@ jobs:
         shell: bash
 
       - name: File upload
-        run: ./target/release/ant --log-output-dest=data-dir file upload --public "./the-test-data.zip" > ./upload_output 2>&1
+        run: ./target/release/ant --log-output-dest=data-dir --local file upload --public "./the-test-data.zip" > ./upload_output 2>&1
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
@@ -98,14 +98,14 @@ jobs:
           ls -l $ANT_DATA_PATH/client_first/logs
           mkdir $ANT_DATA_PATH/client
           ls -l $ANT_DATA_PATH
-          cp ./the-test-data.zip ./the-test-data_1.zip
-          ./target/release/ant --log-output-dest=data-dir file upload "./the-test-data_1.zip" > ./second_upload 2>&1
+          ./target/release/ant --log-output-dest=data-dir --local file upload --public "./the-test-data.zip" > ./upload_output_second 2>&1
+          rg 'All chunks already exist on the network.' ./upload_output_second -c --stats
         env:
           ANT_LOG: "all"
         timeout-minutes: 25
 
       - name: showing the second upload terminal output
-        run: cat second_upload
+        run: cat upload_output_second
         shell: bash
         if: always()
 
@@ -114,7 +114,11 @@ jobs:
 
       - name: Start the restart node again
         run: |
-          ./target/release/antnode --root-dir $RESTART_TEST_NODE_DATA_PATH --log-output-dest $RESTART_TEST_NODE_DATA_PATH --local --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" &
+          ./target/release/antnode \
+            --root-dir $RESTART_TEST_NODE_DATA_PATH \
+            --log-output-dest $RESTART_TEST_NODE_DATA_PATH \
+            --local \
+            --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" &
           sleep 10
         env:
           ANT_LOG: "all"
@@ -146,7 +150,7 @@ jobs:
         if: always()
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest=data-dir file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
+        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
         env:
           ANT_LOG: "v"
         timeout-minutes: 2
@@ -156,6 +160,22 @@ jobs:
         timeout-minutes: 1
         continue-on-error: true
         run: pgrep antnode | wc -l
+        if: always()
+
+      - name: confirm opened FDs
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          fd_cap="30"
+          pids=$(pgrep antnode)
+          for pid in $pids; do
+            fd_count=$(ls /proc/$pid/fd | wc -l)
+            echo "Process $pid - File Descriptors: $fd_count"
+            if (( $(echo "$fd_count > $fd_cap" | bc -l) )); then
+              echo "Process $pid holding FD exceeded threshold: $fd_cap"
+              exit 1
+            fi
+          done
         if: always()
 
       - name: Stop the local network and upload logs

@@ -110,11 +110,6 @@ impl ServiceStateActions for NodeService<'_> {
             args.push(OsString::from(max_log_files.to_string()));
         }
 
-        if let Some(owner) = &self.service_data.owner {
-            args.push(OsString::from("--owner"));
-            args.push(OsString::from(owner));
-        }
-
         args.push(OsString::from("--rewards-address"));
         args.push(OsString::from(
             self.service_data.rewards_address.to_string(),
@@ -288,8 +283,6 @@ pub struct NodeServiceData {
     pub max_log_files: Option<usize>,
     #[serde(default)]
     pub metrics_port: Option<u16>,
-    #[serde(default)]
-    pub owner: Option<String>,
     pub network_id: Option<u8>,
     #[serde(default)]
     pub node_ip: Option<Ipv4Addr>,

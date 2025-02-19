@@ -13,6 +13,7 @@ use super::{
 use crate::metrics::NodeMetricsRecorder;
 use crate::RunningNode;
 use ant_bootstrap::BootstrapCacheStore;
+use ant_evm::EvmNetwork;
 use ant_evm::RewardsAddress;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
@@ -20,15 +21,14 @@ use ant_networking::{
     time::sleep, Instant, Network, NetworkBuilder, NetworkEvent, NodeIssue, SwarmDriver,
 };
 use ant_protocol::{
-    convert_distance_to_u256,
     error::Error as ProtocolError,
     messages::{ChunkProof, CmdResponse, Nonce, Query, QueryResponse, Request, Response},
-    storage::RecordType,
+    storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use bytes::Bytes;
 use itertools::Itertools;
-use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use libp2p::{identity::Keypair, kad::U256, Multiaddr, PeerId};
 use num_traits::cast::ToPrimitive;
 use rand::{
     rngs::{OsRng, StdRng},
@@ -44,12 +44,11 @@ use std::{
     },
     time::Duration,
 };
+use tokio::sync::watch;
 use tokio::{
     sync::mpsc::Receiver,
     task::{spawn, JoinSet},
 };
-
-use ant_evm::{EvmNetwork, U256};
 
 /// Interval to trigger replication of all records to all peers.
 /// This is the max time it should take. Minimum interval at any node will be half this
@@ -70,7 +69,7 @@ const HIGHEST_SCORE: usize = 100;
 
 /// Any nodes bearing a score below this shall be considered as bad.
 /// Max is to be 100 * 100
-const MIN_ACCEPTABLE_HEALTHY_SCORE: usize = 5000;
+const MIN_ACCEPTABLE_HEALTHY_SCORE: usize = 3000;
 
 /// in ms, expecting average StorageChallenge complete time to be around 250ms.
 const TIME_STEP: usize = 20;
@@ -94,7 +93,6 @@ pub struct NodeBuilder {
     metrics_server_port: Option<u16>,
     /// Enable hole punching for nodes connecting from home networks.
     is_behind_home_network: bool,
-    #[cfg(feature = "upnp")]
     upnp: bool,
 }
 
@@ -108,7 +106,7 @@ impl NodeBuilder {
         addr: SocketAddr,
         local: bool,
         root_dir: PathBuf,
-        #[cfg(feature = "upnp")] upnp: bool,
+        upnp: bool,
     ) -> Self {
         Self {
             bootstrap_cache: None,
@@ -122,7 +120,6 @@ impl NodeBuilder {
             #[cfg(feature = "open-metrics")]
             metrics_server_port: None,
             is_behind_home_network: false,
-            #[cfg(feature = "upnp")]
             upnp,
         }
     }
@@ -184,11 +181,11 @@ impl NodeBuilder {
             network_builder.bootstrap_cache(cache);
         }
 
-        #[cfg(feature = "upnp")]
         network_builder.upnp(self.upnp);
 
         let (network, network_event_receiver, swarm_driver) =
             network_builder.build_node(self.root_dir.clone())?;
+
         let node_events_channel = NodeEventsChannel::default();
 
         let node = NodeInner {
@@ -200,18 +197,24 @@ impl NodeBuilder {
             metrics_recorder,
             evm_network: self.evm_network,
         };
+
         let node = Node {
             inner: Arc::new(node),
         };
+
+        // Create a shutdown signal channel
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        // Run the node
+        node.run(swarm_driver, network_event_receiver, shutdown_rx);
+
         let running_node = RunningNode {
+            shutdown_sender: shutdown_tx,
             network,
             node_events_channel,
             root_dir_path: self.root_dir,
             rewards_address: self.evm_address,
         };
-
-        // Run the node
-        node.run(swarm_driver, network_event_receiver);
 
         Ok(running_node)
     }
@@ -270,14 +273,20 @@ impl Node {
         &self.inner.evm_network
     }
 
-    /// Runs the provided `SwarmDriver` and spawns a task to process for `NetworkEvents`
-    fn run(self, swarm_driver: SwarmDriver, mut network_event_receiver: Receiver<NetworkEvent>) {
+    /// Runs a task for the provided `SwarmDriver` and spawns a task to process for `NetworkEvents`.
+    /// Returns both tasks as JoinHandle<()>.
+    fn run(
+        self,
+        swarm_driver: SwarmDriver,
+        mut network_event_receiver: Receiver<NetworkEvent>,
+        mut shutdown_rx: watch::Receiver<bool>,
+    ) {
         let mut rng = StdRng::from_entropy();
 
         let peers_connected = Arc::new(AtomicUsize::new(0));
 
-        let _handle = spawn(swarm_driver.run());
-        let _handle = spawn(async move {
+        let _swarm_driver_task = spawn(swarm_driver.run(shutdown_rx.clone()));
+        let _node_task = spawn(async move {
             // use a random inactivity timeout to ensure that the nodes do not sync when messages
             // are being transmitted.
             let replication_interval: u64 = rng.gen_range(
@@ -328,6 +337,13 @@ impl Node {
                 let peers_connected = &peers_connected;
 
                 tokio::select! {
+                    // Check for a shutdown command.
+                    result = shutdown_rx.changed() => {
+                        if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                            info!("Shutdown signal received or sender dropped. Exiting network events loop.");
+                            break;
+                        }
+                    },
                     net_event = network_event_receiver.recv() => {
                         match net_event {
                             Some(event) => {
@@ -348,7 +364,6 @@ impl Node {
                     // runs every replication_interval time
                     _ = replication_interval.tick() => {
                         let start = Instant::now();
-                        debug!("Periodic replication triggered");
                         let network = self.network().clone();
                         self.record_metrics(Marker::IntervalReplicationTriggered);
 
@@ -456,28 +471,24 @@ impl Node {
             }
             NetworkEvent::NewListenAddr(_) => {
                 event_header = "NewListenAddr";
-                if !cfg!(feature = "local") {
-                    let network = self.network().clone();
-                    let peers = self.initial_peers().clone();
-                    let _handle = spawn(async move {
-                        for addr in peers {
-                            if let Err(err) = network.dial(addr.clone()).await {
-                                tracing::error!("Failed to dial {addr}: {err:?}");
-                            };
-                        }
-                    });
-                }
+                let network = self.network().clone();
+                let peers = self.initial_peers().clone();
+                let _handle = spawn(async move {
+                    for addr in peers {
+                        if let Err(err) = network.dial(addr.clone()).await {
+                            tracing::error!("Failed to dial {addr}: {err:?}");
+                        };
+                    }
+                });
             }
             NetworkEvent::ResponseReceived { res } => {
                 event_header = "ResponseReceived";
-                debug!("NetworkEvent::ResponseReceived {res:?}");
                 if let Err(err) = self.handle_response(res) {
                     error!("Error while handling NetworkEvent::ResponseReceived {err:?}");
                 }
             }
             NetworkEvent::KeysToFetchForReplication(keys) => {
                 event_header = "KeysToFetchForReplication";
-                debug!("Going to fetch {:?} keys for replication", keys.len());
                 self.record_metrics(Marker::fetching_keys_for_replication(&keys));
 
                 if let Err(err) = self.fetch_replication_keys_without_wait(keys) {
@@ -520,13 +531,29 @@ impl Node {
             NetworkEvent::FailedToFetchHolders(bad_nodes) => {
                 event_header = "FailedToFetchHolders";
                 let network = self.network().clone();
+                let pretty_log: Vec<_> = bad_nodes
+                    .iter()
+                    .map(|(peer_id, record_key)| {
+                        let pretty_key = PrettyPrintRecordKey::from(record_key);
+                        (peer_id, pretty_key)
+                    })
+                    .collect();
                 // Note: this log will be checked in CI, and expecting `not appear`.
                 //       any change to the keyword `failed to fetch` shall incur
                 //       correspondent CI script change as well.
-                error!("Received notification from replication_fetcher, notifying {bad_nodes:?} failed to fetch replication copies from.");
+                debug!("Received notification from replication_fetcher, notifying {pretty_log:?} failed to fetch replication copies from.");
                 let _handle = spawn(async move {
-                    for peer_id in bad_nodes {
-                        network.record_node_issues(peer_id, NodeIssue::ReplicationFailure);
+                    for (peer_id, record_key) in bad_nodes {
+                        // Obsoleted fetch request (due to flooded in fresh replicates) could result
+                        // in peer to be claimed as bad, as local copy blocks the entry to be cleared.
+                        if let Ok(false) = network.is_record_key_present_locally(&record_key).await
+                        {
+                            error!(
+                                "From peer {peer_id:?}, failed to fetch record {:?}",
+                                PrettyPrintRecordKey::from(&record_key)
+                            );
+                            network.record_node_issues(peer_id, NodeIssue::ReplicationFailure);
+                        }
                     }
                 });
             }
@@ -537,6 +564,10 @@ impl Node {
                 let _handle = spawn(async move {
                     quotes_verification(&network, quotes).await;
                 });
+            }
+            NetworkEvent::FreshReplicateToFetch { holder, keys } => {
+                event_header = "FreshReplicateToFetch";
+                self.fresh_replicate_to_fetch(holder, keys);
             }
         }
 
@@ -556,6 +587,9 @@ impl Node {
             Response::Query(QueryResponse::GetReplicatedRecord(resp)) => {
                 error!("Response to replication shall be handled by called not by common handler, {resp:?}");
             }
+            Response::Cmd(CmdResponse::FreshReplicate(Ok(()))) => {
+                // No need to handle
+            }
             other => {
                 warn!("handle_response not implemented for {other:?}");
             }
@@ -572,15 +606,17 @@ impl Node {
         let resp: QueryResponse = match query {
             Query::GetStoreQuote {
                 key,
+                data_type,
+                data_size,
                 nonce,
                 difficulty,
             } => {
-                debug!("Got GetStoreQuote request for {key:?} with difficulty {difficulty}");
                 let record_key = key.to_record_key();
                 let self_id = network.peer_id();
 
-                let maybe_quoting_metrics =
-                    network.get_local_quoting_metrics(record_key.clone()).await;
+                let maybe_quoting_metrics = network
+                    .get_local_quoting_metrics(record_key.clone(), data_type, data_size)
+                    .await;
 
                 let storage_proofs = if let Some(nonce) = nonce {
                     Self::respond_x_closest_record_proof(
@@ -628,27 +664,7 @@ impl Node {
                     }
                 }
             }
-            Query::GetRegisterRecord { requester, key } => {
-                debug!("Got GetRegisterRecord from {requester:?} regarding {key:?} ");
-
-                let our_address = NetworkAddress::from_peer(network.peer_id());
-                let mut result = Err(ProtocolError::RegisterRecordNotFound {
-                    holder: Box::new(our_address.clone()),
-                    key: Box::new(key.clone()),
-                });
-                let record_key = key.as_record_key();
-
-                if let Some(record_key) = record_key {
-                    if let Ok(Some(record)) = network.get_local_record(&record_key).await {
-                        result = Ok((our_address, Bytes::from(record.value)));
-                    }
-                }
-
-                QueryResponse::GetRegisterRecord(result)
-            }
-            Query::GetReplicatedRecord { requester, key } => {
-                debug!("Got GetReplicatedRecord from {requester:?} regarding {key:?}");
-
+            Query::GetReplicatedRecord { requester: _, key } => {
                 let our_address = NetworkAddress::from_peer(network.peer_id());
                 let mut result = Err(ProtocolError::ReplicatedRecordNotFound {
                     holder: Box::new(our_address.clone()),
@@ -668,16 +684,9 @@ impl Node {
                 key,
                 nonce,
                 difficulty,
-            } => {
-                debug!(
-                    "Got GetChunkExistenceProof targeting chunk {key:?} with {difficulty} answers."
-                );
-
-                QueryResponse::GetChunkExistenceProof(
-                    Self::respond_x_closest_record_proof(network, key, nonce, difficulty, true)
-                        .await,
-                )
-            }
+            } => QueryResponse::GetChunkExistenceProof(
+                Self::respond_x_closest_record_proof(network, key, nonce, difficulty, true).await,
+            ),
             Query::CheckNodeInProblem(target_address) => {
                 debug!("Got CheckNodeInProblem for peer {target_address:?}");
 
@@ -752,12 +761,12 @@ impl Node {
     ) -> Vec<(NetworkAddress, Vec<Multiaddr>)> {
         match (num_of_peers, range) {
             (_, Some(value)) => {
-                let distance = U256::from_be_bytes(value);
+                let distance = U256::from_big_endian(&value);
                 peer_addrs
                     .iter()
                     .filter_map(|(peer_id, multi_addrs)| {
                         let addr = NetworkAddress::from_peer(*peer_id);
-                        if convert_distance_to_u256(&target.distance(&addr)) <= distance {
+                        if target.distance(&addr).0 <= distance {
                             Some((addr, multi_addrs.clone()))
                         } else {
                             None
@@ -811,7 +820,7 @@ impl Node {
                     all_local_records
                         .iter()
                         .filter_map(|(addr, record_type)| {
-                            if *record_type == RecordType::Chunk {
+                            if *record_type == ValidationType::Chunk {
                                 Some(addr.clone())
                             } else {
                                 None
@@ -837,12 +846,12 @@ impl Node {
                     }
                 }
             }
-        }
 
-        info!(
-            "Respond with {} answers to the StorageChallenge targeting {key:?} with {difficulty} difficulty, in {:?}",
-            results.len(), start.elapsed()
-        );
+            info!(
+                "Respond with {} answers to the StorageChallenge targeting {key:?} with {difficulty} difficulty, in {:?}",
+                results.len(), start.elapsed()
+            );
+        }
 
         results
     }
@@ -876,7 +885,7 @@ impl Node {
                 all_keys
                     .iter()
                     .filter_map(|(addr, record_type)| {
-                        if RecordType::Chunk == *record_type {
+                        if ValidationType::Chunk == *record_type {
                             Some(addr.clone())
                         } else {
                             None
@@ -935,19 +944,25 @@ impl Node {
             });
         }
 
+        let mut peer_scores = vec![];
         while let Some(res) = tasks.join_next().await {
             match res {
                 Ok((peer_id, score)) => {
-                    if score < MIN_ACCEPTABLE_HEALTHY_SCORE {
+                    let is_healthy = score > MIN_ACCEPTABLE_HEALTHY_SCORE;
+                    if !is_healthy {
                         info!("Peer {peer_id:?} failed storage challenge with low score {score}/{MIN_ACCEPTABLE_HEALTHY_SCORE}.");
                         // TODO: shall the challenge failure immediately triggers the node to be removed?
                         network.record_node_issues(peer_id, NodeIssue::FailedChunkProofCheck);
                     }
+                    peer_scores.push((peer_id, is_healthy));
                 }
                 Err(e) => {
                     info!("StorageChallenge task completed with error {e:?}");
                 }
             }
+        }
+        if !peer_scores.is_empty() {
+            network.notify_peer_scores(peer_scores);
         }
 
         info!(
@@ -1158,12 +1173,12 @@ mod tests {
         );
 
         // Range shall be preferred, i.e. the result peers shall all within the range
-        let distance = U256::from_be_bytes(range_value);
+        let distance = U256::from_big_endian(&range_value);
         let expected_result: Vec<(NetworkAddress, Vec<Multiaddr>)> = local_peers
             .into_iter()
             .filter_map(|(peer_id, multi_addrs)| {
                 let addr = NetworkAddress::from_peer(peer_id);
-                if convert_distance_to_u256(&target.distance(&addr)) <= distance {
+                if target.distance(&addr).0 <= distance {
                     Some((addr, multi_addrs.clone()))
                 } else {
                     None

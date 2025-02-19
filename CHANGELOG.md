@@ -7,6 +7,172 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-02-11
+
+### Network
+
+#### Changed
+
+- Removed encrypt data compile time flag (now always on).
+- Refactor of data types.
+- Removed the default trait for `QuotingMetrics` and it is now initialized with the correct values
+  everywhere.
+- Compile UPnP support by default; will still require `--upnp` when launching the node to activate.
+- Removed the old flawed `Register` native data type.
+- Creating `DataTypes` as the sole place to show network natively supported data types. And use it to
+  replace existing `RecordKind`.
+- Rename `RecordType` to `ValidationType`.
+- Remove MDNS. For local nodes will bootstrap via the peer cache mechanism.
+- Upgrade `libp2p` to `0.55.0` and use some small configuration changes it makes available.
+
+#### Added
+
+- `GraphEntry` data native type as a generic graph for building collections.
+- `Pointer` data native type that points to other data on the network.
+- Relay client events to the metrics endpoint.
+- Relay reservation score to the metrics endpoint. This measures the health of a relay server that
+  we are connected to, by tracking all the recent connections that were routed through that server.
+- Allow override QUIC max stream window with `ANT_MAX_STREAM_DATA`.
+- Added an easy way to spawn nodes or an entire network from code, with `ant_node::spawn::node_spawner::NodeSpawner` and `ant_node::spawn::network_spawner::NetworkSpawner`.
+- Added a `data_type` verification when receiving records with proof of  payment.
+- Added extra logging around payment verification.
+- Make `QuotingMetrics` support data type variant pricing.
+- Avoid free upload via replication.
+
+#### Fixed
+
+- External Address Manager will not consider `IncomingConnectionError` that originates from multiple
+  dial attempts as a serious issue.
+- `MultiAddressNotSupported` error is not considered as a critical error if the error set contains
+  at least one different error.
+- The record count metrics is now set as soon as a node is restarted.
+- Push our Identify info if we make a new reservation with a relay server. This reduces the number
+  of `CircuitReqDenied` errors throughout the network.
+- All connection errors are now more forgiving and does not result in a peer being evicted from the
+  routing table immediately. These errors are tracked and the action is taken only if we go over a
+  threshold.
+- Only replicate fresh uploads to other payees.
+- During quoting re-attempts, use non-blocking sleep instead.
+
+### Client
+
+#### Changed
+
+- Update python bindings and docs. Added initial NodeJS typescript integration.
+- Updated test suit and added comprehensive documentation.
+- Deprecate storing registers references in user data.
+- Correctly report on chunks that were already uploaded to the network when syncing or re-uploading
+  the same data.
+- Add version field to archive data structure for backwards compatibility. And add future
+  compatibility serialization into file metadata.
+- Changed default EVM network to `Arbitrum One`.
+- Removed the deprecated `Client::connect` function! Please use `Client::init` instead.
+- Removed the old `Register` native data type, although the new `Register` high level type does the
+  same job but better.
+- Removed the feature flags and the complexities around those, now everything is configurable at
+  runtime (no need to recompile).
+
+#### Added
+
+- NodeJS/Typescript bindings.
+- 36 different configurations for publish Python bindings.
+- Client examples.
+- Added `evm_network` field to client config.
+- Added a better retry strategy for getting market prices and sending transactions. This reduces the
+  frequency of RPC related upload errors significantly.
+- Added a `data_type` verification when receiving quotes from nodes.
+- Client API for all four data types: `Chunk`, `GraphEntry`, `Scratchpad`, `Pointer`.
+- High level `Register` data type that works similarly to old registers but without the update limit
+  they had: now infinitely mutable.
+- key derivation tooling
+
+#### Fixed
+
+- Rust optimization: Use parallelised chunk cloning in self encryption.
+- Deterministically serialize archives. This leads to de-duplication and less payments when syncing
+  folders and files.
+- Patched and refactored client Python bindings to reflect almost the whole Rust API.
+- EVM network uses default if not supplied by ENV.
+- Event receiver panic after completing client operations.
+
+## 2025-01-21
+
+### Client
+
+#### Changed
+
+- Use balanced retry strategy for downloading chunks. Sometimes it would be possible we wouldn't
+  find a chunk if we tried to retrieve it on the first attempt, so as with uploads, we will use a
+  balanced retry strategy for downloads. This should make the `ant file download` command more
+  robust.
+
+## 2025-01-20
+
+### Client
+
+#### Fixed
+
+- Remove unallocated static IP from the bootstrap mechanism. We have five static IP addresses
+  allocated to five hosts, each of which run nodes and a minimal web server. The web server makes a
+  list of peers available to nodes and clients to enable them to join the network. These static IP
+  addresses are hard-coded in the `antnode` and `ant` binaries. It was discovered we had accidentally
+  added six IPs and one of those was unallocated. Removing the unallocated IP should reduce the time
+  to connect to the network.
+
+### Network
+
+#### Changed
+
+- Reduce the frequency of metrics collection in the node's metrics server, from fifteen to sixty
+  seconds. This should reduce resource usage and improve performance.
+- Do not refresh all CPU information in the metrics collection process in the node's metrics server.
+  Again, this should reduce resource usage and improve performance.
+- Remove the 50% CPU usage safety measure. We added a safety measure to the node to cause the
+  process to terminate if the system's CPU usage exceeded 50% for five consecutive minutes. This was
+  to prevent cascading failures resulting from too much churn when a large node operator pulled the
+  plug on tens of thousands of nodes in a very short period of time. If other operators had
+  provisioned to max capacity and not left some buffer room for their own nodes, many other node
+  processes could die from the resulting churn. After an internal discussion, the decision was taken
+  to remove the safety measure.
+
+## 2025-01-14
+
+### Client
+
+#### Fixed
+
+- Remove `uploaded` timestamp from archive metadata to prevent unnecessary re-uploads when archive
+  contents remain unchanged. This ensures we do not charge when uploading the same file more than
+  once on `ant file upload`.
+- Switch from `HashMap` to `BTreeMap` for archive to ensure deterministic serialization, which also
+  prevents unnecessary re-uploads. As above, this facilitates the fix for the duplicate payment
+  issue.
+
+## 2025-01-09
+
+### Network
+
+#### Changed
+
+- Network discovery no longer queries the farthest full buckets. This significantly reduces the
+  number of messages as the network grows, resulting in fewer open connections and reduced resource
+  usage.
+
+## 2025-01-06
+
+### Network
+
+#### Changed
+
+- Memory and CPU metrics use more precise `f64` measurements
+
+### Client
+
+#### Fixed
+
+- Apply a timeout for EVM transactions. This fixes an issue where some uploads would freeze indefinitely.
+- The `ant` CLI was not selecting its network consistently from the environment variable.
+
 ## 2024-12-21
 
 ### Network

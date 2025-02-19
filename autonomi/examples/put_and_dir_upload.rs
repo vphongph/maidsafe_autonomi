@@ -13,17 +13,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wallet = get_funded_wallet();
 
     // Put and fetch data.
-    let data_addr = client
+    let (_cost, data_addr) = client
         .data_put_public(Bytes::from("Hello, World"), (&wallet).into())
         .await?;
-    let _data_fetched = client.data_get_public(data_addr).await?;
+    let _data_fetched = client.data_get_public(&data_addr).await?;
 
     // Put and fetch directory from local file system.
-    let dir_addr = client
-        .dir_and_archive_upload_public("files/to/upload".into(), &wallet)
+    let (_cost, dir_addr) = client
+        .dir_upload_public("files/to/upload".into(), wallet.into())
         .await?;
     client
-        .dir_download_public(dir_addr, "files/downloaded".into())
+        .dir_download_public(&dir_addr, "files/downloaded".into())
         .await?;
 
     Ok(())

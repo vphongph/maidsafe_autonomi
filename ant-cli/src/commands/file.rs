@@ -6,16 +6,19 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::network::NetworkPeers;
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::address::addr_to_str;
-use autonomi::Multiaddr;
+use autonomi::client::payment::PaymentOption;
+use autonomi::ClientOperatingStrategy;
+use autonomi::ResponseQuorum;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
 use std::path::PathBuf;
 
-pub async fn cost(file: &str, peers: Vec<Multiaddr>) -> Result<()> {
+pub async fn cost(file: &str, peers: NetworkPeers) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
 
     println!("Getting upload cost...");
@@ -31,9 +34,20 @@ pub async fn cost(file: &str, peers: Vec<Multiaddr>) -> Result<()> {
     Ok(())
 }
 
-pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<()> {
-    let wallet = load_wallet()?;
-    let mut client = crate::actions::connect_to_network(peers).await?;
+pub async fn upload(
+    file: &str,
+    public: bool,
+    peers: NetworkPeers,
+    optional_verification_quorum: Option<ResponseQuorum>,
+) -> Result<()> {
+    let mut config = ClientOperatingStrategy::new();
+    if let Some(verification_quorum) = optional_verification_quorum {
+        config.chunks.verification_quorum = verification_quorum;
+    }
+    let mut client = crate::actions::connect_to_network_with_config(peers, config).await?;
+
+    let wallet = load_wallet(client.evm_network())?;
+    let payment = PaymentOption::Wallet(wallet);
     let event_receiver = client.enable_client_events();
     let (upload_summary_thread, upload_completed_tx) = collect_upload_summary(event_receiver);
 
@@ -52,15 +66,15 @@ pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<(
     // upload dir
     let local_addr;
     let archive = if public {
-        let xor_name = client
-            .dir_and_archive_upload_public(dir_path, &wallet)
+        let (_cost, xor_name) = client
+            .dir_upload_public(dir_path, payment.clone())
             .await
             .wrap_err("Failed to upload file")?;
         local_addr = addr_to_str(xor_name);
         local_addr.clone()
     } else {
-        let private_data_access = client
-            .dir_and_archive_upload(dir_path, &wallet)
+        let (_cost, private_data_access) = client
+            .dir_upload(dir_path, payment)
             .await
             .wrap_err("Failed to upload dir and archive")?;
 
@@ -76,13 +90,17 @@ pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<(
 
     // get summary
     let summary = upload_summary_thread.await?;
-    if summary.record_count == 0 {
+    if summary.records_paid == 0 {
         println!("All chunks already exist on the network.");
     } else {
         println!("Successfully uploaded: {file}");
         println!("At address: {local_addr}");
         info!("Successfully uploaded: {file} at address: {local_addr}");
-        println!("Number of chunks uploaded: {}", summary.record_count);
+        println!("Number of chunks uploaded: {}", summary.records_paid);
+        println!(
+            "Number of chunks already paid/uploaded: {}",
+            summary.records_already_paid
+        );
         println!("Total cost: {} AttoTokens", summary.tokens_spent);
     }
     info!("Summary for upload of file {file} at {local_addr:?}: {summary:?}");
@@ -101,9 +119,18 @@ pub async fn upload(file: &str, public: bool, peers: Vec<Multiaddr>) -> Result<(
     Ok(())
 }
 
-pub async fn download(addr: &str, dest_path: &str, peers: Vec<Multiaddr>) -> Result<()> {
-    let mut client = crate::actions::connect_to_network(peers).await?;
-    crate::actions::download(addr, dest_path, &mut client).await
+pub async fn download(
+    addr: &str,
+    dest_path: &str,
+    peers: NetworkPeers,
+    quorum: Option<ResponseQuorum>,
+) -> Result<()> {
+    let mut config = ClientOperatingStrategy::new();
+    if let Some(quorum) = quorum {
+        config.chunks.get_quorum = quorum;
+    }
+    let client = crate::actions::connect_to_network_with_config(peers, config).await?;
+    crate::actions::download(addr, dest_path, &client).await
 }
 
 pub fn list() -> Result<()> {

@@ -13,11 +13,11 @@ mod rpc_service;
 mod subcommands;
 
 use crate::subcommands::EvmNetworkCommand;
-use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};
-use ant_evm::{get_evm_network_from_env, EvmNetwork, RewardsAddress};
-#[cfg(feature = "local")]
+use ant_bootstrap::{BootstrapCacheStore, PeersArgs};
+use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
+use ant_node::utils::get_root_dir_and_keypair;
 use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver};
 use ant_protocol::{
     node::get_antnode_root_dir,
@@ -27,16 +27,14 @@ use ant_protocol::{
 use clap::{command, Parser};
 use color_eyre::{eyre::eyre, Result};
 use const_hex::traits::FromHex;
-use libp2p::{identity::Keypair, PeerId};
+use libp2p::PeerId;
 use std::{
     env,
-    io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
     time::Duration,
 };
-use sysinfo::{self, System};
 use tokio::{
     runtime::Runtime,
     sync::{broadcast::error::RecvError, mpsc},
@@ -85,7 +83,6 @@ struct Opt {
     home_network: bool,
 
     /// Try to use UPnP to open a port in the home router and allow incoming connections.
-    #[cfg(feature = "upnp")]
     #[clap(long, default_value_t = false)]
     upnp: bool,
 
@@ -178,10 +175,6 @@ struct Opt {
     #[clap(long)]
     rpc: Option<SocketAddr>,
 
-    /// Specify the owner(readable discord user name).
-    #[clap(long)]
-    owner: Option<String>,
-
     #[cfg(feature = "open-metrics")]
     /// Specify the port for the OpenMetrics server.
     ///
@@ -263,12 +256,16 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let evm_network: EvmNetwork = opt
-        .evm_network
-        .as_ref()
-        .cloned()
-        .map(|v| Ok(v.into()))
-        .unwrap_or_else(get_evm_network_from_env)?;
+    let evm_network: EvmNetwork = match opt.evm_network.as_ref() {
+        Some(evm_network) => Ok(evm_network.clone().into()),
+        None => match get_evm_network(opt.peers.local) {
+            Ok(net) => Ok(net),
+            Err(_) => Err(eyre!(
+                "EVM network not specified. Please specify a network using the subcommand or by setting the `EVM_NETWORK` environment variable."
+            )),
+        },
+    }?;
+
     println!("EVM network: {evm_network:?}");
 
     let node_socket_addr = SocketAddr::new(opt.ip, opt.port);
@@ -277,13 +274,14 @@ fn main() -> Result<()> {
     let (log_output_dest, log_reload_handle, _log_appender_guard) =
         init_logging(&opt, keypair.public().to_peer_id())?;
 
-    let rt = Runtime::new()?;
-    let mut bootstrap_cache = BootstrapCacheStore::new_from_peers_args(
-        &opt.peers,
-        Some(BootstrapCacheConfig::default_config()?),
-    )?;
-    // To create the file before startup if it doesn't exist.
-    bootstrap_cache.sync_and_flush_to_disk(true)?;
+    let mut bootstrap_cache = BootstrapCacheStore::new_from_peers_args(&opt.peers, None)?;
+    // If we are the first node, write initial cache to disk.
+    if opt.peers.first {
+        bootstrap_cache.write()?;
+    } else {
+        // Else we check/clean the file, write it back, and ensure its existence.
+        bootstrap_cache.sync_and_flush_to_disk(true)?;
+    }
 
     let msg = format!(
         "Running {} v{}",
@@ -306,10 +304,11 @@ fn main() -> Result<()> {
     // Create a tokio runtime per `run_node` attempt, this ensures
     // any spawned tasks are closed before we would attempt to run
     // another process with these args.
-    #[cfg(feature = "local")]
-    rt.spawn(init_metrics(std::process::id()));
-    let initial_peres = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
-    debug!("Node's owner set to: {:?}", opt.owner);
+    let rt = Runtime::new()?;
+    if opt.peers.local {
+        rt.spawn(init_metrics(std::process::id()));
+    }
+    let initial_peers = rt.block_on(opt.peers.get_addrs(None, Some(100)))?;
     let restart_options = rt.block_on(async move {
         let mut node_builder = NodeBuilder::new(
             keypair,
@@ -318,10 +317,9 @@ fn main() -> Result<()> {
             node_socket_addr,
             opt.peers.local,
             root_dir,
-            #[cfg(feature = "upnp")]
             opt.upnp,
         );
-        node_builder.initial_peers(initial_peres);
+        node_builder.initial_peers(initial_peers);
         node_builder.bootstrap_cache(bootstrap_cache);
         node_builder.is_behind_home_network(opt.home_network);
         #[cfg(feature = "open-metrics")]
@@ -410,58 +408,6 @@ You can check your reward balance by running:
             .await
         {
             error!("Failed to send node control msg to antnode bin main thread: {err}");
-        }
-    });
-    let ctrl_tx_clone_cpu = ctrl_tx.clone();
-    // Monitor host CPU usage
-    tokio::spawn(async move {
-        use rand::{thread_rng, Rng};
-
-        const CPU_CHECK_INTERVAL: Duration = Duration::from_secs(60);
-        const CPU_USAGE_THRESHOLD: f32 = 50.0;
-        const HIGH_CPU_CONSECUTIVE_LIMIT: u8 = 5;
-        const NODE_STOP_DELAY: Duration = Duration::from_secs(1);
-        const INITIAL_DELAY_MIN_S: u64 = 10;
-        const INITIAL_DELAY_MAX_S: u64 =
-            HIGH_CPU_CONSECUTIVE_LIMIT as u64 * CPU_CHECK_INTERVAL.as_secs();
-        const JITTER_MIN_S: u64 = 1;
-        const JITTER_MAX_S: u64 = 15;
-
-        let mut sys = System::new_all();
-
-        let mut high_cpu_count: u8 = 0;
-
-        // Random initial delay between 1 and 5 minutes
-        let initial_delay =
-            Duration::from_secs(thread_rng().gen_range(INITIAL_DELAY_MIN_S..=INITIAL_DELAY_MAX_S));
-        tokio::time::sleep(initial_delay).await;
-
-        loop {
-            sys.refresh_cpu();
-            let cpu_usage = sys.global_cpu_info().cpu_usage();
-
-            if cpu_usage > CPU_USAGE_THRESHOLD {
-                high_cpu_count += 1;
-            } else {
-                high_cpu_count = 0;
-            }
-
-            if high_cpu_count >= HIGH_CPU_CONSECUTIVE_LIMIT {
-                if let Err(err) = ctrl_tx_clone_cpu
-                    .send(NodeCtrl::Stop {
-                        delay: NODE_STOP_DELAY,
-                        result: StopResult::Success(format!("Excess host CPU %{CPU_USAGE_THRESHOLD} detected for {HIGH_CPU_CONSECUTIVE_LIMIT} consecutive minutes!")),
-                    })
-                    .await
-                {
-                    error!("Failed to send node control msg to antnode bin main thread: {err}");
-                }
-                break;
-            }
-
-            // Add jitter to the interval
-            let jitter = Duration::from_secs(thread_rng().gen_range(JITTER_MIN_S..=JITTER_MAX_S));
-            tokio::time::sleep(CPU_CHECK_INTERVAL + jitter).await;
         }
     });
 
@@ -574,7 +520,6 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
         ("ant_networking".to_string(), Level::INFO),
         ("ant_node".to_string(), Level::DEBUG),
         ("ant_protocol".to_string(), Level::DEBUG),
-        ("ant_registers".to_string(), Level::DEBUG),
         ("antnode".to_string(), Level::DEBUG),
     ];
 
@@ -624,81 +569,6 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
     Ok((output_dest.to_string(), reload_handle, log_appender_guard))
 }
 
-fn create_secret_key_file(path: impl AsRef<Path>) -> Result<std::fs::File, std::io::Error> {
-    let mut opt = std::fs::OpenOptions::new();
-    opt.write(true).create_new(true);
-
-    // On Unix systems, make sure only the current user can read/write.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opt.mode(0o600);
-    }
-
-    opt.open(path)
-}
-
-fn keypair_from_path(path: impl AsRef<Path>) -> Result<Keypair> {
-    let keypair = match std::fs::read(&path) {
-        // If the file is opened successfully, read the key from it
-        Ok(key) => {
-            let keypair = Keypair::ed25519_from_bytes(key)
-                .map_err(|err| eyre!("could not read ed25519 key from file: {err}"))?;
-
-            info!("loaded secret key from file: {:?}", path.as_ref());
-
-            keypair
-        }
-        // In case the file is not found, generate a new keypair and write it to the file
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            let secret_key = libp2p::identity::ed25519::SecretKey::generate();
-            let mut file = create_secret_key_file(&path)
-                .map_err(|err| eyre!("could not create secret key file: {err}"))?;
-            file.write_all(secret_key.as_ref())?;
-
-            info!("generated new key and stored to file: {:?}", path.as_ref());
-
-            libp2p::identity::ed25519::Keypair::from(secret_key).into()
-        }
-        // Else the file can't be opened, for whatever reason (e.g. permissions).
-        Err(err) => {
-            return Err(eyre!("failed to read secret key file: {err}"));
-        }
-    };
-
-    Ok(keypair)
-}
-
-/// The keypair is located inside the root directory. At the same time, when no dir is specified,
-/// the dir name is derived from the keypair used in the application: the peer ID is used as the directory name.
-fn get_root_dir_and_keypair(root_dir: &Option<PathBuf>) -> Result<(PathBuf, Keypair)> {
-    match root_dir {
-        Some(dir) => {
-            std::fs::create_dir_all(dir)?;
-
-            let secret_key_path = dir.join("secret-key");
-            Ok((dir.clone(), keypair_from_path(secret_key_path)?))
-        }
-        None => {
-            let secret_key = libp2p::identity::ed25519::SecretKey::generate();
-            let keypair: Keypair =
-                libp2p::identity::ed25519::Keypair::from(secret_key.clone()).into();
-            let peer_id = keypair.public().to_peer_id();
-
-            let dir = get_antnode_root_dir(peer_id)?;
-            std::fs::create_dir_all(&dir)?;
-
-            let secret_key_path = dir.join("secret-key");
-
-            let mut file = create_secret_key_file(secret_key_path)
-                .map_err(|err| eyre!("could not create secret key file: {err}"))?;
-            file.write_all(secret_key.as_ref())?;
-
-            Ok((dir, keypair))
-        }
-    }
-}
-
 /// Starts a new process running the binary with the same args as
 /// the current process
 /// Optionally provide the node's root dir and listen port to retain it's PeerId
@@ -707,10 +577,13 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
     let current_exe = env::current_exe().expect("could not get current executable path");
 
     // Retrieve the command-line arguments passed to this process
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
     info!("Original args are: {args:?}");
     info!("Current exe is: {current_exe:?}");
+
+    // Remove `--first` argument. If node is restarted, it is not the first anymore.
+    args.retain(|arg| arg != "--first");
 
     // Convert current exe path to string, log an error and return if it fails
     let current_exe = match current_exe.to_str() {

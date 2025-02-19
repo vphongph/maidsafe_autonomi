@@ -6,10 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_evm::get_evm_network_from_env;
-use ant_evm::EvmWallet;
-use ant_evm::{Amount, RewardsAddress};
 use ant_logging::LogBuilder;
+use autonomi::get_evm_network;
+use autonomi::Wallet;
+use autonomi::{Amount, RewardsAddress};
 use const_hex::traits::FromHex;
 use test_utils::evm::get_funded_wallet;
 
@@ -17,8 +17,8 @@ use test_utils::evm::get_funded_wallet;
 async fn from_private_key() {
     let private_key = "0xdb1049e76a813c94be0df47ec3e20533ca676b1b9fef2ddbce9daa117e4da4aa";
     let network =
-        get_evm_network_from_env().expect("Could not get EVM network from environment variables");
-    let wallet = EvmWallet::new_from_private_key(network, private_key).unwrap();
+        get_evm_network(true).expect("Could not get EVM network from environment variables");
+    let wallet = Wallet::new_from_private_key(network, private_key).unwrap();
 
     assert_eq!(
         wallet.address(),
@@ -31,10 +31,10 @@ async fn send_tokens() {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test("wallet", false);
 
     let network =
-        get_evm_network_from_env().expect("Could not get EVM network from environment variables");
+        get_evm_network(true).expect("Could not get EVM network from environment variables");
     let wallet = get_funded_wallet();
 
-    let receiving_wallet = EvmWallet::new_with_random_wallet(network);
+    let receiving_wallet = Wallet::new_with_random_wallet(network);
 
     let initial_balance = receiving_wallet.balance_of_tokens().await.unwrap();
 

@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+mod identify;
 mod kad;
 mod request_response;
 mod swarm;
@@ -13,25 +14,25 @@ mod swarm;
 use crate::{driver::SwarmDriver, error::Result};
 use core::fmt;
 use custom_debug::Debug as CustomDebug;
-#[cfg(feature = "local")]
-use libp2p::mdns;
 use libp2p::{
     kad::{Addresses, Record, RecordKey, K_VALUE},
     request_response::ResponseChannel as PeerResponseChannel,
     Multiaddr, PeerId,
 };
 
-use ant_evm::PaymentQuote;
+use ant_evm::{PaymentQuote, ProofOfPayment};
+use ant_protocol::storage::DataTypes;
 #[cfg(feature = "open-metrics")]
 use ant_protocol::CLOSE_GROUP_SIZE;
 use ant_protocol::{
     messages::{Query, Request, Response},
+    storage::ValidationType,
     NetworkAddress, PrettyPrintRecordKey,
 };
 #[cfg(feature = "open-metrics")]
 use std::collections::HashSet;
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     fmt::{Debug, Formatter},
 };
 use tokio::sync::oneshot;
@@ -42,19 +43,15 @@ type KBucketStatus = (usize, usize, usize, usize, Vec<(usize, usize, u32)>);
 /// NodeEvent enum
 #[derive(CustomDebug)]
 pub(super) enum NodeEvent {
-    #[cfg(feature = "upnp")]
     Upnp(libp2p::upnp::Event),
     MsgReceived(libp2p::request_response::Event<Request, Response>),
     Kademlia(libp2p::kad::Event),
-    #[cfg(feature = "local")]
-    Mdns(Box<mdns::Event>),
     Identify(Box<libp2p::identify::Event>),
     RelayClient(Box<libp2p::relay::client::Event>),
     RelayServer(Box<libp2p::relay::Event>),
     Void(void::Void),
 }
 
-#[cfg(feature = "upnp")]
 impl From<libp2p::upnp::Event> for NodeEvent {
     fn from(event: libp2p::upnp::Event) -> Self {
         NodeEvent::Upnp(event)
@@ -70,13 +67,6 @@ impl From<libp2p::request_response::Event<Request, Response>> for NodeEvent {
 impl From<libp2p::kad::Event> for NodeEvent {
     fn from(event: libp2p::kad::Event) -> Self {
         NodeEvent::Kademlia(event)
-    }
-}
-
-#[cfg(feature = "local")]
-impl From<mdns::Event> for NodeEvent {
-    fn from(event: mdns::Event) -> Self {
-        NodeEvent::Mdns(Box::new(event))
     }
 }
 
@@ -143,9 +133,19 @@ pub enum NetworkEvent {
     /// Terminate Node on unrecoverable errors
     TerminateNode { reason: TerminateNodeReason },
     /// List of peer nodes that failed to fetch replication copy from.
-    FailedToFetchHolders(BTreeSet<PeerId>),
+    FailedToFetchHolders(BTreeMap<PeerId, RecordKey>),
     /// Quotes to be verified
     QuoteVerification { quotes: Vec<(PeerId, PaymentQuote)> },
+    /// Fresh replicate to fetch
+    FreshReplicateToFetch {
+        holder: NetworkAddress,
+        keys: Vec<(
+            NetworkAddress,
+            DataTypes,
+            ValidationType,
+            Option<ProofOfPayment>,
+        )>,
+    },
 }
 
 /// Terminate node for the following reason
@@ -202,6 +202,12 @@ impl Debug for NetworkEvent {
                     f,
                     "NetworkEvent::QuoteVerification({} quotes)",
                     quotes.len()
+                )
+            }
+            NetworkEvent::FreshReplicateToFetch { holder, keys } => {
+                write!(
+                    f,
+                    "NetworkEvent::FreshReplicateToFetch({holder:?}, {keys:?})"
                 )
             }
         }

@@ -25,6 +25,9 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    /// The default maximum size of a chunk is 1MB
+    pub const DEFAULT_MAX_SIZE: usize = 1024 * 1024;
+
     /// Creates a new instance of `Chunk`.
     pub fn new(value: Bytes) -> Self {
         Self {
@@ -53,14 +56,14 @@ impl Chunk {
         self.address.xorname()
     }
 
-    /// Returns size of contained value.
-    pub fn payload_size(&self) -> usize {
+    /// Returns size of this chunk after serialisation.
+    pub fn size(&self) -> usize {
         self.value.len()
     }
 
-    /// Returns size of this chunk after serialisation.
-    pub fn serialised_size(&self) -> usize {
-        self.value.len()
+    /// Returns true if the chunk is too big
+    pub fn is_too_big(&self) -> bool {
+        self.size() > Self::DEFAULT_MAX_SIZE
     }
 }
 

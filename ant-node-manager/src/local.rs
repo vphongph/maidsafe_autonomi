@@ -43,7 +43,6 @@ pub trait Launcher {
         log_format: Option<LogFormat>,
         metrics_port: Option<u16>,
         node_port: Option<u16>,
-        owner: Option<String>,
         rpc_socket_addr: SocketAddr,
         rewards_address: RewardsAddress,
         evm_network: Option<EvmNetwork>,
@@ -67,17 +66,11 @@ impl Launcher for LocalSafeLauncher {
         log_format: Option<LogFormat>,
         metrics_port: Option<u16>,
         node_port: Option<u16>,
-        owner: Option<String>,
         rpc_socket_addr: SocketAddr,
         rewards_address: RewardsAddress,
         evm_network: Option<EvmNetwork>,
     ) -> Result<()> {
         let mut args = Vec::new();
-
-        if let Some(owner) = owner {
-            args.push("--owner".to_string());
-            args.push(owner);
-        }
 
         if first {
             args.push("--first".to_string())
@@ -218,8 +211,6 @@ pub struct LocalNetworkOptions {
     pub metrics_port: Option<PortRange>,
     pub node_port: Option<PortRange>,
     pub node_count: u16,
-    pub owner: Option<String>,
-    pub owner_prefix: Option<String>,
     pub peers: Option<Vec<Multiaddr>>,
     pub rpc_port: Option<PortRange>,
     pub skip_validation: bool,
@@ -289,7 +280,6 @@ pub async fn run_network(
         let rpc_client = RpcClient::from_socket_addr(rpc_socket_addr);
 
         let number = (node_registry.nodes.len() as u16) + 1;
-        let owner = get_node_owner(&options.owner_prefix, &options.owner, &number);
         let node = run_node(
             RunNodeOptions {
                 first: true,
@@ -298,7 +288,6 @@ pub async fn run_network(
                 interval: options.interval,
                 log_format: options.log_format,
                 number,
-                owner,
                 rpc_socket_addr,
                 rewards_address: options.rewards_address,
                 evm_network: options.evm_network.clone(),
@@ -337,7 +326,6 @@ pub async fn run_network(
         let rpc_client = RpcClient::from_socket_addr(rpc_socket_addr);
 
         let number = (node_registry.nodes.len() as u16) + 1;
-        let owner = get_node_owner(&options.owner_prefix, &options.owner, &number);
         let node = run_node(
             RunNodeOptions {
                 first: false,
@@ -346,7 +334,6 @@ pub async fn run_network(
                 interval: options.interval,
                 log_format: options.log_format,
                 number,
-                owner,
                 rpc_socket_addr,
                 rewards_address: options.rewards_address,
                 evm_network: options.evm_network.clone(),
@@ -386,7 +373,6 @@ pub struct RunNodeOptions {
     pub metrics_port: Option<u16>,
     pub node_port: Option<u16>,
     pub number: u16,
-    pub owner: Option<String>,
     pub rpc_socket_addr: SocketAddr,
     pub rewards_address: RewardsAddress,
     pub evm_network: Option<EvmNetwork>,
@@ -405,7 +391,6 @@ pub async fn run_node(
         run_options.log_format,
         run_options.metrics_port,
         run_options.node_port,
-        run_options.owner.clone(),
         run_options.rpc_socket_addr,
         run_options.rewards_address,
         run_options.evm_network.clone(),
@@ -439,7 +424,6 @@ pub async fn run_node(
         node_ip: None,
         node_port: run_options.node_port,
         number: run_options.number,
-        owner: run_options.owner,
         peer_id: Some(peer_id),
         peers_args: PeersArgs {
             first: run_options.first,
@@ -513,18 +497,6 @@ async fn validate_network(node_registry: &mut NodeRegistry, peers: Vec<Multiaddr
     Ok(())
 }
 
-fn get_node_owner(
-    owner_prefix: &Option<String>,
-    owner: &Option<String>,
-    number: &u16,
-) -> Option<String> {
-    if let Some(prefix) = owner_prefix {
-        Some(format!("{}_{}", prefix, number))
-    } else {
-        owner.clone()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,13 +541,12 @@ mod tests {
                 eq(None),
                 eq(None),
                 eq(None),
-                eq(None),
                 eq(rpc_socket_addr),
                 eq(rewards_address),
                 eq(None),
             )
             .times(1)
-            .returning(|_, _, _, _, _, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _, _, _| Ok(()));
         mock_launcher
             .expect_wait()
             .with(eq(100))
@@ -618,7 +589,6 @@ mod tests {
                 metrics_port: None,
                 node_port: None,
                 number: 1,
-                owner: None,
                 rpc_socket_addr,
                 rewards_address,
                 evm_network: None,

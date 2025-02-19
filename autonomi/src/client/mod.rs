@@ -9,37 +9,51 @@
 // Optionally enable nightly `doc_cfg`. Allows items to be annotated, e.g.: "Available on crate feature X only".
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+/// The 4 basic Network data types.
+/// - Chunk
+/// - GraphEntry
+/// - Pointer
+/// - Scratchpad
+pub mod data_types;
+pub use data_types::chunk;
+pub use data_types::graph;
+pub use data_types::pointer;
+pub use data_types::scratchpad;
+
+/// High-level types built on top of the basic Network data types.
+/// Includes data, files and personnal data vaults
+mod high_level;
+pub use high_level::data;
+pub use high_level::files;
+pub use high_level::register;
+pub use high_level::vault;
+
 pub mod address;
+pub mod config;
+pub mod key_derivation;
 pub mod payment;
 pub mod quote;
-
-pub mod data;
-pub mod files;
-pub mod graph;
-pub mod pointer;
 
 #[cfg(feature = "external-signer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "external-signer")))]
 pub mod external_signer;
-#[cfg(feature = "registers")]
-#[cfg_attr(docsrs, doc(cfg(feature = "registers")))]
-pub mod registers;
-#[cfg(feature = "vault")]
-#[cfg_attr(docsrs, doc(cfg(feature = "vault")))]
-pub mod vault;
 
 // private module with utility functions
-mod rate_limiter;
 mod utils;
 
 use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, PeersArgs};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
-use ant_networking::{interval, multiaddr_is_global, Network, NetworkBuilder, NetworkEvent};
-use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
+use ant_networking::{
+    interval, multiaddr_is_global, Network, NetworkBuilder, NetworkError, NetworkEvent,
+};
+use ant_protocol::{version::IDENTIFY_PROTOCOL_STR, NetworkAddress};
+use config::{ClientConfig, ClientOperatingStrategy};
 use libp2p::{identity::Keypair, Multiaddr};
-use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use payment::PayError;
+use quote::CostError;
+use std::{collections::HashSet, time::Duration};
+use tokio::sync::{mpsc, watch};
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -66,34 +80,13 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 #[derive(Clone)]
 pub struct Client {
     pub(crate) network: Network,
-    pub(crate) client_event_sender: Arc<Option<mpsc::Sender<ClientEvent>>>,
-    pub(crate) evm_network: EvmNetwork,
-}
-
-/// Configuration for [`Client::init_with_config`].
-#[derive(Debug, Clone)]
-pub struct ClientConfig {
-    /// Whether we're expected to connect to a local network.
-    ///
-    /// If `local` feature is enabled, [`ClientConfig::default()`] will set this to `true`.
-    pub local: bool,
-
-    /// List of peers to connect to.
-    ///
-    /// If not provided, the client will use the default bootstrap peers.
-    pub peers: Option<Vec<Multiaddr>>,
-}
-
-impl Default for ClientConfig {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "local")]
-            local: true,
-            #[cfg(not(feature = "local"))]
-            local: false,
-            peers: None,
-        }
-    }
+    pub(crate) client_event_sender: Option<mpsc::Sender<ClientEvent>>,
+    /// The EVM network to use for the client.
+    evm_network: EvmNetwork,
+    /// The configuration for operations on the client.
+    config: ClientOperatingStrategy,
+    // Shutdown signal for child tasks. Sends signal when dropped.
+    _shutdown_tx: watch::Sender<bool>,
 }
 
 /// Error returned by [`Client::init`].
@@ -108,8 +101,46 @@ pub enum ConnectError {
     TimedOutWithIncompatibleProtocol(HashSet<String>, String),
 
     /// An error occurred while bootstrapping the client.
-    #[error("Failed to bootstrap the client")]
+    #[error("Failed to bootstrap the client: {0}")]
     Bootstrap(#[from] ant_bootstrap::Error),
+}
+
+/// Errors that can occur during the put operation.
+#[derive(Debug, thiserror::Error)]
+pub enum PutError {
+    #[error("Failed to self-encrypt data.")]
+    SelfEncryption(#[from] crate::self_encryption::Error),
+    #[error("A network error occurred.")]
+    Network(#[from] NetworkError),
+    #[error("Error occurred during cost estimation.")]
+    CostError(#[from] CostError),
+    #[error("Error occurred during payment.")]
+    PayError(#[from] PayError),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("A wallet error occurred.")]
+    Wallet(#[from] ant_evm::EvmError),
+    #[error("The owner key does not match the client's public key")]
+    ScratchpadBadOwner,
+    #[error("Payment unexpectedly invalid for {0:?}")]
+    PaymentUnexpectedlyInvalid(NetworkAddress),
+    #[error("The payment proof contains no payees.")]
+    PayeesMissing,
+}
+
+/// Errors that can occur during the get operation.
+#[derive(Debug, thiserror::Error)]
+pub enum GetError {
+    #[error("Could not deserialize data map.")]
+    InvalidDataMap(rmp_serde::decode::Error),
+    #[error("Failed to decrypt data.")]
+    Decryption(crate::self_encryption::Error),
+    #[error("Failed to deserialize")]
+    Deserialization(#[from] rmp_serde::decode::Error),
+    #[error("General networking error: {0:?}")]
+    Network(#[from] NetworkError),
+    #[error("General protocol error: {0:?}")]
+    Protocol(#[from] ant_protocol::Error),
 }
 
 impl Client {
@@ -124,11 +155,7 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        Self::init_with_config(ClientConfig {
-            local: true,
-            ..Default::default()
-        })
-        .await
+        Self::init_with_config(ClientConfig::local(None)).await
     }
 
     /// Initialize a client that bootstraps from a list of peers.
@@ -151,6 +178,8 @@ impl Client {
         Self::init_with_config(ClientConfig {
             local,
             peers: Some(peers),
+            evm_network: EvmNetwork::new(local).unwrap_or_default(),
+            strategy: Default::default(),
         })
         .await
     }
@@ -170,11 +199,12 @@ impl Client {
     /// # }
     /// ```
     pub async fn init_with_config(config: ClientConfig) -> Result<Self, ConnectError> {
-        let (network, event_receiver) = build_client_and_run_swarm(config.local);
+        let (shutdown_tx, network, event_receiver) = build_client_and_run_swarm(config.local);
 
         let peers_args = PeersArgs {
             disable_mainnet_contacts: config.local,
             addrs: config.peers.unwrap_or_default(),
+            local: config.local,
             ..Default::default()
         };
 
@@ -195,69 +225,20 @@ impl Client {
 
         // Wait until we have added a few peers to our routing table.
         let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
+        ant_networking::time::spawn(handle_event_receiver(
+            event_receiver,
+            sender,
+            shutdown_tx.subscribe(),
+        ));
         receiver.await.expect("sender should not close")?;
         debug!("Enough peers were added to our routing table, initialization complete");
 
         Ok(Self {
             network,
-            client_event_sender: Arc::new(None),
-            evm_network: Default::default(),
-        })
-    }
-
-    /// Connect to the network.
-    ///
-    /// This will timeout after [`CONNECT_TIMEOUT_SECS`] secs.
-    ///
-    /// ```no_run
-    /// # use autonomi::client::Client;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let peers = ["/ip4/127.0.0.1/udp/1234/quic-v1".parse()?];
-    /// #[allow(deprecated)]
-    /// let client = Client::connect(&peers).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[deprecated(
-        since = "0.2.4",
-        note = "Use [`Client::init`] or [`Client::init_with_config`] instead"
-    )]
-    pub async fn connect(peers: &[Multiaddr]) -> Result<Self, ConnectError> {
-        // Any global address makes the client non-local
-        let local = !peers.iter().any(multiaddr_is_global);
-
-        let (network, event_receiver) = build_client_and_run_swarm(local);
-
-        // Spawn task to dial to the given peers
-        let network_clone = network.clone();
-        let peers = peers.to_vec();
-        let _handle = ant_networking::time::spawn(async move {
-            for addr in peers {
-                if let Err(err) = network_clone.dial(addr.clone()).await {
-                    error!("Failed to dial addr={addr} with err: {err:?}");
-                    eprintln!("addr={addr} Failed to dial: {err:?}");
-                };
-            }
-        });
-
-        let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::time::spawn(handle_event_receiver(event_receiver, sender));
-
-        receiver.await.expect("sender should not close")?;
-        debug!("Client is connected to the network");
-
-        // With the switch to the new bootstrap cache scheme,
-        // Seems the too many `initial dial`s could result in failure,
-        // when startup quoting/upload tasks got started up immediatly.
-        // Hence, put in a forced wait to allow `initial network discovery` to be completed.
-        ant_networking::time::sleep(Duration::from_secs(5)).await;
-
-        Ok(Self {
-            network,
-            client_event_sender: Arc::new(None),
-            evm_network: Default::default(),
+            client_event_sender: None,
+            evm_network: config.evm_network,
+            config: config.strategy,
+            _shutdown_tx: shutdown_tx,
         })
     }
 
@@ -265,21 +246,23 @@ impl Client {
     pub fn enable_client_events(&mut self) -> mpsc::Receiver<ClientEvent> {
         let (client_event_sender, client_event_receiver) =
             tokio::sync::mpsc::channel(CLIENT_EVENT_CHANNEL_SIZE);
-        self.client_event_sender = Arc::new(Some(client_event_sender));
+        self.client_event_sender = Some(client_event_sender);
         debug!("All events to the clients are enabled");
 
         client_event_receiver
     }
 
-    pub fn set_evm_network(&mut self, evm_network: EvmNetwork) {
-        self.evm_network = evm_network;
+    pub fn evm_network(&self) -> &EvmNetwork {
+        &self.evm_network
     }
 }
 
-fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEvent>) {
+fn build_client_and_run_swarm(
+    local: bool,
+) -> (watch::Sender<bool>, Network, mpsc::Receiver<NetworkEvent>) {
     let mut network_builder = NetworkBuilder::new(Keypair::generate_ed25519(), local);
 
-    if let Ok(mut config) = BootstrapCacheConfig::default_config() {
+    if let Ok(mut config) = BootstrapCacheConfig::default_config(local) {
         if local {
             config.disable_cache_writing = true;
         }
@@ -290,18 +273,23 @@ fn build_client_and_run_swarm(local: bool) -> (Network, mpsc::Receiver<NetworkEv
 
     // TODO: Re-export `Receiver<T>` from `ant-networking`. Else users need to keep their `tokio` dependency in sync.
     // TODO: Think about handling the mDNS error here.
-    let (network, event_receiver, swarm_driver) =
-        network_builder.build_client().expect("mdns to succeed");
+    let (network, event_receiver, swarm_driver) = network_builder.build_client();
 
-    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run());
+    // TODO: Implement graceful SwarmDriver shutdown for client.
+    // Create a shutdown signal channel
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run(shutdown_rx));
+
     debug!("Client swarm driver is running");
 
-    (network, event_receiver)
+    (shutdown_tx, network, event_receiver)
 }
 
 async fn handle_event_receiver(
     mut event_receiver: mpsc::Receiver<NetworkEvent>,
     sender: futures::channel::oneshot::Sender<Result<(), ConnectError>>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) {
     // We switch this to `None` when we've sent the oneshot 'connect' result.
     let mut sender = Some(sender);
@@ -312,6 +300,16 @@ async fn handle_event_receiver(
 
     loop {
         tokio::select! {
+            // polls futures in order they appear here (as opposed to random)
+            biased;
+
+            // Check for a shutdown command.
+            result = shutdown_rx.changed() => {
+                if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
+                    info!("Shutdown signal received or sender dropped. Exiting event receiver loop.");
+                    break;
+                }
+            }
             _ = timeout_timer.tick() =>  {
                 if let Some(sender) = sender.take() {
                     if unsupported_protocols.len() > 1 {
@@ -367,6 +365,10 @@ pub enum ClientEvent {
 /// Summary of an upload operation.
 #[derive(Debug, Clone)]
 pub struct UploadSummary {
-    pub record_count: usize,
+    /// Records that were uploaded to the network
+    pub records_paid: usize,
+    /// Records that were already paid for so were not re-uploaded
+    pub records_already_paid: usize,
+    /// Total cost of the upload
     pub tokens_spent: Amount,
 }

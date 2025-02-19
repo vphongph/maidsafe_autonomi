@@ -6,16 +6,12 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use color_eyre::{
-    eyre::{bail, Context},
-    Result,
-};
-use evmlib::{utils::get_evm_network_from_env, wallet::Wallet, Network};
+use color_eyre::{eyre::bail, Result};
+use evmlib::{utils::get_evm_network, wallet::Wallet, Network};
 use std::env;
 
 pub fn get_funded_wallet() -> evmlib::wallet::Wallet {
-    let network =
-        get_evm_network_from_env().expect("Failed to get EVM network from environment variables");
+    let network = get_evm_network(true).expect("Failed to get local EVM network from CSV");
     if matches!(network, Network::ArbitrumOne) {
         panic!("You're trying to use ArbitrumOne network. Use a custom network for testing.");
     }
@@ -29,8 +25,7 @@ pub fn get_funded_wallet() -> evmlib::wallet::Wallet {
 }
 
 pub fn get_new_wallet() -> Result<Wallet> {
-    let network = get_evm_network_from_env()
-        .wrap_err("Failed to get EVM network from environment variables")?;
+    let network = get_evm_network(true).expect("Failed to get local EVM network from CSV");
     if matches!(network, Network::ArbitrumOne) {
         bail!("You're trying to use ArbitrumOne network. Use a custom network for testing.");
     }

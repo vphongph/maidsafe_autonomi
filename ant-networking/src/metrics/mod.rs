@@ -12,8 +12,6 @@ mod relay_client;
 pub mod service;
 mod upnp;
 
-use std::sync::atomic::AtomicU64;
-
 use crate::MetricsRegistries;
 use crate::{log_markers::Marker, time::sleep};
 use bad_node::{BadNodeMetrics, BadNodeMetricsMsg, TimeFrame};
@@ -25,6 +23,7 @@ use prometheus_client::{
     metrics::family::Family,
     metrics::{counter::Counter, gauge::Gauge},
 };
+use std::sync::atomic::AtomicU64;
 use sysinfo::{Pid, ProcessRefreshKind, System};
 use tokio::time::Duration;
 
@@ -43,8 +42,12 @@ pub(crate) struct NetworkMetricsRecorder {
     // metrics from ant-networking
     pub(crate) connected_peers: Gauge,
     pub(crate) estimated_network_size: Gauge,
+    pub(crate) percentage_of_relay_peers: Gauge<f64, AtomicU64>,
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
+    pub(crate) relay_peers_in_routing_table: Gauge,
+    pub(crate) peers_in_non_full_buckets: Gauge,
+    pub(crate) relay_peers_in_non_full_buckets: Gauge,
     pub(crate) records_stored: Gauge,
     pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
 
@@ -107,6 +110,12 @@ impl NetworkMetricsRecorder {
             "The estimated number of nodes in the network calculated by the peers in our RT",
             estimated_network_size.clone(),
         );
+        let percentage_of_relay_peers = Gauge::<f64, AtomicU64>::default();
+        sub_registry.register(
+            "percentage_of_relay_peers",
+            "The percentage of relay peers in our routing table",
+            percentage_of_relay_peers.clone(),
+        );
         let open_connections = Gauge::default();
         sub_registry.register(
             "open_connections",
@@ -118,6 +127,25 @@ impl NetworkMetricsRecorder {
             "peers_in_routing_table",
             "The total number of peers in our routing table",
             peers_in_routing_table.clone(),
+        );
+        let relay_peers_in_routing_table = Gauge::default();
+        sub_registry.register(
+            "relay_peers_in_routing_table",
+            "The total number of relay peers in our routing table",
+            relay_peers_in_routing_table.clone(),
+        );
+
+        let peers_in_non_full_buckets = Gauge::default();
+        sub_registry.register(
+            "peers_in_non_full_buckets",
+            "The number of peers in our routing table that are not in full buckets",
+            peers_in_non_full_buckets.clone(),
+        );
+        let relay_peers_in_non_full_buckets = Gauge::default();
+        sub_registry.register(
+            "relay_peers_in_non_full_buckets",
+            "The number of relay peers in our routing table that are not in full buckets",
+            relay_peers_in_non_full_buckets.clone(),
         );
 
         let shunned_count = Counter::default();
@@ -226,10 +254,14 @@ impl NetworkMetricsRecorder {
 
             records_stored,
             estimated_network_size,
+            percentage_of_relay_peers,
             connected_peers,
             open_connections,
             relay_reservation_health,
             peers_in_routing_table,
+            relay_peers_in_routing_table,
+            peers_in_non_full_buckets,
+            relay_peers_in_non_full_buckets,
             relevant_records,
             max_records,
             received_payment_count,

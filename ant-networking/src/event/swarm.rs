@@ -307,7 +307,7 @@ impl SwarmDriver {
                 peer_id: None,
                 error,
             } => {
-                event_string = "OutgoingConnErr";
+                event_string = "OutgoingConnErrWithoutPeerId";
                 warn!("OutgoingConnectionError on {connection_id:?} - {error:?}");
                 self.record_connection_metrics();
 

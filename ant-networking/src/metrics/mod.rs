@@ -41,6 +41,7 @@ pub(crate) struct NetworkMetricsRecorder {
 
     // metrics from ant-networking
     pub(crate) connected_peers: Gauge,
+    pub(crate) connected_relay_clients: Gauge,
     pub(crate) estimated_network_size: Gauge,
     pub(crate) percentage_of_relay_peers: Gauge<f64, AtomicU64>,
     pub(crate) open_connections: Gauge,
@@ -102,6 +103,12 @@ impl NetworkMetricsRecorder {
             "connected_peers",
             "The number of peers that we are currently connected to",
             connected_peers.clone(),
+        );
+        let connected_relay_clients = Gauge::default();
+        sub_registry.register(
+            "connected_relay_clients",
+            "The number of relay clients that are currently connected to us",
+            connected_relay_clients.clone(),
         );
 
         let estimated_network_size = Gauge::default();
@@ -256,6 +263,7 @@ impl NetworkMetricsRecorder {
             estimated_network_size,
             percentage_of_relay_peers,
             connected_peers,
+            connected_relay_clients,
             open_connections,
             relay_reservation_health,
             peers_in_routing_table,

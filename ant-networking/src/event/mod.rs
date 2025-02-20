@@ -52,9 +52,10 @@ pub(crate) struct KBucketStatus {
 impl KBucketStatus {
     pub(crate) fn log(&self) {
         info!(
-            "kBucketTable has {:?} kbuckets {:?} peers, {:?}, estimated network size: {:?}",
+            "kBucketTable has {:?} kbuckets {:?} peers ({} relay peers), {:?}, estimated network size: {:?}",
             self.total_buckets,
             self.total_peers,
+            self.total_relay_peers,
             self.kbucket_table_stats,
             self.estimated_network_size
         );
@@ -286,6 +287,7 @@ impl SwarmDriver {
 
         self.send_event(NetworkEvent::PeerAdded(added_peer, self.peers_in_rt));
 
+        #[cfg(feature = "open-metrics")]
         if self.metrics_recorder.is_some() {
             self.check_for_change_in_our_close_group();
         }

@@ -13,6 +13,7 @@ use ant_evm::payment_vault::verify_data_payment;
 use ant_evm::ProofOfPayment;
 use ant_networking::NetworkError;
 use ant_protocol::storage::GraphEntry;
+use ant_protocol::Error as ProtocolError;
 use ant_protocol::{
     storage::{
         try_deserialize_record, try_serialize_record, Chunk, DataTypes, GraphEntryAddress, Pointer,
@@ -427,6 +428,16 @@ impl Node {
     pub(crate) fn store_chunk(&self, chunk: &Chunk, is_client_put: bool) -> Result<()> {
         let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
+
+        // reject if chunk is too large
+        if chunk.size() > Chunk::MAX_SIZE {
+            warn!(
+                "Chunk at {pretty_key:?} is too large: {} bytes, when max size is {} bytes",
+                chunk.size(),
+                Chunk::MAX_SIZE
+            );
+            return Err(ProtocolError::OversizedChunk(chunk.size(), Chunk::MAX_SIZE).into());
+        }
 
         let record = Record {
             key,

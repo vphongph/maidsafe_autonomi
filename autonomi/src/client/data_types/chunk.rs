@@ -141,6 +141,14 @@ impl Client {
     ) -> Result<(AttoTokens, ChunkAddress), PutError> {
         let address = chunk.network_address();
 
+        if chunk.size() > Chunk::MAX_SIZE {
+            return Err(PutError::Serialization(format!(
+                "Chunk is too large: {} bytes, when max size is {}",
+                chunk.size(),
+                Chunk::MAX_SIZE
+            )));
+        }
+
         // pay for the chunk storage
         let xor_name = *chunk.name();
         debug!("Paying for chunk at address: {address:?}");
@@ -207,10 +215,7 @@ impl Client {
 
         let xor = *addr.xorname();
         let store_quote = self
-            .get_store_quotes(
-                DataTypes::Chunk,
-                std::iter::once((xor, Chunk::DEFAULT_MAX_SIZE)),
-            )
+            .get_store_quotes(DataTypes::Chunk, std::iter::once((xor, Chunk::MAX_SIZE)))
             .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote

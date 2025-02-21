@@ -107,9 +107,25 @@ impl SwarmDriver {
                         renewed: _,
                     } => {
                         self.connected_relay_clients.insert(src_peer_id);
+                        info!("Relay reservation accepted from {src_peer_id:?}. Relay client count: {}", self.connected_relay_clients.len());
+
+                        #[cfg(feature = "open-metrics")]
+                        if let Some(metrics_recorder) = &self.metrics_recorder {
+                            metrics_recorder
+                                .connected_relay_clients
+                                .set(self.connected_relay_clients.len() as i64);
+                        }
                     }
                     libp2p::relay::Event::ReservationTimedOut { src_peer_id } => {
                         self.connected_relay_clients.remove(&src_peer_id);
+                        info!("Relay reservation timed out from {src_peer_id:?}. Relay client count: {}", self.connected_relay_clients.len());
+
+                        #[cfg(feature = "open-metrics")]
+                        if let Some(metrics_recorder) = &self.metrics_recorder {
+                            metrics_recorder
+                                .connected_relay_clients
+                                .set(self.connected_relay_clients.len() as i64);
+                        }
                     }
                     _ => {}
                 }
@@ -264,6 +280,14 @@ impl SwarmDriver {
                 event_string = "ConnectionClosed";
                 debug!(%peer_id, ?connection_id, ?cause, num_established, "ConnectionClosed: {}", endpoint_str(&endpoint));
                 let _ = self.live_connected_peers.remove(&connection_id);
+
+                if num_established == 0 && self.connected_relay_clients.remove(&peer_id) {
+                    info!(
+                        "Relay client has been disconnected: {peer_id:?}. Relay client count: {}",
+                        self.connected_relay_clients.len()
+                    );
+                }
+
                 self.record_connection_metrics();
             }
             SwarmEvent::OutgoingConnectionError {
@@ -594,13 +618,17 @@ impl SwarmDriver {
     /// Record the metrics on update of connection state.
     fn record_connection_metrics(&self) {
         #[cfg(feature = "open-metrics")]
-        if let Some(metrics) = &self.metrics_recorder {
-            metrics
+        if let Some(metrics_recorder) = &self.metrics_recorder {
+            metrics_recorder
                 .open_connections
                 .set(self.live_connected_peers.len() as i64);
-            metrics
+            metrics_recorder
                 .connected_peers
                 .set(self.swarm.connected_peers().count() as i64);
+
+            metrics_recorder
+                .connected_relay_clients
+                .set(self.connected_relay_clients.len() as i64);
         }
     }
 

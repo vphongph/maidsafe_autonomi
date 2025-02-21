@@ -395,7 +395,7 @@ impl SwarmDriver {
                 .estimated_network_size
                 .set(estimated_network_size as i64);
 
-            let _ = metrics_recorder.percentage_of_relay_peers.set(
+            let _ = metrics_recorder.relay_peers_percentage.set(
                 (status.relay_peers_in_non_full_buckets as f64
                     / status.peers_in_non_full_buckets as f64)
                     * 100.0,

@@ -43,7 +43,7 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) connected_peers: Gauge,
     pub(crate) connected_relay_clients: Gauge,
     pub(crate) estimated_network_size: Gauge,
-    pub(crate) percentage_of_relay_peers: Gauge<f64, AtomicU64>,
+    pub(crate) relay_peers_percentage: Gauge<f64, AtomicU64>,
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
     pub(crate) relay_peers_in_routing_table: Gauge,
@@ -115,11 +115,11 @@ impl NetworkMetricsRecorder {
             "The estimated number of nodes in the network calculated by the peers in our RT",
             estimated_network_size.clone(),
         );
-        let percentage_of_relay_peers = Gauge::<f64, AtomicU64>::default();
+        let relay_peers_percentage = Gauge::<f64, AtomicU64>::default();
         sub_registry.register(
-            "percentage_of_relay_peers",
+            "relay_peers_percentage",
             "The percentage of relay peers in our routing table",
-            percentage_of_relay_peers.clone(),
+            relay_peers_percentage.clone(),
         );
         let open_connections = Gauge::default();
         sub_registry.register(
@@ -246,7 +246,7 @@ impl NetworkMetricsRecorder {
 
             records_stored,
             estimated_network_size,
-            percentage_of_relay_peers,
+            relay_peers_percentage,
             connected_peers,
             connected_relay_clients,
             open_connections,

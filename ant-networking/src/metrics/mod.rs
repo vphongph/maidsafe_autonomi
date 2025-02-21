@@ -47,8 +47,6 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
     pub(crate) relay_peers_in_routing_table: Gauge,
-    pub(crate) peers_in_non_full_buckets: Gauge,
-    pub(crate) relay_peers_in_non_full_buckets: Gauge,
     pub(crate) records_stored: Gauge,
     pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
 
@@ -140,19 +138,6 @@ impl NetworkMetricsRecorder {
             "relay_peers_in_routing_table",
             "The total number of relay peers in our routing table",
             relay_peers_in_routing_table.clone(),
-        );
-
-        let peers_in_non_full_buckets = Gauge::default();
-        sub_registry.register(
-            "peers_in_non_full_buckets",
-            "The number of peers in our routing table that are not in full buckets",
-            peers_in_non_full_buckets.clone(),
-        );
-        let relay_peers_in_non_full_buckets = Gauge::default();
-        sub_registry.register(
-            "relay_peers_in_non_full_buckets",
-            "The number of relay peers in our routing table that are not in full buckets",
-            relay_peers_in_non_full_buckets.clone(),
         );
 
         let shunned_count = Counter::default();
@@ -268,8 +253,6 @@ impl NetworkMetricsRecorder {
             relay_reservation_health,
             peers_in_routing_table,
             relay_peers_in_routing_table,
-            peers_in_non_full_buckets,
-            relay_peers_in_non_full_buckets,
             relevant_records,
             max_records,
             received_payment_count,

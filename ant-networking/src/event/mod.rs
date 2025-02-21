@@ -387,14 +387,6 @@ impl SwarmDriver {
                 .relay_peers_in_routing_table
                 .set(status.total_relay_peers as i64);
 
-            let _ = metrics_recorder
-                .peers_in_non_full_buckets
-                .set(status.peers_in_non_full_buckets as i64);
-
-            let _ = metrics_recorder
-                .relay_peers_in_non_full_buckets
-                .set(status.relay_peers_in_non_full_buckets as i64);
-
             let estimated_network_size = Self::estimate_network_size(
                 status.peers_in_non_full_buckets,
                 status.num_of_full_buckets,
@@ -403,9 +395,11 @@ impl SwarmDriver {
                 .estimated_network_size
                 .set(estimated_network_size as i64);
 
-            let _ = metrics_recorder
-                .percentage_of_relay_peers
-                .set((status.total_relay_peers as f64 / status.total_peers as f64) * 100.0);
+            let _ = metrics_recorder.percentage_of_relay_peers.set(
+                (status.relay_peers_in_non_full_buckets as f64
+                    / status.peers_in_non_full_buckets as f64)
+                    * 100.0,
+            );
         }
     }
 

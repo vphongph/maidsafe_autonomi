@@ -851,7 +851,7 @@ impl RecordStore for NodeRecordStore {
         let cached_record = self.records_cache.get(k);
         // first return from FIFO cache if existing there
         if let Some((record, _timestamp)) = cached_record {
-            return Some(Cow::Borrowed(record));
+            return Some(Cow::Owned(record.clone()));
         }
 
         if !self.records.contains_key(k) {
@@ -1733,8 +1733,11 @@ mod tests {
 
         // Add records up to cache size
         cache.push_back(record1.key.clone(), record1.clone());
+        sleep(Duration::from_millis(1)).await;
         cache.push_back(record2.key.clone(), record2.clone());
+        sleep(Duration::from_millis(1)).await;
         cache.push_back(record3.key.clone(), record3.clone());
+        sleep(Duration::from_millis(1)).await;
 
         // Verify all records are present
         assert!(cache.get(&record1.key).is_some());

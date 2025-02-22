@@ -1118,6 +1118,7 @@ dependencies = [
  "ant-logging",
  "ant-protocol",
  "async-trait",
+ "chrono",
  "dirs-next",
  "libp2p",
  "libp2p-identity",
@@ -2253,6 +2254,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbd0f76e066e64fdc5631e3bb46381254deab9ef1158292f27c8c57e3bf3fe59"
 
 [[package]]
+name = "codepage"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48f68d061bc2828ae826206326e61251aca94c1e4a5305cf52d9138639c918b4"
+dependencies = [
+ "encoding_rs",
+]
+
+[[package]]
 name = "color-eyre"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3082,6 +3092,17 @@ name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
+
+[[package]]
+name = "encoding-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87b881ab2524b96a5ce932056c7482ba6152e2226fed3936b3e592adeb95ca6d"
+dependencies = [
+ "codepage",
+ "encoding_rs",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "encoding_rs"
@@ -4920,6 +4941,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "igd-next"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2830127baaaa55dae9aa5ee03158d5aa3687a9c2c11ce66870452580cc695df4"
+dependencies = [
+ "attohttpc",
+ "log",
+ "rand 0.8.5",
+ "url",
+ "xmltree",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5632,7 +5666,7 @@ checksum = "d457b9ecceb66e7199f049926fad447f1f17f040e8d29d690c086b4cab8ed14a"
 dependencies = [
  "futures",
  "futures-timer",
- "igd-next",
+ "igd-next 0.15.1",
  "libp2p-core",
  "libp2p-swarm",
  "tokio",
@@ -5697,6 +5731,18 @@ name = "litemap"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
+
+[[package]]
+name = "local-ip-address"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3669cf5561f8d27e8fc84cc15e58350e70f557d4d65f70e3154e54cd2f8e1782"
+dependencies = [
+ "libc",
+ "neli",
+ "thiserror 1.0.69",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "lock_api"
@@ -6017,6 +6063,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "neli"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93062a0dce6da2517ea35f301dfc88184ce18d3601ec786a727a87bf535deca9"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "neli-proc-macros",
+]
+
+[[package]]
+name = "neli-proc-macros"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c8034b7fbb6f9455b2a96c19e6edf8dc9fc34c70449938d8ee3b4df363f61fe"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "netlink-packet-core"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6140,9 +6211,11 @@ dependencies = [
  "fs_extra",
  "futures",
  "human-panic",
+ "igd-next 0.16.0",
  "itertools 0.12.1",
  "json5",
  "libc",
+ "local-ip-address",
  "log",
  "pretty_assertions",
  "prometheus-parse",
@@ -8279,12 +8352,14 @@ dependencies = [
 
 [[package]]
 name = "service-manager"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59d7d62c9733631445d1b3fc7854c780088408d4b79a20dd928aaec41854ca3a"
+checksum = "2cae942acfe9cecd4450998408f52e1c1ee083145226b7b803bd0d82e1c86912"
 dependencies = [
  "cfg-if",
  "dirs",
+ "encoding-utils",
+ "encoding_rs",
  "plist",
  "which 4.4.2",
  "xml-rs",

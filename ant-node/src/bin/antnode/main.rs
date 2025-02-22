@@ -9,9 +9,11 @@
 #[macro_use]
 extern crate tracing;
 
+mod log;
 mod rpc_service;
 mod subcommands;
 
+use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
 use ant_bootstrap::{BootstrapCacheStore, PeersArgs};
 use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
@@ -366,6 +368,8 @@ async fn run_node(
 ) -> Result<Option<(bool, PathBuf, u16)>> {
     let started_instant = std::time::Instant::now();
 
+    reset_critical_failure(log_output_dest);
+
     info!("Starting node ...");
     let running_node = node_builder.build_and_run()?;
 
@@ -453,6 +457,7 @@ You can check your reward balance by running:
                     }
                     StopResult::Error(cause) => {
                         error!("Node stopped with error: {}", cause);
+                        set_critical_failure(log_output_dest, &cause.to_string());
                         return Err(cause);
                     }
                 }

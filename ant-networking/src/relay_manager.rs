@@ -6,23 +6,28 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::driver::{BadNodes, NodeBehaviour};
+use crate::{
+    driver::{BadNodes, NodeBehaviour},
+    NetworkAddress,
+};
 use itertools::Itertools;
 use libp2p::swarm::ConnectionId;
 use libp2p::{
-    core::transport::ListenerId, multiaddr::Protocol, Multiaddr, PeerId, StreamProtocol, Swarm,
+    core::transport::ListenerId, kad::KBucketDistance as Distance, multiaddr::Protocol, Multiaddr,
+    PeerId, StreamProtocol, Swarm,
 };
 #[cfg(feature = "open-metrics")]
 use prometheus_client::metrics::gauge::Gauge;
-use rand::Rng;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+#[cfg(feature = "open-metrics")]
+use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(feature = "open-metrics")]
 use std::sync::atomic::AtomicU64;
 use std::time::Instant;
 #[cfg(feature = "open-metrics")]
 use std::{collections::btree_map::Entry, time::SystemTime};
 
-const MAX_CONCURRENT_RELAY_CONNECTIONS: usize = 4;
+const MAX_CONCURRENT_RELAY_CONNECTIONS: usize = 2;
 const MAX_POTENTIAL_CANDIDATES: usize = 1000;
 
 /// We could get multiple incoming connections from the same peer through multiple relay servers, and only one of them
@@ -51,7 +56,7 @@ pub(crate) fn is_a_relayed_peer<'a>(mut addrs: impl Iterator<Item = &'a Multiadd
 pub(crate) struct RelayManager {
     self_peer_id: PeerId,
     /// The potential relay servers that we can connect to.
-    relay_server_candidates: VecDeque<(PeerId, Multiaddr)>,
+    relay_server_candidates: BTreeMap<Distance, (PeerId, Multiaddr)>,
     /// The relay servers that we are waiting for a reservation from.
     waiting_for_reservation: BTreeMap<PeerId, Multiaddr>,
     /// The relay servers that we are connected to.
@@ -150,8 +155,11 @@ impl RelayManager {
                 // Hence here can add the addr directly.
                 if let Some(relay_addr) = Self::craft_relay_address(addr, Some(*peer_id)) {
                     debug!("Adding {peer_id:?} with {relay_addr:?} as a potential relay candidate");
-                    self.relay_server_candidates
-                        .push_back((*peer_id, relay_addr));
+                    let distance = NetworkAddress::from_peer(self.self_peer_id)
+                        .distance(&NetworkAddress::from_peer(*peer_id));
+                    let _ = self
+                        .relay_server_candidates
+                        .insert(distance, (*peer_id, relay_addr));
                 }
             }
         } else {
@@ -181,15 +189,10 @@ impl RelayManager {
             // todo: should we remove all our other `listen_addr`? And should we block from adding `add_external_address` if
             // we're behind nat?
 
-            // Pick a random candidate from the vector. Check if empty, or `gen_range` panics for empty range.
-            let index = if self.relay_server_candidates.is_empty() {
-                debug!("No more relay candidates.");
-                break;
-            } else {
-                rand::thread_rng().gen_range(0..self.relay_server_candidates.len())
-            };
-
-            if let Some((peer_id, relay_addr)) = self.relay_server_candidates.remove(index) {
+            // Pick a closest candidate as a potential relay_server.
+            if let Some((_distance, (peer_id, relay_addr))) =
+                self.relay_server_candidates.pop_first()
+            {
                 // skip if detected as a bad node
                 if let Some((_, is_bad)) = bad_nodes.get(&peer_id) {
                     if *is_bad {

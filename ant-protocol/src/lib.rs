@@ -422,6 +422,7 @@ mod tests {
             sign_result: bool,
         },
         GetVersion(NetworkAddress),
+        Extended,
     }
 
     #[test]
@@ -465,7 +466,7 @@ mod tests {
     #[test]
     fn test_query_extended_serialization() {
         // Create a sample QueryExtended message with extended new variant
-        let extended_query = QueryExtended::GetVersion(NetworkAddress::from_peer(PeerId::random()));
+        let extended_query = QueryExtended::Extended;
 
         // Serialize to bytes
         let serialized = bincode::serialize(&extended_query).expect("Serialization failed");

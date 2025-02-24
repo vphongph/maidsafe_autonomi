@@ -448,6 +448,12 @@ impl Node {
                 self.record_metrics(Marker::PeersInRoutingTable(connected_peers));
                 self.record_metrics(Marker::PeerAddedToRoutingTable(&peer_id));
 
+                // try query peer version
+                let network = self.network().clone();
+                let _handle = spawn(async move {
+                    Self::try_query_peer_version(network, peer_id).await;
+                });
+
                 // try replication here
                 let network = self.network().clone();
                 self.record_metrics(Marker::IntervalReplicationTriggered);
@@ -715,6 +721,10 @@ impl Node {
                 Self::respond_get_closest_peers(network, key, num_of_peers, range, sign_result)
                     .await
             }
+            Query::GetVersion(_) => QueryResponse::GetVersion {
+                peer: NetworkAddress::from_peer(network.peer_id()),
+                version: ant_build_info::package_version(),
+            },
         };
         Response::Query(resp)
     }
@@ -968,6 +978,26 @@ impl Node {
             "Completed node StorageChallenge against neighbours in {:?}!",
             start.elapsed()
         );
+    }
+
+    /// Query peer's version and update local knowledge.
+    async fn try_query_peer_version(network: Network, peer: PeerId) {
+        let request = Request::Query(Query::GetVersion(NetworkAddress::from_peer(peer)));
+        let version = match network.send_request(request, peer).await {
+            Ok(Response::Query(QueryResponse::GetVersion { version, .. })) => {
+                info!("Fetched peer {peer:?} version as {version:?}");
+                version
+            }
+            Ok(other) => {
+                info!("Not a version fetched from peer {peer:?}, {other:?}");
+                "none".to_string()
+            }
+            Err(err) => {
+                info!("Failed to fetch version from peer {peer:?} with error {err:?}");
+                "old".to_string()
+            }
+        };
+        network.notify_node_version(peer, version);
     }
 
     #[allow(dead_code)]

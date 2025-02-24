@@ -625,6 +625,7 @@ impl NetworkBuilder {
             last_replication: None,
             last_connection_pruning_time: Instant::now(),
             network_density_samples: FifoRegister::new(100),
+            peers_version: Default::default(),
         };
 
         let network = Network::new(
@@ -735,6 +736,8 @@ pub struct SwarmDriver {
     pub(crate) last_connection_pruning_time: Instant,
     /// FIFO cache for the network density samples
     pub(crate) network_density_samples: FifoRegister,
+    /// record versions of those peers that in the non-full-kbuckets.
+    pub(crate) peers_version: HashMap<PeerId, String>,
 }
 
 impl SwarmDriver {

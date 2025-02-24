@@ -1028,10 +1028,15 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerScores { peer_scores })
     }
 
+    pub fn notify_node_version(&self, peer: PeerId, version: String) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerVersion { peer, version })
+    }
+
     /// Helper to send NetworkSwarmCmd
     fn send_network_swarm_cmd(&self, cmd: NetworkSwarmCmd) {
         send_network_swarm_cmd(self.network_swarm_cmd_sender().clone(), cmd);
     }
+
     /// Helper to send LocalSwarmCmd
     fn send_local_swarm_cmd(&self, cmd: LocalSwarmCmd) {
         send_local_swarm_cmd(self.local_swarm_cmd_sender().clone(), cmd);

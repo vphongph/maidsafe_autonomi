@@ -105,6 +105,9 @@ pub enum RegisterCmd {
         name: String,
         /// The value to store in the register.
         value: String,
+        /// Treat the value as a hex string and convert it to binary before storing
+        #[arg(long)]
+        hex: bool,
     },
 
     /// Edit an existing register.
@@ -119,6 +122,9 @@ pub enum RegisterCmd {
         address: String,
         /// The new value to store in the register.
         value: String,
+        /// Treat the value as a hex string and convert it to binary before storing
+        #[arg(long)]
+        hex: bool,
     },
 
     /// Get the value of a register.
@@ -130,6 +136,23 @@ pub enum RegisterCmd {
         /// The address of the register
         /// With the name option on the address will be used as a name
         address: String,
+        /// Display the value as a hex string instead of raw bytes
+        #[arg(long)]
+        hex: bool,
+    },
+
+    /// Show the history of values for a register.
+    History {
+        /// Use the name of the register instead of the address
+        /// Note that only the owner of the register can use this shorthand as the address can be generated from the name and register key.
+        #[arg(short, long)]
+        name: bool,
+        /// The address of the register
+        /// With the name option on the address will be used as a name
+        address: String,
+        /// Display the values as hex strings instead of raw bytes
+        #[arg(long)]
+        hex: bool,
     },
 
     /// List previous registers
@@ -218,15 +241,21 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
             RegisterCmd::Cost { name } => register::cost(&name, peers.await?).await,
-            RegisterCmd::Create { name, value } => {
-                register::create(&name, &value, peers.await?).await
+            RegisterCmd::Create { name, value, hex } => {
+                register::create(&name, &value, hex, peers.await?).await
             }
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
-            } => register::edit(address, name, &value, peers.await?).await,
-            RegisterCmd::Get { address, name } => register::get(address, name, peers.await?).await,
+                hex,
+            } => register::edit(address, name, &value, hex, peers.await?).await,
+            RegisterCmd::Get { address, name, hex } => {
+                register::get(address, name, hex, peers.await?).await
+            }
+            RegisterCmd::History { address, name, hex } => {
+                register::history(address, name, hex, peers.await?).await
+            }
             RegisterCmd::List => register::list(),
         },
         Some(SubCmd::Vault { command }) => match command {

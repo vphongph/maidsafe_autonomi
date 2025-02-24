@@ -13,7 +13,7 @@ use std::{
 
 use ant_networking::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::{AttoTokens, Wallet};
+use crate::{client::payment::PaymentOption, AttoTokens};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use xor_name::XorName;
@@ -36,6 +36,11 @@ pub type ArchiveAddr = XorName;
 /// to the network, of which the addresses are stored in this archive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PublicArchive {
+    ///           Path of the file in the directory
+    ///           |         Data address of the content of the file (points to a DataMap)
+    ///           |         |         Metadata of the file
+    ///           |         |         |
+    ///           V         V         V
     map: BTreeMap<PathBuf, (DataAddr, Metadata)>,
 }
 
@@ -123,6 +128,13 @@ impl PublicArchive {
 
         Ok(root_serialized)
     }
+
+    /// Merge with another archive
+    ///
+    /// Note that if there are duplicate entries for the same filename, the files from the other archive will be the ones that are kept.
+    pub fn merge(&mut self, other: &PublicArchive) {
+        self.map.extend(other.map.clone());
+    }
 }
 
 impl Client {
@@ -152,21 +164,23 @@ impl Client {
     ///
     /// ```no_run
     /// # use autonomi::{Client, client::{data::DataAddr, files::{Metadata, archive_public::{PublicArchive, ArchiveAddr}}}};
+    /// # use autonomi::client::payment::PaymentOption;
     /// # use std::path::PathBuf;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = Client::init().await?;
     /// # let wallet = todo!();
+    /// # let payment = PaymentOption::Wallet(wallet);
     /// let mut archive = PublicArchive::new();
     /// archive.add_file(PathBuf::from("file.txt"), DataAddr::random(&mut rand::thread_rng()), Metadata::new_with_size(0));
-    /// let (cost, address) = client.archive_put_public(&archive, &wallet).await?;
+    /// let (cost, address) = client.archive_put_public(&archive, payment).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn archive_put_public(
         &self,
         archive: &PublicArchive,
-        wallet: &Wallet,
+        payment_option: PaymentOption,
     ) -> Result<(AttoTokens, ArchiveAddr), PutError> {
         let bytes = archive
             .to_bytes()
@@ -178,7 +192,7 @@ impl Client {
             archive.map().len()
         );
 
-        let result = self.data_put_public(bytes, wallet.into()).await;
+        let result = self.data_put_public(bytes, payment_option).await;
         debug!("Uploaded archive {archive:?} to the network and the address is {result:?}");
         result
     }
@@ -281,5 +295,38 @@ mod test {
 
         // Our old data structure should be forward compatible with the new one.
         assert!(PublicArchive::from_bytes(Bytes::from(arch_p1_ser)).is_ok());
+    }
+
+    #[test]
+    fn test_archive_merge() {
+        let mut arch = PublicArchive::new();
+        let file1 = PathBuf::from_str("file1").unwrap();
+        let file2 = PathBuf::from_str("file2").unwrap();
+        arch.add_file(
+            file1.clone(),
+            DataAddr::random(&mut rand::thread_rng()),
+            Metadata::new_with_size(1),
+        );
+        let mut other_arch = PublicArchive::new();
+        other_arch.add_file(
+            file2.clone(),
+            DataAddr::random(&mut rand::thread_rng()),
+            Metadata::new_with_size(2),
+        );
+        arch.merge(&other_arch);
+        assert_eq!(arch.map().len(), 2);
+        assert_eq!(arch.map().get(&file1).unwrap().1.size, 1);
+        assert_eq!(arch.map().get(&file2).unwrap().1.size, 2);
+
+        let mut arch_with_duplicate = PublicArchive::new();
+        arch_with_duplicate.add_file(
+            file1.clone(),
+            DataAddr::random(&mut rand::thread_rng()),
+            Metadata::new_with_size(5),
+        );
+        arch.merge(&arch_with_duplicate);
+        assert_eq!(arch.map().len(), 2);
+        assert_eq!(arch.map().get(&file1).unwrap().1.size, 5);
+        assert_eq!(arch.map().get(&file2).unwrap().1.size, 2);
     }
 }

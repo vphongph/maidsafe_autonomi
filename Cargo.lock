@@ -3180,6 +3180,7 @@ name = "evmlib"
 version = "0.1.9"
 dependencies = [
  "alloy",
+ "alloy-primitives",
  "dirs-next",
  "rand 0.8.5",
  "serde",

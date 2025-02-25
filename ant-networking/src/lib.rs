@@ -22,6 +22,7 @@ mod graph;
 mod log_markers;
 #[cfg(feature = "open-metrics")]
 mod metrics;
+mod network_builder;
 mod network_discovery;
 mod record_store;
 mod record_store_api;
@@ -37,10 +38,11 @@ use xor_name::XorName;
 pub use self::{
     cmd::{NodeIssue, SwarmLocalState},
     config::{GetRecordCfg, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind},
-    driver::{NetworkBuilder, SwarmDriver, MAX_PACKET_SIZE},
+    driver::SwarmDriver,
     error::{GetRecordError, NetworkError},
     event::{MsgResponder, NetworkEvent},
     graph::get_graph_entry_from_record,
+    network_builder::{NetworkBuilder, MAX_PACKET_SIZE},
     record_store::NodeRecordStore,
 };
 #[cfg(feature = "open-metrics")]

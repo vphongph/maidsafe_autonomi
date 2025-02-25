@@ -8,7 +8,7 @@
 #![allow(clippy::mutable_key_type)] // for the Bytes in NetworkAddress
 
 use crate::cmd::LocalSwarmCmd;
-use crate::driver::MAX_PACKET_SIZE;
+use crate::network_builder::MAX_PACKET_SIZE;
 use crate::send_local_swarm_cmd;
 use crate::time::{spawn, Instant};
 use crate::{event::NetworkEvent, log_markers::Marker};

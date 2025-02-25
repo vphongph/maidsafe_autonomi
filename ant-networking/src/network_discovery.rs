@@ -28,16 +28,9 @@ const MAX_PEERS_PER_BUCKET: usize = 5;
 /// The interval is increased as more peers are added to the routing table.
 pub(crate) const NETWORK_DISCOVER_INTERVAL: Duration = Duration::from_secs(10);
 
-/// For every NETWORK_DISCOVER_CONNECTED_PEERS_STEP connected peer, we step up the
-/// NETWORK_DISCOVER_INTERVAL to slow down process.
-const NETWORK_DISCOVER_CONNECTED_PEERS_STEP: u32 = 20;
-
 /// Slow down the process if the previously added peer has been before LAST_PEER_ADDED_TIME_LIMIT.
 /// This is to make sure we don't flood the network with `FindNode` msgs.
 const LAST_PEER_ADDED_TIME_LIMIT: Duration = Duration::from_secs(180);
-
-/// A minimum interval to prevent network discovery got triggered too often
-const LAST_NETWORK_DISCOVER_TRIGGERED_TIME_LIMIT: Duration = Duration::from_secs(90);
 
 /// The network discovery interval to use if we haven't added any new peers in a while.
 const NO_PEER_ADDED_SLOWDOWN_INTERVAL_MAX_S: u64 = 600;
@@ -159,14 +152,7 @@ impl NetworkDiscovery {
         peers_in_rt: u32,
         current_interval: Duration,
     ) -> (bool, Option<Interval>) {
-        let is_ongoing = if let Some(last_network_discover_triggered) =
-            self.last_network_discover_triggered
-        {
-            last_network_discover_triggered.elapsed() < LAST_NETWORK_DISCOVER_TRIGGERED_TIME_LIMIT
-        } else {
-            false
-        };
-        let should_network_discover = !is_ongoing && peers_in_rt >= 1;
+        let should_network_discover = peers_in_rt >= 1;
 
         // if it has been a while (LAST_PEER_ADDED_TIME_LIMIT) since we have added a new peer,
         // slowdown the network discovery process.
@@ -189,25 +175,35 @@ impl NetworkDiscovery {
             return (should_network_discover, Some(new_interval));
         }
 
-        // increment network_discover_interval in steps of NETWORK_DISCOVER_INTERVAL every NETWORK_DISCOVER_CONNECTED_PEERS_STEP
-        let step = peers_in_rt / NETWORK_DISCOVER_CONNECTED_PEERS_STEP;
-        let step = std::cmp::max(1, step);
-        let new_interval = NETWORK_DISCOVER_INTERVAL * step;
-        let new_interval = if new_interval > current_interval {
-            info!("More peers have been added to our RT!. Slowing down the continuous network discovery process. Old interval: {current_interval:?}, New interval: {new_interval:?}");
+        let duration_based_on_peers = Self::scaled_duration(peers_in_rt);
+        let new_interval = if duration_based_on_peers > current_interval {
+            info!("More peers have been added to our RT!. Slowing down the continuous network discovery process. Old interval: {current_interval:?}, New interval: {duration_based_on_peers:?}");
 
-            let mut interval = interval(new_interval);
+            let mut interval = interval(duration_based_on_peers);
             interval.tick().await;
 
             Some(interval)
         } else {
             None
         };
+
         (should_network_discover, new_interval)
     }
 
     pub(crate) fn handle_get_closest_query(&mut self, closest_peers: Vec<PeerId>) {
         self.candidates.handle_get_closest_query(closest_peers);
+    }
+
+    /// Returns an exponentially increasing interval based on the number of peers in the routing table.
+    /// Formula: y=30 * 1.00673^x
+    /// Caps out at 600s for 400+ peers
+    fn scaled_duration(peers_in_rt: u32) -> Duration {
+        if peers_in_rt >= 450 {
+            return Duration::from_secs(600);
+        }
+        let base: f64 = 1.00673;
+
+        Duration::from_secs_f64(30.0 * base.powi(peers_in_rt as i32))
     }
 }
 
@@ -368,5 +364,43 @@ impl NetworkDiscoveryCandidates {
                     acc
                 },
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scaled_interval() {
+        let test_cases = vec![
+            (0, 30.0),
+            (50, 40.0),
+            (100, 60.0),
+            (150, 80.0),
+            (200, 115.0),
+            (220, 130.0),
+            (250, 160.0),
+            (300, 220.0),
+            (350, 313.0),
+            (400, 430.0),
+            (425, 520.0),
+            (449, 600.0),
+            (1000, 600.0),
+        ];
+
+        for (peers, expected_secs) in test_cases {
+            let interval = NetworkDiscovery::scaled_duration(peers);
+            let actual_secs = interval.as_secs_f64();
+
+            let tolerance = 0.15 * expected_secs; // 5% tolerance
+
+            assert!(
+                (actual_secs - expected_secs).abs() < tolerance,
+                "For {peers} peers, expected duration {expected_secs:.2}s but got {actual_secs:.2}s",
+            );
+
+            println!("Peers: {peers}, Expected: {expected_secs:.2}s, Actual: {actual_secs:.2}s",);
+        }
     }
 }

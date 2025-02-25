@@ -30,7 +30,7 @@ pub(crate) const NETWORK_DISCOVER_INTERVAL: Duration = Duration::from_secs(10);
 
 /// For every NETWORK_DISCOVER_CONNECTED_PEERS_STEP connected peer, we step up the
 /// NETWORK_DISCOVER_INTERVAL to slow down process.
-const NETWORK_DISCOVER_CONNECTED_PEERS_STEP: u32 = 5;
+const NETWORK_DISCOVER_CONNECTED_PEERS_STEP: u32 = 20;
 
 /// Slow down the process if the previously added peer has been before LAST_PEER_ADDED_TIME_LIMIT.
 /// This is to make sure we don't flood the network with `FindNode` msgs.

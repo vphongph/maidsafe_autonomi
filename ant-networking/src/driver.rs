@@ -107,7 +107,7 @@ pub(super) struct NodeBehaviour {
     pub(super) identify: libp2p::identify::Behaviour,
     pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
-    pub(super) relay_server: libp2p::relay::Behaviour,
+    pub(super) relay_server: Toggle<libp2p::relay::Behaviour>,
     pub(super) kademlia: kad::Behaviour<UnifiedRecordStore>,
     pub(super) request_response: request_response::cbor::Behaviour<Request, Response>,
 }

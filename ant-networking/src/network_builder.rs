@@ -458,7 +458,7 @@ impl NetworkBuilder {
         }
         .into(); // Into `Toggle<T>`
 
-        let relay_server = {
+        let relay_server = if !is_client && !self.is_behind_home_network {
             let relay_server_cfg = relay::Config {
                 max_reservations: 128,             // Amount of peers we are relaying for
                 max_circuits: 1024, // The total amount of relayed connections at any given moment.
@@ -468,8 +468,11 @@ impl NetworkBuilder {
                 max_circuit_bytes: MAX_PACKET_SIZE as u64,
                 ..Default::default()
             };
-            libp2p::relay::Behaviour::new(peer_id, relay_server_cfg)
-        };
+            Some(libp2p::relay::Behaviour::new(peer_id, relay_server_cfg))
+        } else {
+            None
+        }
+        .into();
 
         let behaviour = NodeBehaviour {
             blocklist: libp2p::allow_block_list::Behaviour::default(),

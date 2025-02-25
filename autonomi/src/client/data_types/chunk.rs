@@ -260,15 +260,28 @@ impl Client {
                         .chunk_upload_with_payment(chunk, proof.clone())
                         .await
                         .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
+                        .inspect(|_addr| {})
                         // Return chunk reference too, to re-use it next attempt/iteration
                         .map_err(|err| (chunk, err));
                     #[cfg(feature = "loud")]
-                    println!(
-                        "({}/{}) Chunk stored at: {}",
-                        i + 1,
-                        total_chunks,
-                        chunk.address().to_hex()
-                    );
+                    match res {
+                        Ok(_addr) => {
+                            println!(
+                                "({}/{}) Chunk stored at: {}",
+                                i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                        Err((_chunk, ref err)) => {
+                            println!(
+                                "({}/{}) Chunk failed to be stored at: {} ({err})",
+                                i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                    }
                     res
                 });
             }

@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    bootstrap::{ContinuousNetworkDiscover, NETWORK_DISCOVER_INTERVAL},
+    bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
     config::GetRecordCfg,
@@ -17,8 +17,7 @@ use crate::{
     external_address::ExternalAddressManager,
     fifo_register::FifoRegister,
     log_markers::Marker,
-    multiaddr_pop_p2p,
-    network_discovery::NetworkDiscovery,
+    network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL},
     record_store::{ClientRecordStore, NodeRecordStore, NodeRecordStoreConfig},
     record_store_api::UnifiedRecordStore,
     relay_manager::RelayManager,
@@ -48,10 +47,7 @@ use libp2p::{
     kad::{self, KBucketDistance as Distance, QueryId, Record, RecordKey, K_VALUE},
     multiaddr::Protocol,
     request_response::{self, Config as RequestResponseConfig, OutboundRequestId, ProtocolSupport},
-    swarm::{
-        dial_opts::{DialOpts, PeerCondition},
-        ConnectionId, DialError, NetworkBehaviour, StreamProtocol, Swarm,
-    },
+    swarm::{ConnectionId, NetworkBehaviour, StreamProtocol, Swarm},
     Multiaddr, PeerId,
 };
 use libp2p::{swarm::SwarmEvent, Transport as _};
@@ -162,6 +158,7 @@ pub(super) struct NodeBehaviour {
 pub struct NetworkBuilder {
     bootstrap_cache: Option<BootstrapCacheStore>,
     concurrency_limit: Option<usize>,
+    initial_contacts: Vec<Multiaddr>,
     is_behind_home_network: bool,
     keypair: Keypair,
     listen_addr: Option<SocketAddr>,
@@ -175,10 +172,11 @@ pub struct NetworkBuilder {
 }
 
 impl NetworkBuilder {
-    pub fn new(keypair: Keypair, local: bool) -> Self {
+    pub fn new(keypair: Keypair, local: bool, initial_contacts: Vec<Multiaddr>) -> Self {
         Self {
             bootstrap_cache: None,
             concurrency_limit: None,
+            initial_contacts,
             is_behind_home_network: false,
             keypair,
             listen_addr: None,
@@ -554,7 +552,6 @@ impl NetworkBuilder {
 
         let swarm = Swarm::new(transport, behaviour, peer_id, swarm_config);
 
-        let bootstrap = ContinuousNetworkDiscover::new();
         let replication_fetcher = ReplicationFetcher::new(peer_id, network_event_sender.clone());
 
         // Enable relay manager for nodes behind home network
@@ -591,7 +588,8 @@ impl NetworkBuilder {
             #[cfg(feature = "open-metrics")]
             close_group: Vec::with_capacity(CLOSE_GROUP_SIZE),
             peers_in_rt: 0,
-            bootstrap,
+            initial_bootstrap: InitialBootstrap::new(self.initial_contacts),
+            initial_bootstrap_trigger: InitialBootstrapTrigger::new(self.upnp, is_client),
             bootstrap_cache: self.bootstrap_cache,
             relay_manager,
             connected_relay_clients: Default::default(),
@@ -613,7 +611,6 @@ impl NetworkBuilder {
             // This is based on the libp2p kad::kBuckets peers distribution.
             dialed_peers: CircularVec::new(255),
             network_discovery: NetworkDiscovery::new(&peer_id),
-            bootstrap_peers: Default::default(),
             live_connected_peers: Default::default(),
             latest_established_connection_ids: Default::default(),
             handling_statistics: Default::default(),
@@ -687,7 +684,9 @@ pub struct SwarmDriver {
     #[cfg(feature = "open-metrics")]
     pub(crate) close_group: Vec<PeerId>,
     pub(crate) peers_in_rt: usize,
-    pub(crate) bootstrap: ContinuousNetworkDiscover,
+    pub(crate) initial_bootstrap: InitialBootstrap,
+    pub(crate) initial_bootstrap_trigger: InitialBootstrapTrigger,
+    pub(crate) network_discovery: NetworkDiscovery,
     pub(crate) bootstrap_cache: Option<BootstrapCacheStore>,
     pub(crate) external_address_manager: Option<ExternalAddressManager>,
     pub(crate) relay_manager: Option<RelayManager>,
@@ -711,10 +710,6 @@ pub struct SwarmDriver {
     pub(crate) pending_get_record: PendingGetRecord,
     /// A list of the most recent peers we have dialed ourselves. Old dialed peers are evicted once the vec fills up.
     pub(crate) dialed_peers: CircularVec<PeerId>,
-    // A list of random `PeerId` candidates that falls into kbuckets,
-    // This is to ensure a more accurate network discovery.
-    pub(crate) network_discovery: NetworkDiscovery,
-    pub(crate) bootstrap_peers: BTreeMap<Option<u32>, HashSet<PeerId>>,
     // Peers that having live connection to. Any peer got contacted during kad network query
     // will have live connection established. And they may not appear in the RT.
     pub(crate) live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr, Instant)>,
@@ -749,6 +744,8 @@ impl SwarmDriver {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
+        let mut initial_bootstrap_trigger_check_interval =
+            Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
 
         let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
             if cache.config().disable_cache_writing {
@@ -832,6 +829,18 @@ impl SwarmDriver {
                     }
                 },
                 // thereafter we can check our intervals
+
+                // check if we can trigger the initial bootstrap process
+                // once it is triggered, we don't re-trigger it
+                Some(()) = Self::conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
+                    if self.initial_bootstrap_trigger.should_trigger_initial_bootstrap() {
+                        info!("Triggering initial bootstrap process. This is a one-time operation.");
+                        self.initial_bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
+                        // we will not call this loop anymore, once the initial bootstrap is triggered.
+                        // It should run on its own and complete.
+                        initial_bootstrap_trigger_check_interval = None;
+                    }
+                }
 
                 // runs every bootstrap_interval time
                 _ = network_discover_interval.tick() => {
@@ -1014,24 +1023,6 @@ impl SwarmDriver {
 
         // Start with our own PeerID and chain the closest.
         std::iter::once(self.self_peer_id).chain(peers).collect()
-    }
-
-    /// Dials the given multiaddress. If address contains a peer ID, simultaneous
-    /// dials to that peer are prevented.
-    pub(crate) fn dial(&mut self, mut addr: Multiaddr) -> Result<(), DialError> {
-        debug!(%addr, "Dialing manually");
-
-        let peer_id = multiaddr_pop_p2p(&mut addr);
-        let opts = match peer_id {
-            Some(peer_id) => DialOpts::peer_id(peer_id)
-                // If we have a peer ID, we can prevent simultaneous dials.
-                .condition(PeerCondition::NotDialing)
-                .addresses(vec![addr])
-                .build(),
-            None => DialOpts::unknown_peer_id().address(addr).build(),
-        };
-
-        self.swarm.dial(opts)
     }
 
     /// Record one handling time.

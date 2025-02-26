@@ -15,10 +15,9 @@ use itertools::Itertools;
 use libp2p::metrics::Recorder;
 use libp2p::{
     core::ConnectedPoint,
-    kad::K_VALUE,
     multiaddr::Protocol,
     swarm::{ConnectionId, DialError, SwarmEvent},
-    Multiaddr, PeerId, TransportError,
+    Multiaddr, TransportError,
 };
 use tokio::time::Duration;
 
@@ -83,11 +82,24 @@ impl SwarmDriver {
                 }
                 event_string = "upnp_event";
                 info!(?upnp_event, "UPnP event");
-                if let libp2p::upnp::Event::GatewayNotFound = upnp_event {
-                    warn!("UPnP is not enabled/supported on the gateway. Please rerun without the `--upnp` flag");
-                    self.send_event(NetworkEvent::TerminateNode {
-                        reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
-                    });
+                match upnp_event {
+                    libp2p::upnp::Event::GatewayNotFound => {
+                        warn!("UPnP is not enabled/supported on the gateway. Please rerun without the `--upnp` flag");
+                        self.send_event(NetworkEvent::TerminateNode {
+                            reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
+                        });
+                    }
+                    libp2p::upnp::Event::NewExternalAddr(addr) => {
+                        info!("UPnP: New external address: {addr:?}");
+                        self.initial_bootstrap_trigger.upnp_gateway_result_obtained = true;
+                    }
+                    libp2p::upnp::Event::NonRoutableGateway => {
+                        warn!("UPnP gateway is not routable");
+                        self.initial_bootstrap_trigger.upnp_gateway_result_obtained = true;
+                    }
+                    _ => {
+                        debug!("UPnP event: {upnp_event:?}");
+                    }
                 }
             }
 
@@ -197,6 +209,8 @@ impl SwarmDriver {
                     debug!("All our external addresses: {all_external_addresses:?}");
                 }
 
+                self.initial_bootstrap_trigger.listen_addr_obtained = true;
+
                 self.send_event(NetworkEvent::NewListenAddr(address.clone()));
             }
             SwarmEvent::ListenerClosed {
@@ -236,12 +250,20 @@ impl SwarmDriver {
             } => {
                 event_string = "ConnectionEstablished";
                 debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
+
+                self.initial_bootstrap.on_connection_established(
+                    &endpoint,
+                    &mut self.swarm,
+                    self.peers_in_rt,
+                );
+
                 if let Some(external_addr_manager) = self.external_address_manager.as_mut() {
                     if let ConnectedPoint::Listener { local_addr, .. } = &endpoint {
                         external_addr_manager
                             .on_established_incoming_connection(local_addr.clone());
                     }
                 }
+
                 #[cfg(feature = "open-metrics")]
                 if let Some(relay_manager) = self.relay_manager.as_mut() {
                     relay_manager.on_connection_established(&peer_id, &connection_id);
@@ -291,6 +313,21 @@ impl SwarmDriver {
                 self.record_connection_metrics();
             }
             SwarmEvent::OutgoingConnectionError {
+                connection_id,
+                peer_id: None,
+                error,
+            } => {
+                event_string = "OutgoingConnErrWithoutPeerId";
+                warn!("OutgoingConnectionError on {connection_id:?} - {error:?}");
+                self.record_connection_metrics();
+
+                self.initial_bootstrap.on_outgoing_connection_error(
+                    None,
+                    &mut self.swarm,
+                    self.peers_in_rt,
+                );
+            }
+            SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(failed_peer_id),
                 error,
                 connection_id,
@@ -299,6 +336,12 @@ impl SwarmDriver {
                 warn!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
                 let connection_details = self.live_connected_peers.remove(&connection_id);
                 self.record_connection_metrics();
+
+                self.initial_bootstrap.on_outgoing_connection_error(
+                    Some(failed_peer_id),
+                    &mut self.swarm,
+                    self.peers_in_rt,
+                );
 
                 // we need to decide if this was a critical error and if we should report it to the Issue tracker
                 let is_critical_error = match error {
@@ -337,13 +380,8 @@ impl SwarmDriver {
                                         "HandshakeTimedOut",
                                     ];
 
-                                    let is_bootstrap_peer = self
-                                        .bootstrap_peers
-                                        .iter()
-                                        .any(|(_ilog2, peers)| peers.contains(&failed_peer_id));
-
-                                    if is_bootstrap_peer
-                                        && self.peers_in_rt < self.bootstrap_peers.len()
+                                    if self.initial_bootstrap.is_bootstrap_peer(&failed_peer_id)
+                                        && !self.initial_bootstrap.has_terminated()
                                     {
                                         warn!("OutgoingConnectionError: On bootstrap peer {failed_peer_id:?}, while still in bootstrap mode, ignoring");
                                         there_is_a_serious_issue = false;
@@ -508,46 +546,6 @@ impl SwarmDriver {
             start.elapsed()
         );
         Ok(())
-    }
-
-    // if target bucket is full, remove a bootstrap node if presents.
-    #[allow(dead_code)]
-    fn remove_bootstrap_from_full(&mut self, peer_id: PeerId) {
-        let mut shall_removed = None;
-
-        let mut bucket_index = Some(0);
-
-        if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id) {
-            if kbucket.num_entries() >= K_VALUE.into() {
-                bucket_index = kbucket.range().0.ilog2();
-                if let Some(peers) = self.bootstrap_peers.get(&bucket_index) {
-                    for peer_entry in kbucket.iter() {
-                        if peers.contains(peer_entry.node.key.preimage()) {
-                            shall_removed = Some(*peer_entry.node.key.preimage());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(to_be_removed_bootstrap) = shall_removed {
-            info!("Bootstrap node {to_be_removed_bootstrap:?} to be replaced by peer {peer_id:?}");
-            let entry = self
-                .swarm
-                .behaviour_mut()
-                .kademlia
-                .remove_peer(&to_be_removed_bootstrap);
-            if let Some(removed_peer) = entry {
-                self.update_on_peer_removal(*removed_peer.node.key.preimage());
-            }
-
-            // With the switch to using bootstrap cache, workload is distributed already.
-            // to avoid peers keeps being replaced by each other,
-            // there shall be just one time of removal to be undertaken.
-            if let Some(peers) = self.bootstrap_peers.get_mut(&bucket_index) {
-                let _ = peers.remove(&to_be_removed_bootstrap);
-            }
-        }
     }
 
     // Remove outdated connection to a peer if it is not in the RT.

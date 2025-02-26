@@ -71,13 +71,16 @@ pub enum Query {
         // For future econ usage,
         sign_result: bool,
     },
+    /// *** From now on, the order of variants shall be retained to be backward compatible
+    /// Query peer's cargo package version.
+    GetVersion(NetworkAddress),
 }
 
 impl Query {
     /// Used to send a query to the close group of the address.
     pub fn dst(&self) -> NetworkAddress {
         match self {
-            Query::CheckNodeInProblem(address) => address.clone(),
+            Query::CheckNodeInProblem(address) | Query::GetVersion(address) => address.clone(),
             // Shall not be called for this, as this is a `one-to-one` message,
             // and the destination shall be decided by the requester already.
             Query::GetStoreQuote { key, .. }
@@ -130,6 +133,9 @@ impl std::fmt::Display for Query {
                     f,
                     "Query::GetClosestPeers({key:?} {num_of_peers:?} {distance:?} {sign_result})"
                 )
+            }
+            Query::GetVersion(address) => {
+                write!(f, "Query::GetVersion({address:?})")
             }
         }
     }

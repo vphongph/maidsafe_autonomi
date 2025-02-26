@@ -20,15 +20,22 @@ use libp2p::{
     PeerId,
 };
 use prometheus_client::{
-    metrics::family::Family,
-    metrics::{counter::Counter, gauge::Gauge},
+    encoding::EncodeLabelSet,
+    metrics::{counter::Counter, family::Family, gauge::Gauge},
 };
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use sysinfo::{Pid, ProcessRefreshKind, System};
 use tokio::time::Duration;
 
 const UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 const TO_MB: u64 = 1_000_000;
+
+// Add this new struct for version labels
+#[derive(Clone, Hash, PartialEq, Eq, Debug, EncodeLabelSet)]
+pub(crate) struct VersionLabels {
+    version: String,
+}
 
 /// The shared recorders that are used to record metrics.
 pub(crate) struct NetworkMetricsRecorder {
@@ -49,6 +56,7 @@ pub(crate) struct NetworkMetricsRecorder {
     pub(crate) relay_peers_in_routing_table: Gauge,
     pub(crate) records_stored: Gauge,
     pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
+    pub(crate) node_versions: Family<VersionLabels, Gauge>,
 
     // quoting metrics
     relevant_records: Gauge,
@@ -168,6 +176,14 @@ impl NetworkMetricsRecorder {
             relay_client_events.clone(),
         );
 
+        // Add this new metric registration
+        let node_versions = Family::default();
+        sub_registry.register(
+            "node_versions",
+            "Number of nodes running each version",
+            node_versions.clone(),
+        );
+
         let process_memory_used_mb = Gauge::<f64, AtomicU64>::default();
         sub_registry.register(
             "process_memory_used_mb",
@@ -257,6 +273,7 @@ impl NetworkMetricsRecorder {
             max_records,
             received_payment_count,
             live_time,
+            node_versions,
 
             bad_peers_count,
             shunned_count_across_time_frames,
@@ -354,6 +371,24 @@ impl NetworkMetricsRecorder {
                 error!("Failed to send shunned report via notifier: {err:?}");
             }
         });
+    }
+
+    pub(crate) fn update_node_versions(&self, versions: &HashMap<PeerId, String>) {
+        // First, count occurrences of each version
+        let mut version_counts: HashMap<String, u64> = HashMap::new();
+        for version in versions.values() {
+            *version_counts.entry(version.clone()).or_insert(0) += 1;
+        }
+
+        // Clean up old records, to avoid outdated versions pollute the statistic.
+        self.node_versions.clear();
+
+        // Update metrics
+        for (version, count) in version_counts {
+            self.node_versions
+                .get_or_create(&VersionLabels { version })
+                .set(count as i64);
+        }
     }
 }
 

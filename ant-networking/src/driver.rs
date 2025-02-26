@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    bootstrap::InitialBootstrap,
+    bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
     config::GetRecordCfg,
@@ -589,6 +589,7 @@ impl NetworkBuilder {
             close_group: Vec::with_capacity(CLOSE_GROUP_SIZE),
             peers_in_rt: 0,
             initial_bootstrap: InitialBootstrap::new(self.initial_contacts),
+            initial_bootstrap_trigger: InitialBootstrapTrigger::new(self.upnp, is_client),
             bootstrap_cache: self.bootstrap_cache,
             relay_manager,
             connected_relay_clients: Default::default(),
@@ -684,6 +685,7 @@ pub struct SwarmDriver {
     pub(crate) close_group: Vec<PeerId>,
     pub(crate) peers_in_rt: usize,
     pub(crate) initial_bootstrap: InitialBootstrap,
+    pub(crate) initial_bootstrap_trigger: InitialBootstrapTrigger,
     pub(crate) network_discovery: NetworkDiscovery,
     pub(crate) bootstrap_cache: Option<BootstrapCacheStore>,
     pub(crate) external_address_manager: Option<ExternalAddressManager>,
@@ -742,6 +744,8 @@ impl SwarmDriver {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
+        let mut initial_bootstrap_trigger_check_interval =
+            Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
 
         let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
             if cache.config().disable_cache_writing {
@@ -759,11 +763,6 @@ impl SwarmDriver {
                 "Bootstrap cache save interval is set to {:?}",
                 interval.period()
             );
-        }
-
-        if self.is_client {
-            self.initial_bootstrap
-                .trigger_initial_bootstrap(&mut self.swarm, self.peers_in_rt);
         }
 
         // temporarily skip processing IncomingConnectionError swarm event to avoid log spamming
@@ -830,6 +829,18 @@ impl SwarmDriver {
                     }
                 },
                 // thereafter we can check our intervals
+
+                // check if we can trigger the initial bootstrap process
+                // once it is triggered, we don't re-trigger it
+                Some(()) = Self::conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
+                    if self.initial_bootstrap_trigger.should_trigger_initial_bootstrap() {
+                        info!("Triggering initial bootstrap process. This is a one-time operation.");
+                        self.initial_bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
+                        // we will not call this loop anymore, once the initial bootstrap is triggered.
+                        // It should run on its own and complete.
+                        initial_bootstrap_trigger_check_interval = None;
+                    }
+                }
 
                 // runs every bootstrap_interval time
                 _ = network_discover_interval.tick() => {

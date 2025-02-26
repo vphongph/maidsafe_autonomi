@@ -82,11 +82,24 @@ impl SwarmDriver {
                 }
                 event_string = "upnp_event";
                 info!(?upnp_event, "UPnP event");
-                if let libp2p::upnp::Event::GatewayNotFound = upnp_event {
-                    warn!("UPnP is not enabled/supported on the gateway. Please rerun without the `--upnp` flag");
-                    self.send_event(NetworkEvent::TerminateNode {
-                        reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
-                    });
+                match upnp_event {
+                    libp2p::upnp::Event::GatewayNotFound => {
+                        warn!("UPnP is not enabled/supported on the gateway. Please rerun without the `--upnp` flag");
+                        self.send_event(NetworkEvent::TerminateNode {
+                            reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
+                        });
+                    }
+                    libp2p::upnp::Event::NewExternalAddr(addr) => {
+                        info!("UPnP: New external address: {addr:?}");
+                        self.initial_bootstrap_trigger.upnp_gateway_result_obtained = true;
+                    }
+                    libp2p::upnp::Event::NonRoutableGateway => {
+                        warn!("UPnP gateway is not routable");
+                        self.initial_bootstrap_trigger.upnp_gateway_result_obtained = true;
+                    }
+                    _ => {
+                        debug!("UPnP event: {upnp_event:?}");
+                    }
                 }
             }
 
@@ -196,10 +209,7 @@ impl SwarmDriver {
                     debug!("All our external addresses: {all_external_addresses:?}");
                 }
 
-                if !self.is_client {
-                    self.initial_bootstrap
-                        .trigger_initial_bootstrap(&mut self.swarm, self.peers_in_rt);
-                }
+                self.initial_bootstrap_trigger.listen_addr_obtained = true;
 
                 self.send_event(NetworkEvent::NewListenAddr(address.clone()));
             }

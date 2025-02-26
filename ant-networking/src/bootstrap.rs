@@ -18,11 +18,56 @@ use libp2p::{
 use rand::seq::SliceRandom;
 use std::collections::{HashSet, VecDeque};
 
+/// Periodically check if the initial bootstrap process should be triggered.
+/// This happens only once after the conditions for triggering the initial bootstrap process are met.
+pub(crate) const INITIAL_BOOTSTRAP_CHECK_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(1);
+
 /// The max number of concurrent dials to be made during the initial bootstrap process.
 const CONCURRENT_DIALS: usize = 3;
 
 /// The max number of peers to be added to the routing table before stopping the initial bootstrap process.
 const MAX_PEERS_BEFORE_TERMINATION: usize = 5;
+
+/// This is used to track the conditions that are required to trigger the initial bootstrap process once.
+pub(crate) struct InitialBootstrapTrigger {
+    pub(crate) upnp: bool,
+    pub(crate) client: bool,
+    pub(crate) upnp_gateway_result_obtained: bool,
+    pub(crate) listen_addr_obtained: bool,
+}
+
+impl InitialBootstrapTrigger {
+    pub(crate) fn new(upnp: bool, client: bool) -> Self {
+        Self {
+            upnp,
+            client,
+            upnp_gateway_result_obtained: false,
+            listen_addr_obtained: false,
+        }
+    }
+
+    /// Used to check if we can trigger the initial bootstrap process.
+    ///
+    /// - If we are a client, we should trigger the initial bootstrap process immediately.
+    /// - If we have set upnp flag and if we have obtained the upnp gateway result, we should trigger the initial bootstrap process.
+    /// - If we don't have upnp enabled, then we should trigger the initial bootstrap process only if we have a listen address available.
+    pub(crate) fn should_trigger_initial_bootstrap(&self) -> bool {
+        if self.client {
+            return true;
+        }
+
+        if self.upnp {
+            return self.upnp_gateway_result_obtained;
+        }
+
+        if self.listen_addr_obtained {
+            return true;
+        }
+
+        false
+    }
+}
 
 pub(crate) struct InitialBootstrap {
     initial_addrs: VecDeque<Multiaddr>,
@@ -59,6 +104,7 @@ impl InitialBootstrap {
         self.initial_bootstrap_peer_ids.contains(peer_id)
     }
 
+    /// Has the bootstrap process finished.
     pub(crate) fn has_terminated(&self) -> bool {
         self.bootstrap_completed
     }
@@ -67,12 +113,16 @@ impl InitialBootstrap {
     ///
     /// This will start dialing CONCURRENT_DIALS peers at a time from the initial addresses. If we have a successful
     /// dial and if a few peer are added to the routing table, we stop the initial bootstrap process.
-    pub(crate) fn trigger_initial_bootstrap(
+    ///
+    /// This should be called only ONCE and then the `on_connection_established` and `on_outgoing_connection_error`
+    /// should be used to continue the process.
+    /// Once the process is completed, the `bootstrap_completed` flag will be set to true, and this becomes a no-op.
+    pub(crate) fn trigger_bootstrapping_process(
         &mut self,
         swarm: &mut Swarm<NodeBehaviour>,
         peers_in_rt: usize,
     ) {
-        if !self.trigger_condition(peers_in_rt, true) {
+        if !self.should_we_continue_bootstrapping(peers_in_rt, true) {
             return;
         }
 
@@ -129,7 +179,7 @@ impl InitialBootstrap {
 
     /// Check if the initial bootstrap process should be triggered.
     /// Also update bootstrap_completed flag if the process is completed.
-    fn trigger_condition(&mut self, peers_in_rt: usize, verbose: bool) -> bool {
+    fn should_we_continue_bootstrapping(&mut self, peers_in_rt: usize, verbose: bool) -> bool {
         if self.bootstrap_completed {
             if verbose {
                 info!("Initial bootstrap process has already completed successfully.");
@@ -216,7 +266,7 @@ impl InitialBootstrap {
             }
         }
 
-        self.trigger_initial_bootstrap(swarm, peers_in_rt);
+        self.trigger_bootstrapping_process(swarm, peers_in_rt);
     }
 
     pub(crate) fn on_outgoing_connection_error(
@@ -247,6 +297,6 @@ impl InitialBootstrap {
             }
         }
 
-        self.trigger_initial_bootstrap(swarm, peers_in_rt);
+        self.trigger_bootstrapping_process(swarm, peers_in_rt);
     }
 }

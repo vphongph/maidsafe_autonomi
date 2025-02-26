@@ -635,6 +635,11 @@ impl NodeRecordStore {
         self.records
             .insert(key.clone(), (addr.clone(), validate_type, data_type));
 
+        #[cfg(feature = "open-metrics")]
+        if let Some(metric) = &self.record_count_metric {
+            let _ = metric.set(self.records.len() as i64);
+        }
+
         // Update bucket index
         let _ = self.records_by_distance.insert(distance, key.clone());
 
@@ -707,11 +712,6 @@ impl NodeRecordStore {
 
         let filename = Self::generate_filename(key);
         let file_path = self.config.storage_dir.join(&filename);
-
-        #[cfg(feature = "open-metrics")]
-        if let Some(metric) = &self.record_count_metric {
-            let _ = metric.set(self.records.len() as i64);
-        }
 
         let encryption_details = self.encryption_details.clone();
         let cloned_cmd_sender = self.local_swarm_cmd_sender.clone();

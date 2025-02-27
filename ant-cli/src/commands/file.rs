@@ -9,9 +9,9 @@
 use crate::network::NetworkPeers;
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
-use autonomi::client::address::addr_to_str;
-use autonomi::ClientOperatingStrategy;
+use autonomi::client::payment::PaymentOption;
 use autonomi::ResponseQuorum;
+use autonomi::{ClientOperatingStrategy, TransactionConfig};
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
@@ -38,6 +38,7 @@ pub async fn upload(
     public: bool,
     peers: NetworkPeers,
     optional_verification_quorum: Option<ResponseQuorum>,
+    max_fee_per_gas: Option<u128>,
 ) -> Result<()> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(verification_quorum) = optional_verification_quorum {
@@ -45,7 +46,13 @@ pub async fn upload(
     }
     let mut client = crate::actions::connect_to_network_with_config(peers, config).await?;
 
-    let wallet = load_wallet(client.evm_network())?;
+    let mut wallet = load_wallet(client.evm_network())?;
+
+    if let Some(max_fee_per_gas) = max_fee_per_gas {
+        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
+    }
+
+    let payment = PaymentOption::Wallet(wallet);
     let event_receiver = client.enable_client_events();
     let (upload_summary_thread, upload_completed_tx) = collect_upload_summary(event_receiver);
 
@@ -65,14 +72,14 @@ pub async fn upload(
     let local_addr;
     let archive = if public {
         let (_cost, xor_name) = client
-            .dir_and_archive_upload_public(dir_path, &wallet)
+            .dir_upload_public(dir_path, payment.clone())
             .await
             .wrap_err("Failed to upload file")?;
-        local_addr = addr_to_str(xor_name);
+        local_addr = xor_name.to_hex();
         local_addr.clone()
     } else {
         let (_cost, private_data_access) = client
-            .dir_and_archive_upload(dir_path, &wallet)
+            .dir_upload(dir_path, payment)
             .await
             .wrap_err("Failed to upload dir and archive")?;
 
@@ -142,7 +149,7 @@ pub fn list() -> Result<()> {
         file_archives.len()
     );
     for (addr, name) in file_archives {
-        println!("{}: {}", name, addr_to_str(addr));
+        println!("{}: {}", name, addr.to_hex());
     }
 
     // get private file archives

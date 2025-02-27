@@ -12,6 +12,7 @@
 //!
 //! ```no_run
 //! use autonomi::{Bytes, Client, Wallet};
+//! use autonomi::client::payment::PaymentOption;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,13 +21,14 @@
 //!     // Default wallet of testnet.
 //!     let key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 //!     let wallet = Wallet::new_from_private_key(Default::default(), key)?;
+//!     let payment = PaymentOption::Wallet(wallet);
 //!
 //!     // Put and fetch data.
-//!     let (cost, data_addr) = client.data_put_public(Bytes::from("Hello, World"), (&wallet).into()).await?;
+//!     let (cost, data_addr) = client.data_put_public(Bytes::from("Hello, World"), payment.clone()).await?;
 //!     let _data_fetched = client.data_get_public(&data_addr).await?;
 //!
 //!     // Put and fetch directory from local file system.
-//!     let (cost, dir_addr) = client.dir_and_archive_upload_public("files/to/upload".into(), &wallet).await?;
+//!     let (cost, dir_addr) = client.dir_upload_public("files/to/upload".into(), payment).await?;
 //!     client.dir_download_public(&dir_addr, "files/downloaded".into()).await?;
 //!
 //!     Ok(())
@@ -76,7 +78,12 @@ pub use ant_evm::EvmNetwork as Network;
 pub use ant_evm::EvmWallet as Wallet;
 pub use ant_evm::QuoteHash;
 pub use ant_evm::RewardsAddress;
+pub use ant_evm::TransactionConfig;
 pub use ant_evm::{Amount, AttoTokens};
+
+// Re-exports of address related types
+pub use ant_protocol::storage::AddressParseError;
+pub use xor_name::XorName;
 
 // Re-exports of the bls types
 pub use bls::{PublicKey, SecretKey, Signature};

@@ -166,6 +166,7 @@ impl InstallNodeServiceCtxBuilder {
             program: self.antnode_path.to_path_buf(),
             username: self.service_user.clone(),
             working_directory: None,
+            disable_restart_on_failure: true,
         })
     }
 }
@@ -180,7 +181,7 @@ pub struct AddNodeServiceOptions {
     pub enable_metrics_server: bool,
     pub env_variables: Option<Vec<(String, String)>>,
     pub evm_network: EvmNetwork,
-    pub home_network: bool,
+    pub relay: bool,
     pub log_format: Option<LogFormat>,
     pub max_archived_log_files: Option<usize>,
     pub max_log_files: Option<usize>,
@@ -194,7 +195,7 @@ pub struct AddNodeServiceOptions {
     pub rpc_port: Option<PortRange>,
     pub service_data_dir_path: PathBuf,
     pub service_log_dir_path: PathBuf,
-    pub upnp: bool,
+    pub no_upnp: bool,
     pub user: Option<String>,
     pub user_mode: bool,
     pub version: String,
@@ -231,6 +232,7 @@ impl InstallAuditorServiceCtxBuilder {
             program: self.auditor_path.to_path_buf(),
             username: Some(self.service_user.to_string()),
             working_directory: None,
+            disable_restart_on_failure: false,
         })
     }
 }
@@ -263,6 +265,7 @@ impl InstallFaucetServiceCtxBuilder {
             program: self.faucet_path.to_path_buf(),
             username: Some(self.service_user.to_string()),
             working_directory: None,
+            disable_restart_on_failure: false,
         })
     }
 }

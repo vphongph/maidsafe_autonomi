@@ -8,6 +8,7 @@
 
 use crate::network::NetworkPeers;
 use crate::wallet::load_wallet;
+use autonomi::TransactionConfig;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
@@ -27,9 +28,14 @@ pub async fn cost(peers: NetworkPeers, expected_max_size: u64) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(peers: NetworkPeers) -> Result<()> {
+pub async fn create(peers: NetworkPeers, max_fee_per_gas: Option<u128>) -> Result<()> {
     let client = crate::actions::connect_to_network(peers).await?;
-    let wallet = load_wallet(client.evm_network())?;
+    let mut wallet = load_wallet(client.evm_network())?;
+
+    if let Some(max_fee_per_gas) = max_fee_per_gas {
+        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
+    }
+
     let vault_sk = crate::keys::get_vault_secret_key()?;
 
     println!("Retrieving local user data...");

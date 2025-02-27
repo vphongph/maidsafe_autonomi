@@ -66,6 +66,16 @@ pub enum QueryResponse {
         // Signature of signing the above (if requested), for future economic model usage.
         signature: Option<Vec<u8>>,
     },
+    /// *** From now on, the order of variants shall be retained to be backward compatible
+    // ===== GetVersion =====
+    //
+    /// Response to [`GetVersion`]
+    ///
+    /// [`GetVersion`]: crate::messages::Query::GetVersion
+    GetVersion {
+        peer: NetworkAddress,
+        version: String,
+    },
 }
 
 // Debug implementation for QueryResponse, to avoid printing Vec<u8>
@@ -117,6 +127,9 @@ impl Debug for QueryResponse {
                     f,
                     "GetClosestPeers target {target:?} close peers {addresses:?}"
                 )
+            }
+            QueryResponse::GetVersion { peer, version } => {
+                write!(f, "GetVersion peer {peer:?} has version of {version:?}")
             }
         }
     }

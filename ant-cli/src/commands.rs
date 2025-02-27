@@ -63,6 +63,9 @@ pub enum FileCmd {
         /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
         #[arg(short, long)]
         quorum: Option<ResponseQuorum>,
+        /// Optional: Specify the maximum fee per gas in u128.
+        #[arg(long)]
+        max_fee_per_gas: Option<u128>,
     },
 
     /// Download a file from the given address.
@@ -105,6 +108,9 @@ pub enum RegisterCmd {
         name: String,
         /// The value to store in the register.
         value: String,
+        /// Optional: Specify the maximum fee per gas in u128.
+        #[arg(long)]
+        max_fee_per_gas: Option<u128>,
     },
 
     /// Edit an existing register.
@@ -119,6 +125,9 @@ pub enum RegisterCmd {
         address: String,
         /// The new value to store in the register.
         value: String,
+        /// Optional: Specify the maximum fee per gas in u128.
+        #[arg(long)]
+        max_fee_per_gas: Option<u128>,
     },
 
     /// Get the value of a register.
@@ -147,7 +156,11 @@ pub enum VaultCmd {
 
     /// Create a vault at a deterministic address based on your `SECRET_KEY`.
     /// Pushing an encrypted backup of your local user data to the network
-    Create,
+    Create {
+        /// Optional: Specify the maximum fee per gas in u128.
+        #[arg(long)]
+        max_fee_per_gas: Option<u128>,
+    },
 
     /// Load an existing vault from the network.
     /// Use this when loading your user data to a new device.
@@ -207,7 +220,8 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 file,
                 public,
                 quorum,
-            } => file::upload(&file, public, peers.await?, quorum).await,
+                max_fee_per_gas,
+            } => file::upload(&file, public, peers.await?, quorum, max_fee_per_gas).await,
             FileCmd::Download {
                 addr,
                 dest_file,
@@ -218,14 +232,17 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
             RegisterCmd::Cost { name } => register::cost(&name, peers.await?).await,
-            RegisterCmd::Create { name, value } => {
-                register::create(&name, &value, peers.await?).await
-            }
+            RegisterCmd::Create {
+                name,
+                value,
+                max_fee_per_gas,
+            } => register::create(&name, &value, peers.await?, max_fee_per_gas).await,
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
-            } => register::edit(address, name, &value, peers.await?).await,
+                max_fee_per_gas
+            } => register::edit(address, name, &value, peers.await?, max_fee_per_gas).await,
             RegisterCmd::Get { address, name } => register::get(address, name, peers.await?).await,
             RegisterCmd::List => register::list(),
         },
@@ -233,7 +250,9 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             VaultCmd::Cost { expected_max_size } => {
                 vault::cost(peers.await?, expected_max_size).await
             }
-            VaultCmd::Create => vault::create(peers.await?).await,
+            VaultCmd::Create { max_fee_per_gas } => {
+                vault::create(peers.await?, max_fee_per_gas).await
+            }
             VaultCmd::Load => vault::load(peers.await?).await,
             VaultCmd::Sync { force } => vault::sync(force, peers.await?).await,
         },

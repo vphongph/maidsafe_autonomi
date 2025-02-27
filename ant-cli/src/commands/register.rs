@@ -12,7 +12,7 @@ use crate::network::NetworkPeers;
 use crate::wallet::load_wallet;
 use autonomi::client::register::RegisterAddress;
 use autonomi::client::register::SecretKey as RegisterSecretKey;
-use autonomi::Client;
+use autonomi::{Client, TransactionConfig};
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
@@ -52,11 +52,16 @@ pub async fn cost(name: &str, peers: NetworkPeers) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> {
+pub async fn create(name: &str, value: &str, peers: NetworkPeers, max_fee_per_gas: Option<u128>) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
-    let wallet = load_wallet(client.evm_network())?;
+    let mut wallet = load_wallet(client.evm_network())?;
+
+    if let Some(max_fee_per_gas) = max_fee_per_gas {
+        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
+    }
+
     let register_key = Client::register_key_from_name(&main_registers_key, name);
 
     println!("Creating register with name: {name}");
@@ -81,11 +86,16 @@ pub async fn create(name: &str, value: &str, peers: NetworkPeers) -> Result<()> 
     Ok(())
 }
 
-pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers) -> Result<()> {
+pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers, max_fee_per_gas: Option<u128>,) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
-    let wallet = load_wallet(client.evm_network())?;
+    let mut wallet = load_wallet(client.evm_network())?;
+
+    if let Some(max_fee_per_gas) = max_fee_per_gas {
+        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
+    }
+
     let value_bytes = Client::register_value_from_bytes(value.as_bytes())?;
 
     let register_key = if name {

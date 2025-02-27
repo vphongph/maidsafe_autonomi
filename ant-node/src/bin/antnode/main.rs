@@ -9,9 +9,11 @@
 #[macro_use]
 extern crate tracing;
 
+mod log;
 mod rpc_service;
 mod subcommands;
 
+use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
 use ant_bootstrap::{BootstrapCacheStore, PeersArgs};
 use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
@@ -312,14 +314,14 @@ fn main() -> Result<()> {
     let restart_options = rt.block_on(async move {
         let mut node_builder = NodeBuilder::new(
             keypair,
+            initial_peers,
             rewards_address,
             evm_network,
             node_socket_addr,
-            opt.peers.local,
             root_dir,
-            opt.upnp,
         );
-        node_builder.initial_peers(initial_peers);
+        node_builder.local(opt.peers.local);
+        node_builder.upnp(opt.upnp);
         node_builder.bootstrap_cache(bootstrap_cache);
         node_builder.is_behind_home_network(opt.home_network);
         #[cfg(feature = "open-metrics")]
@@ -365,6 +367,8 @@ async fn run_node(
     log_reload_handle: ReloadHandle,
 ) -> Result<Option<(bool, PathBuf, u16)>> {
     let started_instant = std::time::Instant::now();
+
+    reset_critical_failure(log_output_dest);
 
     info!("Starting node ...");
     let running_node = node_builder.build_and_run()?;
@@ -453,6 +457,7 @@ You can check your reward balance by running:
                     }
                     StopResult::Error(cause) => {
                         error!("Node stopped with error: {}", cause);
+                        set_critical_failure(log_output_dest, &cause.to_string());
                         return Err(cause);
                     }
                 }

@@ -9,7 +9,7 @@
 #[cfg(feature = "open-metrics")]
 use crate::metrics::NetworkMetricsRecorder;
 use crate::{
-    bootstrap::{ContinuousNetworkDiscover, NETWORK_DISCOVER_INTERVAL},
+    bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
     config::GetRecordCfg,
@@ -19,8 +19,7 @@ use crate::{
     external_address::ExternalAddressManager,
     fifo_register::FifoRegister,
     log_markers::Marker,
-    multiaddr_pop_p2p,
-    network_discovery::NetworkDiscovery,
+    network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL},
     record_store_api::UnifiedRecordStore,
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
@@ -37,10 +36,7 @@ use futures::StreamExt;
 use libp2p::{
     kad::{self, KBucketDistance as Distance, QueryId, Record, RecordKey, K_VALUE},
     request_response::OutboundRequestId,
-    swarm::{
-        dial_opts::{DialOpts, PeerCondition},
-        ConnectionId, DialError, Swarm,
-    },
+    swarm::{ConnectionId, Swarm},
     Multiaddr, PeerId,
 };
 use libp2p::{
@@ -122,7 +118,9 @@ pub struct SwarmDriver {
     #[cfg(feature = "open-metrics")]
     pub(crate) close_group: Vec<PeerId>,
     pub(crate) peers_in_rt: usize,
-    pub(crate) bootstrap: ContinuousNetworkDiscover,
+    pub(crate) initial_bootstrap: InitialBootstrap,
+    pub(crate) initial_bootstrap_trigger: InitialBootstrapTrigger,
+    pub(crate) network_discovery: NetworkDiscovery,
     pub(crate) bootstrap_cache: Option<BootstrapCacheStore>,
     pub(crate) external_address_manager: Option<ExternalAddressManager>,
     pub(crate) relay_manager: Option<RelayManager>,
@@ -146,10 +144,6 @@ pub struct SwarmDriver {
     pub(crate) pending_get_record: PendingGetRecord,
     /// A list of the most recent peers we have dialed ourselves. Old dialed peers are evicted once the vec fills up.
     pub(crate) dialed_peers: CircularVec<PeerId>,
-    // A list of random `PeerId` candidates that falls into kbuckets,
-    // This is to ensure a more accurate network discovery.
-    pub(crate) network_discovery: NetworkDiscovery,
-    pub(crate) bootstrap_peers: BTreeMap<Option<u32>, HashSet<PeerId>>,
     // Peers that having live connection to. Any peer got contacted during kad network query
     // will have live connection established. And they may not appear in the RT.
     pub(crate) live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr, Instant)>,
@@ -170,6 +164,8 @@ pub struct SwarmDriver {
     pub(crate) last_connection_pruning_time: Instant,
     /// FIFO cache for the network density samples
     pub(crate) network_density_samples: FifoRegister,
+    /// record versions of those peers that in the non-full-kbuckets.
+    pub(crate) peers_version: HashMap<PeerId, String>,
 }
 
 impl SwarmDriver {
@@ -184,6 +180,8 @@ impl SwarmDriver {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
+        let mut initial_bootstrap_trigger_check_interval =
+            Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
 
         let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
             if cache.config().disable_cache_writing {
@@ -268,6 +266,18 @@ impl SwarmDriver {
                 },
                 // thereafter we can check our intervals
 
+                // check if we can trigger the initial bootstrap process
+                // once it is triggered, we don't re-trigger it
+                Some(()) = Self::conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
+                    if self.initial_bootstrap_trigger.should_trigger_initial_bootstrap() {
+                        info!("Triggering initial bootstrap process. This is a one-time operation.");
+                        self.initial_bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
+                        // we will not call this loop anymore, once the initial bootstrap is triggered.
+                        // It should run on its own and complete.
+                        initial_bootstrap_trigger_check_interval = None;
+                    }
+                }
+
                 // runs every bootstrap_interval time
                 _ = network_discover_interval.tick() => {
                     if let Some(new_interval) = self.run_network_discover_continuously(network_discover_interval.period()).await {
@@ -276,24 +286,20 @@ impl SwarmDriver {
                 }
                 _ = set_farthest_record_interval.tick() => {
                     if !self.is_client {
-                        let (
-                            _index,
-                            _total_peers,
-                            peers_in_non_full_buckets,
-                            num_of_full_buckets,
-                            _kbucket_table_stats,
-                        ) = self.kbuckets_status();
-                        let estimated_network_size =
-                            Self::estimate_network_size(peers_in_non_full_buckets, num_of_full_buckets);
-                        if estimated_network_size <= CLOSE_GROUP_SIZE {
-                            info!("Not enough estimated network size {estimated_network_size}, with {peers_in_non_full_buckets} peers_in_non_full_buckets and {num_of_full_buckets}num_of_full_buckets.");
+                        let kbucket_status = self.get_kbuckets_status();
+                        self.update_on_kbucket_status(&kbucket_status);
+                        if kbucket_status.estimated_network_size <= CLOSE_GROUP_SIZE {
+                            info!("Not enough estimated network size {}, with {} peers_in_non_full_buckets and {} num_of_full_buckets.",
+                            kbucket_status.estimated_network_size,
+                            kbucket_status.peers_in_non_full_buckets,
+                            kbucket_status.num_of_full_buckets);
                             continue;
                         }
                         // The entire Distance space is U256
                         // (U256::MAX is 115792089237316195423570985008687907853269984665640564039457584007913129639935)
                         // The network density (average distance among nodes) can be estimated as:
                         //     network_density = entire_U256_space / estimated_network_size
-                        let density = U256::MAX / U256::from(estimated_network_size);
+                        let density = U256::MAX / U256::from(kbucket_status.estimated_network_size);
                         let density_distance = density * U256::from(CLOSE_GROUP_SIZE);
 
                         // Use distance to close peer to avoid the situation that
@@ -453,24 +459,6 @@ impl SwarmDriver {
 
         // Start with our own PeerID and chain the closest.
         std::iter::once(self.self_peer_id).chain(peers).collect()
-    }
-
-    /// Dials the given multiaddress. If address contains a peer ID, simultaneous
-    /// dials to that peer are prevented.
-    pub(crate) fn dial(&mut self, mut addr: Multiaddr) -> Result<(), DialError> {
-        debug!(%addr, "Dialing manually");
-
-        let peer_id = multiaddr_pop_p2p(&mut addr);
-        let opts = match peer_id {
-            Some(peer_id) => DialOpts::peer_id(peer_id)
-                // If we have a peer ID, we can prevent simultaneous dials.
-                .condition(PeerCondition::NotDialing)
-                .addresses(vec![addr])
-                .build(),
-            None => DialOpts::unknown_peer_id().address(addr).build(),
-        };
-
-        self.swarm.dial(opts)
     }
 
     /// Record one handling time.

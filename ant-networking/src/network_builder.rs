@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    bootstrap::ContinuousNetworkDiscover,
+    bootstrap::{InitialBootstrap, InitialBootstrapTrigger},
     circular_vec::CircularVec,
     driver::NodeBehaviour,
     error::{NetworkError, Result},
@@ -94,6 +94,7 @@ const PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S: u64 = 21600;
 pub struct NetworkBuilder {
     bootstrap_cache: Option<BootstrapCacheStore>,
     concurrency_limit: Option<usize>,
+    initial_contacts: Vec<Multiaddr>,
     is_behind_home_network: bool,
     keypair: Keypair,
     listen_addr: Option<SocketAddr>,
@@ -107,10 +108,11 @@ pub struct NetworkBuilder {
 }
 
 impl NetworkBuilder {
-    pub fn new(keypair: Keypair, local: bool) -> Self {
+    pub fn new(keypair: Keypair, local: bool, initial_contacts: Vec<Multiaddr>) -> Self {
         Self {
             bootstrap_cache: None,
             concurrency_limit: None,
+            initial_contacts,
             is_behind_home_network: false,
             keypair,
             listen_addr: None,
@@ -489,7 +491,6 @@ impl NetworkBuilder {
 
         let swarm = Swarm::new(transport, behaviour, peer_id, swarm_config);
 
-        let bootstrap = ContinuousNetworkDiscover::new();
         let replication_fetcher = ReplicationFetcher::new(peer_id, network_event_sender.clone());
 
         // Enable relay manager for nodes behind home network
@@ -526,7 +527,8 @@ impl NetworkBuilder {
             #[cfg(feature = "open-metrics")]
             close_group: Vec::with_capacity(CLOSE_GROUP_SIZE),
             peers_in_rt: 0,
-            bootstrap,
+            initial_bootstrap: InitialBootstrap::new(self.initial_contacts),
+            initial_bootstrap_trigger: InitialBootstrapTrigger::new(self.upnp, is_client),
             bootstrap_cache: self.bootstrap_cache,
             relay_manager,
             connected_relay_clients: Default::default(),
@@ -548,7 +550,6 @@ impl NetworkBuilder {
             // This is based on the libp2p kad::kBuckets peers distribution.
             dialed_peers: CircularVec::new(255),
             network_discovery: NetworkDiscovery::new(&peer_id),
-            bootstrap_peers: Default::default(),
             live_connected_peers: Default::default(),
             latest_established_connection_ids: Default::default(),
             handling_statistics: Default::default(),
@@ -560,6 +561,7 @@ impl NetworkBuilder {
             last_replication: None,
             last_connection_pruning_time: Instant::now(),
             network_density_samples: FifoRegister::new(100),
+            peers_version: Default::default(),
         };
 
         let network = Network::new(

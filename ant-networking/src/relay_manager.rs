@@ -22,7 +22,7 @@ use std::time::Instant;
 #[cfg(feature = "open-metrics")]
 use std::{collections::btree_map::Entry, time::SystemTime};
 
-const MAX_CONCURRENT_RELAY_CONNECTIONS: usize = 4;
+const MAX_CONCURRENT_RELAY_CONNECTIONS: usize = 2;
 const MAX_POTENTIAL_CANDIDATES: usize = 1000;
 
 /// We could get multiple incoming connections from the same peer through multiple relay servers, and only one of them
@@ -41,10 +41,8 @@ const RESERVATION_SCORE_ROLLING_WINDOW: usize = 100;
 #[cfg(feature = "open-metrics")]
 type ConnectionsFromPeer = Vec<(PeerId, ConnectionId, SystemTime, Option<bool>)>;
 
-pub(crate) fn is_a_relayed_peer(addrs: &HashSet<Multiaddr>) -> bool {
-    addrs
-        .iter()
-        .any(|multiaddr| multiaddr.iter().any(|p| matches!(p, Protocol::P2pCircuit)))
+pub(crate) fn is_a_relayed_peer<'a>(mut addrs: impl Iterator<Item = &'a Multiaddr>) -> bool {
+    addrs.any(|multiaddr| multiaddr.iter().any(|p| matches!(p, Protocol::P2pCircuit)))
 }
 
 /// Manage the relay servers that a private node is connected to.

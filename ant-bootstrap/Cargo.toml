@@ -9,9 +9,6 @@ readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
 version = "0.1.5"
 
-[features]
-local = []
-
 [dependencies]
 ant-logging = { path = "../ant-logging", version = "0.2.46" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.0" }

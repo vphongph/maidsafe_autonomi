@@ -8,7 +8,7 @@
 
 use crate::relay_manager::is_a_relayed_peer;
 use crate::{multiaddr_is_global, multiaddr_strip_p2p, NetworkEvent, SwarmDriver};
-use ant_protocol::version::{IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR};
+use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use libp2p::identify::Info;
 use libp2p::kad::K_VALUE;
 use libp2p::multiaddr::Protocol;
@@ -63,9 +63,8 @@ impl SwarmDriver {
             return;
         }
 
-        let our_agent_version = IDENTIFY_NODE_VERSION_STR.read().expect("IDENTIFY_NODE_VERSION_STR has been locked to write. A call to set_network_id performed. This should not happen.").to_string();
-        // if client, return.
-        if info.agent_version != our_agent_version {
+        if info.agent_version.contains("client") {
+            debug!("Peer {peer_id:?} is a client. Not dialing or adding to RT.");
             return;
         }
 

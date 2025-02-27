@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-02-28
+
+### Network
+
+#### Added
+
+- The node outputs critical start up and runtime failures to a `critical_failure.log` file. This is
+  to help `antctl` feedback failure information to the user, but it should hopefully be generally
+  useful to more advanced users.
+- New metrics:
+    + `connected_relay_clients`
+    + `relay_peers_in_routing_table`
+    + `peers_in_non_full_buckets`
+    + `relay_peers_in_non_full_buckets`
+    + `percentage_of_relay_peers`
+- We also add a `node_versions` metric. This will be used to help us gauge what versions of nodes
+  are present in the network and how many nodes have upgraded to the latest releases. It will also
+  assist us in ensuring backward compatibility.
+
+#### Changed
+
+- The network bootstrapping process is changed to dial three of the initial peer addresses rather
+  than all of them concurrently. When the routing table reaches five peers, network discovery takes
+  over the rest of the bootstrapping process, and no more peers are dialled. This mechanism is much
+  more efficient and avoids overloading the peers in the bootstrap cache.
+- Network discovery rate has been increased during the start up phase, but it should slow down
+  exponentially as more peers are added to the routing table.
+- Several items aim to address uploading issues:
+    + Avoid deadlocks on record store cache access
+    + Do not fetch from the network when a replication fetch failed
+    + Lower the number of parallel replication fetches
+    + Issues that come in too quick will not trigger an extra action
+    + Disable the current black list (possibly to be re-enabled when we have more data)
+  They may also help reduce open connections and `libp2p` identify attempts
+- Remove relay clients from the swarm driver tracker if the reservation has been closed.
+- The `peers_in_rt` metric is improved by calculating it directly from kbuckets rather than using
+  `libp2p` events.
+
+### Autonomi API
+
+#### Added
+
+- Support uploading files with empty metadata
+
+#### Changed
+
+- Several file-related functions were renamed [BREAKING]:
+    + `dir_upload` to `dir_content_upload`
+    + `dir_and_archive_upload` to `dir_upload`
+    + `file_upload` to `file_content_upload`
+    + `dir_upload_public` to `dir_content_upload_public`
+    + `dir_and_archive_upload_public` to `dir_upload_public`
+    + `file_upload_public` to `file_content_upload_public`
+- Improved address management to make it easier to use [BREAKING]:
+    + All address types have the same methods: `to_hex` and `from_hex`.
+    + All public-key addressed data types have the public key in their address.
+    + High level `DataAddress` shares the values above instead of the low-level `XorName` that can't
+      be constructed from hex.
+    + Python now uses accurate addresses instead of clunky hex strings, and addresses for other
+      types.
+    + Fix inaccurate/missing python bindings for addresses: now all have `to_hex` and `from_hex`.
+
+### Client
+
+#### Added
+
+- Support merging one archive into another.
+- Introduce a maximum limit of 0.2 Gwei on the gas price when uploading files or creating/editing
+  registers. If the gas exceeds this value, operations will be aborted. The commands provide a
+  `--max-fee-per-gas` argument to override the value. This measure has been taken to avoid
+  involuntarily paying excessive fees when the gas price fluctuates.
+
+#### Changed
+
+- The `ant file download` command can download directly from a `XorName`.
+- The `ant file download` command can download data directly from a `DataMapChunk` to a file.
+
+### Antctl
+
+#### Added
+
+- A `--no-upnp` flag to disable launching nodes with UPnP.
+- A failure column is added to the `status` command.
+
+#### Changed
+
+- The `add` command will create services that will launch the node with `--upnp` by default. For
+  home networking we want to try encourage people to use UPnP rather than relaying.
+- The `add` command does not apply the 'on failure' restart policy to services. This is to prevent
+  the node from continually restarting if UPnP is not working.
+- The `--home-network` argument has been renamed `--relay` [BREAKING].
+
+#### Fixed
+
+- A debug logging statement used during the upgrade process caused an error if there were no nodes
+  in the node registry.
+
+### Launchpad
+
+#### Added
+
+- New column in the nodes panel for node failure reason.
+- New column in the nodes panel to indicate UPnP support.
+- New column in the nodes panel to the connection mode chosen by `Automatic`.
+
+#### Changed
+
+- Remove `Home Network` from the connection modes. Relay can only be selected by using `Automatic`
+  in the case where UPnP fails. We are trying to avoid the use of relays when UPnP is available.
+
 ## 2025-02-11
 
 ### Network

@@ -262,6 +262,25 @@ impl Network {
             .map_err(|_e| NetworkError::InternalMsgChannelDropped)
     }
 
+    /// Returns X close peers to the target.
+    /// Note: self is not included
+    pub async fn get_close_peers_to_the_target(
+        &self,
+        key: NetworkAddress,
+        num_of_peers: usize,
+    ) -> Result<Vec<PeerId>> {
+        let (sender, receiver) = oneshot::channel();
+        self.send_local_swarm_cmd(LocalSwarmCmd::GetCloseLocalPeersToTarget {
+            key,
+            num_of_peers,
+            sender,
+        });
+
+        receiver
+            .await
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)
+    }
+
     /// Returns the replicate candidates in range.
     pub async fn get_replicate_candidates(&self, data_addr: NetworkAddress) -> Result<Vec<PeerId>> {
         let (sender, receiver) = oneshot::channel();

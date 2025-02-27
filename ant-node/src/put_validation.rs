@@ -20,7 +20,7 @@ use ant_protocol::{
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
-use libp2p::kad::{Record, RecordKey};
+use libp2p::kad::{Record, RecordKey, K_VALUE};
 use xor_name::XorName;
 
 impl Node {
@@ -655,7 +655,12 @@ impl Node {
         }
 
         // verify the claimed payees are all known to us within the certain range.
-        let closest_k_peers = self.network().get_closest_k_value_local_peers().await?;
+        let mut closest_k_peers = self
+            .network()
+            .get_close_peers_to_the_target(address.clone(), K_VALUE.get())
+            .await?;
+        // push self in as the returned list doesn't contain self
+        closest_k_peers.push(self_peer_id);
         let mut payees = payment.payees();
         payees.retain(|peer_id| !closest_k_peers.contains(peer_id));
         if !payees.is_empty() {

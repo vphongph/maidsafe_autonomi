@@ -1007,25 +1007,34 @@ impl SwarmDriver {
         });
     }
 
-    /// get closest k_value the peers from our local RoutingTable. Contains self.
+    /// Get closest K_VALUE peers from our local RoutingTable. Contains self.
     /// Is sorted for closeness to self.
     pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<PeerId> {
-        let k_bucket_key = NetworkAddress::from_peer(self.self_peer_id).as_kbucket_key();
-
-        // get closest peers from buckets, sorted by increasing distance to us
-        let peers: Vec<_> = self
-            .swarm
-            .behaviour_mut()
-            .kademlia
-            .get_closest_local_peers(&k_bucket_key)
-            // Map KBucketKey<PeerId> to PeerId.
-            .map(|key| key.into_preimage())
-            // Limit ourselves to K_VALUE (20) peers.
-            .take(K_VALUE.get() - 1)
-            .collect();
+        // Limit ourselves to K_VALUE (20) peers.
+        let peers: Vec<_> = self.get_closest_local_peers_to_target(
+            &NetworkAddress::from_peer(self.self_peer_id),
+            K_VALUE.get() - 1,
+        );
 
         // Start with our own PeerID and chain the closest.
         std::iter::once(self.self_peer_id).chain(peers).collect()
+    }
+
+    /// Get closest X peers to the target. Not containing self.
+    /// Is sorted for closeness to the target.
+    pub(crate) fn get_closest_local_peers_to_target(
+        &mut self,
+        target: &NetworkAddress,
+        num_of_peers: usize,
+    ) -> Vec<PeerId> {
+        self.swarm
+            .behaviour_mut()
+            .kademlia
+            .get_closest_local_peers(&target.as_kbucket_key())
+            // Map KBucketKey<PeerId> to PeerId.
+            .map(|key| key.into_preimage())
+            .take(num_of_peers)
+            .collect()
     }
 
     /// Record one handling time.

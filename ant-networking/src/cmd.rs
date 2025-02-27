@@ -93,9 +93,10 @@ pub enum LocalSwarmCmd {
     GetClosestKLocalPeers {
         sender: oneshot::Sender<Vec<PeerId>>,
     },
-    // Get closest peers from the local RoutingTable
-    GetCloseGroupLocalPeers {
+    // Get X closest peers to target from the local RoutingTable, self not included
+    GetCloseLocalPeersToTarget {
         key: NetworkAddress,
+        num_of_peers: usize,
         sender: oneshot::Sender<Vec<PeerId>>,
     },
     GetSwarmLocalState(oneshot::Sender<SwarmLocalState>),
@@ -272,10 +273,12 @@ impl Debug for LocalSwarmCmd {
             LocalSwarmCmd::GetClosestKLocalPeers { .. } => {
                 write!(f, "LocalSwarmCmd::GetClosestKLocalPeers")
             }
-            LocalSwarmCmd::GetCloseGroupLocalPeers { key, .. } => {
+            LocalSwarmCmd::GetCloseLocalPeersToTarget {
+                key, num_of_peers, ..
+            } => {
                 write!(
                     f,
-                    "LocalSwarmCmd::GetCloseGroupLocalPeers {{ key: {key:?} }}"
+                    "LocalSwarmCmd::GetCloseLocalPeersToTarget {{ key: {key:?}, num_of_peers: {num_of_peers} }}"
                 )
             }
             LocalSwarmCmd::GetLocalQuotingMetrics { .. } => {
@@ -864,20 +867,13 @@ impl SwarmDriver {
                 }
                 let _ = sender.send(result);
             }
-            LocalSwarmCmd::GetCloseGroupLocalPeers { key, sender } => {
-                cmd_string = "GetCloseGroupLocalPeers";
-                let key = key.as_kbucket_key();
-                // calls `kbuckets.closest_keys(key)` internally, which orders the peers by
-                // increasing distance
-                // Note it will return all peers, heance a chop down is required.
-                let closest_peers = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_closest_local_peers(&key)
-                    .map(|peer| peer.into_preimage())
-                    .take(CLOSE_GROUP_SIZE)
-                    .collect();
+            LocalSwarmCmd::GetCloseLocalPeersToTarget {
+                key,
+                num_of_peers,
+                sender,
+            } => {
+                cmd_string = "GetCloseLocalPeersToTarget";
+                let closest_peers = self.get_closest_local_peers_to_target(&key, num_of_peers);
 
                 let _ = sender.send(closest_peers);
             }

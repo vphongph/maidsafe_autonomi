@@ -2,7 +2,7 @@
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "TUI for running nodes on the Autonomi network"
 name = "node-launchpad"
-version = "0.5.4"
+version = "0.5.5-rc.3"
 edition = "2021"
 license = "GPL-3.0"
 homepage = "https://maidsafe.net"
@@ -18,13 +18,13 @@ path = "src/bin/tui/main.rs"
 nightly = []
 
 [dependencies]
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.5" }
-ant-build-info = { path = "../ant-build-info", version = "0.1.24" }
-ant-evm = { path = "../ant-evm", version = "0.1.9" }
-ant-node-manager = { version = "0.11.8", path = "../ant-node-manager" }
-ant-protocol = { path = "../ant-protocol", version = "1.0.0" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.1.6-rc.3" }
+ant-build-info = { path = "../ant-build-info", version = "0.1.25-rc.3" }
+ant-evm = { path = "../ant-evm", version = "0.1.10-rc.3" }
+ant-node-manager = { version = "0.12.0-rc.3", path = "../ant-node-manager" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.1-rc.3" }
 ant-releases = { version = "0.4.0" }
-ant-service-management = { version = "0.4.8", path = "../ant-service-management" }
+ant-service-management = { version = "0.4.9-rc.3", path = "../ant-service-management" }
 arboard = "3.4.1"
 atty = "0.2.14"
 better-panic = "0.3.0"
@@ -47,9 +47,11 @@ faccess = "0.2.4"
 futures = "0.3.28"
 fs_extra = "1.3.0"
 human-panic = "1.2.0"
+igd-next = "0.16.0"
 itertools = "~0.12.1"
 json5 = "0.4.1"
 libc = "0.2.148"
+local-ip-address = "0.6.3"
 log = "0.4.20"
 pretty_assertions = "1.4.0"
 prometheus-parse = "0.2.5"

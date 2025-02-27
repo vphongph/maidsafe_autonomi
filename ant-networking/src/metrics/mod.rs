@@ -12,8 +12,6 @@ mod relay_client;
 pub mod service;
 mod upnp;
 
-use std::sync::atomic::AtomicU64;
-
 use crate::MetricsRegistries;
 use crate::{log_markers::Marker, time::sleep};
 use bad_node::{BadNodeMetrics, BadNodeMetricsMsg, TimeFrame};
@@ -22,14 +20,22 @@ use libp2p::{
     PeerId,
 };
 use prometheus_client::{
-    metrics::family::Family,
-    metrics::{counter::Counter, gauge::Gauge},
+    encoding::EncodeLabelSet,
+    metrics::{counter::Counter, family::Family, gauge::Gauge},
 };
+use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use sysinfo::{Pid, ProcessRefreshKind, System};
 use tokio::time::Duration;
 
 const UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 const TO_MB: u64 = 1_000_000;
+
+// Add this new struct for version labels
+#[derive(Clone, Hash, PartialEq, Eq, Debug, EncodeLabelSet)]
+pub(crate) struct VersionLabels {
+    version: String,
+}
 
 /// The shared recorders that are used to record metrics.
 pub(crate) struct NetworkMetricsRecorder {
@@ -42,11 +48,15 @@ pub(crate) struct NetworkMetricsRecorder {
 
     // metrics from ant-networking
     pub(crate) connected_peers: Gauge,
+    pub(crate) connected_relay_clients: Gauge,
     pub(crate) estimated_network_size: Gauge,
+    pub(crate) relay_peers_percentage: Gauge<f64, AtomicU64>,
     pub(crate) open_connections: Gauge,
     pub(crate) peers_in_routing_table: Gauge,
+    pub(crate) relay_peers_in_routing_table: Gauge,
     pub(crate) records_stored: Gauge,
     pub(crate) relay_reservation_health: Gauge<f64, AtomicU64>,
+    pub(crate) node_versions: Family<VersionLabels, Gauge>,
 
     // quoting metrics
     relevant_records: Gauge,
@@ -100,12 +110,24 @@ impl NetworkMetricsRecorder {
             "The number of peers that we are currently connected to",
             connected_peers.clone(),
         );
+        let connected_relay_clients = Gauge::default();
+        sub_registry.register(
+            "connected_relay_clients",
+            "The number of relay clients that are currently connected to us",
+            connected_relay_clients.clone(),
+        );
 
         let estimated_network_size = Gauge::default();
         sub_registry.register(
             "estimated_network_size",
             "The estimated number of nodes in the network calculated by the peers in our RT",
             estimated_network_size.clone(),
+        );
+        let relay_peers_percentage = Gauge::<f64, AtomicU64>::default();
+        sub_registry.register(
+            "relay_peers_percentage",
+            "The percentage of relay peers in our routing table",
+            relay_peers_percentage.clone(),
         );
         let open_connections = Gauge::default();
         sub_registry.register(
@@ -118,6 +140,12 @@ impl NetworkMetricsRecorder {
             "peers_in_routing_table",
             "The total number of peers in our routing table",
             peers_in_routing_table.clone(),
+        );
+        let relay_peers_in_routing_table = Gauge::default();
+        sub_registry.register(
+            "relay_peers_in_routing_table",
+            "The total number of relay peers in our routing table",
+            relay_peers_in_routing_table.clone(),
         );
 
         let shunned_count = Counter::default();
@@ -146,6 +174,14 @@ impl NetworkMetricsRecorder {
             "relay_client_events",
             "Events emitted by the relay client",
             relay_client_events.clone(),
+        );
+
+        // Add this new metric registration
+        let node_versions = Family::default();
+        sub_registry.register(
+            "node_versions",
+            "Number of nodes running each version",
+            node_versions.clone(),
         );
 
         let process_memory_used_mb = Gauge::<f64, AtomicU64>::default();
@@ -226,14 +262,18 @@ impl NetworkMetricsRecorder {
 
             records_stored,
             estimated_network_size,
+            relay_peers_percentage,
             connected_peers,
+            connected_relay_clients,
             open_connections,
             relay_reservation_health,
             peers_in_routing_table,
+            relay_peers_in_routing_table,
             relevant_records,
             max_records,
             received_payment_count,
             live_time,
+            node_versions,
 
             bad_peers_count,
             shunned_count_across_time_frames,
@@ -331,6 +371,24 @@ impl NetworkMetricsRecorder {
                 error!("Failed to send shunned report via notifier: {err:?}");
             }
         });
+    }
+
+    pub(crate) fn update_node_versions(&self, versions: &HashMap<PeerId, String>) {
+        // First, count occurrences of each version
+        let mut version_counts: HashMap<String, u64> = HashMap::new();
+        for version in versions.values() {
+            *version_counts.entry(version.clone()).or_insert(0) += 1;
+        }
+
+        // Clean up old records, to avoid outdated versions pollute the statistic.
+        self.node_versions.clear();
+
+        // Update metrics
+        for (version, count) in version_counts {
+            self.node_versions
+                .get_or_create(&VersionLabels { version })
+                .set(count as i64);
+        }
     }
 }
 

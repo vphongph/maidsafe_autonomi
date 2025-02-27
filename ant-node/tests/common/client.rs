@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::common::get_antnode_rpc_client;
 use ant_evm::Amount;
 use ant_protocol::antnode_proto::{NodeInfoRequest, RestartRequest};
 use ant_service_management::{get_local_node_registry_path, NodeRegistry};
@@ -20,8 +21,6 @@ use test_utils::{evm::get_funded_wallet, peers_from_env};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing::{debug, info};
-
-use crate::common::get_antnode_rpc_client;
 
 /// This is a limited hard coded value as Droplet version has to contact the faucet to get the funds.
 /// This is limited to 10 requests to the faucet, where each request yields 100 SNT
@@ -136,7 +135,7 @@ impl LocalNetwork {
             .expect("Client shall be successfully created.")
     }
 
-    fn get_funded_wallet() -> evmlib::wallet::Wallet {
+    fn get_funded_wallet() -> Wallet {
         get_funded_wallet()
     }
 

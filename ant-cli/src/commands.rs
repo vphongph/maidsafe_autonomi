@@ -241,7 +241,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 address,
                 name,
                 value,
-                max_fee_per_gas
+                max_fee_per_gas,
             } => register::edit(address, name, &value, peers.await?, max_fee_per_gas).await,
             RegisterCmd::Get { address, name } => register::get(address, name, peers.await?).await,
             RegisterCmd::List => register::list(),

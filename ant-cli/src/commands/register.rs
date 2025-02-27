@@ -52,7 +52,12 @@ pub async fn cost(name: &str, peers: NetworkPeers) -> Result<()> {
     Ok(())
 }
 
-pub async fn create(name: &str, value: &str, peers: NetworkPeers, max_fee_per_gas: Option<u128>) -> Result<()> {
+pub async fn create(
+    name: &str,
+    value: &str,
+    peers: NetworkPeers,
+    max_fee_per_gas: Option<u128>,
+) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;
@@ -86,7 +91,13 @@ pub async fn create(name: &str, value: &str, peers: NetworkPeers, max_fee_per_ga
     Ok(())
 }
 
-pub async fn edit(address: String, name: bool, value: &str, peers: NetworkPeers, max_fee_per_gas: Option<u128>,) -> Result<()> {
+pub async fn edit(
+    address: String,
+    name: bool,
+    value: &str,
+    peers: NetworkPeers,
+    max_fee_per_gas: Option<u128>,
+) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
     let client = crate::actions::connect_to_network(peers).await?;

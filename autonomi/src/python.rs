@@ -2162,11 +2162,15 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUserData>()?;
     m.add_class::<PyDataMapChunk>()?;
     m.add_class::<PyPointer>()?;
+    m.add_class::<PyDataAddress>()?;
     m.add_class::<PyChunkAddress>()?;
     m.add_class::<PyGraphEntryAddress>()?;
     m.add_class::<PyPointerAddress>()?;
-    m.add_class::<PyScratchpadAddress>()?;
     m.add_class::<PyPointerTarget>()?;
+    m.add_class::<PyScratchpadAddress>()?;
+    m.add_class::<PyArchiveAddress>()?;
+    m.add_class::<PyPrivateArchiveDataMap>()?;
+    m.add_class::<PyXorName>()?;
     m.add_class::<PySecretKey>()?;
     m.add_class::<PyPublicKey>()?;
     m.add_class::<PyNetwork>()?;

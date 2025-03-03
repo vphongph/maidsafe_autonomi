@@ -10,7 +10,7 @@ Each scratchpad is tied to a specific public key and can be updated by the owner
 """
 
 from autonomi_client import (
-    Client, SecretKey, Wallet, PaymentOption, Network, Bytes,
+    Client, SecretKey, Wallet, PaymentOption, Network,
     Scratchpad, ScratchpadAddress
 )
 import asyncio
@@ -29,7 +29,7 @@ async def main():
     payment = PaymentOption.wallet(wallet)
     
     # Create secret key for the scratchpad (this represents your identity)
-    key = SecretKey.random()
+    key = SecretKey()
     public_key = key.public_key()
     print(f"Generated key with public key: {public_key.hex}")
     

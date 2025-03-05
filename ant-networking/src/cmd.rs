@@ -405,8 +405,10 @@ impl Debug for NetworkSwarmCmd {
 /// Snapshot of information kept in the Swarm's local state
 #[derive(Debug, Clone)]
 pub struct SwarmLocalState {
-    /// List of currently connected peers
+    /// List of peers that we have an established connection with.
     pub connected_peers: Vec<PeerId>,
+    /// The number of peers in the routing table
+    pub peers_in_routing_table: usize,
     /// List of addresses the node is currently listening on
     pub listeners: Vec<Multiaddr>,
 }
@@ -893,6 +895,7 @@ impl SwarmDriver {
                 cmd_string = "GetSwarmLocalState";
                 let current_state = SwarmLocalState {
                     connected_peers: self.swarm.connected_peers().cloned().collect(),
+                    peers_in_routing_table: self.peers_in_rt,
                     listeners: self.swarm.listeners().cloned().collect(),
                 };
 

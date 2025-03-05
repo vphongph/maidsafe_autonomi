@@ -526,6 +526,7 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
         ("ant_node".to_string(), Level::DEBUG),
         ("ant_protocol".to_string(), Level::DEBUG),
         ("antnode".to_string(), Level::DEBUG),
+        ("evmlib".to_string(), Level::INFO),
     ];
 
     let output_dest = match &opt.log_output_dest {

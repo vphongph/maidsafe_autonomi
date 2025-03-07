@@ -249,7 +249,7 @@ impl SwarmDriver {
                 established_in,
             } => {
                 event_string = "ConnectionEstablished";
-                debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
+                info!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
 
                 self.initial_bootstrap.on_connection_established(
                     &endpoint,

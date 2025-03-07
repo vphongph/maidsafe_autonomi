@@ -944,7 +944,7 @@ impl Network {
         &self,
         req: Request,
         peer: PeerId,
-        addrs: Addresses,
+        _addrs: Addresses,
     ) -> Result<Response> {
         let (sender, receiver) = oneshot::channel();
         let req_str = format!("{req:?}");
@@ -964,16 +964,36 @@ impl Network {
                 NetworkError::OutboundError(OutboundFailure::Io(_))
                 | NetworkError::OutboundError(OutboundFailure::ConnectionClosed)
                 | NetworkError::OutboundError(OutboundFailure::DialFailure) => {
-                    warn!(
-                        "Outbound failed for {req_str} .. {error:?}, redialing once and reattempting"
-                    );
+                    warn!("Outbound failed for {req_str} .. {error:?}, relookup and reattempting");
                     let (sender, receiver) = oneshot::channel();
 
+                    self.send_network_swarm_cmd(
+                        NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
+                            key: NetworkAddress::from_peer(peer),
+                            sender,
+                        },
+                    );
+
+                    let peers = receiver.await?;
+
+                    let Some(new_addrs) = peers
+                        .iter()
+                        .find(|(id, _addrs)| *id == peer)
+                        .map(|(_id, addrs)| addrs.clone())
+                    else {
+                        error!("Cann't find the peer {peer:?} again from the network, during the request reattempt.");
+                        return r;
+                    };
+
+                    // Short wait to allow connection re-established.
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                    let (sender, receiver) = oneshot::channel();
                     debug!("Reattempting to send_request {req_str} to {peer:?} by dialing the addrs manually.");
                     self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                         req,
                         peer,
-                        addrs: Some(addrs),
+                        addrs: Some(new_addrs),
                         sender: Some(sender),
                     });
 

@@ -660,9 +660,9 @@ impl Node {
             .get_close_peers_to_the_target(address.clone(), K_VALUE.get())
             .await?;
         // push self in as the returned list doesn't contain self
-        closest_k_peers.push(self_peer_id);
+        closest_k_peers.push((self_peer_id, Default::default()));
         let mut payees = payment.payees();
-        payees.retain(|peer_id| !closest_k_peers.contains(peer_id));
+        payees.retain(|peer_id| !closest_k_peers.iter().any(|(p, _)| p == peer_id));
         if !payees.is_empty() {
             warn!("Payment quote has out-of-range payees for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(

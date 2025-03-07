@@ -1032,6 +1032,7 @@ impl SwarmDriver {
         self.swarm
             .behaviour_mut()
             .kademlia
+            // find_closest_local_peers would ignore the 'source' in the result.
             .find_closest_local_peers(&target.as_kbucket_key(), &self.self_peer_id)
             // Map KBucketKey<PeerId> to PeerId.
             .map(|key| (key.node_id, Addresses(key.multiaddrs)))

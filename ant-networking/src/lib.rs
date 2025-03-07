@@ -948,10 +948,11 @@ impl Network {
     ) -> Result<Response> {
         let (sender, receiver) = oneshot::channel();
         let req_str = format!("{req:?}");
+        // try to send the request without dialing the peer
         self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
             req: req.clone(),
             peer,
-            addrs: addrs.clone(),
+            addrs: None,
             sender: Some(sender),
         });
         let mut r = receiver.await?;
@@ -967,17 +968,17 @@ impl Network {
                     );
                     let (sender, receiver) = oneshot::channel();
 
-                    debug!("Reattempting to send_request {req_str} to {peer:?}");
+                    debug!("Reattempting to send_request {req_str} to {peer:?} by dialing the addrs manually.");
                     self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                         req,
                         peer,
-                        addrs,
+                        addrs: Some(addrs),
                         sender: Some(sender),
                     });
 
                     r = receiver.await?;
                     if let Err(error) = &r {
-                        error!("Reattempt of {req_str} led to an error again. {error:?}");
+                        error!("Reattempt of {req_str} led to an error again (even after dialing). {error:?}");
                     }
                 }
                 _ => {
@@ -988,18 +989,6 @@ impl Network {
         }
 
         r
-    }
-
-    /// Send `Request` to the given `PeerId` and do _not_ await a response here.
-    /// Instead the Response will be handled by the common `response_handler`
-    pub fn send_req_ignore_reply(&self, req: Request, peer: PeerId, addrs: Addresses) {
-        let swarm_cmd = NetworkSwarmCmd::SendRequest {
-            req,
-            peer,
-            addrs,
-            sender: None,
-        };
-        self.send_network_swarm_cmd(swarm_cmd)
     }
 
     /// Send a `Response` through the channel opened by the requester.

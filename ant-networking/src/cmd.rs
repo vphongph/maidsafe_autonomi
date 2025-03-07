@@ -193,7 +193,8 @@ pub enum NetworkSwarmCmd {
     SendRequest {
         req: Request,
         peer: PeerId,
-        addrs: Addresses,
+        /// If the address is provided, we will try to perform a dial before sending the request.
+        addrs: Option<Addresses>,
 
         // If a `sender` is provided, the requesting node will await for a `Response` from the
         // Peer. The result is then returned at the call site.
@@ -550,22 +551,24 @@ impl SwarmDriver {
                         trace!("Replicate cmd to self received, ignoring");
                     }
                 } else {
-                    // dial the peer and send the request
-                    if addrs.0.is_empty() {
-                        info!("No addresses for peer {peer:?} to send request. This could cause dial failure if swarm could not find the peer's addrs.");
-                    } else {
-                        let opts = DialOpts::peer_id(peer)
-                            // If we have a peer ID, we can prevent simultaneous dials.
-                            .condition(PeerCondition::NotDialing)
-                            .addresses(addrs.0.clone())
-                            .build();
+                    if let Some(addrs) = addrs {
+                        // dial the peer and send the request
+                        if addrs.0.is_empty() {
+                            info!("No addresses for peer {peer:?} to send request. This could cause dial failure if swarm could not find the peer's addrs.");
+                        } else {
+                            let opts = DialOpts::peer_id(peer)
+                                // If we have a peer ID, we can prevent simultaneous dials.
+                                .condition(PeerCondition::NotDialing)
+                                .addresses(addrs.0.clone())
+                                .build();
 
-                        match self.swarm.dial(opts) {
-                            Ok(()) => {
-                                info!("Dialing peer {peer:?} for req_resp with address: {addrs:?}",);
-                            }
-                            Err(err) => {
-                                error!("Failed to dial peer {peer:?} for req_resp with address: {addrs:?} error: {err}",);
+                            match self.swarm.dial(opts) {
+                                Ok(()) => {
+                                    info!("Dialing peer {peer:?} for req_resp with address: {addrs:?}",);
+                                }
+                                Err(err) => {
+                                    error!("Failed to dial peer {peer:?} for req_resp with address: {addrs:?} error: {err}",);
+                                }
                             }
                         }
                     }
@@ -1121,7 +1124,7 @@ impl SwarmDriver {
                 });
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request,
-                    addrs,
+                    addrs: Some(addrs),
                     peer: peer_id,
                     sender: Some(tx),
                 });
@@ -1191,11 +1194,12 @@ impl SwarmDriver {
                     .map(|(addr, val_type, _data_type)| (addr, val_type))
                     .collect(),
             });
-            for (peer_id, addrs) in replicate_targets {
+            for (peer_id, _addrs) in replicate_targets {
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request.clone(),
                     peer: peer_id,
-                    addrs,
+                    // replicate targets are part of the RT, so no need to dial them manually.
+                    addrs: None,
                     sender: None,
                 });
 
@@ -1230,6 +1234,7 @@ impl SwarmDriver {
             .swarm
             .behaviour_mut()
             .kademlia
+            // find_closest_local_peers would ignore the 'source' in the result.
             .find_closest_local_peers(&kbucket_key, &self.self_peer_id)
             // Map KBucketKey<PeerId> to PeerId.
             .map(|peer| (peer.node_id, Addresses(peer.multiaddrs)))

@@ -97,21 +97,21 @@ const MIN_WAIT_BEFORE_READING_A_PUT: Duration = Duration::from_millis(300);
 
 /// Sort the provided peers by their distance to the given `NetworkAddress`.
 /// Return with the closest expected number of entries if has.
-pub fn sort_peers_by_address<'a>(
-    peers: &'a Vec<PeerId>,
+pub fn sort_peers_by_address(
+    peers: Vec<(PeerId, Addresses)>,
     address: &NetworkAddress,
     expected_entries: usize,
-) -> Result<Vec<&'a PeerId>> {
+) -> Result<Vec<(PeerId, Addresses)>> {
     sort_peers_by_key(peers, &address.as_kbucket_key(), expected_entries)
 }
 
 /// Sort the provided peers by their distance to the given `KBucketKey`.
 /// Return with the closest expected number of entries if has.
-pub fn sort_peers_by_key<'a, T>(
-    peers: &'a Vec<PeerId>,
+pub fn sort_peers_by_key<T>(
+    peers: Vec<(PeerId, Addresses)>,
     key: &KBucketKey<T>,
     expected_entries: usize,
-) -> Result<Vec<&'a PeerId>> {
+) -> Result<Vec<(PeerId, Addresses)>> {
     // Check if there are enough peers to satisfy the request.
     // bail early if that's not the case
     if CLOSE_GROUP_SIZE > peers.len() {
@@ -124,26 +124,31 @@ pub fn sort_peers_by_key<'a, T>(
 
     // Create a vector of tuples where each tuple is a reference to a peer and its distance to the key.
     // This avoids multiple computations of the same distance in the sorting process.
-    let mut peer_distances: Vec<(&PeerId, KBucketDistance)> = Vec::with_capacity(peers.len());
+    let mut peer_distances: Vec<(PeerId, Addresses, KBucketDistance)> =
+        Vec::with_capacity(peers.len());
 
-    for peer_id in peers {
-        let addr = NetworkAddress::from_peer(*peer_id);
+    for (peer_id, addrs) in peers.into_iter() {
+        let addr = NetworkAddress::from_peer(peer_id);
         let distance = key.distance(&addr.as_kbucket_key());
-        peer_distances.push((peer_id, distance));
+        peer_distances.push((peer_id, addrs, distance));
     }
 
     // Sort the vector of tuples by the distance.
-    peer_distances.sort_by(|a, b| a.1.cmp(&b.1));
+    peer_distances.sort_by(|a, b| a.2.cmp(&b.2));
 
     // Collect the sorted peers into a new vector.
-    let sorted_peers: Vec<_> = peer_distances
+    let sorted_peers: Vec<(PeerId, Addresses)> = peer_distances
         .into_iter()
         .take(expected_entries)
-        .map(|(peer_id, _)| peer_id)
+        .map(|(peer_id, addrs, _)| (peer_id, addrs))
         .collect();
 
     Ok(sorted_peers)
 }
+
+/// A list of addresses of a peer in the routing table.
+#[derive(Clone, Debug, Default)]
+pub struct Addresses(pub Vec<Multiaddr>);
 
 #[derive(Clone, Debug)]
 /// API to interact with the underlying Swarm
@@ -217,7 +222,7 @@ impl Network {
     pub async fn client_get_all_close_peers_in_range_or_close_group(
         &self,
         key: &NetworkAddress,
-    ) -> Result<Vec<PeerId>> {
+    ) -> Result<Vec<(PeerId, Addresses)>> {
         self.get_all_close_peers_in_range_or_close_group(key, true)
             .await
     }
@@ -225,7 +230,10 @@ impl Network {
     /// Returns the closest peers to the given `NetworkAddress`, sorted by their distance to the key.
     ///
     /// Includes our node's `PeerId` while calculating the closest peers.
-    pub async fn node_get_closest_peers(&self, key: &NetworkAddress) -> Result<Vec<PeerId>> {
+    pub async fn node_get_closest_peers(
+        &self,
+        key: &NetworkAddress,
+    ) -> Result<Vec<(PeerId, Addresses)>> {
         self.get_all_close_peers_in_range_or_close_group(key, false)
             .await
     }
@@ -253,7 +261,7 @@ impl Network {
 
     /// Returns all the PeerId from all the KBuckets from our local Routing Table
     /// Also contains our own PeerId.
-    pub async fn get_closest_k_value_local_peers(&self) -> Result<Vec<PeerId>> {
+    pub async fn get_closest_k_value_local_peers(&self) -> Result<Vec<(PeerId, Addresses)>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetClosestKLocalPeers { sender });
 
@@ -268,7 +276,7 @@ impl Network {
         &self,
         key: NetworkAddress,
         num_of_peers: usize,
-    ) -> Result<Vec<PeerId>> {
+    ) -> Result<Vec<(PeerId, Addresses)>> {
         let (sender, receiver) = oneshot::channel();
         self.send_local_swarm_cmd(LocalSwarmCmd::GetCloseLocalPeersToTarget {
             key,
@@ -279,18 +287,6 @@ impl Network {
         receiver
             .await
             .map_err(|_e| NetworkError::InternalMsgChannelDropped)
-    }
-
-    /// Returns the replicate candidates in range.
-    pub async fn get_replicate_candidates(&self, data_addr: NetworkAddress) -> Result<Vec<PeerId>> {
-        let (sender, receiver) = oneshot::channel();
-        self.send_local_swarm_cmd(LocalSwarmCmd::GetReplicateCandidates { data_addr, sender });
-
-        let candidate = receiver
-            .await
-            .map_err(|_e| NetworkError::InternalMsgChannelDropped)??;
-
-        Ok(candidate)
     }
 
     /// Get the Chunk existence proof from the close nodes to the provided chunk address.
@@ -398,7 +394,7 @@ impl Network {
             .client_get_all_close_peers_in_range_or_close_group(&record_address)
             .await?;
         // Filter out results from the ignored peers.
-        close_nodes.retain(|peer_id| !ignore_peers.contains(peer_id));
+        close_nodes.retain(|(peer_id, _)| !ignore_peers.contains(peer_id));
         info!(
             "For record {record_address:?} quoting {} nodes. ignore_peers is {ignore_peers:?}",
             close_nodes.len()
@@ -473,7 +469,7 @@ impl Network {
                     }
                 }
                 Err(err) => {
-                    error!("Got an error while requesting quote from peer {peer:?}: {err}");
+                    error!("Got an error while requesting quote from peer {peer:?}: {err:?}");
                     peers_returned_error += 1;
                 }
                 _ => {
@@ -944,11 +940,19 @@ impl Network {
     /// layers.
     ///
     /// If an outbound issue is raised, we retry once more to send the request before returning an error.
-    pub async fn send_request(&self, req: Request, peer: PeerId) -> Result<Response> {
+    pub async fn send_request(
+        &self,
+        req: Request,
+        peer: PeerId,
+        _addrs: Addresses,
+    ) -> Result<Response> {
         let (sender, receiver) = oneshot::channel();
+        let req_str = format!("{req:?}");
+        // try to send the request without dialing the peer
         self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
             req: req.clone(),
             peer,
+            addrs: None,
             sender: Some(sender),
         });
         let mut r = receiver.await?;
@@ -958,40 +962,54 @@ impl Network {
 
             match error {
                 NetworkError::OutboundError(OutboundFailure::Io(_))
-                | NetworkError::OutboundError(OutboundFailure::ConnectionClosed) => {
-                    warn!(
-                        "Outbound failed for {req:?} .. {error:?}, redialing once and reattempting"
-                    );
+                | NetworkError::OutboundError(OutboundFailure::ConnectionClosed)
+                | NetworkError::OutboundError(OutboundFailure::DialFailure) => {
+                    warn!("Outbound failed for {req_str} .. {error:?}, relookup and reattempting");
                     let (sender, receiver) = oneshot::channel();
 
-                    debug!("Reattempting to send_request {req:?} to {peer:?}");
+                    self.send_network_swarm_cmd(
+                        NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
+                            key: NetworkAddress::from_peer(peer),
+                            sender,
+                        },
+                    );
+
+                    let peers = receiver.await?;
+
+                    let Some(new_addrs) = peers
+                        .iter()
+                        .find(|(id, _addrs)| *id == peer)
+                        .map(|(_id, addrs)| addrs.clone())
+                    else {
+                        error!("Cann't find the peer {peer:?} again from the network, during the request reattempt.");
+                        return r;
+                    };
+
+                    // Short wait to allow connection re-established.
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                    let (sender, receiver) = oneshot::channel();
+                    debug!("Reattempting to send_request {req_str} to {peer:?} by dialing the addrs manually.");
                     self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                         req,
                         peer,
+                        addrs: Some(new_addrs),
                         sender: Some(sender),
                     });
 
                     r = receiver.await?;
+                    if let Err(error) = &r {
+                        error!("Reattempt of {req_str} led to an error again (even after dialing). {error:?}");
+                    }
                 }
                 _ => {
                     // If the record is found, we should log the error and continue
-                    warn!("Error in response: {:?}", error);
+                    warn!("Error in response for {req_str}: {error:?}",);
                 }
             }
         }
 
         r
-    }
-
-    /// Send `Request` to the given `PeerId` and do _not_ await a response here.
-    /// Instead the Response will be handled by the common `response_handler`
-    pub fn send_req_ignore_reply(&self, req: Request, peer: PeerId) {
-        let swarm_cmd = NetworkSwarmCmd::SendRequest {
-            req,
-            peer,
-            sender: None,
-        };
-        self.send_network_swarm_cmd(swarm_cmd)
     }
 
     /// Send a `Response` through the channel opened by the requester.
@@ -1061,7 +1079,7 @@ impl Network {
         &self,
         key: &NetworkAddress,
         client: bool,
-    ) -> Result<Vec<PeerId>> {
+    ) -> Result<Vec<(PeerId, Addresses)>> {
         let pretty_key = PrettyPrintKBucketKey(key.as_kbucket_key());
         debug!("Getting the all closest peers in range of {pretty_key:?}");
         let (sender, receiver) = oneshot::channel();
@@ -1079,7 +1097,7 @@ impl Network {
         // ensure we're not including self here
         if client {
             // remove our peer id from the calculations here:
-            closest_peers.retain(|&x| x != self.peer_id());
+            closest_peers.retain(|&(x, _)| x != self.peer_id());
             if result_len != closest_peers.len() {
                 info!("Remove self client from the closest_peers");
             }
@@ -1088,7 +1106,7 @@ impl Network {
         if tracing::level_enabled!(tracing::Level::DEBUG) {
             let close_peers_pretty_print: Vec<_> = closest_peers
                 .iter()
-                .map(|peer_id| {
+                .map(|(peer_id, _)| {
                     format!(
                         "{peer_id:?}({:?})",
                         PrettyPrintKBucketKey(NetworkAddress::from_peer(*peer_id).as_kbucket_key())
@@ -1102,8 +1120,8 @@ impl Network {
         }
 
         let expanded_close_group = CLOSE_GROUP_SIZE + CLOSE_GROUP_SIZE / 2;
-        let closest_peers = sort_peers_by_address(&closest_peers, key, expanded_close_group)?;
-        Ok(closest_peers.into_iter().cloned().collect())
+        let closest_peers = sort_peers_by_address(closest_peers, key, expanded_close_group)?;
+        Ok(closest_peers)
     }
 
     /// Send a `Request` to the provided set of peers and wait for their responses concurrently.
@@ -1112,16 +1130,16 @@ impl Network {
     /// If `get_all_responses` is false, we return the first successful response that we get
     pub async fn send_and_get_responses(
         &self,
-        peers: &[PeerId],
+        peers: &[(PeerId, Addresses)],
         req: &Request,
         get_all_responses: bool,
     ) -> BTreeMap<PeerId, Result<Response>> {
         debug!("send_and_get_responses for {req:?}");
         let mut list_of_futures = peers
             .iter()
-            .map(|peer| {
+            .map(|(peer, addrs)| {
                 Box::pin(async {
-                    let resp = self.send_request(req.clone(), *peer).await;
+                    let resp = self.send_request(req.clone(), *peer, addrs.clone()).await;
                     (*peer, resp)
                 })
             })

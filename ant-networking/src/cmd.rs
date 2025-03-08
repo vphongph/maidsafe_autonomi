@@ -12,7 +12,7 @@ use crate::{
     error::{NetworkError, Result},
     event::TerminateNodeReason,
     log_markers::Marker,
-    GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum, CLOSE_GROUP_SIZE,
+    Addresses, GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum, CLOSE_GROUP_SIZE,
 };
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
@@ -25,6 +25,7 @@ use libp2p::{
         store::{Error as StoreError, RecordStore},
         KBucketDistance as Distance, Record, RecordKey, K_VALUE,
     },
+    swarm::dial_opts::{DialOpts, PeerCondition},
     Multiaddr, PeerId,
 };
 use std::{
@@ -82,22 +83,16 @@ pub enum LocalSwarmCmd {
     GetKBuckets {
         sender: oneshot::Sender<BTreeMap<u32, Vec<PeerId>>>,
     },
-    /// Returns the replicate candidates in range.
-    /// In case the range is too narrow, returns at lease CLOSE_GROUP_SIZE peers.
-    GetReplicateCandidates {
-        data_addr: NetworkAddress,
-        sender: oneshot::Sender<Result<Vec<PeerId>>>,
-    },
     // Returns up to K_VALUE peers from all the k-buckets from the local Routing Table.
     // And our PeerId as well.
     GetClosestKLocalPeers {
-        sender: oneshot::Sender<Vec<PeerId>>,
+        sender: oneshot::Sender<Vec<(PeerId, Addresses)>>,
     },
     // Get X closest peers to target from the local RoutingTable, self not included
     GetCloseLocalPeersToTarget {
         key: NetworkAddress,
         num_of_peers: usize,
-        sender: oneshot::Sender<Vec<PeerId>>,
+        sender: oneshot::Sender<Vec<(PeerId, Addresses)>>,
     },
     GetSwarmLocalState(oneshot::Sender<SwarmLocalState>),
     /// Check if the local RecordStore contains the provided key
@@ -191,13 +186,15 @@ pub enum NetworkSwarmCmd {
     // Get closest peers from the network
     GetClosestPeersToAddressFromNetwork {
         key: NetworkAddress,
-        sender: oneshot::Sender<Vec<PeerId>>,
+        sender: oneshot::Sender<Vec<(PeerId, Addresses)>>,
     },
 
     // Send Request to the PeerId.
     SendRequest {
         req: Request,
         peer: PeerId,
+        /// If the address is provided, we will try to perform a dial before sending the request.
+        addrs: Option<Addresses>,
 
         // If a `sender` is provided, the requesting node will await for a `Response` from the
         // Peer. The result is then returned at the call site.
@@ -266,9 +263,6 @@ impl Debug for LocalSwarmCmd {
                     "LocalSwarmCmd::AddLocalRecordAsStored {{ key: {:?}, record_type: {record_type:?}, data_type: {data_type:?} }}",
                     PrettyPrintRecordKey::from(key)
                 )
-            }
-            LocalSwarmCmd::GetReplicateCandidates { .. } => {
-                write!(f, "LocalSwarmCmd::GetReplicateCandidates")
             }
             LocalSwarmCmd::GetClosestKLocalPeers { .. } => {
                 write!(f, "LocalSwarmCmd::GetClosestKLocalPeers")
@@ -534,7 +528,12 @@ impl SwarmDriver {
                 );
             }
 
-            NetworkSwarmCmd::SendRequest { req, peer, sender } => {
+            NetworkSwarmCmd::SendRequest {
+                req,
+                peer,
+                addrs,
+                sender,
+            } => {
                 cmd_string = "SendRequest";
                 // If `self` is the recipient, forward the request directly to our upper layer to
                 // be handled.
@@ -552,6 +551,28 @@ impl SwarmDriver {
                         trace!("Replicate cmd to self received, ignoring");
                     }
                 } else {
+                    if let Some(addrs) = addrs {
+                        // dial the peer and send the request
+                        if addrs.0.is_empty() {
+                            info!("No addresses for peer {peer:?} to send request. This could cause dial failure if swarm could not find the peer's addrs.");
+                        } else {
+                            let opts = DialOpts::peer_id(peer)
+                                // If we have a peer ID, we can prevent simultaneous dials.
+                                .condition(PeerCondition::NotDialing)
+                                .addresses(addrs.0.clone())
+                                .build();
+
+                            match self.swarm.dial(opts) {
+                                Ok(()) => {
+                                    info!("Dialing peer {peer:?} for req_resp with address: {addrs:?}",);
+                                }
+                                Err(err) => {
+                                    error!("Failed to dial peer {peer:?} for req_resp with address: {addrs:?} error: {err}",);
+                                }
+                            }
+                        }
+                    }
+
                     let request_id = self
                         .swarm
                         .behaviour_mut()
@@ -881,10 +902,6 @@ impl SwarmDriver {
                 cmd_string = "GetClosestKLocalPeers";
                 let _ = sender.send(self.get_closest_k_value_local_peers());
             }
-            LocalSwarmCmd::GetReplicateCandidates { data_addr, sender } => {
-                cmd_string = "GetReplicateCandidates";
-                let _ = sender.send(self.get_replicate_candidates(&data_addr));
-            }
             LocalSwarmCmd::GetSwarmLocalState(sender) => {
                 cmd_string = "GetSwarmLocalState";
                 let current_state = SwarmLocalState {
@@ -1065,9 +1082,14 @@ impl SwarmDriver {
 
         if *is_bad {
             info!("Evicting bad peer {peer_id:?} from RT.");
-            if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
+            let addrs = if let Some(dead_peer) =
+                self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id)
+            {
                 self.update_on_peer_removal(*dead_peer.node.key.preimage());
-            }
+                Addresses(dead_peer.node.value.into_vec())
+            } else {
+                Addresses(Vec::new())
+            };
 
             if let Some(bad_behaviour) = new_bad_behaviour {
                 // inform the bad node about it and add to the blocklist after that (not for connection issues)
@@ -1102,6 +1124,7 @@ impl SwarmDriver {
                 });
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request,
+                    addrs: Some(addrs),
                     peer: peer_id,
                     sender: Some(tx),
                 });
@@ -1143,7 +1166,8 @@ impl SwarmDriver {
         self.replication_targets
             .retain(|_peer_id, timestamp| *timestamp > now);
         // Only carry out replication to peer that not replicated to it recently
-        replicate_targets.retain(|peer_id| !self.replication_targets.contains_key(peer_id));
+        replicate_targets
+            .retain(|(peer_id, _addresses)| !self.replication_targets.contains_key(peer_id));
         if replicate_targets.is_empty() {
             return Ok(());
         }
@@ -1170,10 +1194,12 @@ impl SwarmDriver {
                     .map(|(addr, val_type, _data_type)| (addr, val_type))
                     .collect(),
             });
-            for peer_id in replicate_targets {
+            for (peer_id, _addrs) in replicate_targets {
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request.clone(),
                     peer: peer_id,
+                    // replicate targets are part of the RT, so no need to dial them manually.
+                    addrs: None,
                     sender: None,
                 });
 
@@ -1191,11 +1217,10 @@ impl SwarmDriver {
     // Note that:
     //   * For general replication, replicate candidates shall be closest to self, but with wider range
     //   * For replicate fresh records, the replicate candidates shall be the closest to data
-
     pub(crate) fn get_replicate_candidates(
         &mut self,
         target: &NetworkAddress,
-    ) -> Result<Vec<PeerId>> {
+    ) -> Result<Vec<(PeerId, Addresses)>> {
         let is_periodic_replicate = target.as_peer_id().is_some();
         let expected_candidates = if is_periodic_replicate {
             CLOSE_GROUP_SIZE * 2
@@ -1205,13 +1230,14 @@ impl SwarmDriver {
 
         // get closest peers from buckets, sorted by increasing distance to the target
         let kbucket_key = target.as_kbucket_key();
-        let closest_k_peers: Vec<PeerId> = self
+        let closest_k_peers: Vec<(PeerId, Addresses)> = self
             .swarm
             .behaviour_mut()
             .kademlia
-            .get_closest_local_peers(&kbucket_key)
+            // find_closest_local_peers would ignore the 'source' in the result.
+            .find_closest_local_peers(&kbucket_key, &self.self_peer_id)
             // Map KBucketKey<PeerId> to PeerId.
-            .map(|key| key.into_preimage())
+            .map(|peer| (peer.node_id, Addresses(peer.multiaddrs)))
             .take(K_VALUE.get())
             .collect();
 
@@ -1239,12 +1265,16 @@ impl SwarmDriver {
 }
 
 /// Returns the nodes that within the defined distance.
-fn get_peers_in_range(peers: &[PeerId], address: &NetworkAddress, range: Distance) -> Vec<PeerId> {
+fn get_peers_in_range(
+    peers: &[(PeerId, Addresses)],
+    address: &NetworkAddress,
+    range: Distance,
+) -> Vec<(PeerId, Addresses)> {
     peers
         .iter()
-        .filter_map(|peer_id| {
+        .filter_map(|(peer_id, addresses)| {
             if address.distance(&NetworkAddress::from_peer(*peer_id)) <= range {
-                Some(*peer_id)
+                Some((*peer_id, addresses.clone()))
             } else {
                 None
             }

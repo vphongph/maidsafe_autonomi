@@ -23,7 +23,7 @@ use crate::{
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
     time::{interval, spawn, Instant, Interval},
-    transport, GetRecordError, Network, NodeIssue, CLOSE_GROUP_SIZE,
+    transport, Addresses, GetRecordError, Network, NodeIssue, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
 use crate::{
@@ -84,9 +84,9 @@ pub(crate) enum PendingGetClosestType {
     /// Thus we can just process the queries made by NetworkDiscovery without using any channels
     NetworkDiscovery,
     /// These are queries made by a function at the upper layers and contains a channel to send the result back.
-    FunctionCall(oneshot::Sender<Vec<PeerId>>),
+    FunctionCall(oneshot::Sender<Vec<(PeerId, Addresses)>>),
 }
-type PendingGetClosest = HashMap<QueryId, (PendingGetClosestType, Vec<PeerId>)>;
+type PendingGetClosest = HashMap<QueryId, (PendingGetClosestType, Vec<(PeerId, Addresses)>)>;
 
 /// Using XorName to differentiate different record content under the same key.
 type GetRecordResultMap = HashMap<XorName, (Record, HashSet<PeerId>)>;
@@ -878,7 +878,7 @@ impl SwarmDriver {
                         // Results are sorted, hence can calculate distance directly
                         // Note: self is included
                         let self_addr = NetworkAddress::from_peer(self.self_peer_id);
-                        let close_peers_distance = self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE + 1]));
+                        let close_peers_distance = self_addr.distance(&NetworkAddress::from_peer(closest_k_peers[CLOSE_GROUP_SIZE + 1].0));
 
                         let distance = std::cmp::max(Distance(density_distance), close_peers_distance);
 
@@ -1009,7 +1009,7 @@ impl SwarmDriver {
 
     /// Get closest K_VALUE peers from our local RoutingTable. Contains self.
     /// Is sorted for closeness to self.
-    pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<PeerId> {
+    pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<(PeerId, Addresses)> {
         // Limit ourselves to K_VALUE (20) peers.
         let peers: Vec<_> = self.get_closest_local_peers_to_target(
             &NetworkAddress::from_peer(self.self_peer_id),
@@ -1017,7 +1017,9 @@ impl SwarmDriver {
         );
 
         // Start with our own PeerID and chain the closest.
-        std::iter::once(self.self_peer_id).chain(peers).collect()
+        std::iter::once((self.self_peer_id, Default::default()))
+            .chain(peers)
+            .collect()
     }
 
     /// Get closest X peers to the target. Not containing self.
@@ -1026,13 +1028,14 @@ impl SwarmDriver {
         &mut self,
         target: &NetworkAddress,
         num_of_peers: usize,
-    ) -> Vec<PeerId> {
+    ) -> Vec<(PeerId, Addresses)> {
         self.swarm
             .behaviour_mut()
             .kademlia
-            .get_closest_local_peers(&target.as_kbucket_key())
+            // find_closest_local_peers would ignore the 'source' in the result.
+            .find_closest_local_peers(&target.as_kbucket_key(), &self.self_peer_id)
             // Map KBucketKey<PeerId> to PeerId.
-            .map(|key| key.into_preimage())
+            .map(|key| (key.node_id, Addresses(key.multiaddrs)))
             .take(num_of_peers)
             .collect()
     }

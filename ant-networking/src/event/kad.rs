@@ -112,9 +112,9 @@ impl SwarmDriver {
                         .network_discovery
                         .handle_get_closest_query(current_closest),
                     PendingGetClosestType::FunctionCall(sender) => {
-                        sender
-                            .send(current_closest)
-                            .map_err(|_| NetworkError::InternalMsgChannelDropped)?;
+                        tokio::spawn(async move {
+                            let _ = sender.send(current_closest);
+                        });
                     }
                 }
             }

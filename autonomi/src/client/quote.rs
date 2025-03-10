@@ -94,7 +94,7 @@ impl Client {
             .into_iter()
             .map(|(content_addr, data_size)| {
                 fetch_store_quote_with_retries(
-                    &self.network,
+                    self.network.clone(),
                     content_addr,
                     data_type.get_index(),
                     data_size,
@@ -223,7 +223,7 @@ async fn fetch_store_quote(
 
 /// Fetch a store quote for a content address with a retry strategy.
 async fn fetch_store_quote_with_retries(
-    network: &Network,
+    network: Network,
     content_addr: XorName,
     data_type: u32,
     data_size: usize,
@@ -231,7 +231,7 @@ async fn fetch_store_quote_with_retries(
     let mut retries = 0;
 
     loop {
-        match fetch_store_quote(network, content_addr, data_type, data_size).await {
+        match fetch_store_quote(&network, content_addr, data_type, data_size).await {
             Ok(quote) => {
                 if quote.is_empty() {
                     // Empty quotes indicates the record already exists.

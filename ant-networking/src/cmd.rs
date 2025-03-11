@@ -229,6 +229,12 @@ pub enum NetworkSwarmCmd {
         sender: oneshot::Sender<Result<()>>,
         quorum: ResponseQuorum,
     },
+
+    // Attempt to dial specific peer.
+    DialPeer {
+        peer: PeerId,
+        addrs: Addresses,
+    },
 }
 
 /// Debug impl for LocalSwarmCmd to avoid printing full Record, instead only RecodKey
@@ -395,6 +401,9 @@ impl Debug for NetworkSwarmCmd {
                     f,
                     "NetworkSwarmCmd::SendRequest req: {req:?}, peer: {peer:?}"
                 )
+            }
+            NetworkSwarmCmd::DialPeer { peer, .. } => {
+                write!(f, "NetworkSwarmCmd::DialPeer peer: {peer:?}")
             }
         }
     }
@@ -609,6 +618,23 @@ impl SwarmDriver {
                             .request_response
                             .send_response(channel, resp)
                             .map_err(NetworkError::OutgoingResponseDropped)?;
+                    }
+                }
+            }
+            NetworkSwarmCmd::DialPeer { peer, addrs } => {
+                cmd_string = "DialPeer";
+                let opts = DialOpts::peer_id(peer)
+                    // If we have a peer ID, we can prevent simultaneous dials.
+                    .condition(PeerCondition::NotDialing)
+                    .addresses(addrs.0.clone())
+                    .build();
+
+                match self.swarm.dial(opts) {
+                    Ok(()) => {
+                        info!("Manual dialing peer {peer:?} with address: {addrs:?}",);
+                    }
+                    Err(err) => {
+                        error!("Failed to manual dial peer {peer:?} with address: {addrs:?} error: {err}",);
                     }
                 }
             }

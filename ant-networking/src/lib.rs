@@ -22,6 +22,7 @@ mod graph;
 mod log_markers;
 #[cfg(feature = "open-metrics")]
 mod metrics;
+mod network_builder;
 mod network_discovery;
 mod record_store;
 mod record_store_api;
@@ -37,10 +38,11 @@ use xor_name::XorName;
 pub use self::{
     cmd::{NodeIssue, SwarmLocalState},
     config::{GetRecordCfg, PutRecordCfg, ResponseQuorum, RetryStrategy, VerificationKind},
-    driver::{NetworkBuilder, SwarmDriver, MAX_PACKET_SIZE},
+    driver::SwarmDriver,
     error::{GetRecordError, NetworkError},
     event::{MsgResponder, NetworkEvent},
     graph::get_graph_entry_from_record,
+    network_builder::{NetworkBuilder, MAX_PACKET_SIZE},
     record_store::NodeRecordStore,
 };
 #[cfg(feature = "open-metrics")]
@@ -210,14 +212,6 @@ impl Network {
     /// Returns the protobuf serialised PublicKey to allow messaging out for share.
     pub fn get_pub_key(&self) -> Vec<u8> {
         self.keypair().public().encode_protobuf()
-    }
-
-    /// Dial the given peer at the given address.
-    /// This function will only be called for the bootstrap nodes.
-    pub async fn dial(&self, addr: Multiaddr) -> Result<()> {
-        let (sender, receiver) = oneshot::channel();
-        self.send_network_swarm_cmd(NetworkSwarmCmd::Dial { addr, sender });
-        receiver.await?
     }
 
     /// Returns the closest peers to the given `XorName`, sorted by their distance to the xor_name.
@@ -1028,10 +1022,15 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerScores { peer_scores })
     }
 
+    pub fn notify_node_version(&self, peer: PeerId, version: String) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerVersion { peer, version })
+    }
+
     /// Helper to send NetworkSwarmCmd
     fn send_network_swarm_cmd(&self, cmd: NetworkSwarmCmd) {
         send_network_swarm_cmd(self.network_swarm_cmd_sender().clone(), cmd);
     }
+
     /// Helper to send LocalSwarmCmd
     fn send_local_swarm_cmd(&self, cmd: LocalSwarmCmd) {
         send_local_swarm_cmd(self.local_swarm_cmd_sender().clone(), cmd);
@@ -1160,6 +1159,15 @@ pub(crate) fn multiaddr_pop_p2p(multiaddr: &mut Multiaddr) -> Option<PeerId> {
     }
 }
 
+/// Return the last `PeerId` from the `Multiaddr` if it exists.
+pub(crate) fn multiaddr_get_p2p(multiaddr: &Multiaddr) -> Option<PeerId> {
+    if let Some(Protocol::P2p(peer_id)) = multiaddr.iter().last() {
+        Some(peer_id)
+    } else {
+        None
+    }
+}
+
 /// Build a `Multiaddr` with the p2p protocol filtered out.
 /// If it is a relayed address, then the relay's P2P address is preserved.
 pub(crate) fn multiaddr_strip_p2p(multiaddr: &Multiaddr) -> Multiaddr {
@@ -1250,7 +1258,7 @@ mod tests {
     #[tokio::test]
     async fn test_network_sign_verify() -> eyre::Result<()> {
         let (network, _, _) =
-            NetworkBuilder::new(Keypair::generate_ed25519(), false).build_client();
+            NetworkBuilder::new(Keypair::generate_ed25519(), false, vec![]).build_client();
         let msg = b"test message";
         let sig = network.sign(msg)?;
         assert!(network.verify(msg, &sig));

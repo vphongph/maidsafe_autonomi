@@ -12,8 +12,7 @@ use crate::{
     error::{NetworkError, Result},
     event::TerminateNodeReason,
     log_markers::Marker,
-    multiaddr_pop_p2p, GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum,
-    CLOSE_GROUP_SIZE,
+    GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum, CLOSE_GROUP_SIZE,
 };
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
@@ -179,14 +178,15 @@ pub enum LocalSwarmCmd {
         holder: NetworkAddress,
         keys: Vec<(NetworkAddress, ValidationType)>,
     },
+    /// Notify a fetched peer's version
+    NotifyPeerVersion {
+        peer: PeerId,
+        version: String,
+    },
 }
 
 /// Commands to send to the Swarm
 pub enum NetworkSwarmCmd {
-    Dial {
-        addr: Multiaddr,
-        sender: oneshot::Sender<Result<()>>,
-    },
     // Get closest peers from the network
     GetClosestPeersToAddressFromNetwork {
         key: NetworkAddress,
@@ -354,6 +354,9 @@ impl Debug for LocalSwarmCmd {
                     "LocalSwarmCmd::AddFreshReplicateRecords({holder:?}, {keys:?})"
                 )
             }
+            LocalSwarmCmd::NotifyPeerVersion { peer, version } => {
+                write!(f, "LocalSwarmCmd::NotifyPeerVersion({peer:?}, {version:?})")
+            }
         }
     }
 }
@@ -363,9 +366,6 @@ impl Debug for LocalSwarmCmd {
 impl Debug for NetworkSwarmCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NetworkSwarmCmd::Dial { addr, .. } => {
-                write!(f, "NetworkSwarmCmd::Dial {{ addr: {addr:?} }}")
-            }
             NetworkSwarmCmd::GetNetworkRecord { key, cfg, .. } => {
                 write!(
                     f,
@@ -515,23 +515,6 @@ impl SwarmDriver {
                     error!("Could not send response to PutRecordTo cmd: {:?}", err);
                 }
             }
-
-            NetworkSwarmCmd::Dial { addr, sender } => {
-                cmd_string = "Dial";
-
-                if let Some(peer_id) = multiaddr_pop_p2p(&mut addr.clone()) {
-                    // Only consider the dial peer is bootstrap node when proper PeerId is provided.
-                    if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id) {
-                        let ilog2 = kbucket.range().0.ilog2();
-                        let peers = self.bootstrap_peers.entry(ilog2).or_default();
-                        peers.insert(peer_id);
-                    }
-                }
-                let _ = match self.dial(addr) {
-                    Ok(_) => sender.send(Ok(())),
-                    Err(e) => sender.send(Err(e.into())),
-                };
-            }
             NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender } => {
                 cmd_string = "GetClosestPeersToAddressFromNetwork";
                 let query_id = self
@@ -626,15 +609,8 @@ impl SwarmDriver {
                 sender,
             } => {
                 cmd_string = "GetLocalQuotingMetrics";
-                let (
-                    _index,
-                    _total_peers,
-                    peers_in_non_full_buckets,
-                    num_of_full_buckets,
-                    _kbucket_table_stats,
-                ) = self.kbuckets_status();
-                let estimated_network_size =
-                    Self::estimate_network_size(peers_in_non_full_buckets, num_of_full_buckets);
+                let kbucket_status = self.get_kbuckets_status();
+                self.update_on_kbucket_status(&kbucket_status);
                 let (quoting_metrics, is_already_stored) = match self
                     .swarm
                     .behaviour_mut()
@@ -644,7 +620,7 @@ impl SwarmDriver {
                         &key,
                         data_type,
                         data_size,
-                        Some(estimated_network_size as u64),
+                        Some(kbucket_status.estimated_network_size as u64),
                     ) {
                     Ok(res) => res,
                     Err(err) => {
@@ -990,11 +966,38 @@ impl SwarmDriver {
                 cmd_string = "AddFreshReplicateRecords";
                 let _ = self.add_keys_to_replication_fetcher(holder, keys, true);
             }
+            LocalSwarmCmd::NotifyPeerVersion { peer, version } => {
+                cmd_string = "NotifyPeerVersion";
+                self.record_node_version(peer, version);
+            }
         }
 
         self.log_handling(cmd_string.to_string(), start.elapsed());
 
         Ok(())
+    }
+
+    fn record_node_version(&mut self, peer_id: PeerId, version: String) {
+        let _ = self.peers_version.insert(peer_id, version);
+
+        // Collect all peers_in_non_full_buckets
+        let mut peers_in_non_full_buckets = vec![];
+        for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
+            let num_entires = kbucket.num_entries();
+            if num_entires >= K_VALUE.get() {
+                continue;
+            } else {
+                let peers_in_kbucket = kbucket
+                    .iter()
+                    .map(|peer_entry| peer_entry.node.key.into_preimage())
+                    .collect::<Vec<PeerId>>();
+                peers_in_non_full_buckets.extend(peers_in_kbucket);
+            }
+        }
+
+        // Ensure all existing node_version records are for those peers_in_non_full_buckets
+        self.peers_version
+            .retain(|peer_id, _version| peers_in_non_full_buckets.contains(peer_id));
     }
 
     pub(crate) fn record_node_issue(&mut self, peer_id: PeerId, issue: NodeIssue) {
@@ -1024,6 +1027,8 @@ impl SwarmDriver {
 
             if is_new_issue {
                 issue_vec.push((issue, Instant::now()));
+            } else {
+                return;
             }
 
             // Only consider candidate as a bad node when:
@@ -1037,9 +1042,12 @@ impl SwarmDriver {
                     // If it is a connection issue, we don't need to consider it as a bad node
                     if matches!(issue, NodeIssue::ConnectionIssue) {
                         is_connection_issue = true;
-                    } else {
-                        *is_bad = true;
                     }
+                    // TODO: disable black_list currently.
+                    //       re-enable once got more statistics from large scaled network
+                    // else {
+                    //     *is_bad = true;
+                    // }
                     new_bad_behaviour = Some(issue.clone());
                     info!("Peer {peer_id:?} accumulated {issue_counts} times of issue {issue:?}. Consider it as a bad node now.");
                     // Once a bad behaviour detected, no point to continue

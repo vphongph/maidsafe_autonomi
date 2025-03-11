@@ -25,8 +25,8 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    /// The default maximum size of a chunk is 1MB
-    pub const DEFAULT_MAX_SIZE: usize = 1024 * 1024;
+    /// The maximum size of a chunk is 4MB
+    pub const MAX_SIZE: usize = 4 * 1024 * 1024;
 
     /// Creates a new instance of `Chunk`.
     pub fn new(value: Bytes) -> Self {
@@ -63,7 +63,7 @@ impl Chunk {
 
     /// Returns true if the chunk is too big
     pub fn is_too_big(&self) -> bool {
-        self.size() > Self::DEFAULT_MAX_SIZE
+        self.size() > Self::MAX_SIZE
     }
 }
 

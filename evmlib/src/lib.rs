@@ -26,6 +26,7 @@ pub mod external_signer;
 pub mod quoting_metrics;
 mod retry;
 pub mod testnet;
+pub mod transaction_config;
 pub mod utils;
 pub mod wallet;
 
@@ -45,7 +46,7 @@ static PUBLIC_ARBITRUM_SEPOLIA_HTTP_RPC_URL: LazyLock<reqwest::Url> = LazyLock::
 });
 
 const ARBITRUM_ONE_PAYMENT_TOKEN_ADDRESS: Address =
-    address!("0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684");
+    address!("a78d8321B20c4Ef90eCd72f2588AA985A4BDb684");
 
 const ARBITRUM_SEPOLIA_PAYMENT_TOKEN_ADDRESS: Address =
     address!("BE1802c27C324a28aeBcd7eeC7D734246C807194");

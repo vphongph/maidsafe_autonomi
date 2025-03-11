@@ -76,10 +76,12 @@ pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
 pub struct DataMapChunk(pub(crate) Chunk);
 
 impl DataMapChunk {
+    /// Convert the chunk to a hex string.
     pub fn to_hex(&self) -> String {
         hex::encode(self.0.value())
     }
 
+    /// Convert a hex string to a [`DataMapChunk`].
     pub fn from_hex(hex: &str) -> Result<Self, hex::FromHexError> {
         let data = hex::decode(hex)?;
         Ok(Self(Chunk::new(Bytes::from(data))))
@@ -140,6 +142,14 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, ChunkAddress), PutError> {
         let address = chunk.network_address();
+
+        if chunk.size() > Chunk::MAX_SIZE {
+            return Err(PutError::Serialization(format!(
+                "Chunk is too large: {} bytes, when max size is {}",
+                chunk.size(),
+                Chunk::MAX_SIZE
+            )));
+        }
 
         // pay for the chunk storage
         let xor_name = *chunk.name();
@@ -207,10 +217,7 @@ impl Client {
 
         let xor = *addr.xorname();
         let store_quote = self
-            .get_store_quotes(
-                DataTypes::Chunk,
-                std::iter::once((xor, Chunk::DEFAULT_MAX_SIZE)),
-            )
+            .get_store_quotes(DataTypes::Chunk, std::iter::once((xor, Chunk::MAX_SIZE)))
             .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote
@@ -233,22 +240,51 @@ impl Client {
 
         loop {
             let mut upload_tasks = vec![];
-            for chunk in chunks {
+            let total_chunks = chunks.len();
+            for (i, &chunk) in chunks.iter().enumerate() {
                 let self_clone = self.clone();
                 let address = *chunk.address();
 
                 let Some((proof, _)) = receipt.get(chunk.name()) else {
                     debug!("Chunk at {address:?} was already paid for so skipping");
+                    #[cfg(feature = "loud")]
+                    println!(
+                        "({}/{}) Chunk stored at: {} (skipping, already exists)",
+                        i + 1,
+                        chunks.len(),
+                        chunk.address().to_hex()
+                    );
                     continue;
                 };
 
                 upload_tasks.push(async move {
-                    self_clone
+                    let res = self_clone
                         .chunk_upload_with_payment(chunk, proof.clone())
                         .await
                         .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
+                        .inspect(|_addr| {})
                         // Return chunk reference too, to re-use it next attempt/iteration
-                        .map_err(|err| (chunk, err))
+                        .map_err(|err| (chunk, err));
+                    #[cfg(feature = "loud")]
+                    match res {
+                        Ok(_addr) => {
+                            println!(
+                                "({}/{}) Chunk stored at: {}",
+                                i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                        Err((_chunk, ref err)) => {
+                            println!(
+                                "({}/{}) Chunk failed to be stored at: {} ({err})",
+                                i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                    }
+                    res
                 });
             }
             let uploads =

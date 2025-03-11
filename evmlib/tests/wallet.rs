@@ -11,20 +11,20 @@ use evmlib::common::{Amount, TxHash};
 use evmlib::contract::payment_vault::{verify_data_payment, MAX_TRANSFERS_PER_TRANSACTION};
 use evmlib::quoting_metrics::QuotingMetrics;
 use evmlib::testnet::{deploy_data_payments_contract, deploy_network_token_contract, start_node};
+use evmlib::transaction_config::TransactionConfig;
 use evmlib::wallet::{transfer_tokens, wallet_address, Wallet};
 use evmlib::{CustomNetwork, Network};
 use std::collections::HashSet;
 
 #[allow(clippy::unwrap_used)]
 async fn local_testnet() -> (AnvilInstance, Network, EthereumWallet) {
-    let (anvil, rpc_url) = start_node();
-    let network_token = deploy_network_token_contract(&rpc_url, &anvil).await;
+    let (node, rpc_url) = start_node();
+    let network_token = deploy_network_token_contract(&rpc_url, &node).await;
     let payment_token_address = *network_token.contract.address();
-    let data_payments =
-        deploy_data_payments_contract(&rpc_url, &anvil, payment_token_address).await;
+    let data_payments = deploy_data_payments_contract(&rpc_url, &node, payment_token_address).await;
 
     (
-        anvil,
+        node,
         Network::Custom(CustomNetwork {
             rpc_url_http: rpc_url,
             payment_token_address,
@@ -51,12 +51,15 @@ async fn funded_wallet(network: &Network, genesis_wallet: EthereumWallet) -> Wal
         .await
         .unwrap();
 
+    let transaction_config = TransactionConfig::default();
+
     // Fund the wallet with plenty of ERC20 tokens
     transfer_tokens(
         genesis_wallet,
         network,
         account,
         Amount::from(9999999999_u64),
+        &transaction_config,
     )
     .await
     .unwrap();

@@ -14,14 +14,14 @@ use ant_protocol::{
     NetworkAddress, PrettyPrintRecordKey,
 };
 use libp2p::{
-    kad::{KBucketDistance as Distance, RecordKey, K_VALUE},
+    kad::{KBucketDistance as Distance, RecordKey},
     PeerId,
 };
 use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet, VecDeque};
 use tokio::{sync::mpsc, time::Duration};
 
 // Max parallel fetches that can be undertaken at the same time.
-const MAX_PARALLEL_FETCH: usize = K_VALUE.get();
+const MAX_PARALLEL_FETCH: usize = 5;
 
 // The duration after which a peer will be considered failed to fetch data from,
 // if no response got from that peer.

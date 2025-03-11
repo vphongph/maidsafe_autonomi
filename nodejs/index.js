@@ -310,9 +310,12 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { ErrorCode, JsClient, JsWallet, JsPaymentOption } = nativeBinding
+const { Client, ChunkPutResult, XorName, ChunkAddress, Wallet, PaymentOption, Network } = nativeBinding
 
-module.exports.ErrorCode = ErrorCode
-module.exports.JsClient = JsClient
-module.exports.JsWallet = JsWallet
-module.exports.JsPaymentOption = JsPaymentOption
+module.exports.Client = Client
+module.exports.ChunkPutResult = ChunkPutResult
+module.exports.XorName = XorName
+module.exports.ChunkAddress = ChunkAddress
+module.exports.Wallet = Wallet
+module.exports.PaymentOption = PaymentOption
+module.exports.Network = Network

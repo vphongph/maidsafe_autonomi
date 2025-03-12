@@ -1,4 +1,4 @@
-// Copyright 2024 MaidSafe.net limited.
+// Copyright 2025 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
 // Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
@@ -392,52 +392,63 @@ fn data_hex(data: &Bytes) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::payment::PaymentOption;
+    use std::path::PathBuf;
+
+    use crate::chunk::{ChunkAddress, DataMapChunk};
+    use crate::data::DataAddress;
+    use crate::files::{Metadata, PrivateArchive, PublicArchive};
     use crate::Bytes;
-    use crate::Client;
-    use ant_logging::LogBuilder;
+    use crate::{PublicKey, SecretKey};
     use eyre::Result;
     use serial_test::serial;
-    use test_utils::evm::get_funded_wallet;
+
+    // this test confirms that a xorname and a public key are different and can't be confused for each other
+    #[tokio::test]
+    #[serial]
+    async fn test_xorname_pubkey_different() -> Result<()> {
+        let xorname = xor_name::XorName::random(&mut rand::thread_rng());
+        let pubkey = SecretKey::random().public_key();
+        let xorname_hex = ChunkAddress::new(xorname).to_hex();
+        let pubkey_hex = pubkey.to_hex();
+
+        let maybe_xorname = ChunkAddress::from_hex(&pubkey_hex);
+        assert!(maybe_xorname.is_err());
+        let maybe_public_key = PublicKey::from_hex(&xorname_hex);
+        assert!(maybe_public_key.is_err());
+        Ok(())
+    }
 
     // this test confirms that both public and private archives can serialize and deserialize into each other
     // this is an unfortunate side effect of the fact Bytes and XorName can be serialized and deserialized into each other
     // this is due to the fact that XorName deserialization accepts any data longer or equal to 32 bytes
-    // which is a BUG in the XorName deserialization logic
     #[tokio::test]
     #[serial]
     async fn test_archives_serialize_deserialize() -> Result<()> {
-        let _log_appender_guard =
-            LogBuilder::init_single_threaded_tokio_test("analyze private dir", false);
-
-        let client = Client::init_local().await?;
-        let wallet = get_funded_wallet();
-        let payment_option = PaymentOption::from(&wallet);
-
         // create a public and private archive
-        let path = "tests/file/test_dir/".into();
-        let (_cost, archive_datamap) = client.dir_upload(path, payment_option.clone()).await?;
-        let archive = client.archive_get(&archive_datamap).await?;
-        let path = "tests/file/test_dir/".into();
-        let (_cost, archive_addr) = client.dir_upload_public(path, payment_option).await?;
-        let archive_public = client.archive_get_public(&archive_addr).await?;
+        let mut archive_public = PublicArchive::new();
+        let mut archive = PrivateArchive::new();
+
+        // add a files to the archive
+        let data_addr = DataAddress::new(xor_name::XorName::random(&mut rand::thread_rng()));
+        let datamap = DataMapChunk::from_hex(
+            "123412341234123412341234123412341243123412341243123412341234123412341234",
+        )
+        .unwrap();
+        archive_public.add_file(PathBuf::from("filename"), data_addr, Metadata::default());
+        archive.add_file(PathBuf::from("filename"), datamap, Metadata::default());
 
         // they can be serialized and deserialized into each other
         let serialized = rmp_serde::to_vec_named(&archive_public).unwrap();
-        let deserialized_as_pub: crate::client::files::archive_public::PublicArchive =
-            rmp_serde::from_slice(&serialized).unwrap();
-        let deserialized_as_private: crate::client::files::archive_private::PrivateArchive =
-            rmp_serde::from_slice(&serialized).unwrap();
+        let deserialized_as_pub: PublicArchive = rmp_serde::from_slice(&serialized).unwrap();
+        let deserialized_as_private: PrivateArchive = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(archive_public, deserialized_as_pub);
         println!("Deserialized as private: {deserialized_as_private:#?}");
         println!("Deserialized as public: {deserialized_as_pub:#?}");
 
         // the other way around is also possible
         let serialized = rmp_serde::to_vec_named(&archive).unwrap();
-        let deserialized_as_pub: crate::client::files::archive_public::PublicArchive =
-            rmp_serde::from_slice(&serialized).unwrap();
-        let deserialized_as_private: crate::client::files::archive_private::PrivateArchive =
-            rmp_serde::from_slice(&serialized).unwrap();
+        let deserialized_as_pub: PublicArchive = rmp_serde::from_slice(&serialized).unwrap();
+        let deserialized_as_private: PrivateArchive = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(archive, deserialized_as_private);
         println!("Deserialized as private: {deserialized_as_private:#?}");
         println!("Deserialized as public: {deserialized_as_pub:#?}");

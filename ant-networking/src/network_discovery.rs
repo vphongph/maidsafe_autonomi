@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::time::{interval, Instant, Interval};
+use crate::Addresses;
 use crate::{driver::PendingGetClosestType, SwarmDriver};
 use ant_protocol::NetworkAddress;
 use libp2p::kad::K_VALUE;
@@ -56,24 +57,20 @@ impl SwarmDriver {
     pub(crate) fn trigger_network_discovery(&mut self) {
         let now = Instant::now();
 
-        // Find the farthest bucket that is not full. This is used to skip refreshing the RT of farthest full buckets.
-        let mut first_filled_bucket = 0;
-        // unfilled kbuckets will not be returned, hence the value shall be:
-        //   * first_filled_kbucket.ilog2() - 1
-        for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
-            let Some(ilog2) = kbucket.range().0.ilog2() else {
-                continue;
-            };
-            if kbucket.num_entries() >= K_VALUE.get() {
-                first_filled_bucket = ilog2;
+        // Find the farthest bucket that is not full.
+        // This is used to skip refreshing the RT of farthest full buckets.
+        let mut farthest_unfilled_bucket = Some(255);
+        let kbuckets: Vec<_> = self.swarm.behaviour_mut().kademlia.kbuckets().collect();
+        // Iterate from 255, 254 and so on by calling `rev()` to tackle the `hole` situation.
+        for kbucket in kbuckets.iter().rev() {
+            if kbucket.num_entries() < K_VALUE.get() {
+                let Some(ilog2) = kbucket.range().0.ilog2() else {
+                    continue;
+                };
+                farthest_unfilled_bucket = Some(ilog2);
                 break;
             }
         }
-        let farthest_unfilled_bucket = if first_filled_bucket == 0 {
-            None
-        } else {
-            Some(first_filled_bucket - 1)
-        };
 
         let addrs = self
             .network_discovery
@@ -190,7 +187,7 @@ impl NetworkDiscovery {
         (should_network_discover, new_interval)
     }
 
-    pub(crate) fn handle_get_closest_query(&mut self, closest_peers: Vec<PeerId>) {
+    pub(crate) fn handle_get_closest_query(&mut self, closest_peers: Vec<(PeerId, Addresses)>) {
         self.candidates.handle_get_closest_query(closest_peers);
     }
 
@@ -239,12 +236,12 @@ impl NetworkDiscoveryCandidates {
     }
 
     /// The result from the kad::GetClosestPeers are again used to update our kbucket.
-    fn handle_get_closest_query(&mut self, closest_peers: Vec<PeerId>) {
+    fn handle_get_closest_query(&mut self, closest_peers: Vec<(PeerId, Addresses)>) {
         let now = Instant::now();
 
         let candidates_map: BTreeMap<u32, Vec<NetworkAddress>> = closest_peers
             .into_iter()
-            .filter_map(|peer| {
+            .filter_map(|(peer, _)| {
                 let peer = NetworkAddress::from_peer(peer);
                 let peer_key = peer.as_kbucket_key();
                 peer_key

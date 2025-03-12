@@ -310,12 +310,49 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Client, ChunkPutResult, XorName, ChunkAddress, Wallet, PaymentOption, Network } = nativeBinding
+const { DataPutResult, Client, ChunkPut, GraphEntryPut, ScratchpadPut, PointerPut, DataPutPublicResult, ArchivePutResult, ArchivePutPublicResult, DirContentUpload, DirUpload, FileContentUpload, DirContentUploadPublic, DirUploadPublic, FileContentUploadPublic, FetchAndDecryptVault, RegisterCreate, XorName, ChunkAddress, GraphEntryAddress, DataAddress, ArchiveAddress, Wallet, PaymentOption, Network, PublicKey, SecretKey, GraphEntry, GraphEntry, Pointer, PointerTarget, PointerAddress, Scratchpad, ScratchpadAddress, DataMapChunk, PrivateArchiveDataMap, PrivateArchive, VaultSecretKey, UserData, VaultContentType, RegisterAddress, RegisterHistory, PublicArchive, RegisterValue } = nativeBinding
 
+module.exports.DataPutResult = DataPutResult
 module.exports.Client = Client
-module.exports.ChunkPutResult = ChunkPutResult
+module.exports.ChunkPut = ChunkPut
+module.exports.GraphEntryPut = GraphEntryPut
+module.exports.ScratchpadPut = ScratchpadPut
+module.exports.PointerPut = PointerPut
+module.exports.DataPutPublicResult = DataPutPublicResult
+module.exports.ArchivePutResult = ArchivePutResult
+module.exports.ArchivePutPublicResult = ArchivePutPublicResult
+module.exports.DirContentUpload = DirContentUpload
+module.exports.DirUpload = DirUpload
+module.exports.FileContentUpload = FileContentUpload
+module.exports.DirContentUploadPublic = DirContentUploadPublic
+module.exports.DirUploadPublic = DirUploadPublic
+module.exports.FileContentUploadPublic = FileContentUploadPublic
+module.exports.FetchAndDecryptVault = FetchAndDecryptVault
+module.exports.RegisterCreate = RegisterCreate
 module.exports.XorName = XorName
 module.exports.ChunkAddress = ChunkAddress
+module.exports.GraphEntryAddress = GraphEntryAddress
+module.exports.DataAddress = DataAddress
+module.exports.ArchiveAddress = ArchiveAddress
 module.exports.Wallet = Wallet
 module.exports.PaymentOption = PaymentOption
 module.exports.Network = Network
+module.exports.PublicKey = PublicKey
+module.exports.SecretKey = SecretKey
+module.exports.GraphEntry = GraphEntry
+module.exports.GraphEntry = GraphEntry
+module.exports.Pointer = Pointer
+module.exports.PointerTarget = PointerTarget
+module.exports.PointerAddress = PointerAddress
+module.exports.Scratchpad = Scratchpad
+module.exports.ScratchpadAddress = ScratchpadAddress
+module.exports.DataMapChunk = DataMapChunk
+module.exports.PrivateArchiveDataMap = PrivateArchiveDataMap
+module.exports.PrivateArchive = PrivateArchive
+module.exports.VaultSecretKey = VaultSecretKey
+module.exports.UserData = UserData
+module.exports.VaultContentType = VaultContentType
+module.exports.RegisterAddress = RegisterAddress
+module.exports.RegisterHistory = RegisterHistory
+module.exports.PublicArchive = PublicArchive
+module.exports.RegisterValue = RegisterValue

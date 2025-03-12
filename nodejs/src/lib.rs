@@ -1,8 +1,17 @@
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use autonomi::{
-    client::payment::PaymentOption, AttoTokens, Bytes, Chunk, ChunkAddress, Client, Network,
-    Wallet, XorName,
+    chunk::DataMapChunk,
+    client::{data::DataAddress, payment::PaymentOption},
+    files::{
+        archive_private::PrivateArchiveDataMap, archive_public::ArchiveAddress, PrivateArchive,
+        PublicArchive,
+    },
+    pointer::PointerTarget,
+    register::{RegisterAddress, RegisterHistory, RegisterValue},
+    vault::{UserData, VaultContentType, VaultSecretKey},
+    AttoTokens, Bytes, Chunk, ChunkAddress, Client, GraphEntry, GraphEntryAddress, Network,
+    Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey, Wallet, XorName,
 };
 
 use libp2p::Multiaddr;
@@ -93,7 +102,7 @@ impl JsClient {
         &self,
         data: Buffer,
         payment_option: &JsPaymentOption,
-    ) -> Result<ChunkPutResult> {
+    ) -> Result<tuple_result::ChunkPut> {
         let chunk = Chunk::new(Bytes::from(data.as_ref().to_vec()));
 
         let (cost, addr) = self
@@ -102,7 +111,7 @@ impl JsClient {
             .await
             .map_err(map_error)?;
 
-        Ok(ChunkPutResult { cost, addr })
+        Ok(tuple_result::ChunkPut { cost, addr })
     }
 
     /// Get the cost of a chunk.
@@ -115,11 +124,7 @@ impl JsClient {
 
     // /// Upload chunks and retry failed uploads up to RETRY_ATTEMPTS times.
     // #[napi]
-    // pub async fn upload_chunks_with_retries<'a>(
-    //     &self,
-    //     chunks: Vec<&'a Chunk>,
-    //     receipt: &Receipt,
-    // ) -> Vec<(&'a Chunk, PutError)> {
+    // pub async fn upload_chunks_with_retries(&self, chunks: Vec<Chunk>, receipt: &Receipt) -> Vec<(Chunk, PutError)> {
     //     todo!()
     // }
 
@@ -128,13 +133,25 @@ impl JsClient {
     /// Fetches a GraphEntry from the network.
     #[napi]
     pub async fn graph_entry_get(&self, address: &JsGraphEntryAddress) -> Result<JsGraphEntry> {
-        todo!()
+        let graph_entry = self
+            .0
+            .graph_entry_get(&address.0)
+            .await
+            .map_err(map_error)?;
+
+        Ok(JsGraphEntry(graph_entry))
     }
 
     /// Check if a graph_entry exists on the network
     #[napi]
     pub async fn graph_entry_check_existance(&self, address: &JsGraphEntryAddress) -> Result<bool> {
-        todo!()
+        let exists = self
+            .0
+            .graph_entry_check_existance(&address.0)
+            .await
+            .map_err(map_error)?;
+
+        Ok(exists)
     }
 
     /// Manually puts a GraphEntry to the network.
@@ -143,33 +160,41 @@ impl JsClient {
         &self,
         entry: &JsGraphEntry,
         payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsGraphEntryAddress)> {
-        todo!()
+    ) -> Result</* (AttoTokens, JsGraphEntryAddress) */ tuple_result::GraphEntryPut> {
+        let (cost, addr) = self
+            .0
+            .graph_entry_put(entry.0.clone(), payment_option.0.clone())
+            .await
+            .map_err(map_error)?;
+
+        Ok(tuple_result::GraphEntryPut { cost, addr })
     }
 
     /// Get the cost to create a GraphEntry
     #[napi]
     pub async fn graph_entry_cost(&self, key: &JsPublicKey) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self.0.graph_entry_cost(&key.0).await.map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Pointers
 
     /// Get a pointer from the network
     #[napi]
-    pub async fn pointer_get(&self, address: &JsPointerAddress) -> Result<JsPointer> {
+    pub async fn pointer_get(&self, _address: &JsPointerAddress) -> Result<JsPointer> {
         todo!()
     }
 
     /// Check if a pointer exists on the network
     #[napi]
-    pub async fn pointer_check_existance(&self, address: &JsPointerAddress) -> Result<bool> {
+    pub async fn pointer_check_existance(&self, _address: &JsPointerAddress) -> Result<bool> {
         todo!()
     }
 
     /// Verify a pointer
     #[napi]
-    pub fn pointer_verify(pointer: &JsPointer) -> Result<()> {
+    pub fn pointer_verify(_pointer: &JsPointer) -> Result<()> {
         todo!()
     }
 
@@ -177,9 +202,9 @@ impl JsClient {
     #[napi]
     pub async fn pointer_put(
         &self,
-        pointer: &JsPointer,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPointerAddress)> {
+        _pointer: &JsPointer,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsPointerAddress) */ tuple_result::PointerPut> {
         todo!()
     }
 
@@ -189,10 +214,10 @@ impl JsClient {
     #[napi]
     pub async fn pointer_create(
         &self,
-        owner: &JsSecretKey,
-        target: &JsPointerTarget,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPointerAddress)> {
+        _owner: &JsSecretKey,
+        _target: &JsPointerTarget,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsPointerAddress) */ tuple_result::PointerPut> {
         todo!()
     }
 
@@ -205,8 +230,8 @@ impl JsClient {
     #[napi]
     pub async fn pointer_update(
         &self,
-        owner: &JsSecretKey,
-        target: &JsPointerTarget,
+        _owner: &JsSecretKey,
+        _target: &JsPointerTarget,
     ) -> Result<()> {
         todo!()
     }
@@ -214,7 +239,9 @@ impl JsClient {
     /// Calculate the cost of storing a pointer
     #[napi]
     pub async fn pointer_cost(&self, key: &JsPublicKey) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self.0.pointer_cost(&key.0).await.map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Scratchpad
@@ -223,26 +250,26 @@ impl JsClient {
     #[napi]
     pub async fn scratchpad_get_from_public_key(
         &self,
-        public_key: &JsPublicKey,
+        _public_key: &JsPublicKey,
     ) -> Result<JsScratchpad> {
         todo!()
     }
 
     /// Get Scratchpad from the Network
     #[napi]
-    pub async fn scratchpad_get(&self, address: &JsScratchpadAddress) -> Result<JsScratchpad> {
+    pub async fn scratchpad_get(&self, _address: &JsScratchpadAddress) -> Result<JsScratchpad> {
         todo!()
     }
 
     /// Check if a scratchpad exists on the network
     #[napi]
-    pub async fn scratchpad_check_existance(&self, address: &JsScratchpadAddress) -> Result<bool> {
+    pub async fn scratchpad_check_existance(&self, _address: &JsScratchpadAddress) -> Result<bool> {
         todo!()
     }
 
     /// Verify a scratchpad
     #[napi]
-    pub fn scratchpad_verify(scratchpad: &JsScratchpad) -> Result<()> {
+    pub fn scratchpad_verify(_scratchpad: &JsScratchpad) -> Result<()> {
         todo!()
     }
 
@@ -250,9 +277,9 @@ impl JsClient {
     #[napi]
     pub async fn scratchpad_put(
         &self,
-        scratchpad: &JsScratchpad,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsScratchpadAddress)> {
+        _scratchpad: &JsScratchpad,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsScratchpadAddress) */ tuple_result::ScratchpadPut> {
         todo!()
     }
 
@@ -264,11 +291,11 @@ impl JsClient {
     #[napi]
     pub async fn scratchpad_create(
         &self,
-        owner: &JsSecretKey,
-        content_type: i64, // `u64`
-        initial_data: Buffer,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsScratchpadAddress)> {
+        _owner: &JsSecretKey,
+        _content_type: i64, // `u64`
+        _initial_data: Buffer,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsScratchpadAddress) */ tuple_result::ScratchpadPut> {
         todo!()
     }
 
@@ -280,9 +307,9 @@ impl JsClient {
     #[napi]
     pub async fn scratchpad_update(
         &self,
-        owner: &JsSecretKey,
-        content_type: i64, // `u64`
-        data: Buffer,
+        _owner: &JsSecretKey,
+        _content_type: i64, // `u64`
+        _data: Buffer,
     ) -> Result<()> {
         todo!()
     }
@@ -290,7 +317,9 @@ impl JsClient {
     /// Get the cost of creating a new Scratchpad
     #[napi]
     pub async fn scratchpad_cost(&self, owner: &JsPublicKey) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self.0.scratchpad_cost(&owner.0).await.map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Data
@@ -298,7 +327,9 @@ impl JsClient {
     /// Fetch a blob of (private) data from the network
     #[napi]
     pub async fn data_get(&self, data_map: &JsDataMapChunk) -> Result<Buffer> {
-        todo!()
+        let data = self.0.data_get(&data_map.0).await.map_err(map_error)?;
+
+        Ok(Buffer::from(data.as_ref()))
     }
 
     /// Upload a piece of private data to the network. This data will be self-encrypted.
@@ -310,14 +341,24 @@ impl JsClient {
         &self,
         data: Buffer,
         payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsDataMapChunk)> {
-        todo!()
+    ) -> Result</* (AttoTokens, JsDataMapChunk) */ tuple_result::DataPutResult> {
+        let data = Bytes::copy_from_slice(data.as_ref());
+
+        let (cost, data_map) = self
+            .0
+            .data_put(data, payment_option.0.clone())
+            .await
+            .map_err(map_error)?;
+
+        Ok(tuple_result::DataPutResult { cost, data_map })
     }
 
     /// Fetch a blob of data from the network
     #[napi]
     pub async fn data_get_public(&self, addr: &JsDataAddress) -> Result<Buffer> {
-        todo!()
+        let data = self.0.data_get_public(&addr.0).await.map_err(map_error)?;
+
+        Ok(Buffer::from(data.as_ref()))
     }
 
     /// Upload a piece of data to the network. This data is publicly accessible.
@@ -328,14 +369,28 @@ impl JsClient {
         &self,
         data: Buffer,
         payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, &JsDataAddress)> {
-        todo!()
+    ) -> Result</* (AttoTokens, JsDataAddress) */ tuple_result::DataPutPublicResult> {
+        let data = Bytes::copy_from_slice(data.as_ref());
+
+        let (cost, addr) = self
+            .0
+            .data_put_public(data, payment_option.0.clone())
+            .await
+            .map_err(map_error)?;
+
+        Ok(tuple_result::DataPutPublicResult { cost, addr })
     }
 
     /// Get the estimated cost of storing a piece of data.
     #[napi]
     pub async fn data_cost(&self, data: Buffer) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self
+            .0
+            .data_cost(Bytes::copy_from_slice(&data))
+            .await
+            .map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Archives
@@ -343,16 +398,18 @@ impl JsClient {
     /// Fetch a PrivateArchive from the network
     #[napi]
     pub async fn archive_get(&self, addr: &JsPrivateArchiveDataMap) -> Result<JsPrivateArchive> {
-        todo!()
+        let archive = self.0.archive_get(&addr.0).await.map_err(map_error)?;
+
+        Ok(JsPrivateArchive(archive))
     }
 
     /// Upload a PrivateArchive to the network
     #[napi]
     pub async fn archive_put(
         &self,
-        archive: &JsPrivateArchive,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPrivateArchiveDataMap)> {
+        _archive: &JsPrivateArchive,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</*(AttoTokens, JsPrivateArchiveDataMap)*/ tuple_result::ArchivePutResult> {
         todo!()
     }
 
@@ -361,23 +418,35 @@ impl JsClient {
     /// Fetch an archive from the network
     #[napi]
     pub async fn archive_get_public(&self, addr: &JsArchiveAddress) -> Result<JsPublicArchive> {
-        todo!()
+        let archive = self
+            .0
+            .archive_get_public(&addr.0)
+            .await
+            .map_err(map_error)?;
+
+        Ok(JsPublicArchive(archive))
     }
 
     /// Upload an archive to the network
     #[napi]
     pub async fn archive_put_public(
         &self,
-        archive: &JsPublicArchive,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsArchiveAddress)> {
+        _archive: &JsPublicArchive,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsArchiveAddress) */ tuple_result::ArchivePutPublicResult> {
         todo!()
     }
 
     /// Get the cost to upload an archive
     #[napi]
     pub async fn archive_cost(&self, archive: &JsPublicArchive) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self
+            .0
+            .archive_cost(&archive.0.clone())
+            .await
+            .map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Files
@@ -386,8 +455,8 @@ impl JsClient {
     #[napi]
     pub async fn file_download(
         &self,
-        data_access: &JsDataMapChunk,
-        to_dest: /* PathBuf */ String,
+        _data_access: &JsDataMapChunk,
+        _to_dest: /* PathBuf */ String,
     ) -> Result<()> {
         todo!()
     }
@@ -396,8 +465,8 @@ impl JsClient {
     #[napi]
     pub async fn dir_download(
         &self,
-        archive_access: &JsPrivateArchiveDataMap,
-        to_dest: /* PathBuf */ String,
+        _archive_access: &JsPrivateArchiveDataMap,
+        _to_dest: /* PathBuf */ String,
     ) -> Result<()> {
         todo!()
     }
@@ -411,9 +480,9 @@ impl JsClient {
     #[napi]
     pub async fn dir_content_upload(
         &self,
-        dir_path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPrivateArchive)> {
+        _dir_path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsPrivateArchive) */ tuple_result::DirContentUpload> {
         todo!()
     }
 
@@ -423,9 +492,9 @@ impl JsClient {
     #[napi]
     pub async fn dir_upload(
         &self,
-        dir_path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPrivateArchiveDataMap)> {
+        _dir_path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsPrivateArchiveDataMap) */ tuple_result::DirUpload> {
         todo!()
     }
 
@@ -434,9 +503,9 @@ impl JsClient {
     #[napi]
     pub async fn file_content_upload(
         &self,
-        path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsDataMapChunk)> {
+        _path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsDataMapChunk) */ tuple_result::FileContentUpload> {
         todo!()
     }
 
@@ -444,8 +513,8 @@ impl JsClient {
     #[napi]
     pub async fn file_download_public(
         &self,
-        data_addr: &JsDataAddress,
-        to_dest: /* PathBuf */ String,
+        _data_addr: &JsDataAddress,
+        _to_dest: /* PathBuf */ String,
     ) -> Result<()> {
         todo!()
     }
@@ -454,8 +523,8 @@ impl JsClient {
     #[napi]
     pub async fn dir_download_public(
         &self,
-        archive_addr: &JsArchiveAddress,
-        to_dest: /* PathBuf */ String,
+        _archive_addr: &JsArchiveAddress,
+        _to_dest: /* PathBuf */ String,
     ) -> Result<()> {
         todo!()
     }
@@ -468,9 +537,9 @@ impl JsClient {
     #[napi]
     pub async fn dir_content_upload_public(
         &self,
-        dir_path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsPublicArchive)> {
+        _dir_path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsPublicArchive) */ tuple_result::DirContentUploadPublic> {
         todo!()
     }
 
@@ -480,9 +549,9 @@ impl JsClient {
     #[napi]
     pub async fn dir_upload_public(
         &self,
-        dir_path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsArchiveAddress)> {
+        _dir_path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsArchiveAddress) */ tuple_result::DirUploadPublic> {
         todo!()
     }
 
@@ -491,16 +560,22 @@ impl JsClient {
     #[napi]
     pub async fn file_content_upload_public(
         &self,
-        path: /* PathBuf */ String,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsDataAddress)> {
+        _path: /* PathBuf */ String,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsDataAddress) */ tuple_result::FileContentUploadPublic> {
         todo!()
     }
 
     /// Get the cost to upload a file/dir to the network. quick and dirty implementation, please refactor once files are cleanly implemented
     #[napi]
     pub async fn file_cost(&self, path: /* &PathBuf */ String) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self
+            .0
+            .file_cost(&PathBuf::from(path))
+            .await
+            .map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Vault/user data
@@ -509,7 +584,7 @@ impl JsClient {
     #[napi]
     pub async fn get_user_data_from_vault(
         &self,
-        secret_key: &JsVaultSecretKey,
+        _secret_key: &JsVaultSecretKey,
     ) -> Result<JsUserData> {
         todo!()
     }
@@ -520,9 +595,9 @@ impl JsClient {
     #[napi]
     pub async fn put_user_data_to_vault(
         &self,
-        secret_key: &JsVaultSecretKey,
-        payment_option: &JsPaymentOption,
-        user_data: &JsUserData,
+        _secret_key: &JsVaultSecretKey,
+        _payment_option: &JsPaymentOption,
+        _user_data: &JsUserData,
     ) -> Result</* AttoTokens */ String> {
         todo!()
     }
@@ -533,8 +608,8 @@ impl JsClient {
     #[napi]
     pub async fn fetch_and_decrypt_vault(
         &self,
-        secret_key: &JsVaultSecretKey,
-    ) -> Result<(Bytes, JsVaultContentType)> {
+        _secret_key: &JsVaultSecretKey,
+    ) -> Result</* (Bytes, JsVaultContentType) */ tuple_result::FetchAndDecryptVault> {
         todo!()
     }
 
@@ -544,9 +619,23 @@ impl JsClient {
     pub async fn vault_cost(
         &self,
         owner: &JsVaultSecretKey,
-        max_size: /* u64 */ i64,
+        max_size: /* u64 */ BigInt,
     ) -> Result</* AttoTokens */ String> {
-        todo!()
+        let (_signed, max_size, losless) = max_size.get_u64();
+        if losless {
+            return Err(napi::Error::new(
+                Status::InvalidArg,
+                "`max_size` is too large",
+            ));
+        }
+
+        let cost = self
+            .0
+            .vault_cost(&owner.0.clone(), max_size)
+            .await
+            .map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     /// Put data into the client’s VaultPacket
@@ -558,10 +647,10 @@ impl JsClient {
     #[napi]
     pub async fn write_bytes_to_vault(
         &self,
-        data: Buffer,
-        payment_option: &JsPaymentOption,
-        secret_key: &JsVaultSecretKey,
-        content_type: &JsVaultContentType,
+        _data: Buffer,
+        _payment_option: &JsPaymentOption,
+        _secret_key: &JsVaultSecretKey,
+        _content_type: &JsVaultContentType,
     ) -> Result</* AttoTokens */ String> {
         todo!()
     }
@@ -575,7 +664,7 @@ impl JsClient {
     /// RegisterHistory::next can be used to get the values one by one, from the first to the latest entry.
     /// RegisterHistory::collect can be used to get all the register values from the history from the first to the latest entry.
     #[napi]
-    pub fn register_history(&self, addr: &JsRegisterAddress) -> JsRegisterHistory {
+    pub fn register_history(&self, _addr: &JsRegisterAddress) -> JsRegisterHistory {
         todo!()
     }
 
@@ -583,13 +672,13 @@ impl JsClient {
     ///
     /// This derives a new SecretKey from the owner’s SecretKey using the name. Note that you will need to keep track of the names you used to create the register key.
     #[napi]
-    pub fn register_key_from_name(owner: &JsSecretKey, name: String) -> JsSecretKey {
+    pub fn register_key_from_name(_owner: &JsSecretKey, _name: String) -> JsSecretKey {
         todo!()
     }
 
     /// Create a new RegisterValue from bytes, make sure the bytes are not longer than REGISTER_VALUE_SIZE
     #[napi]
-    pub fn register_value_from_bytes(bytes: &[u8]) -> Result<JsRegisterValue> {
+    pub fn register_value_from_bytes(_bytes: &[u8]) -> Result<JsRegisterValue> {
         todo!()
     }
 
@@ -599,10 +688,10 @@ impl JsClient {
     #[napi]
     pub async fn register_create(
         &self,
-        owner: &JsSecretKey,
-        initial_value: &JsRegisterValue,
-        payment_option: &JsPaymentOption,
-    ) -> Result<(/* AttoTokens */ String, JsRegisterAddress)> {
+        _owner: &JsSecretKey,
+        _initial_value: &JsRegisterValue,
+        _payment_option: &JsPaymentOption,
+    ) -> Result</* (AttoTokens, JsRegisterAddress) */ tuple_result::RegisterCreate> {
         todo!()
     }
 
@@ -612,23 +701,29 @@ impl JsClient {
     #[napi]
     pub async fn register_update(
         &self,
-        owner: &JsSecretKey,
-        new_value: &JsRegisterValue,
-        payment_option: &JsPaymentOption,
+        _owner: &JsSecretKey,
+        _new_value: &JsRegisterValue,
+        _payment_option: &JsPaymentOption,
     ) -> Result</* AttoTokens */ String> {
         todo!()
     }
 
     /// Get the current value of the register
     #[napi]
-    pub async fn register_get(&self, addr: &JsRegisterAddress) -> Result<JsRegisterValue> {
+    pub async fn register_get(&self, _addr: &JsRegisterAddress) -> Result<JsRegisterValue> {
         todo!()
     }
 
     /// Get the cost of a register operation. Returns the cost of creation if it doesn’t exist, else returns the cost of an update
     #[napi]
     pub async fn register_cost(&self, owner: &JsPublicKey) -> Result</* AttoTokens */ String> {
-        todo!()
+        let cost = self
+            .0
+            .register_cost(&owner.0.clone())
+            .await
+            .map_err(map_error)?;
+
+        Ok(cost.to_string())
     }
 
     // Quotes
@@ -654,21 +749,280 @@ impl JsClient {
     // }
 }
 
-// This type exists because NAPI-RS does not support returning tuples.
-#[napi]
-pub struct ChunkPutResult {
-    cost: AttoTokens,
-    addr: ChunkAddress, // Can't be `JsChunkAddress` as NAPI-RS expects a reference in that case.
-}
-#[napi]
-impl ChunkPutResult {
-    #[napi(getter)]
-    pub fn cost(&self) -> String {
-        self.cost.to_string()
+pub mod tuple_result {
+    use super::*;
+
+    // This type exists because NAPI-RS does not support returning tuples.
+    #[napi]
+    pub struct ChunkPut {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: ChunkAddress, // Can't be `JsChunkAddress` as NAPI-RS expects a reference in that case.
     }
-    #[napi(getter)]
-    pub fn addr(&self) -> JsChunkAddress {
-        JsChunkAddress(self.addr.clone())
+    #[napi]
+    impl ChunkPut {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsChunkAddress {
+            JsChunkAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct GraphEntryPut {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: GraphEntryAddress,
+    }
+    #[napi]
+    impl GraphEntryPut {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsGraphEntryAddress {
+            JsGraphEntryAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct ScratchpadPut {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: ScratchpadAddress,
+    }
+    #[napi]
+    impl ScratchpadPut {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsScratchpadAddress {
+            JsScratchpadAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct PointerPut {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl PointerPut {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DataPutResult {
+        pub(crate) cost: AttoTokens,
+        pub(crate) data_map: DataMapChunk,
+    }
+    #[napi]
+    impl DataPutResult {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn data_map(&self) -> JsDataMapChunk {
+            JsDataMapChunk(self.data_map.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DataPutPublicResult {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: DataAddress,
+    }
+    #[napi]
+    impl DataPutPublicResult {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsDataAddress {
+            JsDataAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct ArchivePutResult {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl ArchivePutResult {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct ArchivePutPublicResult {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl ArchivePutPublicResult {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DirContentUpload {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl DirContentUpload {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DirUpload {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl DirUpload {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct FileContentUpload {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl FileContentUpload {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DirContentUploadPublic {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl DirContentUploadPublic {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct DirUploadPublic {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl DirUploadPublic {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct FileContentUploadPublic {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl FileContentUploadPublic {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct FetchAndDecryptVault {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl FetchAndDecryptVault {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
+    }
+
+    #[napi]
+    pub struct RegisterCreate {
+        pub(crate) cost: AttoTokens,
+        pub(crate) addr: PointerAddress,
+    }
+    #[napi]
+    impl RegisterCreate {
+        #[napi(getter)]
+        pub fn cost(&self) -> String {
+            self.cost.to_string()
+        }
+        #[napi(getter)]
+        pub fn addr(&self) -> JsPointerAddress {
+            JsPointerAddress(self.addr.clone())
+        }
     }
 }
 
@@ -725,6 +1079,48 @@ impl JsChunkAddress {
         Ok(Self(addr))
     }
 }
+
+/// Address of a `GraphEntry`.
+///
+/// It is derived from the owner's unique public key
+#[napi(js_name = "GraphEntryAddress")]
+pub struct JsGraphEntryAddress(GraphEntryAddress);
+
+#[napi]
+impl JsGraphEntryAddress {
+    /// Creates a new GraphEntryAddress.
+    #[napi(constructor)]
+    pub fn new(owner: &JsPublicKey) -> Self {
+        Self(GraphEntryAddress::new(owner.0.clone()))
+    }
+
+    /// Return the network name of the scratchpad.
+    /// This is used to locate the scratchpad on the network.
+    #[napi]
+    pub fn xorname(&self) -> JsXorName {
+        JsXorName(self.0.xorname())
+    }
+
+    /// Serialize this `GraphEntryAddress` into a hex-encoded string.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Parse a hex-encoded string into a `GraphEntryAddress`.
+    #[napi(factory)]
+    pub fn try_from_hex(hex: String) -> Result<Self> {
+        let addr = GraphEntryAddress::from_hex(&hex).map_err(map_error)?;
+
+        Ok(Self(addr))
+    }
+}
+
+#[napi(js_name = "DataAddress")]
+pub struct JsDataAddress(DataAddress);
+
+#[napi(js_name = "ArchiveAddress")]
+pub struct JsArchiveAddress(ArchiveAddress);
 
 /// A wallet for interacting with the network's payment system
 #[napi(js_name = "Wallet")]
@@ -802,3 +1198,60 @@ impl JsNetwork {
         Ok(Self(network))
     }
 }
+
+#[napi(js_name = "PublicKey")]
+pub struct JsPublicKey(PublicKey);
+
+#[napi(js_name = "SecretKey")]
+pub struct JsSecretKey(SecretKey);
+
+#[napi(js_name = "GraphEntry")]
+pub struct JsGPointerAddress(PointerAddress);
+
+#[napi(js_name = "GraphEntry")]
+pub struct JsGraphEntry(GraphEntry);
+
+#[napi(js_name = "Pointer")]
+pub struct JsPointer(Pointer);
+
+#[napi(js_name = "PointerTarget")]
+pub struct JsPointerTarget(PointerTarget);
+
+#[napi(js_name = "PointerAddress")]
+pub struct JsPointerAddress(PointerAddress);
+
+#[napi(js_name = "Scratchpad")]
+pub struct JsScratchpad(Scratchpad);
+
+#[napi(js_name = "ScratchpadAddress")]
+pub struct JsScratchpadAddress(ScratchpadAddress);
+
+#[napi(js_name = "DataMapChunk")]
+pub struct JsDataMapChunk(DataMapChunk);
+
+#[napi(js_name = "PrivateArchiveDataMap")]
+pub struct JsPrivateArchiveDataMap(PrivateArchiveDataMap);
+
+#[napi(js_name = "PrivateArchive")]
+pub struct JsPrivateArchive(PrivateArchive);
+
+#[napi(js_name = "VaultSecretKey")]
+pub struct JsVaultSecretKey(VaultSecretKey);
+
+#[napi(js_name = "UserData")]
+pub struct JsUserData(UserData);
+
+#[napi(js_name = "VaultContentType")]
+pub struct JsVaultContentType(VaultContentType);
+
+#[napi(js_name = "RegisterAddress")]
+pub struct JsRegisterAddress(RegisterAddress);
+
+#[napi(js_name = "RegisterHistory")]
+pub struct JsRegisterHistory(RegisterHistory);
+
+#[napi(js_name = "PublicArchive")]
+pub struct JsPublicArchive(PublicArchive);
+
+#[napi(js_name = "RegisterValue")]
+pub struct JsRegisterValue(RegisterValue);

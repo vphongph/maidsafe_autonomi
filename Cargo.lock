@@ -1622,6 +1622,7 @@ dependencies = [
  "autonomi",
  "blsttc",
  "bytes",
+ "eyre",
  "futures",
  "libp2p",
  "napi",

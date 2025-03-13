@@ -59,7 +59,7 @@ impl RetryStrategy {
         let mut backoff = Backoff::new(
             self.attempts() as u32,
             Duration::from_secs(1), // First interval is double of this (see https://github.com/yoshuawuyts/exponential-backoff/issues/23)
-            Some(Duration::from_secs(32)),
+            Some(Duration::from_secs(8)),
         );
         backoff.set_factor(2); // Default.
         backoff.set_jitter(0.2); // Default is 0.3.

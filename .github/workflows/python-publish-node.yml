@@ -1,11 +1,8 @@
-name: Build and Publish Python Node Package
+name: Publish Python Node Package
 
 on:
-  push:
-    tags:
-      - 'ant-node-v*'
+  workflow_dispatch:
 
-# Add top-level permissions block
 permissions:
   id-token: write
   contents: read
@@ -13,7 +10,6 @@ permissions:
 jobs:
   macos:
     runs-on: macos-latest
-    # Add permissions to job
     permissions:
       id-token: write
       contents: read
@@ -42,7 +38,6 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    # Add permissions to job
     permissions:
       id-token: write
       contents: read
@@ -189,7 +184,6 @@ jobs:
       - name: Create dist directory
         run: mkdir -p dist
 
-      # Download all artifacts at once
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

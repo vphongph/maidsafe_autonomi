@@ -177,7 +177,7 @@ impl Strategy {
     /// Put config for storing a record and making sure it matches the expected record
     pub(crate) fn put_cfg_specific(
         &self,
-        put_to: Option<Vec<PeerId>>,
+        put_to: Option<Vec<(PeerId, Addresses)>>,
         expected: Record,
     ) -> PutRecordCfg {
         PutRecordCfg {

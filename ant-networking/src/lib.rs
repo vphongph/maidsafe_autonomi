@@ -287,9 +287,7 @@ impl Network {
         });
 
         if close_nodes.is_empty() {
-            close_nodes = self
-                .client_get_all_close_peers_in_range_or_close_group(&chunk_address)
-                .await?;
+            close_nodes = self.client_get_close_group(&chunk_address).await?;
         }
 
         let mut retry_attempts = 0;

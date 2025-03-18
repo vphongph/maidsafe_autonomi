@@ -12,12 +12,15 @@ use autonomi::client::payment::PaymentOption;
 use autonomi::ResponseQuorum;
 use autonomi::{ClientOperatingStrategy, InitialPeersConfig, TransactionConfig};
 use color_eyre::eyre::Context;
+use color_eyre::eyre::Report;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
 use std::path::PathBuf;
 
 pub async fn cost(file: &str, init_peers_config: InitialPeersConfig) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config).await?;
+    let client = crate::actions::connect_to_network(init_peers_config)
+        .await
+        .map_err(|(err, _)| err)?;
 
     println!("Getting upload cost...");
     info!("Calculating cost for file: {file}");
@@ -43,8 +46,9 @@ pub async fn upload(
     if let Some(verification_quorum) = optional_verification_quorum {
         config.chunks.verification_quorum = verification_quorum;
     }
-    let mut client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config).await?;
+    let mut client = crate::actions::connect_to_network_with_config(init_peers_config, config)
+        .await
+        .map_err(|(err, _)| err)?;
 
     let mut wallet = load_wallet(client.evm_network())?;
 
@@ -129,7 +133,7 @@ pub async fn download(
     dest_path: &str,
     init_peers_config: InitialPeersConfig,
     quorum: Option<ResponseQuorum>,
-) -> Result<()> {
+) -> Result<(), (Report, i32)> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;

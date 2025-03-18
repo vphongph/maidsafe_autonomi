@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::get_progress_bar;
-use crate::exit_code::{self, INVALID_INPUT_EXIT_CODE, IO_ERROR};
+use crate::exit_code::{self, ExitCodeError, INVALID_INPUT_EXIT_CODE, IO_ERROR};
 use autonomi::{
     chunk::DataMapChunk,
     client::{
@@ -19,15 +19,10 @@ use autonomi::{
     files::{PrivateArchive, PublicArchive},
     Client,
 };
-use color_eyre::{
-    eyre::{eyre, Report},
-    Section,
-};
+use color_eyre::{eyre::eyre, Section};
 use std::path::PathBuf;
 
-type Result<T, E = (Report, i32)> = std::result::Result<T, E>;
-
-pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<()> {
+pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<(), ExitCodeError> {
     let try_public_address = DataAddress::from_hex(addr).ok();
     if let Some(public_address) = try_public_address {
         return download_public(addr, public_address, dest_path, client).await;
@@ -57,7 +52,7 @@ async fn download_private(
     private_address: PrivateArchiveDataMap,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     let archive = client.archive_get(&private_address).await.map_err(|e| {
         let exit_code = exit_code::get_error_exit_code(&e);
         (
@@ -74,7 +69,7 @@ async fn download_priv_archive_to_disk(
     archive: PrivateArchive,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     let progress_bar = get_progress_bar(archive.iter().count() as u64).ok();
     let mut all_errs = vec![];
     let mut last_error = None;
@@ -129,7 +124,7 @@ async fn download_public(
     address: ArchiveAddress,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     let archive = match client.archive_get_public(&address).await {
         Ok(archive) => archive,
         Err(GetError::Deserialization(_)) => {
@@ -152,7 +147,7 @@ async fn download_pub_archive_to_disk(
     archive: PublicArchive,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     let progress_bar = get_progress_bar(archive.iter().count() as u64).ok();
     let mut all_errs = vec![];
     let mut last_error = None;
@@ -205,7 +200,7 @@ async fn download_public_single_file(
     address: DataAddress,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     let bytes = match client.data_get_public(&address).await {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -233,7 +228,7 @@ async fn download_from_datamap(
     datamap: DataMapChunk,
     dest_path: &str,
     client: &Client,
-) -> Result<()> {
+) -> Result<(), ExitCodeError> {
     match client.analyze_address(&datamap.to_hex(), false).await {
         Ok(Analysis::RawDataMap { data, .. }) => {
             let path = PathBuf::from(dest_path);
@@ -261,10 +256,9 @@ async fn download_from_datamap(
             ))
         }
         Err(e) => {
-            let err = format!("Failed to fetch file {addr:?}: {e}");
             let exit_code = exit_code::analysis_exit_code(&e);
             Err((
-                eyre!(err).wrap_err("Failed to fetch file content from address"),
+                eyre!(e).wrap_err(format!("Failed to fetch file {addr:?}")),
                 exit_code,
             ))
         }

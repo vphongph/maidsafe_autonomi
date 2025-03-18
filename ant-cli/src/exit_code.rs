@@ -13,6 +13,7 @@ use autonomi::{
     files::{DownloadError, UploadError},
     BootstrapError,
 };
+use color_eyre::eyre::Report;
 
 pub(crate) const INVALID_INPUT_EXIT_CODE: i32 = 6;
 const SERIALIZATION_ERROR: i32 = 11;
@@ -20,6 +21,8 @@ pub const IO_ERROR: i32 = 12;
 const NETWORK_ERROR: i32 = 13;
 const PROTOCOL_ERROR: i32 = 14;
 const SELF_ENCRYPTION_ERROR: i32 = 15;
+
+pub type ExitCodeError = (Report, i32);
 
 pub(crate) fn upload_exit_code(err: &UploadError) -> i32 {
     match err {

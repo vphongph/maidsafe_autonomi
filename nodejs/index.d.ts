@@ -297,6 +297,10 @@ export declare class RegisterCreate {
   get cost(): string
   get addr(): JsRegisterAddress
 }
+export declare class GraphEntryDescendant {
+  get publicKey(): JsPublicKey
+  get content(): Uint8Array
+}
 export type JsXorName = XorName
 /**
  * A 256-bit number, viewed as a point in XOR space.
@@ -402,7 +406,31 @@ export declare class SecretKey {
   static fromHex(hex: string): JsSecretKey
 }
 export type JsGraphEntry = GraphEntry
-export declare class GraphEntry { }
+export declare class GraphEntry {
+  /** Create a new graph entry, signing it with the provided secret key. */
+  constructor(owner: SecretKey, parents: Array<PublicKey>, content: Uint8Array, descendants: Array<[PublicKey, Uint8Array]>)
+  /** Create a new graph entry with the signature already calculated. */
+  static newWithSignature(owner: PublicKey, parents: Array<PublicKey>, content: Uint8Array, descendants: Array<[PublicKey, Uint8Array]>, signature: Uint8Array): JsGraphEntry
+  /** Get the address of the graph entry */
+  address(): GraphEntryAddress
+  /** Get the owner of the graph entry */
+  owner(): PublicKey
+  /** Get the parents of the graph entry */
+  parents(): Array<PublicKey>
+  /** Get the content of the graph entry */
+  content(): Buffer
+  /** Get the descendants of the graph entry */
+  descendants(): Array<GraphEntryDescendant>
+  /** Get the bytes that were signed for this graph entry */
+  bytesForSignature(): Buffer
+  /** Verifies if the graph entry has a valid signature */
+  verifySignature(): boolean
+  /** Size of the graph entry */
+  size(): bigint
+  get signature(): Uint8Array
+  /** Returns true if the graph entry is too big */
+  isTooBig(): boolean
+}
 export type JsPointer = Pointer
 export declare class Pointer {
   /**

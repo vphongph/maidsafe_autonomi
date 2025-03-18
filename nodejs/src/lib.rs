@@ -36,11 +36,14 @@ fn big_int_to_u64(value: BigInt) -> Result<u64> {
     Ok(value)
 }
 
-fn uint8_array_to_array<const LEN: usize>(value: Uint8Array) -> Result<[u8; LEN]> {
-    value.as_ref().try_into().map_err(|err| {
+fn uint8_array_to_array<const LEN: usize>(value: Uint8Array, arg: &str) -> Result<[u8; LEN]> {
+    value.as_ref().try_into().map_err(|_err| {
         napi::Error::new(
             Status::InvalidArg,
-            format!("array must be {LEN} bytes long: {}", err),
+            format!(
+                "`{arg}` is expected to be a {LEN}-byte array, but is {} bytes long",
+                value.len()
+            ),
         )
     })
 }
@@ -863,7 +866,7 @@ impl JsClient {
         initial_value: /* RegisterValue */ Uint8Array,
         payment_option: &JsPaymentOption,
     ) -> Result</* (AttoTokens, JsRegisterAddress) */ tuple_result::RegisterCreate> {
-        let initial_value: [u8; 32] = uint8_array_to_array(initial_value)?;
+        let initial_value: [u8; 32] = uint8_array_to_array(initial_value, "initial_value")?;
 
         let (cost, addr) = self
             .0
@@ -884,7 +887,7 @@ impl JsClient {
         new_value: /* RegisterValue */ Uint8Array,
         payment_option: &JsPaymentOption,
     ) -> Result</* AttoTokens */ String> {
-        let new_value: [u8; 32] = uint8_array_to_array(new_value)?;
+        let new_value: [u8; 32] = uint8_array_to_array(new_value, "new_value")?;
         self.0
             .register_update(&owner.0, new_value, payment_option.0.clone())
             .await
@@ -1211,6 +1214,23 @@ pub mod tuple_result {
             JsRegisterAddress(self.addr.clone())
         }
     }
+
+    #[napi]
+    pub struct GraphEntryDescendant {
+        pub(crate) public_key: PublicKey,
+        pub(crate) content: [u8; 32],
+    }
+    #[napi]
+    impl GraphEntryDescendant {
+        #[napi(getter)]
+        pub fn public_key(&self) -> JsPublicKey {
+            JsPublicKey(self.public_key.clone())
+        }
+        #[napi(getter)]
+        pub fn content(&self) -> Uint8Array {
+            Uint8Array::from(self.content.as_ref())
+        }
+    }
 }
 
 /// A 256-bit number, viewed as a point in XOR space.
@@ -1406,7 +1426,7 @@ impl JsPublicKey {
     /// Returns the key with the given representation, if valid.
     #[napi(factory)]
     pub fn from_bytes(bytes: Uint8Array) -> Result<Self> {
-        let bytes = uint8_array_to_array(bytes)?;
+        let bytes = uint8_array_to_array(bytes, "bytes")?;
         let key = PublicKey::from_bytes(bytes).map_err(map_error)?;
         Ok(Self(key))
     }
@@ -1451,7 +1471,7 @@ impl JsSecretKey {
     /// Deserialize from big endian bytes
     #[napi(factory)]
     pub fn from_bytes(bytes: Uint8Array) -> Result<Self> {
-        let bytes = uint8_array_to_array(bytes)?;
+        let bytes = uint8_array_to_array(bytes, "bytes")?;
         let key = SecretKey::from_bytes(bytes).map_err(map_error)?;
         Ok(Self(key))
     }
@@ -1472,6 +1492,142 @@ impl JsSecretKey {
 
 #[napi(js_name = "GraphEntry")]
 pub struct JsGraphEntry(GraphEntry);
+
+#[napi]
+impl JsGraphEntry {
+    /// Create a new graph entry, signing it with the provided secret key.
+    #[napi(constructor)]
+    pub fn new(
+        owner: &JsSecretKey,
+        parents: Vec<&JsPublicKey>,
+        content: Uint8Array,
+        descendants: Vec<(&JsPublicKey, Uint8Array)>,
+    ) -> Result<Self> {
+        let content: [u8; 32] = uint8_array_to_array(content, "content")?;
+
+        let parents = parents.iter().map(|p| p.0.clone()).collect();
+
+        let descendants = descendants
+            .iter()
+            .map(|(pk, content)| {
+                let content_array: [u8; 32] = uint8_array_to_array(content.clone(), "content")?;
+                Ok((pk.0.clone(), content_array))
+            })
+            .collect::<Result<Vec<(PublicKey, [u8; 32])>>>()?;
+
+        Ok(Self(GraphEntry::new(
+            &owner.0,
+            parents,
+            content,
+            descendants,
+        )))
+    }
+
+    /// Create a new graph entry with the signature already calculated.
+    #[napi(factory)]
+    pub fn new_with_signature(
+        owner: &JsPublicKey,
+        parents: Vec<&JsPublicKey>,
+        content: Uint8Array,
+        descendants: Vec<(&JsPublicKey, Uint8Array)>,
+        signature: Uint8Array,
+    ) -> Result<Self> {
+        let content: [u8; 32] = uint8_array_to_array(content, "content")?;
+
+        let parents = parents.iter().map(|p| p.0.clone()).collect();
+
+        let descendants_result: Result<Vec<(PublicKey, [u8; 32])>> = descendants
+            .iter()
+            .map(|(pk, content)| {
+                let content_array: [u8; 32] = uint8_array_to_array(content.clone(), "content")?;
+                Ok((pk.0.clone(), content_array))
+            })
+            .collect();
+
+        let descendants = descendants_result?;
+
+        let signature = uint8_array_to_array(signature, "signature")?;
+        let signature = bls::Signature::from_bytes(signature).map_err(map_error)?;
+
+        Ok(Self(GraphEntry::new_with_signature(
+            owner.0.clone(),
+            parents,
+            content,
+            descendants,
+            signature,
+        )))
+    }
+
+    /// Get the address of the graph entry
+    #[napi]
+    pub fn address(&self) -> JsGraphEntryAddress {
+        JsGraphEntryAddress(self.0.address())
+    }
+
+    /// Get the owner of the graph entry
+    #[napi]
+    pub fn owner(&self) -> JsPublicKey {
+        JsPublicKey(self.0.owner.clone())
+    }
+
+    /// Get the parents of the graph entry
+    #[napi]
+    pub fn parents(&self) -> Vec<JsPublicKey> {
+        self.0
+            .parents
+            .iter()
+            .map(|p| JsPublicKey(p.clone()))
+            .collect()
+    }
+
+    /// Get the content of the graph entry
+    #[napi]
+    pub fn content(&self) -> Buffer {
+        Buffer::from(self.0.content.to_vec())
+    }
+
+    /// Get the descendants of the graph entry
+    #[napi]
+    pub fn descendants(&self) -> Vec<tuple_result::GraphEntryDescendant> {
+        self.0
+            .descendants
+            .iter()
+            .map(|(pk, data)| tuple_result::GraphEntryDescendant {
+                public_key: pk.clone(),
+                content: data.clone(),
+            })
+            .collect()
+    }
+
+    /// Get the bytes that were signed for this graph entry
+    #[napi]
+    pub fn bytes_for_signature(&self) -> Buffer {
+        Buffer::from(self.0.bytes_for_signature())
+    }
+
+    /// Verifies if the graph entry has a valid signature
+    #[napi]
+    pub fn verify_signature(&self) -> bool {
+        self.0.verify_signature()
+    }
+
+    /// Size of the graph entry
+    #[napi]
+    pub fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    #[napi(getter)]
+    pub fn signature(&self) -> Uint8Array {
+        Uint8Array::from(self.0.signature.to_bytes())
+    }
+
+    /// Returns true if the graph entry is too big
+    #[napi]
+    pub fn is_too_big(&self) -> bool {
+        self.0.is_too_big()
+    }
+}
 
 #[napi(js_name = "Pointer")]
 pub struct JsPointer(Pointer);

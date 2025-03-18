@@ -27,10 +27,13 @@ where
     napi::Error::new(Status::GenericFailure, format!("{:?}", err))
 }
 
-fn big_int_to_u64(value: BigInt) -> Result<u64> {
+fn big_int_to_u64(value: BigInt, arg: &str) -> Result<u64> {
     let (_signed, value, losless) = value.get_u64();
-    if losless {
-        return Err(napi::Error::new(Status::InvalidArg, "integer is too large"));
+    if !losless {
+        return Err(napi::Error::new(
+            Status::InvalidArg,
+            format!("expected `{arg}` to fit in a u64"),
+        ));
     }
 
     Ok(value)
@@ -358,7 +361,7 @@ impl JsClient {
         initial_data: Buffer,
         payment_option: &JsPaymentOption,
     ) -> Result</* (AttoTokens, JsScratchpadAddress) */ tuple_result::ScratchpadPut> {
-        let content_type = big_int_to_u64(content_type)?;
+        let content_type = big_int_to_u64(content_type, "content_type")?;
 
         let (cost, addr) = self
             .0
@@ -386,7 +389,7 @@ impl JsClient {
         content_type: BigInt, // `u64`
         data: Buffer,
     ) -> Result<()> {
-        let content_type = big_int_to_u64(content_type)?;
+        let content_type = big_int_to_u64(content_type, "content_type")?;
 
         self.0
             .scratchpad_update(&owner.0, content_type, &Bytes::copy_from_slice(&data))
@@ -787,7 +790,7 @@ impl JsClient {
         owner: &JsVaultSecretKey,
         max_size: /* u64 */ BigInt,
     ) -> Result</* AttoTokens */ String> {
-        let max_size = big_int_to_u64(max_size)?;
+        let max_size = big_int_to_u64(max_size, "max_size")?;
 
         let cost = self
             .0
@@ -1775,8 +1778,103 @@ impl JsPointerAddress {
 #[napi(js_name = "Scratchpad")]
 pub struct JsScratchpad(Scratchpad);
 
+#[napi]
+impl JsScratchpad {
+    /// Create a new scratchpad, signing it with the provided secret key.
+    #[napi(constructor)]
+    pub fn new(
+        owner: &JsSecretKey,
+        data_encoding: BigInt, // `u64`
+        data: Buffer,
+        counter: BigInt, // `u64`
+    ) -> Result<Self> {
+        let data_encoding = big_int_to_u64(data_encoding, "data_encoding")?;
+        let counter = big_int_to_u64(counter, "counter")?;
+        let data = Bytes::copy_from_slice(&data);
+
+        Ok(Self(Scratchpad::new(
+            &owner.0,
+            data_encoding,
+            &data,
+            counter,
+        )))
+    }
+
+    /// Get the address of the scratchpad
+    #[napi]
+    pub fn address(&self) -> JsScratchpadAddress {
+        JsScratchpadAddress(self.0.address().clone())
+    }
+
+    /// Get the owner of the scratchpad
+    #[napi]
+    pub fn owner(&self) -> JsPublicKey {
+        JsPublicKey(self.0.owner().clone())
+    }
+
+    /// Get the data encoding (content type) of the scratchpad
+    #[napi]
+    pub fn data_encoding(&self) -> u64 {
+        self.0.data_encoding()
+    }
+
+    /// Decrypt the data of the scratchpad
+    #[napi]
+    pub fn decrypt_data(&self, key: &JsSecretKey) -> Result<Buffer> {
+        let data = self.0.decrypt_data(&key.0).map_err(map_error)?;
+        Ok(Buffer::from(data.to_vec()))
+    }
+
+    /// Get the counter of the scratchpad
+    #[napi]
+    pub fn counter(&self) -> u64 {
+        self.0.counter()
+    }
+
+    /// Verify the signature of the scratchpad
+    #[napi]
+    pub fn verify_signature(&self) -> bool {
+        self.0.verify_signature()
+    }
+}
+
 #[napi(js_name = "ScratchpadAddress")]
 pub struct JsScratchpadAddress(ScratchpadAddress);
+
+#[napi]
+impl JsScratchpadAddress {
+    /// Creates a new ScratchpadAddress.
+    #[napi(constructor)]
+    pub fn new(owner: &JsPublicKey) -> Self {
+        Self(ScratchpadAddress::new(owner.0.clone()))
+    }
+
+    /// Return the network name of the scratchpad.
+    /// This is used to locate the scratchpad on the network.
+    #[napi]
+    pub fn xorname(&self) -> JsXorName {
+        JsXorName(self.0.xorname())
+    }
+
+    /// Return the owner.
+    #[napi]
+    pub fn owner(&self) -> JsPublicKey {
+        JsPublicKey(self.0.owner().clone())
+    }
+
+    /// Serialize this ScratchpadAddress into a hex-encoded string.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Parse a hex-encoded string into a ScratchpadAddress.
+    #[napi(factory)]
+    pub fn from_hex(hex: String) -> Result<Self> {
+        let addr = ScratchpadAddress::from_hex(&hex).map_err(map_error)?;
+        Ok(Self(addr))
+    }
+}
 
 #[napi(js_name = "DataMapChunk")]
 pub struct JsDataMapChunk(DataMapChunk);

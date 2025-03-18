@@ -491,9 +491,38 @@ export declare class PointerAddress {
   static fromHex(hex: string): JsPointerAddress
 }
 export type JsScratchpad = Scratchpad
-export declare class Scratchpad { }
+export declare class Scratchpad {
+  /** Create a new scratchpad, signing it with the provided secret key. */
+  constructor(owner: SecretKey, dataEncoding: bigint, data: Buffer, counter: bigint)
+  /** Get the address of the scratchpad */
+  address(): JsScratchpadAddress
+  /** Get the owner of the scratchpad */
+  owner(): PublicKey
+  /** Get the data encoding (content type) of the scratchpad */
+  dataEncoding(): bigint
+  /** Decrypt the data of the scratchpad */
+  decryptData(key: SecretKey): Buffer
+  /** Get the counter of the scratchpad */
+  counter(): bigint
+  /** Verify the signature of the scratchpad */
+  verifySignature(): boolean
+}
 export type JsScratchpadAddress = ScratchpadAddress
-export declare class ScratchpadAddress { }
+export declare class ScratchpadAddress {
+  /** Creates a new ScratchpadAddress. */
+  constructor(owner: PublicKey)
+  /**
+   * Return the network name of the scratchpad.
+   * This is used to locate the scratchpad on the network.
+   */
+  xorname(): XorName
+  /** Return the owner. */
+  owner(): PublicKey
+  /** Serialize this ScratchpadAddress into a hex-encoded string. */
+  toHex(): string
+  /** Parse a hex-encoded string into a ScratchpadAddress. */
+  static fromHex(hex: string): JsScratchpadAddress
+}
 export type JsDataMapChunk = DataMapChunk
 export declare class DataMapChunk { }
 export type JsPrivateArchiveDataMap = PrivateArchiveDataMap

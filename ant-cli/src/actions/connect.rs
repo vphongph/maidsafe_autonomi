@@ -8,22 +8,22 @@
 
 use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::{get_evm_network, Client, ClientConfig, InitialPeersConfig};
-use color_eyre::eyre::{eyre, Report};
+use color_eyre::eyre::eyre;
 use indicatif::ProgressBar;
 use std::time::Duration;
 
-use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code};
+use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code, ExitCodeError};
 
 pub async fn connect_to_network(
     init_peers_config: InitialPeersConfig,
-) -> Result<Client, (Report, i32)> {
+) -> Result<Client, ExitCodeError> {
     connect_to_network_with_config(init_peers_config, Default::default()).await
 }
 
 pub async fn connect_to_network_with_config(
     init_peers_config: InitialPeersConfig,
     operation_config: ClientOperatingStrategy,
-) -> Result<Client, (Report, i32)> {
+) -> Result<Client, ExitCodeError> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
     progress_bar.set_message("Connecting to The Autonomi Network...");

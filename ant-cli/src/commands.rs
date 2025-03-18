@@ -220,7 +220,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 public,
                 quorum,
                 max_fee_per_gas,
-            } => file::upload(&file, public, opt.peers, quorum, max_fee_per_gas).await,
+            } => {
+                if let Err((err, exit_code)) =
+                    file::upload(&file, public, opt.peers, quorum, max_fee_per_gas).await
+                {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
             FileCmd::Download {
                 addr,
                 dest_file,

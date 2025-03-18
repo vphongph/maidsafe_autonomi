@@ -1234,6 +1234,15 @@ pub mod tuple_result {
             Uint8Array::from(self.content.as_ref())
         }
     }
+
+    #[napi(object)]
+    pub struct ArchiveFile {
+        pub path: String,
+        pub created: BigInt,
+        pub modified: BigInt,
+        pub size: BigInt,
+        pub extra: Option<String>,
+    }
 }
 
 /// A 256-bit number, viewed as a point in XOR space.
@@ -1882,8 +1891,107 @@ pub struct JsDataMapChunk(DataMapChunk);
 #[napi(js_name = "PrivateArchiveDataMap")]
 pub struct JsPrivateArchiveDataMap(PrivateArchiveDataMap);
 
+#[napi]
+impl JsPrivateArchiveDataMap {
+    /// Serialize this PrivateArchiveDataMap into a hex-encoded string.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Parse a hex-encoded string into a PrivateArchiveDataMap.
+    #[napi(factory)]
+    pub fn from_hex(hex: String) -> Result<Self> {
+        let data_map = PrivateArchiveDataMap::from_hex(&hex).map_err(map_error)?;
+        Ok(Self(data_map))
+    }
+}
+
 #[napi(js_name = "PrivateArchive")]
 pub struct JsPrivateArchive(PrivateArchive);
+
+#[napi]
+impl JsPrivateArchive {
+    /// Create a new empty local archive
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self(PrivateArchive::new())
+    }
+
+    /// Add a file to a local archive
+    #[napi]
+    pub fn add_file(&mut self, path: String, data_map: &JsDataMapChunk, metadata: &JsMetadata) {
+        self.0
+            .add_file(PathBuf::from(path), data_map.0.clone(), metadata.0.clone());
+    }
+
+    /// Rename a file in an archive
+    #[napi]
+    pub fn rename_file(&mut self, old_path: String, new_path: String) -> Result<()> {
+        self.0
+            .rename_file(&PathBuf::from(old_path), &PathBuf::from(new_path))
+            .map_err(map_error)
+    }
+
+    /// List all files in the archive with their metadata
+    #[napi]
+    pub fn files(&self) -> Vec<tuple_result::ArchiveFile> {
+        self.0
+            .files()
+            .into_iter()
+            .map(|(path, meta)| tuple_result::ArchiveFile {
+                path: path.to_string_lossy().to_string(),
+                created: BigInt::from(meta.created),
+                modified: BigInt::from(meta.modified),
+                size: BigInt::from(meta.size),
+                extra: meta.extra.clone(),
+            })
+            .collect()
+    }
+
+    /// List all data maps of the files in the archive
+    #[napi]
+    pub fn data_maps(&self) -> Vec<JsDataMapChunk> {
+        self.0
+            .data_maps()
+            .into_iter()
+            .map(|data_map| JsDataMapChunk(data_map))
+            .collect()
+    }
+
+    /// Convert the archive to bytes
+    #[napi]
+    pub fn to_bytes(&self) -> Result<Buffer> {
+        let bytes = self.0.to_bytes().map_err(|e| {
+            napi::Error::new(
+                Status::GenericFailure,
+                format!("Failed to serialize archive: {e:?}"),
+            )
+        })?;
+
+        Ok(Buffer::from(bytes.to_vec()))
+    }
+
+    /// Create an archive from bytes
+    #[napi(factory)]
+    pub fn from_bytes(data: Buffer) -> Result<Self> {
+        let bytes = Bytes::from(data.as_ref().to_vec());
+        let archive = PrivateArchive::from_bytes(bytes).map_err(|e| {
+            napi::Error::new(
+                Status::GenericFailure,
+                format!("Failed to deserialize archive: {e:?}"),
+            )
+        })?;
+
+        Ok(Self(archive))
+    }
+
+    /// Merge with another archive
+    #[napi]
+    pub fn merge(&mut self, other: &JsPrivateArchive) {
+        self.0.merge(&other.0);
+    }
+}
 
 #[napi(js_name = "VaultSecretKey")]
 pub struct JsVaultSecretKey(VaultSecretKey);
@@ -1894,6 +2002,76 @@ pub struct JsUserData(UserData);
 #[napi(js_name = "VaultContentType")]
 pub struct JsVaultContentType(VaultContentType);
 
+/// File metadata
+#[napi(js_name = "Metadata")]
+pub struct JsMetadata(autonomi::files::Metadata);
+
+#[napi]
+impl JsMetadata {
+    /// Create new metadata with current timestamp and specified size
+    #[napi(constructor)]
+    pub fn new(size: BigInt) -> Result<Self> {
+        let size = big_int_to_u64(size, "size")?;
+
+        // Use current timestamp
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or(std::time::Duration::from_secs(0))
+            .as_secs();
+
+        Ok(Self(autonomi::files::Metadata {
+            created: now,
+            modified: now,
+            size,
+            extra: None,
+        }))
+    }
+
+    /// Create new metadata with all custom fields
+    #[napi(factory)]
+    pub fn with_custom_fields(
+        created: BigInt,
+        modified: BigInt,
+        size: BigInt,
+        extra: Option<String>,
+    ) -> Result<Self> {
+        let created = big_int_to_u64(created, "created")?;
+        let modified = big_int_to_u64(modified, "modified")?;
+        let size = big_int_to_u64(size, "size")?;
+
+        Ok(Self(autonomi::files::Metadata {
+            created,
+            modified,
+            size,
+            extra,
+        }))
+    }
+
+    /// Get the creation timestamp
+    #[napi(getter)]
+    pub fn created(&self) -> u64 {
+        self.0.created
+    }
+
+    /// Get the modification timestamp
+    #[napi(getter)]
+    pub fn modified(&self) -> u64 {
+        self.0.modified
+    }
+
+    /// Get the file size
+    #[napi(getter)]
+    pub fn size(&self) -> u64 {
+        self.0.size
+    }
+
+    /// Get the extra metadata
+    #[napi(getter)]
+    pub fn extra(&self) -> Option<String> {
+        self.0.extra.clone()
+    }
+}
+
 #[napi(js_name = "RegisterAddress")]
 pub struct JsRegisterAddress(RegisterAddress);
 
@@ -1902,3 +2080,86 @@ pub struct JsRegisterHistory(RegisterHistory);
 
 #[napi(js_name = "PublicArchive")]
 pub struct JsPublicArchive(PublicArchive);
+
+#[napi]
+impl JsPublicArchive {
+    /// Create a new empty local archive
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self(PublicArchive::new())
+    }
+
+    /// Add a file to a local archive
+    #[napi]
+    pub fn add_file(&mut self, path: String, data_addr: &JsDataAddress, metadata: &JsMetadata) {
+        self.0
+            .add_file(PathBuf::from(path), data_addr.0.clone(), metadata.0.clone());
+    }
+
+    /// Rename a file in an archive
+    #[napi]
+    pub fn rename_file(&mut self, old_path: String, new_path: String) -> Result<()> {
+        self.0
+            .rename_file(&PathBuf::from(old_path), &PathBuf::from(new_path))
+            .map_err(map_error)
+    }
+
+    /// List all files in the archive with their metadata
+    #[napi]
+    pub fn files(&self) -> Vec<tuple_result::ArchiveFile> {
+        self.0
+            .files()
+            .into_iter()
+            .map(|(path, meta)| tuple_result::ArchiveFile {
+                path: path.to_string_lossy().to_string(),
+                created: BigInt::from(meta.created),
+                modified: BigInt::from(meta.modified),
+                size: BigInt::from(meta.size),
+                extra: meta.extra.clone(),
+            })
+            .collect()
+    }
+
+    /// List all data addresses of the files in the archive
+    #[napi]
+    pub fn addresses(&self) -> Vec<JsDataAddress> {
+        self.0
+            .addresses()
+            .into_iter()
+            .map(|addr| JsDataAddress(addr))
+            .collect()
+    }
+
+    /// Convert the archive to bytes
+    #[napi]
+    pub fn to_bytes(&self) -> Result<Buffer> {
+        let bytes = self.0.to_bytes().map_err(|e| {
+            napi::Error::new(
+                Status::GenericFailure,
+                format!("Failed to serialize archive: {e:?}"),
+            )
+        })?;
+
+        Ok(Buffer::from(bytes.to_vec()))
+    }
+
+    /// Create an archive from bytes
+    #[napi(factory)]
+    pub fn from_bytes(data: Buffer) -> Result<Self> {
+        let bytes = Bytes::from(data.as_ref().to_vec());
+        let archive = PublicArchive::from_bytes(bytes).map_err(|e| {
+            napi::Error::new(
+                Status::GenericFailure,
+                format!("Failed to deserialize archive: {e:?}"),
+            )
+        })?;
+
+        Ok(Self(archive))
+    }
+
+    /// Merge with another archive
+    #[napi]
+    pub fn merge(&mut self, other: &JsPublicArchive) {
+        self.0.merge(&other.0);
+    }
+}

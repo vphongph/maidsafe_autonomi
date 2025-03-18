@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Client, ChunkPut, GraphEntryPut, ScratchpadPut, PointerPut, DataPutResult, DataPutPublicResult, ArchivePutResult, ArchivePutPublicResult, DirContentUpload, DirUpload, FileContentUpload, DirContentUploadPublic, DirUploadPublic, FileContentUploadPublic, FetchAndDecryptVault, RegisterCreate, GraphEntryDescendant, XorName, ChunkAddress, GraphEntryAddress, DataAddress, ArchiveAddress, Wallet, PaymentOption, Network, PublicKey, SecretKey, GraphEntry, Pointer, PointerTarget, PointerAddress, Scratchpad, ScratchpadAddress, DataMapChunk, PrivateArchiveDataMap, PrivateArchive, VaultSecretKey, UserData, VaultContentType, RegisterAddress, RegisterHistory, PublicArchive } = nativeBinding
+const { Client, ChunkPut, GraphEntryPut, ScratchpadPut, PointerPut, DataPutResult, DataPutPublicResult, ArchivePutResult, ArchivePutPublicResult, DirContentUpload, DirUpload, FileContentUpload, DirContentUploadPublic, DirUploadPublic, FileContentUploadPublic, FetchAndDecryptVault, RegisterCreate, GraphEntryDescendant, XorName, ChunkAddress, GraphEntryAddress, DataAddress, ArchiveAddress, Wallet, PaymentOption, Network, PublicKey, SecretKey, GraphEntry, Pointer, PointerTarget, PointerAddress, Scratchpad, ScratchpadAddress, DataMapChunk, PrivateArchiveDataMap, PrivateArchive, VaultSecretKey, UserData, VaultContentType, Metadata, RegisterAddress, RegisterHistory, PublicArchive } = nativeBinding
 
 module.exports.Client = Client
 module.exports.ChunkPut = ChunkPut
@@ -352,6 +352,7 @@ module.exports.PrivateArchive = PrivateArchive
 module.exports.VaultSecretKey = VaultSecretKey
 module.exports.UserData = UserData
 module.exports.VaultContentType = VaultContentType
+module.exports.Metadata = Metadata
 module.exports.RegisterAddress = RegisterAddress
 module.exports.RegisterHistory = RegisterHistory
 module.exports.PublicArchive = PublicArchive

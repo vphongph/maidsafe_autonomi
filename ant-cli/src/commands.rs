@@ -225,7 +225,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 addr,
                 dest_file,
                 quorum,
-            } => file::download(&addr, &dest_file, opt.peers, quorum).await,
+            } => {
+                if let Err((err, exit_code)) =
+                    file::download(&addr, &dest_file, opt.peers, quorum).await
+                {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
             FileCmd::List => file::list(),
         },
         Some(SubCmd::Register { command }) => match command {

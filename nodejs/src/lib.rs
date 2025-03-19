@@ -27,11 +27,9 @@ where
     let mut err_str = String::new();
     err_str.push_str(&format!("{err:?}: {err}\n"));
     let mut source = err.source();
-    let mut i = 0;
     while let Some(err) = source {
         err_str.push_str(&format!(" Caused by: {err:?}: {err}\n"));
         source = err.source();
-        i += 1;
     }
 
     napi::Error::new(Status::GenericFailure, err_str)

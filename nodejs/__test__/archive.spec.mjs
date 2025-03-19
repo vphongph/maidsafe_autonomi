@@ -46,6 +46,7 @@ async function computeDirSha256(dir) {
   const files = await getFiles(dir);
   for (const file of files) {
     const fileHash = await computeSha256(file);
+
     hash.update(fileHash);
   }
   
@@ -60,7 +61,7 @@ test('private archive - upload and download directory', async (t) => {
   
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
-  const destDir = os.tmpdir();
+  const destDir = path.join(os.tmpdir());
   
   // Upload directory content
   const { cost, archive } = await client.dirContentUpload(sourceDir, paymentOption);
@@ -79,7 +80,7 @@ test('private archive - upload and download directory', async (t) => {
   
   // Compare the hash of source and destination directories
   const sourceHash = await computeDirSha256(sourceDir);
-  const destHash = await computeDirSha256(destDir);
+  const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
   t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
 });
@@ -111,7 +112,7 @@ test('public archive - upload and download directory', async (t) => {
   
   // Compare the hash of source and destination directories
   const sourceHash = await computeDirSha256(sourceDir);
-  const destHash = await computeDirSha256(destDir);
+  const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
   t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
 });

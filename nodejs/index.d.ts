@@ -223,7 +223,7 @@ export declare class Client {
    */
   static registerKeyFromName(owner: JsSecretKey, name: string): JsSecretKey
   /** Create a new RegisterValue from bytes, make sure the bytes are not longer than REGISTER_VALUE_SIZE */
-  static registerValueFromBytes(bytes: Uint8Array): number[]
+  static registerValueFromBytes(bytes: Uint8Array): Uint8Array
   /**
    * Create a new register with an initial value.
    *
@@ -236,7 +236,7 @@ export declare class Client {
    */
   registerUpdate(owner: JsSecretKey, newValue: Uint8Array, paymentOption: JsPaymentOption): Promise<string>
   /** Get the current value of the register */
-  registerGet(addr: JsRegisterAddress): Promise<number[]>
+  registerGet(addr: JsRegisterAddress): Promise<Uint8Array>
   /** Get the cost of a register operation. Returns the cost of creation if it doesn’t exist, else returns the cost of an update */
   registerCost(owner: JsPublicKey): Promise<string>
 }
@@ -389,7 +389,7 @@ export declare class Network {
 export type JsPublicKey = PublicKey
 export declare class PublicKey {
   /** Returns a byte string representation of the public key. */
-  toBytes(): number[]
+  toBytes(): Uint8Array
   /** Returns the key with the given representation, if valid. */
   static fromBytes(bytes: Uint8Array): JsPublicKey
   /** Returns the hex string representation of the public key. */
@@ -404,7 +404,7 @@ export declare class SecretKey {
   /** Returns the public key corresponding to this secret key. */
   publicKey(): PublicKey
   /** Converts the secret key to big endian bytes */
-  toBytes(): number[]
+  toBytes(): Uint8Array
   /** Deserialize from big endian bytes */
   static fromBytes(bytes: Uint8Array): JsSecretKey
   /** Returns the hex string representation of the secret key. */
@@ -581,9 +581,32 @@ export declare class Metadata {
   get extra(): string | null
 }
 export type JsRegisterAddress = RegisterAddress
-export declare class RegisterAddress { }
+export declare class RegisterAddress {
+  /** Creates a new RegisterAddress. */
+  constructor(owner: PublicKey)
+  /** Get the owner of the register */
+  owner(): PublicKey
+  /** Get the underlying graph root address */
+  toUnderlyingGraphRoot(): GraphEntryAddress
+  /** Get the underlying head pointer address */
+  toUnderlyingHeadPointer(): PointerAddress
+  /** Serialize this RegisterAddress into a hex-encoded string. */
+  toHex(): string
+  /** Parse a hex-encoded string into a RegisterAddress. */
+  static fromHex(hex: string): JsRegisterAddress
+}
 export type JsRegisterHistory = RegisterHistory
-export declare class RegisterHistory { }
+export declare class RegisterHistory {
+  constructor()
+  /**
+   * Fetch and go to the next register value from the history.
+   *
+   * Returns null when we reached the end.
+   */
+  next(): Promise<Uint8Array | null>
+  /** Get all the register values from the history, starting from the first to the latest entry */
+  collect(): Promise<Array<Uint8Array>>
+}
 export type JsPublicArchive = PublicArchive
 export declare class PublicArchive {
   /** Create a new empty local archive */

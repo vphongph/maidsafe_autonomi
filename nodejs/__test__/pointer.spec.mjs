@@ -18,12 +18,8 @@ test('pointer put and get', async (t) => {
   // Verify the cost is returned as a string
   t.true(typeof cost === 'string');
   
-  console.log(addr.toHex());
-
   // Get the pointer from the network
   const pointer = await client.pointerGet(addr);
-  
-  console.log('b');
   
   // Verify the pointer exists
   const exists = await client.pointerCheckExistance(addr);

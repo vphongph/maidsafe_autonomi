@@ -61,7 +61,6 @@ test('private archive - upload and download directory', async (t) => {
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
   const destDir = os.tmpdir();
-  console.log(destDir);
   
   // Upload directory content
   const { cost, archive } = await client.dirContentUpload(sourceDir, paymentOption);
@@ -165,9 +164,6 @@ test('archive advanced use', async (t) => {
   // Check that we have the expected files in the archive
   const files = archive.files();
   t.is(files.length, 4); // Two files from dir_a plus the two we added
-  
-  // Log file paths and metadata for debugging
-  // console.log("Archive files:", files);
   
   // Upload the archive
   const { cost: archiveCost, dataMap } = await client.archivePut(archive, paymentOption);

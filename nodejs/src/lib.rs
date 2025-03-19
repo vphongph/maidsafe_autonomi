@@ -17,14 +17,24 @@ use autonomi::{
 use libp2p::Multiaddr;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use tokio::sync::Mutex;
 
 // Convert Rust errors to JavaScript errors
 fn map_error<E>(err: E) -> napi::Error
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: std::error::Error,
 {
-    let err = eyre::Report::new(err);
-    napi::Error::new(Status::GenericFailure, format!("{:?}", err))
+    let mut err_str = String::new();
+    err_str.push_str(&format!("{err:?}: {err}\n"));
+    let mut source = err.source();
+    let mut i = 0;
+    while let Some(err) = source {
+        err_str.push_str(&format!(" Caused by: {err:?}: {err}\n"));
+        source = err.source();
+        i += 1;
+    }
+
+    napi::Error::new(Status::GenericFailure, err_str)
 }
 
 fn big_int_to_u64(value: BigInt, arg: &str) -> Result<u64> {
@@ -841,7 +851,7 @@ impl JsClient {
     pub fn register_history(&self, addr: &JsRegisterAddress) -> JsRegisterHistory {
         let history = self.0.register_history(&addr.0);
 
-        JsRegisterHistory(history)
+        JsRegisterHistory(Mutex::new(history))
     }
 
     /// Create a new register key from a SecretKey and a name.
@@ -855,8 +865,10 @@ impl JsClient {
 
     /// Create a new RegisterValue from bytes, make sure the bytes are not longer than REGISTER_VALUE_SIZE
     #[napi]
-    pub fn register_value_from_bytes(bytes: &[u8]) -> Result</* JsRegisterValue */ [u8; 32]> {
-        Client::register_value_from_bytes(bytes).map_err(map_error)
+    pub fn register_value_from_bytes(bytes: &[u8]) -> Result</* JsRegisterValue */ Uint8Array> {
+        Client::register_value_from_bytes(bytes)
+            .map(Uint8Array::from)
+            .map_err(map_error)
     }
 
     /// Create a new register with an initial value.
@@ -903,8 +915,12 @@ impl JsClient {
     pub async fn register_get(
         &self,
         addr: &JsRegisterAddress,
-    ) -> Result</* JsRegisterValue */ [u8; 32]> {
-        self.0.register_get(&addr.0).await.map_err(map_error)
+    ) -> Result</* JsRegisterValue */ Uint8Array> {
+        self.0
+            .register_get(&addr.0)
+            .await
+            .map(Uint8Array::from)
+            .map_err(map_error)
     }
 
     /// Get the cost of a register operation. Returns the cost of creation if it doesn’t exist, else returns the cost of an update
@@ -1431,8 +1447,8 @@ pub struct JsPublicKey(PublicKey);
 impl JsPublicKey {
     /// Returns a byte string representation of the public key.
     #[napi]
-    pub fn to_bytes(&self) -> [u8; bls::PK_SIZE] {
-        self.0.to_bytes()
+    pub fn to_bytes(&self) -> Uint8Array {
+        Uint8Array::from(self.0.to_bytes())
     }
 
     /// Returns the key with the given representation, if valid.
@@ -1476,8 +1492,8 @@ impl JsSecretKey {
 
     /// Converts the secret key to big endian bytes
     #[napi]
-    pub fn to_bytes(&self) -> [u8; bls::SK_SIZE] {
-        self.0.to_bytes()
+    pub fn to_bytes(&self) -> Uint8Array {
+        Uint8Array::from(self.0.to_bytes())
     }
 
     /// Deserialize from big endian bytes
@@ -2071,8 +2087,80 @@ impl JsMetadata {
 #[napi(js_name = "RegisterAddress")]
 pub struct JsRegisterAddress(RegisterAddress);
 
+#[napi]
+impl JsRegisterAddress {
+    /// Creates a new RegisterAddress.
+    #[napi(constructor)]
+    pub fn new(owner: &JsPublicKey) -> Self {
+        Self(RegisterAddress::new(owner.0))
+    }
+
+    /// Get the owner of the register
+    #[napi]
+    pub fn owner(&self) -> JsPublicKey {
+        JsPublicKey(self.0.owner())
+    }
+
+    /// Get the underlying graph root address
+    #[napi]
+    pub fn to_underlying_graph_root(&self) -> JsGraphEntryAddress {
+        JsGraphEntryAddress(self.0.to_underlying_graph_root())
+    }
+
+    /// Get the underlying head pointer address
+    #[napi]
+    pub fn to_underlying_head_pointer(&self) -> JsPointerAddress {
+        JsPointerAddress(self.0.to_underlying_head_pointer())
+    }
+
+    /// Serialize this RegisterAddress into a hex-encoded string.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Parse a hex-encoded string into a RegisterAddress.
+    #[napi(factory)]
+    pub fn from_hex(hex: String) -> Result<Self> {
+        let addr = RegisterAddress::from_hex(&hex).map_err(map_error)?;
+        Ok(Self(addr))
+    }
+}
+
 #[napi(js_name = "RegisterHistory")]
-pub struct JsRegisterHistory(RegisterHistory);
+pub struct JsRegisterHistory(Mutex<RegisterHistory>);
+
+#[napi]
+impl JsRegisterHistory {
+    // Somehow without this stub, NAPI-RS fails to create this object with an error:
+    // error: `Failed to get constructor of class`
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        unimplemented!()
+    }
+
+    /// Fetch and go to the next register value from the history.
+    ///
+    /// Returns null when we reached the end.
+    #[napi]
+    pub async fn next(&self) -> Result<Option<Uint8Array>> {
+        self.0
+            .lock()
+            .await
+            .next()
+            .await
+            .map(|v| v.map(Uint8Array::from))
+            .map_err(map_error)
+    }
+
+    /// Get all the register values from the history, starting from the first to the latest entry
+    #[napi]
+    pub async fn collect(&self) -> Result<Vec<Uint8Array>> {
+        let values = self.0.lock().await.collect().await.map_err(map_error)?;
+        let values = values.into_iter().map(Uint8Array::from).collect();
+        Ok(values)
+    }
+}
 
 #[napi(js_name = "PublicArchive")]
 pub struct JsPublicArchive(PublicArchive);

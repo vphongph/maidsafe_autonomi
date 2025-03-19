@@ -21,6 +21,7 @@ use libp2p::{
 };
 
 use ant_evm::{PaymentQuote, ProofOfPayment};
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::storage::DataTypes;
 #[cfg(feature = "open-metrics")]
 use ant_protocol::CLOSE_GROUP_SIZE;
@@ -117,11 +118,12 @@ impl From<void::Void> for NodeEvent {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(CustomDebug)]
 /// Channel to send the `Response` through.
 pub enum MsgResponder {
     /// Respond to a request from `self` through a simple one-shot channel.
-    FromSelf(Option<oneshot::Sender<Result<Response>>>),
+    FromSelf(Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>),
     /// Respond to a request from a peer in the network.
     FromPeer(PeerResponseChannel<Response>),
 }

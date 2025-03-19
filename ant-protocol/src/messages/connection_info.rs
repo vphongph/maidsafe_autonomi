@@ -7,7 +7,7 @@ pub struct ConnectionInfo {
     /// The Peer ID of the peer that sent the response.
     pub peer_id: PeerId,
     /// The origin of the response.
-    pub multiaddr: Multiaddr,
+    pub response_origin: Multiaddr,
 }
 
 impl Display for ConnectionInfo {
@@ -15,7 +15,7 @@ impl Display for ConnectionInfo {
         write!(
             f,
             "ConnectionInfo (peer_id: {}, multiaddr: {})",
-            self.peer_id, self.multiaddr
+            self.peer_id, self.response_origin
         )
     }
 }

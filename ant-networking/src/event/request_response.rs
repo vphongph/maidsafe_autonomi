@@ -115,7 +115,10 @@ impl SwarmDriver {
                         // Get the optional connection info.
                         let connection_info =
                             self.live_connected_peers.get(&connection_id).cloned().map(
-                                |(peer_id, multiaddr, ..)| ConnectionInfo { peer_id, multiaddr },
+                                |(peer_id, multiaddr, ..)| ConnectionInfo {
+                                    peer_id,
+                                    response_origin: multiaddr,
+                                },
                             );
 
                         // The sender will be provided if the caller (Requester) is awaiting for a response

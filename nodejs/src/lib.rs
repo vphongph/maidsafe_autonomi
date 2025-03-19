@@ -8,7 +8,7 @@ use autonomi::{
         PublicArchive,
     },
     pointer::PointerTarget,
-    register::{RegisterAddress, RegisterHistory, RegisterValue},
+    register::{RegisterAddress, RegisterHistory},
     vault::{UserData, VaultContentType, VaultSecretKey},
     AttoTokens, Bytes, Chunk, ChunkAddress, Client, GraphEntry, GraphEntryAddress, Network,
     Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey, Wallet, XorName,
@@ -212,7 +212,7 @@ impl JsClient {
         self.0
             .pointer_get(&address.0)
             .await
-            .map(|p| JsPointer(p))
+            .map(JsPointer)
             .map_err(map_error)
     }
 
@@ -303,7 +303,7 @@ impl JsClient {
         self.0
             .scratchpad_get_from_public_key(&public_key.0)
             .await
-            .map(|sp| JsScratchpad(sp))
+            .map(JsScratchpad)
             .map_err(map_error)
     }
 
@@ -313,7 +313,7 @@ impl JsClient {
         self.0
             .scratchpad_get(&address.0)
             .await
-            .map(|sp| JsScratchpad(sp))
+            .map(JsScratchpad)
             .map_err(map_error)
     }
 
@@ -744,7 +744,7 @@ impl JsClient {
         self.0
             .get_user_data_from_vault(&secret_key.0)
             .await
-            .map(|ud| JsUserData(ud))
+            .map(JsUserData)
             .map_err(map_error)
     }
 
@@ -856,7 +856,7 @@ impl JsClient {
     /// Create a new RegisterValue from bytes, make sure the bytes are not longer than REGISTER_VALUE_SIZE
     #[napi]
     pub fn register_value_from_bytes(bytes: &[u8]) -> Result</* JsRegisterValue */ [u8; 32]> {
-        Client::register_value_from_bytes(&bytes).map_err(map_error)
+        Client::register_value_from_bytes(bytes).map_err(map_error)
     }
 
     /// Create a new register with an initial value.
@@ -959,7 +959,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsChunkAddress {
-            JsChunkAddress(self.addr.clone())
+            JsChunkAddress(self.addr)
         }
     }
 
@@ -976,7 +976,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsGraphEntryAddress {
-            JsGraphEntryAddress(self.addr.clone())
+            JsGraphEntryAddress(self.addr)
         }
     }
 
@@ -993,7 +993,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsScratchpadAddress {
-            JsScratchpadAddress(self.addr.clone())
+            JsScratchpadAddress(self.addr)
         }
     }
 
@@ -1010,7 +1010,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsPointerAddress {
-            JsPointerAddress(self.addr.clone())
+            JsPointerAddress(self.addr)
         }
     }
 
@@ -1044,7 +1044,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsDataAddress {
-            JsDataAddress(self.addr.clone())
+            JsDataAddress(self.addr)
         }
     }
 
@@ -1078,7 +1078,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsDataAddress {
-            JsDataAddress(self.addr.clone())
+            JsDataAddress(self.addr)
         }
     }
 
@@ -1163,7 +1163,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsArchiveAddress {
-            JsArchiveAddress(self.addr.clone())
+            JsArchiveAddress(self.addr)
         }
     }
 
@@ -1180,7 +1180,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsPointerAddress {
-            JsPointerAddress(self.addr.clone())
+            JsPointerAddress(self.addr)
         }
     }
 
@@ -1214,7 +1214,7 @@ pub mod tuple_result {
         }
         #[napi(getter)]
         pub fn addr(&self) -> JsRegisterAddress {
-            JsRegisterAddress(self.addr.clone())
+            JsRegisterAddress(self.addr)
         }
     }
 
@@ -1227,7 +1227,7 @@ pub mod tuple_result {
     impl GraphEntryDescendant {
         #[napi(getter)]
         pub fn public_key(&self) -> JsPublicKey {
-            JsPublicKey(self.public_key.clone())
+            JsPublicKey(self.public_key)
         }
         #[napi(getter)]
         pub fn content(&self) -> Uint8Array {
@@ -1281,7 +1281,7 @@ impl JsChunkAddress {
     /// Creates a new ChunkAddress.
     #[napi(constructor)]
     pub fn new(xor_name: &JsXorName) -> Self {
-        Self(ChunkAddress::new(xor_name.0.clone()))
+        Self(ChunkAddress::new(xor_name.0))
     }
 
     /// Returns the XorName.
@@ -1316,7 +1316,7 @@ impl JsGraphEntryAddress {
     /// Creates a new GraphEntryAddress.
     #[napi(constructor)]
     pub fn new(owner: &JsPublicKey) -> Self {
-        Self(GraphEntryAddress::new(owner.0.clone()))
+        Self(GraphEntryAddress::new(owner.0))
     }
 
     /// Return the network name of the scratchpad.
@@ -1517,13 +1517,13 @@ impl JsGraphEntry {
     ) -> Result<Self> {
         let content: [u8; 32] = uint8_array_to_array(content, "content")?;
 
-        let parents = parents.iter().map(|p| p.0.clone()).collect();
+        let parents = parents.iter().map(|p| p.0).collect();
 
         let descendants = descendants
             .iter()
             .map(|(pk, content)| {
                 let content_array: [u8; 32] = uint8_array_to_array(content.clone(), "content")?;
-                Ok((pk.0.clone(), content_array))
+                Ok((pk.0, content_array))
             })
             .collect::<Result<Vec<(PublicKey, [u8; 32])>>>()?;
 
@@ -1546,13 +1546,13 @@ impl JsGraphEntry {
     ) -> Result<Self> {
         let content: [u8; 32] = uint8_array_to_array(content, "content")?;
 
-        let parents = parents.iter().map(|p| p.0.clone()).collect();
+        let parents = parents.iter().map(|p| p.0).collect();
 
         let descendants_result: Result<Vec<(PublicKey, [u8; 32])>> = descendants
             .iter()
             .map(|(pk, content)| {
                 let content_array: [u8; 32] = uint8_array_to_array(content.clone(), "content")?;
-                Ok((pk.0.clone(), content_array))
+                Ok((pk.0, content_array))
             })
             .collect();
 
@@ -1562,7 +1562,7 @@ impl JsGraphEntry {
         let signature = bls::Signature::from_bytes(signature).map_err(map_error)?;
 
         Ok(Self(GraphEntry::new_with_signature(
-            owner.0.clone(),
+            owner.0,
             parents,
             content,
             descendants,
@@ -1579,17 +1579,13 @@ impl JsGraphEntry {
     /// Get the owner of the graph entry
     #[napi]
     pub fn owner(&self) -> JsPublicKey {
-        JsPublicKey(self.0.owner.clone())
+        JsPublicKey(self.0.owner)
     }
 
     /// Get the parents of the graph entry
     #[napi]
     pub fn parents(&self) -> Vec<JsPublicKey> {
-        self.0
-            .parents
-            .iter()
-            .map(|p| JsPublicKey(p.clone()))
-            .collect()
+        self.0.parents.iter().map(|p| JsPublicKey(*p)).collect()
     }
 
     /// Get the content of the graph entry
@@ -1605,8 +1601,8 @@ impl JsGraphEntry {
             .descendants
             .iter()
             .map(|(pk, data)| tuple_result::GraphEntryDescendant {
-                public_key: pk.clone(),
-                content: data.clone(),
+                public_key: *pk,
+                content: *data,
             })
             .collect()
     }
@@ -1663,7 +1659,7 @@ impl JsPointer {
     /// Get the owner of the pointer
     #[napi]
     pub fn owner(&self) -> JsPublicKey {
-        JsPublicKey(self.0.owner().clone())
+        JsPublicKey(*self.0.owner())
     }
 
     /// Get the target of the pointer
@@ -1724,25 +1720,25 @@ impl JsPointerTarget {
     /// Creates a new PointerTarget from a ChunkAddress
     #[napi(factory, js_name = "ChunkAddress")]
     pub fn from_chunk_address(addr: &JsChunkAddress) -> Self {
-        Self(PointerTarget::ChunkAddress(addr.0.clone()))
+        Self(PointerTarget::ChunkAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a GraphEntryAddress
     #[napi(factory, js_name = "GraphEntryAddress")]
     pub fn from_graph_entry_address(addr: &JsGraphEntryAddress) -> Self {
-        Self(PointerTarget::GraphEntryAddress(addr.0.clone()))
+        Self(PointerTarget::GraphEntryAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a PointerAddress
     #[napi(factory, js_name = "PointerAddress")]
     pub fn from_pointer_address(addr: &JsPointerAddress) -> Self {
-        Self(PointerTarget::PointerAddress(addr.0.clone()))
+        Self(PointerTarget::PointerAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a ScratchpadAddress
     #[napi(factory, js_name = "ScratchpadAddress")]
     pub fn from_scratchpad_address(addr: &JsScratchpadAddress) -> Self {
-        Self(PointerTarget::ScratchpadAddress(addr.0.clone()))
+        Self(PointerTarget::ScratchpadAddress(addr.0))
     }
 }
 
@@ -1754,7 +1750,7 @@ impl JsPointerAddress {
     /// Creates a new PointerAddress.
     #[napi(constructor)]
     pub fn new(owner: &JsPublicKey) -> Self {
-        Self(PointerAddress::new(owner.0.clone()))
+        Self(PointerAddress::new(owner.0))
     }
 
     /// Return the network name of the pointer.
@@ -1767,7 +1763,7 @@ impl JsPointerAddress {
     /// Return the owner.
     #[napi]
     pub fn owner(&self) -> JsPublicKey {
-        JsPublicKey(self.0.owner().clone())
+        JsPublicKey(*self.0.owner())
     }
 
     /// Serialize this PointerAddress into a hex-encoded string.
@@ -1812,13 +1808,13 @@ impl JsScratchpad {
     /// Get the address of the scratchpad
     #[napi]
     pub fn address(&self) -> JsScratchpadAddress {
-        JsScratchpadAddress(self.0.address().clone())
+        JsScratchpadAddress(*self.0.address())
     }
 
     /// Get the owner of the scratchpad
     #[napi]
     pub fn owner(&self) -> JsPublicKey {
-        JsPublicKey(self.0.owner().clone())
+        JsPublicKey(*self.0.owner())
     }
 
     /// Get the data encoding (content type) of the scratchpad
@@ -1855,7 +1851,7 @@ impl JsScratchpadAddress {
     /// Creates a new ScratchpadAddress.
     #[napi(constructor)]
     pub fn new(owner: &JsPublicKey) -> Self {
-        Self(ScratchpadAddress::new(owner.0.clone()))
+        Self(ScratchpadAddress::new(owner.0))
     }
 
     /// Return the network name of the scratchpad.
@@ -1868,7 +1864,7 @@ impl JsScratchpadAddress {
     /// Return the owner.
     #[napi]
     pub fn owner(&self) -> JsPublicKey {
-        JsPublicKey(self.0.owner().clone())
+        JsPublicKey(*self.0.owner())
     }
 
     /// Serialize this ScratchpadAddress into a hex-encoded string.
@@ -1914,6 +1910,10 @@ pub struct JsPrivateArchive(PrivateArchive);
 impl JsPrivateArchive {
     /// Create a new empty local archive
     #[napi(constructor)]
+    #[allow(
+        clippy::new_without_default,
+        reason = "`Default` impl not useful for Node.js"
+    )]
     pub fn new() -> Self {
         Self(PrivateArchive::new())
     }
@@ -1952,11 +1952,7 @@ impl JsPrivateArchive {
     /// List all data maps of the files in the archive
     #[napi]
     pub fn data_maps(&self) -> Vec<JsDataMapChunk> {
-        self.0
-            .data_maps()
-            .into_iter()
-            .map(|data_map| JsDataMapChunk(data_map))
-            .collect()
+        self.0.data_maps().into_iter().map(JsDataMapChunk).collect()
     }
 
     /// Convert the archive to bytes
@@ -2085,6 +2081,10 @@ pub struct JsPublicArchive(PublicArchive);
 impl JsPublicArchive {
     /// Create a new empty local archive
     #[napi(constructor)]
+    #[allow(
+        clippy::new_without_default,
+        reason = "`Default` impl not useful for Node.js"
+    )]
     pub fn new() -> Self {
         Self(PublicArchive::new())
     }
@@ -2093,7 +2093,7 @@ impl JsPublicArchive {
     #[napi]
     pub fn add_file(&mut self, path: String, data_addr: &JsDataAddress, metadata: &JsMetadata) {
         self.0
-            .add_file(PathBuf::from(path), data_addr.0.clone(), metadata.0.clone());
+            .add_file(PathBuf::from(path), data_addr.0, metadata.0.clone());
     }
 
     /// Rename a file in an archive
@@ -2123,11 +2123,7 @@ impl JsPublicArchive {
     /// List all data addresses of the files in the archive
     #[napi]
     pub fn addresses(&self) -> Vec<JsDataAddress> {
-        self.0
-            .addresses()
-            .into_iter()
-            .map(|addr| JsDataAddress(addr))
-            .collect()
+        self.0.addresses().into_iter().map(JsDataAddress).collect()
     }
 
     /// Convert the archive to bytes

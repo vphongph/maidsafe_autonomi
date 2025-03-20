@@ -4,8 +4,8 @@ use autonomi::{
     chunk::DataMapChunk,
     client::{data::DataAddress, payment::PaymentOption},
     files::{
-        archive_private::PrivateArchiveDataMap, archive_public::ArchiveAddress, PrivateArchive,
-        PublicArchive,
+        archive_private::PrivateArchiveDataMap, archive_public::ArchiveAddress, Metadata,
+        PrivateArchive, PublicArchive,
     },
     pointer::PointerTarget,
     register::{RegisterAddress, RegisterHistory},
@@ -2011,27 +2011,15 @@ pub struct JsVaultContentType(VaultContentType);
 
 /// File metadata
 #[napi(js_name = "Metadata")]
-pub struct JsMetadata(autonomi::files::Metadata);
+pub struct JsMetadata(Metadata);
 
 #[napi]
 impl JsMetadata {
-    /// Create new metadata with current timestamp and specified size
-    #[napi(constructor)]
-    pub fn new(size: BigInt) -> Result<Self> {
+    /// Create a new metadata struct with the current time as uploaded, created and modified.
+    #[napi(factory)]
+    pub fn new_with_size(size: BigInt) -> Result<Self> {
         let size = big_int_to_u64(size, "size")?;
-
-        // Use current timestamp
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or(std::time::Duration::from_secs(0))
-            .as_secs();
-
-        Ok(Self(autonomi::files::Metadata {
-            created: now,
-            modified: now,
-            size,
-            extra: None,
-        }))
+        Ok(Self(Metadata::new_with_size(size)))
     }
 
     /// Create new metadata with all custom fields
@@ -2052,6 +2040,12 @@ impl JsMetadata {
             size,
             extra,
         }))
+    }
+
+    /// Create a new empty metadata struct with zeros
+    #[napi(factory)]
+    pub fn empty() -> Self {
+        Self(Metadata::empty())
     }
 
     /// Get the creation timestamp

@@ -11,7 +11,9 @@ use ant_node::spawn::network_spawner::NetworkSpawner;
 use autonomi::{Client, ClientConfig, ClientOperatingStrategy};
 use evmlib::testnet::Testnet;
 
+// Test fails in CI because of external node interference.
 #[tokio::test]
+#[ignore]
 async fn test_get_closest_to_address() {
     let evm_testnet = Testnet::new().await;
     let evm_network = evm_testnet.to_network();
@@ -45,8 +47,6 @@ async fn test_get_closest_to_address() {
     let node = network.running_nodes().first().unwrap();
 
     let close_nodes = client.get_closest_to_address(node.peer_id()).await.unwrap();
-
-    println!("{close_nodes:?}");
 
     assert_eq!(close_nodes.len(), 5);
     assert!(close_nodes.iter().any(|(peer, _)| peer == &node.peer_id()));

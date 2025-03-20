@@ -237,7 +237,7 @@ impl SwarmDriver {
             is_fresh_replicate,
             closest_k_peers
                 .iter()
-                .map(|(peer_id, _addrs)| NetworkAddress::from_peer(*peer_id))
+                .map(|(peer_id, _addrs)| NetworkAddress::from(*peer_id))
                 .collect(),
         );
         if keys_to_fetch.is_empty() {

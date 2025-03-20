@@ -292,8 +292,8 @@ impl SwarmDriver {
         let kbucket_status = self.get_kbuckets_status();
         self.update_on_kbucket_status(&kbucket_status);
 
-        let distance = NetworkAddress::from_peer(self.self_peer_id)
-            .distance(&NetworkAddress::from_peer(added_peer));
+        let distance =
+            NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
         info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
         self.peers_in_rt, distance.ilog2());
 
@@ -333,8 +333,8 @@ impl SwarmDriver {
         // err result just means no connections were open
         let _result = self.swarm.disconnect_peer_id(removed_peer);
 
-        let distance = NetworkAddress::from_peer(self.self_peer_id)
-            .distance(&NetworkAddress::from_peer(removed_peer));
+        let distance =
+            NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(removed_peer));
         info!(
             "Peer removed from routing table: {removed_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.",
             self.peers_in_rt, distance.ilog2()

@@ -131,7 +131,7 @@ pub fn sort_peers_by_key<T>(
         Vec::with_capacity(peers.len());
 
     for (peer_id, addrs) in peers.into_iter() {
-        let addr = NetworkAddress::from_peer(peer_id);
+        let addr = NetworkAddress::from(peer_id);
         let distance = key.distance(&addr.as_kbucket_key());
         peer_distances.push((peer_id, addrs, distance));
     }
@@ -857,7 +857,7 @@ impl Network {
             } = verification_kind
             {
                 self.verify_chunk_existence(
-                    NetworkAddress::from_record_key(&record_key),
+                    NetworkAddress::from(&record_key),
                     *nonce,
                     expected_proof.clone(),
                     get_cfg.get_quorum,
@@ -874,9 +874,9 @@ impl Network {
                     }
                     Err(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
                         warn!("Record {pretty_key:?} not found after PUT, either rejected or not yet stored by nodes when we asked");
-                        return Err(NetworkError::RecordNotStoredByNodes(
-                            NetworkAddress::from_record_key(&record_key),
-                        ));
+                        return Err(NetworkError::RecordNotStoredByNodes(NetworkAddress::from(
+                            &record_key,
+                        )));
                     }
                     Err(NetworkError::GetRecordError(GetRecordError::SplitRecord { .. }))
                         if matches!(verification_kind, VerificationKind::Crdt) =>
@@ -1106,7 +1106,7 @@ impl Network {
                 .map(|(peer_id, _)| {
                     format!(
                         "{peer_id:?}({:?})",
-                        PrettyPrintKBucketKey(NetworkAddress::from_peer(*peer_id).as_kbucket_key())
+                        PrettyPrintKBucketKey(NetworkAddress::from(*peer_id).as_kbucket_key())
                     )
                 })
                 .collect();

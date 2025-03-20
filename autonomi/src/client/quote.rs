@@ -125,12 +125,11 @@ impl Client {
                 continue;
             }
 
-            let target_addr = NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr));
+            let target_addr = NetworkAddress::from(ChunkAddress::new(content_addr));
 
             // Only keep the quotes of the 5 closest nodes
-            raw_quotes.sort_by_key(|(peer_id, _)| {
-                NetworkAddress::from_peer(*peer_id).distance(&target_addr)
-            });
+            raw_quotes
+                .sort_by_key(|(peer_id, _)| NetworkAddress::from(*peer_id).distance(&target_addr));
             raw_quotes.truncate(CLOSE_GROUP_SIZE);
 
             for (peer_id, quote) in raw_quotes.into_iter() {
@@ -213,7 +212,7 @@ async fn fetch_store_quote(
 ) -> Result<Vec<(PeerId, PaymentQuote)>, NetworkError> {
     network
         .get_store_quote_from_network(
-            NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr)),
+            NetworkAddress::from(ChunkAddress::new(content_addr)),
             data_type,
             data_size,
             vec![],

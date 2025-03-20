@@ -981,7 +981,7 @@ impl Node {
             .send_request(request, peer, Default::default())
             .await
         {
-            Ok(Response::Query(QueryResponse::GetVersion { version, .. })) => {
+            Ok((Response::Query(QueryResponse::GetVersion { version, .. }), _conn_info)) => {
                 info!("Fetched peer {peer:?} version as {version:?}");
                 version
             }
@@ -1029,7 +1029,7 @@ async fn scoring_peer(
         .send_and_get_responses(&[peer], &request, true)
         .await;
 
-    if let Some(Ok(Response::Query(QueryResponse::GetChunkExistenceProof(answers)))) =
+    if let Some(Ok((Response::Query(QueryResponse::GetChunkExistenceProof(answers)), _conn_info))) =
         responses.get(&peer_id)
     {
         if answers.is_empty() {

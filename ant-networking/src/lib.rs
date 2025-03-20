@@ -51,6 +51,7 @@ pub use time::{interval, sleep, spawn, Instant, Interval};
 
 use self::{cmd::NetworkSwarmCmd, error::Result};
 use ant_evm::{PaymentQuote, QuotingMetrics};
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
@@ -334,7 +335,7 @@ impl Network {
             let n_verified = responses
                 .into_iter()
                 .filter_map(|(peer, resp)| {
-                    if let Ok(Response::Query(QueryResponse::GetChunkExistenceProof(proofs))) =
+                    if let Ok((Response::Query(QueryResponse::GetChunkExistenceProof(proofs)), _conn_info)) =
                         resp
                     {
                         if proofs.is_empty() {
@@ -431,11 +432,14 @@ impl Network {
         for (peer, response) in responses {
             info!("StoreCostReq for {record_address:?} received response: {response:?}");
             match response {
-                Ok(Response::Query(QueryResponse::GetStoreQuote {
-                    quote: Ok(quote),
-                    peer_address,
-                    storage_proofs,
-                })) => {
+                Ok((
+                    Response::Query(QueryResponse::GetStoreQuote {
+                        quote: Ok(quote),
+                        peer_address,
+                        storage_proofs,
+                    }),
+                    _conn_info,
+                )) => {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
@@ -455,11 +459,14 @@ impl Network {
                     all_quotes.push((peer_address.clone(), quote.clone()));
                     quotes_to_pay.push((peer, quote));
                 }
-                Ok(Response::Query(QueryResponse::GetStoreQuote {
-                    quote: Err(ProtocolError::RecordExists(_)),
-                    peer_address,
-                    storage_proofs,
-                })) => {
+                Ok((
+                    Response::Query(QueryResponse::GetStoreQuote {
+                        quote: Err(ProtocolError::RecordExists(_)),
+                        peer_address,
+                        storage_proofs,
+                    }),
+                    _conn_info,
+                )) => {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
@@ -947,7 +954,7 @@ impl Network {
         req: Request,
         peer: PeerId,
         addrs: Addresses,
-    ) -> Result<Response> {
+    ) -> Result<(Response, Option<ConnectionInfo>)> {
         let (sender, receiver) = oneshot::channel();
         let req_str = format!("{req:?}");
         // try to send the request without dialing the peer
@@ -1123,7 +1130,7 @@ impl Network {
         peers: &[(PeerId, Addresses)],
         req: &Request,
         get_all_responses: bool,
-    ) -> BTreeMap<PeerId, Result<Response>> {
+    ) -> BTreeMap<PeerId, Result<(Response, Option<ConnectionInfo>)>> {
         debug!("send_and_get_responses for {req:?}");
         let mut list_of_futures = peers
             .iter()
@@ -1139,7 +1146,7 @@ impl Network {
         while !list_of_futures.is_empty() {
             let ((peer, resp), _, remaining_futures) = select_all(list_of_futures).await;
             let resp_string = match &resp {
-                Ok(resp) => format!("{resp}"),
+                Ok(resp) => format!("{resp:?}"),
                 Err(err) => format!("{err:?}"),
             };
             debug!("Got response from {peer:?} for the req: {req:?}, resp: {resp_string}");

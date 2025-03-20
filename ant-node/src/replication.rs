@@ -54,8 +54,10 @@ impl Node {
                     .send_request(req, holder, Default::default())
                     .await
                 {
-                    Ok(Response::Query(QueryResponse::GetReplicatedRecord(result))) => match result
-                    {
+                    Ok((
+                        Response::Query(QueryResponse::GetReplicatedRecord(result)),
+                        _conn_info,
+                    )) => match result {
                         Ok((_holder, record_content)) => {
                             debug!("Fecthed record {pretty_key:?} from holder {holder:?}");
                             Record::new(key, record_content.to_vec())

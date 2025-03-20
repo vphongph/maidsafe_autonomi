@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::time::Instant;
 use crate::{
     config::GetRecordCfg,
     driver::{PendingGetClosestType, SwarmDriver},
@@ -15,6 +16,7 @@ use crate::{
     Addresses, GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum, CLOSE_GROUP_SIZE,
 };
 use ant_evm::{PaymentQuote, QuotingMetrics};
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
     messages::{Cmd, Request, Response},
     storage::{DataTypes, RecordHeader, RecordKind, ValidationType},
@@ -35,8 +37,6 @@ use std::{
 };
 use tokio::sync::oneshot;
 use xor_name::XorName;
-
-use crate::time::Instant;
 
 const MAX_CONTINUOUS_HDD_WRITE_ERROR: usize = 5;
 
@@ -202,7 +202,8 @@ pub enum NetworkSwarmCmd {
         // If a `sender` is not provided, the requesting node will not wait for the Peer's
         // response. Instead we trigger a `NetworkEvent::ResponseReceived` which calls the common
         // `response_handler`
-        sender: Option<oneshot::Sender<Result<Response>>>,
+        #[allow(clippy::type_complexity)]
+        sender: Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>,
     },
     SendResponse {
         resp: Response,
@@ -604,7 +605,7 @@ impl SwarmDriver {
                         match channel {
                             Some(channel) => {
                                 channel
-                                    .send(Ok(resp))
+                                    .send(Ok((resp, None)))
                                     .map_err(|_| NetworkError::InternalMsgChannelDropped)?;
                             }
                             None => {

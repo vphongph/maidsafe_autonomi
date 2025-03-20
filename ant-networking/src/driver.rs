@@ -28,6 +28,7 @@ use crate::{
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::PaymentQuote;
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
     messages::{Request, Response},
     NetworkAddress,
@@ -139,8 +140,11 @@ pub struct SwarmDriver {
 
     /// Trackers for underlying behaviour related events
     pub(crate) pending_get_closest_peers: PendingGetClosest,
-    pub(crate) pending_requests:
-        HashMap<OutboundRequestId, Option<oneshot::Sender<Result<Response>>>>,
+    #[allow(clippy::type_complexity)]
+    pub(crate) pending_requests: HashMap<
+        OutboundRequestId,
+        Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>,
+    >,
     pub(crate) pending_get_record: PendingGetRecord,
     /// A list of the most recent peers we have dialed ourselves. Old dialed peers are evicted once the vec fills up.
     pub(crate) dialed_peers: CircularVec<PeerId>,

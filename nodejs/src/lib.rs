@@ -1358,8 +1358,62 @@ impl JsGraphEntryAddress {
 #[napi(js_name = "DataAddress")]
 pub struct JsDataAddress(DataAddress);
 
+#[napi]
+impl JsDataAddress {
+    /// Creates a new DataAddress.
+    #[napi(constructor)]
+    pub fn new(xor_name: &JsXorName) -> Self {
+        Self(DataAddress::new(xor_name.0))
+    }
+
+    /// Returns the XorName.
+    #[napi]
+    pub fn xorname(&self) -> JsXorName {
+        JsXorName(*self.0.xorname())
+    }
+
+    /// Returns the hex string representation of the address.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Creates a new DataAddress from a hex string.
+    #[napi(factory)]
+    pub fn from_hex(hex: String) -> Result<Self> {
+        DataAddress::from_hex(&hex).map(Self).map_err(map_error)
+    }
+}
+
 #[napi(js_name = "ArchiveAddress")]
 pub struct JsArchiveAddress(ArchiveAddress);
+
+#[napi]
+impl JsArchiveAddress {
+    /// Creates a new ArchiveAddress.
+    #[napi(constructor)]
+    pub fn new(xor_name: &JsXorName) -> Self {
+        Self(ArchiveAddress::new(xor_name.0))
+    }
+
+    /// Returns the XorName.
+    #[napi]
+    pub fn xorname(&self) -> JsXorName {
+        JsXorName(*self.0.xorname())
+    }
+
+    /// Returns the hex string representation of the address.
+    #[napi]
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+
+    /// Creates a new ArchiveAddress from a hex string.
+    #[napi(factory)]
+    pub fn from_hex(hex: String) -> Result<Self> {
+        ArchiveAddress::from_hex(&hex).map(Self).map_err(map_error)
+    }
+}
 
 /// A wallet for interacting with the network's payment system
 #[napi(js_name = "Wallet")]

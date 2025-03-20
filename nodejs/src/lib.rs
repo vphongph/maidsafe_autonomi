@@ -1924,10 +1924,7 @@ pub struct JsPrivateArchive(PrivateArchive);
 impl JsPrivateArchive {
     /// Create a new empty local archive
     #[napi(constructor)]
-    #[allow(
-        clippy::new_without_default,
-        reason = "`Default` impl not useful for Node.js"
-    )]
+    #[allow(clippy::new_without_default, reason = "`Default` not useful")]
     pub fn new() -> Self {
         Self(PrivateArchive::new())
     }
@@ -2132,6 +2129,7 @@ pub struct JsRegisterHistory(Mutex<RegisterHistory>);
 impl JsRegisterHistory {
     // Somehow without this stub, NAPI-RS fails to create this object with an error:
     // error: `Failed to get constructor of class`
+    #[allow(clippy::new_without_default, reason = "`Default` not useful")]
     #[napi(constructor)]
     pub fn new() -> Self {
         unimplemented!()
@@ -2167,10 +2165,7 @@ pub struct JsPublicArchive(PublicArchive);
 impl JsPublicArchive {
     /// Create a new empty local archive
     #[napi(constructor)]
-    #[allow(
-        clippy::new_without_default,
-        reason = "`Default` impl not useful for Node.js"
-    )]
+    #[allow(clippy::new_without_default, reason = "`Default` not useful")]
     pub fn new() -> Self {
         Self(PublicArchive::new())
     }

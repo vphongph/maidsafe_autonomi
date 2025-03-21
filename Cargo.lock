@@ -1622,7 +1622,6 @@ dependencies = [
  "bytes",
  "eyre",
  "futures",
- "libp2p",
  "napi",
  "napi-build",
  "napi-derive",

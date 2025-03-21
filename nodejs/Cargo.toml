@@ -13,7 +13,6 @@ autonomi = { path = "../autonomi" }
 bytes = { version = "1.0.1", features = ["serde"] }
 eyre = "0.6.12"
 futures = "0.3"
-libp2p = "0.55.0"
 napi = { version = "2.12.2", default-features = false, features = ["napi4", "napi6", "tokio_rt", "serde-json"] }
 napi-derive = "2.12.2"
 rand = "0.8.5"

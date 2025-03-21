@@ -10,12 +10,11 @@ use autonomi::{
     pointer::PointerTarget,
     register::{RegisterAddress, RegisterHistory},
     vault::{UserData, VaultContentType, VaultSecretKey},
-    AttoTokens, Bytes, Chunk, ChunkAddress, Client, GraphEntry, GraphEntryAddress, Network,
-    Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey, Signature,
-    Wallet, XorName,
+    AttoTokens, Bytes, Chunk, ChunkAddress, Client, GraphEntry, GraphEntryAddress, Multiaddr,
+    Network, Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey,
+    Signature, Wallet, XorName,
 };
 
-use libp2p::Multiaddr;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use tokio::sync::Mutex;

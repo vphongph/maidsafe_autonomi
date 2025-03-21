@@ -1619,7 +1619,6 @@ name = "autonomi-nodejs"
 version = "0.1.0"
 dependencies = [
  "autonomi",
- "blsttc",
  "bytes",
  "eyre",
  "futures",
@@ -1627,6 +1626,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tokio",

@@ -11,7 +11,8 @@ use autonomi::{
     register::{RegisterAddress, RegisterHistory},
     vault::{UserData, VaultContentType, VaultSecretKey},
     AttoTokens, Bytes, Chunk, ChunkAddress, Client, GraphEntry, GraphEntryAddress, Network,
-    Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey, Wallet, XorName,
+    Pointer, PointerAddress, PublicKey, Scratchpad, ScratchpadAddress, SecretKey, Signature,
+    Wallet, XorName,
 };
 
 use libp2p::Multiaddr;
@@ -1280,7 +1281,7 @@ impl JsXorName {
     /// Generate a random XorName
     #[napi(factory)]
     pub fn random() -> Self {
-        Self(XorName::random(&mut bls::rand::thread_rng()))
+        Self(XorName::random(&mut rand::thread_rng()))
     }
 }
 
@@ -1627,7 +1628,7 @@ impl JsGraphEntry {
         let descendants = descendants_result?;
 
         let signature = uint8_array_to_array(signature, "signature")?;
-        let signature = bls::Signature::from_bytes(signature).map_err(map_error)?;
+        let signature = Signature::from_bytes(signature).map_err(map_error)?;
 
         Ok(Self(GraphEntry::new_with_signature(
             owner.0,

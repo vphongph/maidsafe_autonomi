@@ -361,9 +361,27 @@ export declare class GraphEntryAddress {
   static fromHex(hex: string): JsGraphEntryAddress
 }
 export type JsDataAddress = DataAddress
-export declare class DataAddress { }
+export declare class DataAddress {
+  /** Creates a new DataAddress. */
+  constructor(xorName: XorName)
+  /** Returns the XorName. */
+  xorname(): XorName
+  /** Returns the hex string representation of the address. */
+  toHex(): string
+  /** Creates a new DataAddress from a hex string. */
+  static fromHex(hex: string): JsDataAddress
+}
 export type JsArchiveAddress = ArchiveAddress
-export declare class ArchiveAddress { }
+export declare class ArchiveAddress {
+  /** Creates a new ArchiveAddress. */
+  constructor(xorName: XorName)
+  /** Returns the XorName. */
+  xorname(): XorName
+  /** Returns the hex string representation of the address. */
+  toHex(): string
+  /** Creates a new ArchiveAddress from a hex string. */
+  static fromHex(hex: string): JsArchiveAddress
+}
 export type JsWallet = Wallet
 /** A wallet for interacting with the network's payment system */
 export declare class Wallet {
@@ -567,10 +585,12 @@ export declare class VaultContentType { }
 export type JsMetadata = Metadata
 /** File metadata */
 export declare class Metadata {
-  /** Create new metadata with current timestamp and specified size */
-  constructor(size: bigint)
+  /** Create a new metadata struct with the current time as uploaded, created and modified. */
+  static newWithSize(size: bigint): JsMetadata
   /** Create new metadata with all custom fields */
   static withCustomFields(created: bigint, modified: bigint, size: bigint, extra?: string | undefined | null): JsMetadata
+  /** Create a new empty metadata struct with zeros */
+  static empty(): JsMetadata
   /** Get the creation timestamp */
   get created(): bigint
   /** Get the modification timestamp */

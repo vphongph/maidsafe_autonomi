@@ -183,6 +183,10 @@ pub enum LocalSwarmCmd {
     GetNetworkDensity {
         sender: oneshot::Sender<Option<Distance>>,
     },
+    /// Remove peer from the routing table
+    RemovePeer {
+        peer: PeerId,
+    },
 }
 
 /// Commands to send to the Swarm
@@ -366,6 +370,9 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::GetNetworkDensity { .. } => {
                 write!(f, "LocalSwarmCmd::GetNetworkDensity")
+            }
+            LocalSwarmCmd::RemovePeer { peer } => {
+                write!(f, "LocalSwarmCmd::RemovePeer({peer:?})")
             }
         }
     }
@@ -1026,6 +1033,12 @@ impl SwarmDriver {
                     .get_farthest_replication_distance()
                     .unwrap_or_default();
                 let _ = sender.send(density);
+            }
+            LocalSwarmCmd::RemovePeer { peer } => {
+                cmd_string = "RemovePeer";
+                if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer) {
+                    self.update_on_peer_removal(*dead_peer.node.key.preimage());
+                }
             }
         }
 

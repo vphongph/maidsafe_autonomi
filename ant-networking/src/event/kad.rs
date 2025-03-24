@@ -113,7 +113,7 @@ impl SwarmDriver {
                         .handle_get_closest_query(current_closest),
                     PendingGetClosestType::FunctionCall(sender) => {
                         tokio::spawn(async move {
-                            let _ = sender.send(current_closest);
+                            let _ = sender.send(vec![]);
                         });
                     }
                 }

@@ -1,4 +1,4 @@
-name: Node.js NPM publish
+name: JS publish to NPM
 env:
   DEBUG: napi:*
   APP_NAME: autonomi

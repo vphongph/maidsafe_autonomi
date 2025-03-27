@@ -1,4 +1,4 @@
-name: Node.js bindings
+name: JS tests
 env:
   DEBUG: napi:*
   APP_NAME: autonomi
@@ -37,7 +37,7 @@ jobs:
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build --target aarch64-apple-darwin
-    name: stable - ${{ matrix.settings.target }} - node@20
+    name: Build (${{ matrix.settings.target }})
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +104,7 @@ jobs:
           path: nodejs/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
   test-macOS-windows-binding:
-    name: Test bindings on ${{ matrix.settings.target }} - node@20
+    name: Tests (${{ matrix.settings.target }})
     needs:
       - build
     strategy:
@@ -149,7 +149,7 @@ jobs:
       - name: Test bindings
         run: yarn test
   test-linux-x64-gnu-binding:
-    name: Test bindings on Linux-x64-gnu - node@20
+    name: Tests (linux-x64-gnu)
     needs:
       - build
     strategy:

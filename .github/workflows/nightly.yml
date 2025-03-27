@@ -66,6 +66,8 @@ jobs:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
+          # set the max chunk size for `self_encryption`
+          MAX_CHUNK_SIZE: 4194304
         timeout-minutes: 20
 
 
@@ -224,7 +226,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
 
@@ -265,7 +267,7 @@ jobs:
       - name: Run logging tests
         timeout-minutes: 25
         run: cargo test --release --package ant-logging
-  
+
       - name: post notification to slack on failure
         if: ${{ failure() }}
         uses: bryannice/gitactions-slack-notification@2.0.0

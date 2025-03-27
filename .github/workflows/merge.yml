@@ -5,9 +5,9 @@ on:
   # on main, we want to know that all commits are passing at a glance, any deviation should help bisecting errors
   # the merge run checks should show on master and enable this clear test/passing history
   merge_group:
-    branches: [main, alpha*, beta*, rc*]
+    branches: [ main, alpha*, beta*, rc* ]
   pull_request:
-    branches: ["*"]
+    branches: [ "*" ]
 
 env:
   CARGO_INCREMENTAL: 0 # bookkeeping for incremental builds has overhead, not useful in CI.
@@ -107,7 +107,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
 
@@ -134,7 +134,7 @@ jobs:
       - name: Run node tests
         timeout-minutes: 25
         run: cargo test --release --package ant-node --lib
-      
+
       - name: Run launchpad tests
         timeout-minutes: 25
         run: cargo test --release --package node-launchpad
@@ -227,6 +227,8 @@ jobs:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
+          # set the max chunk size for `self_encryption`
+          MAX_CHUNK_SIZE: 4194304
         timeout-minutes: 20
 
       # FIXME: do this in a generic way for localtestnets

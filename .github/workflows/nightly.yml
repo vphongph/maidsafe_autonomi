@@ -8,6 +8,7 @@ on:
 env:
   CARGO_INCREMENTAL: 0 # bookkeeping for incremental builds has overhead, not useful in CI.
   WORKFLOW_URL: https://github.com/maidsafe/stableset_net/actions/runs
+  MAX_CHUNK_SIZE: 4194304
 
 jobs:
   e2e:
@@ -66,8 +67,6 @@ jobs:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-          # set the max chunk size for `self_encryption`
-          MAX_CHUNK_SIZE: 4194304
         timeout-minutes: 20
 
 

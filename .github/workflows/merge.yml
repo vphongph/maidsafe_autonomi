@@ -14,6 +14,7 @@ env:
   WINSW_URL: https://github.com/winsw/winsw/releases/download/v3.0.0-alpha.11/WinSW-x64.exe
   GENESIS_PK: 9377ab39708a59d02d09bfd3c9bc7548faab9e0c2a2700b9ac7d5c14f0842f0b4bb0df411b6abd3f1a92b9aa1ebf5c3d
   GENESIS_SK: 5ec88891c1098a0fede5b98b07f8abc931d7247b7aa310d21ab430cc957f9f02
+  MAX_CHUNK_SIZE: 4194304
 
 jobs:
   build:
@@ -227,8 +228,6 @@ jobs:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-          # set the max chunk size for `self_encryption`
-          MAX_CHUNK_SIZE: 4194304
         timeout-minutes: 20
 
       # FIXME: do this in a generic way for localtestnets

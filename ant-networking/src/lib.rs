@@ -1108,6 +1108,11 @@ impl Network {
 
         let found_peers = receiver.await?;
 
+        // Error out when fetched result is empty, indicating a timed out network query.
+        if found_peers.is_empty() {
+            return Err(NetworkError::GetClosestTimedOut);
+        }
+
         // Count self in if among the CLOSE_GROUP_SIZE closest and sort the result
         let result_len = found_peers.len();
         let mut closest_peers = found_peers;

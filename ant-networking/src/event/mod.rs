@@ -171,6 +171,8 @@ pub enum NetworkEvent {
             Option<ProofOfPayment>,
         )>,
     },
+    /// Peers of picked bucket for version query.
+    PeersForVersionQuery(Vec<(PeerId, Addresses)>),
 }
 
 /// Terminate node for the following reason
@@ -242,6 +244,16 @@ impl Debug for NetworkEvent {
                     "NetworkEvent::FreshReplicateToFetch({holder:?}, {keys:?})"
                 )
             }
+            NetworkEvent::PeersForVersionQuery(peers) => {
+                write!(
+                    f,
+                    "NetworkEvent::PeersForVersionQuery({:?})",
+                    peers
+                        .iter()
+                        .map(|(peer, _addrs)| peer)
+                        .collect::<Vec<&PeerId>>()
+                )
+            }
         }
     }
 }
@@ -292,8 +304,8 @@ impl SwarmDriver {
 
         let distance = NetworkAddress::from_peer(self.self_peer_id)
             .distance(&NetworkAddress::from_peer(added_peer));
-        info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
-        self.peers_in_rt, distance.ilog2());
+        info!("Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.", 
+        self.self_peer_id, distance.ilog2());
 
         #[cfg(feature = "loud")]
         println!(
@@ -314,11 +326,6 @@ impl SwarmDriver {
         #[cfg(feature = "open-metrics")]
         if self.metrics_recorder.is_some() {
             self.check_for_change_in_our_close_group();
-        }
-
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics_recorder) = &self.metrics_recorder {
-            metrics_recorder.update_node_versions(&self.peers_version);
         }
     }
 

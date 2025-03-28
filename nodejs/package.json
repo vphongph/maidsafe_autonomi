@@ -1,9 +1,13 @@
 {
   "name": "@withautonomi/autonomi",
-  "version": "0.4.0",
+  "version": "0.4.3",
   "description": "NodeJS bindings for Autonomi client",
   "main": "index.js",
   "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maidsafe/autonomi.git"
+  },
   "napi": {
     "name": "autonomi",
     "triples": {
@@ -41,5 +45,11 @@
     "pointer",
     "vault"
   ],
-  "packageManager": "yarn@4.7.0"
+  "packageManager": "yarn@4.7.0",
+  "optionalDependencies": {
+    "@withautonomi/autonomi-win32-x64-msvc": "0.4.2",
+    "@withautonomi/autonomi-darwin-x64": "0.4.2",
+    "@withautonomi/autonomi-linux-x64-gnu": "0.4.2",
+    "@withautonomi/autonomi-darwin-arm64": "0.4.2"
+  }
 }

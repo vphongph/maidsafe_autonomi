@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.3.11-rc.1"
+version = "0.3.11"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "ant-evm"
-version = "0.1.12-rc.1"
+version = "0.1.12"
 dependencies = [
  "custom_debug",
  "evmlib",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "ant-networking"
-version = "0.3.9-rc.1"
+version = "0.3.9"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.3.9-rc.1"
+version = "0.3.9"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-manager"
-version = "0.12.2-rc.1"
+version = "0.12.2"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-rpc-client"
-version = "0.6.45-rc.1"
+version = "0.6.45"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "1.0.3-rc.1"
+version = "1.0.3"
 dependencies = [
  "ant-build-info",
  "ant-evm",
@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "ant-service-management"
-version = "0.4.11-rc.1"
+version = "0.4.11"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",
@@ -1577,7 +1577,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "autonomi"
-version = "0.4.3-rc.1"
+version = "0.4.3"
 dependencies = [
  "alloy",
  "ant-bootstrap",
@@ -3186,7 +3186,7 @@ dependencies = [
 
 [[package]]
 name = "evm-testnet"
-version = "0.1.12-rc.1"
+version = "0.1.12"
 dependencies = [
  "ant-evm",
  "clap",
@@ -6046,7 +6046,7 @@ dependencies = [
 
 [[package]]
 name = "nat-detection"
-version = "0.2.19-rc.1"
+version = "0.2.19"
 dependencies = [
  "ant-build-info",
  "ant-networking",
@@ -6187,7 +6187,7 @@ dependencies = [
 
 [[package]]
 name = "node-launchpad"
-version = "0.5.7-rc.1"
+version = "0.5.7"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",

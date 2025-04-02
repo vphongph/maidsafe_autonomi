@@ -688,7 +688,7 @@ impl Node {
             // In case we don't have enough knowledge of the network, we shall trust the payment.
             if let Some(network_density) = self.network().get_network_density().await? {
                 payees.retain(|peer_id| {
-                    NetworkAddress::from_peer(*peer_id).distance(address) > network_density
+                    NetworkAddress::from(*peer_id).distance(address) > network_density
                 });
 
                 if !payees.is_empty() {

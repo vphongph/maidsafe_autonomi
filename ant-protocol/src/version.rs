@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use std::sync::{RwLock, LazyLock};
+use std::sync::{LazyLock, RwLock};
 
 /// The network_id is used to differentiate between different networks.
 /// The default is set to 1 and it represents the mainnet.
@@ -17,7 +17,9 @@ pub static IDENTIFY_NODE_VERSION_STR: LazyLock<RwLock<String>> = LazyLock::new(|
     RwLock::new(format!(
         "ant/node/{}/{}",
         get_truncate_version_str(),
-        *NETWORK_ID.read().expect("Failed to obtain read lock for NETWORK_ID"),
+        *NETWORK_ID
+            .read()
+            .expect("Failed to obtain read lock for NETWORK_ID"),
     ))
 });
 
@@ -26,7 +28,9 @@ pub static IDENTIFY_CLIENT_VERSION_STR: LazyLock<RwLock<String>> = LazyLock::new
     RwLock::new(format!(
         "ant/client/{}/{}",
         get_truncate_version_str(),
-        *NETWORK_ID.read().expect("Failed to obtain read lock for NETWORK_ID"),
+        *NETWORK_ID
+            .read()
+            .expect("Failed to obtain read lock for NETWORK_ID"),
     ))
 });
 
@@ -35,7 +39,9 @@ pub static REQ_RESPONSE_VERSION_STR: LazyLock<RwLock<String>> = LazyLock::new(||
     RwLock::new(format!(
         "/ant/{}/{}",
         get_truncate_version_str(),
-        *NETWORK_ID.read().expect("Failed to obtain read lock for NETWORK_ID"),
+        *NETWORK_ID
+            .read()
+            .expect("Failed to obtain read lock for NETWORK_ID"),
     ))
 });
 
@@ -44,7 +50,9 @@ pub static IDENTIFY_PROTOCOL_STR: LazyLock<RwLock<String>> = LazyLock::new(|| {
     RwLock::new(format!(
         "ant/{}/{}",
         get_truncate_version_str(),
-        *NETWORK_ID.read().expect("Failed to obtain read lock for NETWORK_ID"),
+        *NETWORK_ID
+            .read()
+            .expect("Failed to obtain read lock for NETWORK_ID"),
     ))
 });
 

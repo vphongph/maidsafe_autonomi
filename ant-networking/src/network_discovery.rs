@@ -16,8 +16,7 @@ use libp2p::{
     kad::{KBucketKey, K_VALUE},
     PeerId,
 };
-use rand::rngs::OsRng;
-use rand::{thread_rng, Rng};
+use rand::{rngs::OsRng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{btree_map::Entry, BTreeMap};
 use tokio::time::Duration;
@@ -124,6 +123,7 @@ impl SwarmDriver {
         let get_closest_candidates = self.network_discovery.candidates.get_candidates(
             non_full_non_empty_buckets_indexes.clone(),
             full_buckets_index,
+            round_robin_index,
         );
         info!(
             "Going to undertake {} get_closest queries for non_full_buckets {non_full_non_empty_buckets_indexes:?}",
@@ -370,13 +370,12 @@ impl NetworkDiscoveryCandidates {
         &mut self,
         non_full_non_empty_buckets: Vec<u32>,
         full_buckets: Vec<u32>,
+        round_robin_index: usize,
     ) -> Vec<NetworkAddress> {
         self.try_refresh_candidates();
 
         // Always add self in
         let mut targets = vec![NetworkAddress::from_peer(self.self_peer_id)];
-
-        let mut rng = thread_rng();
 
         // Pick targets of non-full-non-empty buckets first
         targets.extend(
@@ -384,8 +383,8 @@ impl NetworkDiscoveryCandidates {
                 .iter()
                 .filter_map(|ilog2| {
                     if let Some(candidates) = self.candidates.get(ilog2) {
-                        let random_index = rng.gen::<usize>() % candidates.len();
-                        candidates.get(random_index).cloned()
+                        let index = round_robin_index % candidates.len();
+                        candidates.get(index).cloned()
                     } else {
                         None
                     }
@@ -404,8 +403,8 @@ impl NetworkDiscoveryCandidates {
                 continue;
             }
 
-            let random_index = rng.gen::<usize>() % candidates.len();
-            if let Some(candidate) = candidates.get(random_index).cloned() {
+            let index = round_robin_index % candidates.len();
+            if let Some(candidate) = candidates.get(index).cloned() {
                 targets.push(candidate);
             }
         }

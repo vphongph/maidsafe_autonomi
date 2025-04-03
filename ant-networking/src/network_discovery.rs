@@ -37,7 +37,7 @@ pub(crate) const NETWORK_DISCOVER_INTERVAL: Duration = Duration::from_secs(10);
 const LAST_PEER_ADDED_TIME_LIMIT: Duration = Duration::from_secs(180);
 
 /// The network discovery interval to use if we haven't added any new peers in a while.
-const NO_PEER_ADDED_SLOWDOWN_INTERVAL_MAX_S: u64 = 600;
+const NO_PEER_ADDED_SLOWDOWN_INTERVAL_MAX_S: u64 = 1200;
 
 /// (get_closest_candidates, picked_non_full_bucket_peers, picked_full_bucket_peers)
 type RefreshTargets = (
@@ -297,15 +297,15 @@ impl NetworkDiscovery {
     }
 
     /// Returns an exponentially increasing interval based on the number of peers in the routing table.
-    /// Formula: y=30 * 1.00673^x
-    /// Caps out at 600s for 400+ peers
+    /// Formula: y=60 * 1.00673^x
+    /// Caps out at 1200s for 450+ peers
     fn scaled_duration(peers_in_rt: u32) -> Duration {
         if peers_in_rt >= 450 {
-            return Duration::from_secs(600);
+            return Duration::from_secs(1200);
         }
         let base: f64 = 1.00673;
 
-        Duration::from_secs_f64(30.0 * base.powi(peers_in_rt as i32))
+        Duration::from_secs_f64(60.0 * base.powi(peers_in_rt as i32))
     }
 }
 
@@ -500,19 +500,19 @@ mod tests {
     #[test]
     fn test_scaled_interval() {
         let test_cases = vec![
-            (0, 30.0),
-            (50, 40.0),
-            (100, 60.0),
-            (150, 80.0),
-            (200, 115.0),
-            (220, 130.0),
-            (250, 160.0),
-            (300, 220.0),
-            (350, 313.0),
-            (400, 430.0),
-            (425, 520.0),
-            (449, 600.0),
-            (1000, 600.0),
+            (0, 60.0),
+            (50, 80.0),
+            (100, 120.0),
+            (150, 160.0),
+            (200, 230.0),
+            (220, 260.0),
+            (250, 320.0),
+            (300, 440.0),
+            (350, 626.0),
+            (400, 860.0),
+            (425, 1040.0),
+            (449, 1200.0),
+            (1000, 1200.0),
         ];
 
         for (peers, expected_secs) in test_cases {

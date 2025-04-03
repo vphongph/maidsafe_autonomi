@@ -113,20 +113,20 @@ impl SwarmDriver {
             .partition(|kb| kb.num_entries() >= K_VALUE.get());
 
         // Process non-full buckets, collect get_closest candidates
-        let non_full_buckets_indexes = non_full_buckets
+        let non_full_non_empty_buckets_indexes = non_full_buckets
             .iter()
             .filter_map(|kbucket| kbucket.range().0.ilog2())
             .collect::<Vec<_>>();
-        let min_full_bucket_index = full_buckets
+        let full_buckets_index = full_buckets
             .iter()
             .filter_map(|kbucket| kbucket.range().0.ilog2())
-            .min();
-        let get_closest_candidates = self
-            .network_discovery
-            .candidates
-            .get_candidates(non_full_buckets_indexes.clone(), min_full_bucket_index);
+            .collect::<Vec<_>>();
+        let get_closest_candidates = self.network_discovery.candidates.get_candidates(
+            non_full_non_empty_buckets_indexes.clone(),
+            full_buckets_index,
+        );
         info!(
-            "Going to undertake {} get_closest queries for non_full_buckets {non_full_buckets_indexes:?}",
+            "Going to undertake {} get_closest queries for non_full_buckets {non_full_non_empty_buckets_indexes:?}",
             get_closest_candidates.len(),
         );
 
@@ -307,6 +307,7 @@ impl NetworkDiscovery {
 #[derive(Debug, Clone)]
 struct NetworkDiscoveryCandidates {
     self_key: KBucketKey<PeerId>,
+    self_peer_id: PeerId,
     candidates: BTreeMap<u32, Vec<NetworkAddress>>,
 }
 
@@ -329,6 +330,7 @@ impl NetworkDiscoveryCandidates {
 
         Self {
             self_key,
+            self_peer_id: *self_peer_id,
             candidates,
         }
     }
@@ -366,39 +368,49 @@ impl NetworkDiscoveryCandidates {
     /// Returns one random candidate per non-full bucket. Also tries to refresh the candidate list.
     fn get_candidates(
         &mut self,
-        mut non_full_buckets: Vec<u32>,
-        min_full_bucket_index: Option<u32>,
+        non_full_non_empty_buckets: Vec<u32>,
+        full_buckets: Vec<u32>,
     ) -> Vec<NetworkAddress> {
         self.try_refresh_candidates();
 
-        // As the `empty` buckets won't be returned by the libp2p, which may not have enough targets.
-        // Hence here need to insert extra potential targeted buckets in,
-        // to fill the gap from the min_full_bucket_index.
-        let mut candidate = min_full_bucket_index.unwrap_or(255);
-
-        // adding numbers in [min_full_bucket_index, 0) with downward
-        while non_full_buckets.len() < 10 && candidate > 0 {
-            if !non_full_buckets.contains(&candidate) {
-                non_full_buckets.push(candidate);
-            }
-            // Update candidate to continue filling downwards
-            candidate = candidate.saturating_sub(1);
-        }
-
-        info!("With min_full_bucket_index of {min_full_bucket_index:?}, targeting buckets of {non_full_buckets:?}");
+        // Always add self in
+        let mut targets = vec![NetworkAddress::from_peer(self.self_peer_id)];
 
         let mut rng = thread_rng();
-        self.candidates
-            .iter()
-            .filter_map(|(ilog2, candidates)| {
-                if non_full_buckets.contains(ilog2) {
-                    let random_index = rng.gen::<usize>() % candidates.len();
-                    candidates.get(random_index).cloned()
-                } else {
-                    None
-                }
-            })
-            .collect()
+
+        // Pick targets of non-full-non-empty buckets first
+        targets.extend(
+            non_full_non_empty_buckets
+                .iter()
+                .filter_map(|ilog2| {
+                    if let Some(candidates) = self.candidates.get(ilog2) {
+                        let random_index = rng.gen::<usize>() % candidates.len();
+                        candidates.get(random_index).cloned()
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        // Fill up targets with candidates of empty buckets, if has suitable candidate
+        for (ilog2, candidates) in self.candidates.iter() {
+            // Stop when got enough targets
+            if targets.len() >= 10 {
+                break;
+            }
+            // Skip non-empty buckets
+            if non_full_non_empty_buckets.contains(ilog2) || full_buckets.contains(ilog2) {
+                continue;
+            }
+
+            let random_index = rng.gen::<usize>() % candidates.len();
+            if let Some(candidate) = candidates.get(random_index).cloned() {
+                targets.push(candidate);
+            }
+        }
+
+        targets
     }
 
     /// Tries to refresh our current candidate list. We replace the old ones with new if we find any.

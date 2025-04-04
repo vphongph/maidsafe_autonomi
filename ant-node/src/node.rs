@@ -748,11 +748,7 @@ impl Node {
         let signature = if sign_result {
             let mut bytes = rmp_serde::to_vec(&target).unwrap_or_default();
             bytes.extend_from_slice(&rmp_serde::to_vec(&peers).unwrap_or_default());
-            if let Ok(sig) = network.sign(&bytes) {
-                Some(sig)
-            } else {
-                None
-            }
+            network.sign(&bytes).ok()
         } else {
             None
         };
@@ -1027,7 +1023,7 @@ impl Node {
         for _ in 0..10 {
             let target = NetworkAddress::from(PeerId::random());
             // Result is sorted and only return CLOSE_GROUP_SIZE entries
-            let peers = network.node_get_closest_peers(&target).await;
+            let peers = network.get_n_closest_peers(&target, CLOSE_GROUP_SIZE).await;
             if let Ok(peers) = peers {
                 if peers.len() >= CLOSE_GROUP_SIZE {
                     // Calculate the distance to the farthest.

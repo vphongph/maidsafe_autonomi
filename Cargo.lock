@@ -1582,7 +1582,6 @@ dependencies = [
  "ant-bootstrap",
  "ant-evm",
  "ant-logging",
- "ant-networking",
  "ant-node",
  "ant-protocol",
  "bip39",

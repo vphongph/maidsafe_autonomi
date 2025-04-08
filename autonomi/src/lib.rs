@@ -57,9 +57,6 @@ extern crate tracing;
 pub mod client;
 pub mod self_encryption;
 
-/// Client Operation config types
-pub use ant_networking::{ResponseQuorum, RetryStrategy};
-
 // The Network data types
 pub use client::data_types::chunk;
 pub use client::data_types::graph;
@@ -98,7 +95,6 @@ pub use client::{
     // Client Configs
     config::BootstrapError,
     config::ClientConfig,
-    config::ClientOperatingStrategy,
     config::InitialPeersConfig,
 
     // Native data types

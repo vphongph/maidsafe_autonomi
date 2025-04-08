@@ -9,10 +9,9 @@
 use crate::client::{
     payment::{PayError, PaymentOption},
     quote::CostError,
-    Client,
+    Client, GetError,
 };
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
-use ant_networking::{GetRecordError, NetworkError};
 use ant_protocol::{
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
@@ -21,6 +20,7 @@ use bls::{PublicKey, SecretKey};
 use libp2p::kad::Record;
 use tracing::{debug, error, trace};
 
+use crate::client::networking::{NetworkError, Quorum};
 pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
 
 /// Errors that can occur when dealing with Pointers
@@ -28,6 +28,8 @@ pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
 pub enum PointerError {
     #[error("Network error")]
     Network(#[from] NetworkError),
+    #[error(transparent)]
+    GetError(#[from] GetError),
     #[error("Serialization error")]
     Serialization,
     #[error("Pointer record corrupt: {0}")]
@@ -49,15 +51,16 @@ pub enum PointerError {
 impl Client {
     /// Get a pointer from the network
     pub async fn pointer_get(&self, address: &PointerAddress) -> Result<Pointer, PointerError> {
-        let key = NetworkAddress::from(*address).to_record_key();
+        let key = NetworkAddress::from(*address);
         debug!("Fetching pointer from network at: {key:?}");
 
-        let get_cfg = self.config.pointer.get_cfg();
         let record = self
             .network
-            .get_record_from_network(key.clone(), &get_cfg)
+            .get_record(key.clone(), Quorum::One)
             .await
-            .inspect_err(|err| error!("Error fetching pointer: {err:?}"))?;
+            .inspect_err(|err| error!("Error fetching pointer: {err:?}"))?
+            .ok_or(GetError::RecordNotFound)?;
+
         let header = RecordHeader::from_record(&record).map_err(|err| {
             PointerError::Corrupt(format!(
                 "Failed to parse record header for pointer at {key:?}: {err:?}"
@@ -68,7 +71,7 @@ impl Client {
         if !matches!(kind, RecordKind::DataOnly(DataTypes::Pointer)) {
             error!("Record kind mismatch: expected Pointer, got {kind:?}");
             return Err(
-                NetworkError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Pointer)).into(),
+                GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Pointer)).into(),
             );
         };
 
@@ -84,23 +87,18 @@ impl Client {
     }
 
     /// Check if a pointer exists on the network
-    pub async fn pointer_check_existance(
+    pub async fn pointer_check_existence(
         &self,
         address: &PointerAddress,
     ) -> Result<bool, PointerError> {
-        let key = NetworkAddress::from(*address).to_record_key();
-        debug!("Checking pointer existance at: {key:?}");
-        let get_cfg = self.config.pointer.verification_cfg();
-        match self
-            .network
-            .get_record_from_network(key.clone(), &get_cfg)
-            .await
-        {
+        let key = NetworkAddress::from(*address);
+        debug!("Checking pointer existence at: {key:?}");
+
+        match self.network.get_record(key.clone(), Quorum::One).await {
             Ok(_) => Ok(true),
-            Err(NetworkError::GetRecordError(GetRecordError::SplitRecord { .. })) => Ok(true),
-            Err(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => Ok(false),
+            Err(NetworkError::SplitRecord(..)) => Ok(true),
             Err(err) => Err(PointerError::Network(err))
-                .inspect_err(|err| error!("Error checking pointer existance: {err:?}")),
+                .inspect_err(|err| error!("Error checking pointer existence: {err:?}")),
         }
     }
 
@@ -172,9 +170,11 @@ impl Client {
 
         // store the pointer on the network
         debug!("Storing pointer at address {address:?} to the network");
-        let put_cfg = self.config.pointer.put_cfg(payees);
+
+        let target_nodes = payees.unwrap_or_default();
+
         self.network
-            .put_record(record, &put_cfg)
+            .put_record(record, target_nodes, Quorum::Majority)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - pointer {address:?} to the network: {err}")
@@ -193,7 +193,7 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, PointerAddress), PointerError> {
         let address = PointerAddress::new(owner.public_key());
-        let already_exists = self.pointer_check_existance(&address).await?;
+        let already_exists = self.pointer_check_existence(&address).await?;
         if already_exists {
             return Err(PointerError::PointerAlreadyExists(address));
         }
@@ -216,14 +216,9 @@ impl Client {
         info!("Updating pointer at address {address:?} to {target:?}");
         let current = match self.pointer_get(&address).await {
             Ok(pointer) => Some(pointer),
-            Err(PointerError::Network(NetworkError::GetRecordError(
-                GetRecordError::RecordNotFound,
-            ))) => None,
-            Err(PointerError::Network(NetworkError::GetRecordError(
-                GetRecordError::SplitRecord { result_map },
-            ))) => result_map
+            Err(PointerError::Network(NetworkError::SplitRecord(result_map))) => result_map
                 .values()
-                .filter_map(|(record, _)| try_deserialize_record::<Pointer>(record).ok())
+                .filter_map(|record| try_deserialize_record::<Pointer>(record).ok())
                 .max_by_key(|pointer: &Pointer| pointer.counter()),
             Err(err) => {
                 return Err(err);
@@ -251,9 +246,9 @@ impl Client {
 
         // store the pointer on the network
         debug!("Updating pointer at address {address:?} to the network");
-        let put_cfg = self.config.pointer.put_cfg_specific(None, record.clone());
+
         self.network
-            .put_record(record, &put_cfg)
+            .put_record(record, Default::default(), Quorum::Majority)
             .await
             .inspect_err(|err| {
                 error!("Failed to update pointer at address {address:?} to the network: {err}")

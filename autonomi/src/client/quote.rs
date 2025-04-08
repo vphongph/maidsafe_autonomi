@@ -11,12 +11,12 @@ use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
 use crate::client::utils::process_tasks_with_max_concurrency;
 use ant_evm::payment_vault::get_market_price;
 use ant_evm::{Amount, PaymentQuote, QuotePayment, QuotingMetrics};
-use ant_networking::{Network, NetworkError};
 use ant_protocol::{storage::ChunkAddress, NetworkAddress, CLOSE_GROUP_SIZE};
 use libp2p::PeerId;
 use std::collections::HashMap;
 use xor_name::XorName;
 
+use crate::client::networking::{Network, NetworkError};
 pub use ant_protocol::storage::DataTypes;
 
 // todo: limit depends per RPC endpoint. We should make this configurable

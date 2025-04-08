@@ -40,21 +40,20 @@ pub mod external_signer;
 
 // private module with utility functions
 mod network;
+mod networking;
 mod utils;
 
 use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
-use ant_networking::{
-    interval, multiaddr_is_global, Network, NetworkBuilder, NetworkError, NetworkEvent,
-};
 use ant_protocol::{version::IDENTIFY_PROTOCOL_STR, NetworkAddress};
-use config::{ClientConfig, ClientOperatingStrategy};
+use config::ClientConfig;
 use libp2p::{identity::Keypair, Multiaddr};
 use payment::PayError;
 use quote::CostError;
 use std::{collections::HashSet, time::Duration};
 use tokio::sync::{mpsc, watch};
+use tokio::time::interval;
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -62,6 +61,9 @@ pub const CONNECT_TIMEOUT_SECS: u64 = 10;
 const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
+use crate::client::networking::utils::multiaddr_is_global;
+use crate::client::networking::{Network, NetworkError};
+use ant_protocol::storage::RecordKind;
 pub use ant_protocol::CLOSE_GROUP_SIZE;
 
 /// Represents a client for the Autonomi network.
@@ -84,8 +86,6 @@ pub struct Client {
     pub(crate) client_event_sender: Option<mpsc::Sender<ClientEvent>>,
     /// The EVM network to use for the client.
     evm_network: EvmNetwork,
-    /// The configuration for operations on the client.
-    config: ClientOperatingStrategy,
     // Shutdown signal for child tasks. Sends signal when dropped.
     _shutdown_tx: watch::Sender<bool>,
 }
@@ -142,6 +142,11 @@ pub enum GetError {
     Network(#[from] NetworkError),
     #[error("General protocol error: {0:?}")]
     Protocol(#[from] ant_protocol::Error),
+    #[error("Record could not be found.")]
+    RecordNotFound,
+    // The RecordKind that was obtained did not match with the expected one
+    #[error("The RecordKind obtained from the Record did not match with the expected kind: {0}")]
+    RecordKindMismatch(RecordKind),
 }
 
 impl Client {
@@ -162,7 +167,6 @@ impl Client {
                 ..Default::default()
             },
             evm_network: EvmNetwork::new(true).unwrap_or_default(),
-            strategy: Default::default(),
         })
         .await
     }
@@ -191,7 +195,6 @@ impl Client {
                 ..Default::default()
             },
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
-            strategy: Default::default(),
         })
         .await
     }
@@ -221,7 +224,7 @@ impl Client {
 
         // Wait until we have added a few peers to our routing table.
         let (sender, receiver) = futures::channel::oneshot::channel();
-        ant_networking::time::spawn(handle_event_receiver(
+        tokio::task::spawn(handle_event_receiver(
             event_receiver,
             sender,
             shutdown_tx.subscribe(),
@@ -233,7 +236,6 @@ impl Client {
             network,
             client_event_sender: None,
             evm_network: config.evm_network,
-            config: config.strategy,
             _shutdown_tx: shutdown_tx,
         })
     }
@@ -280,7 +282,7 @@ fn build_client_and_run_swarm(
     // Create a shutdown signal channel
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let _swarm_driver = ant_networking::time::spawn(swarm_driver.run(shutdown_rx));
+    let _swarm_driver = tokio::task::spawn(swarm_driver.run(shutdown_rx));
 
     debug!("Client swarm driver is running");
 

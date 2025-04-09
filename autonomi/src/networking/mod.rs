@@ -6,12 +6,13 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-pub(crate) mod driver;
-pub(crate) mod interface;
-pub(crate) mod utils;
+// all modules are private to this networking module
+mod driver;
+mod interface;
+mod utils;
 
-use std::collections::HashMap;
-use std::num::NonZeroUsize;
+// export the utils
+pub(crate) use utils::multiaddr_is_global;
 
 // re-export the types our API exposes to avoid dependency version conflicts
 pub use ant_evm::PaymentQuote;
@@ -23,15 +24,17 @@ pub use libp2p::{
 };
 
 // internal needs
-use crate::client::networking::driver::NetworkDriver;
-use crate::client::networking::interface::NetworkTask;
+use driver::NetworkDriver;
+use interface::NetworkTask;
 use futures::future::try_join_all;
 use libp2p::futures;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
-pub(crate) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
+pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
 
 /// Errors that can occur when interacting with the [`crate::Network`]
 #[derive(Error, Debug)]

@@ -15,6 +15,8 @@
 /// - Pointer
 /// - Scratchpad
 pub mod data_types;
+use std::collections::HashSet;
+
 pub use data_types::chunk;
 pub use data_types::graph;
 pub use data_types::pointer;
@@ -40,20 +42,17 @@ pub mod external_signer;
 
 // private module with utility functions
 mod network;
-mod networking;
 mod utils;
 
-use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
+use ant_bootstrap::InitialPeersConfig;
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
-use ant_protocol::{version::IDENTIFY_PROTOCOL_STR, NetworkAddress};
+use ant_protocol::NetworkAddress;
 use config::ClientConfig;
-use libp2p::{identity::Keypair, Multiaddr};
+use tokio::sync::mpsc;
+use crate::networking::Multiaddr;
 use payment::PayError;
 use quote::CostError;
-use std::{collections::HashSet, time::Duration};
-use tokio::sync::{mpsc, watch};
-use tokio::time::interval;
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -61,8 +60,8 @@ pub const CONNECT_TIMEOUT_SECS: u64 = 10;
 const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
-use crate::client::networking::utils::multiaddr_is_global;
-use crate::client::networking::{Network, NetworkError};
+use crate::networking::multiaddr_is_global;
+use crate::networking::{Network, NetworkError};
 use ant_protocol::storage::RecordKind;
 pub use ant_protocol::CLOSE_GROUP_SIZE;
 
@@ -82,12 +81,12 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 /// ```
 #[derive(Clone)]
 pub struct Client {
+    /// The Autonomi Network to use for the client.
     pub(crate) network: Network,
+    /// Events sent by the client, can be enabled by calling [`Client::enable_client_events`].
     pub(crate) client_event_sender: Option<mpsc::Sender<ClientEvent>>,
     /// The EVM network to use for the client.
     evm_network: EvmNetwork,
-    // Shutdown signal for child tasks. Sends signal when dropped.
-    _shutdown_tx: watch::Sender<bool>,
 }
 
 /// Error returned by [`Client::init`].
@@ -219,24 +218,12 @@ impl Client {
             Err(e) => return Err(e.into()),
         };
 
-        let (shutdown_tx, network, event_receiver) =
-            build_client_and_run_swarm(&config.init_peers_config, initial_peers);
-
-        // Wait until we have added a few peers to our routing table.
-        let (sender, receiver) = futures::channel::oneshot::channel();
-        tokio::task::spawn(handle_event_receiver(
-            event_receiver,
-            sender,
-            shutdown_tx.subscribe(),
-        ));
-        receiver.await.expect("sender should not close")?;
-        debug!("Enough peers were added to our routing table, initialization complete");
+        let network = Network::new(initial_peers);
 
         Ok(Self {
             network,
             client_event_sender: None,
             evm_network: config.evm_network,
-            _shutdown_tx: shutdown_tx,
         })
     }
 
@@ -253,110 +240,6 @@ impl Client {
     pub fn evm_network(&self) -> &EvmNetwork {
         &self.evm_network
     }
-}
-
-fn build_client_and_run_swarm(
-    init_peers_config: &InitialPeersConfig,
-    initial_peers: Vec<Multiaddr>,
-) -> (watch::Sender<bool>, Network, mpsc::Receiver<NetworkEvent>) {
-    let mut network_builder = NetworkBuilder::new(
-        Keypair::generate_ed25519(),
-        init_peers_config.local,
-        initial_peers,
-    );
-
-    match BootstrapCacheStore::new_from_initial_peers_config(init_peers_config, None) {
-        Ok(cache_store) => {
-            network_builder.bootstrap_cache(cache_store);
-        }
-        Err(err) => {
-            warn!("Failed to create bootstrap cache store from initial peers config: {err:?}");
-        }
-    }
-
-    // TODO: Re-export `Receiver<T>` from `ant-networking`. Else users need to keep their `tokio` dependency in sync.
-    // TODO: Think about handling the mDNS error here.
-    let (network, event_receiver, swarm_driver) = network_builder.build_client();
-
-    // TODO: Implement graceful SwarmDriver shutdown for client.
-    // Create a shutdown signal channel
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-    let _swarm_driver = tokio::task::spawn(swarm_driver.run(shutdown_rx));
-
-    debug!("Client swarm driver is running");
-
-    (shutdown_tx, network, event_receiver)
-}
-
-async fn handle_event_receiver(
-    mut event_receiver: mpsc::Receiver<NetworkEvent>,
-    sender: futures::channel::oneshot::Sender<Result<(), ConnectError>>,
-    mut shutdown_rx: watch::Receiver<bool>,
-) {
-    // We switch this to `None` when we've sent the oneshot 'connect' result.
-    let mut sender = Some(sender);
-    let mut unsupported_protocols = vec![];
-
-    let mut timeout_timer = interval(Duration::from_secs(CONNECT_TIMEOUT_SECS));
-    timeout_timer.tick().await;
-
-    loop {
-        tokio::select! {
-            // polls futures in order they appear here (as opposed to random)
-            biased;
-
-            // Check for a shutdown command.
-            result = shutdown_rx.changed() => {
-                if result.is_ok() && *shutdown_rx.borrow() || result.is_err() {
-                    info!("Shutdown signal received or sender dropped. Exiting event receiver loop.");
-                    break;
-                }
-            }
-            _ = timeout_timer.tick() =>  {
-                if let Some(sender) = sender.take() {
-                    if unsupported_protocols.len() > 1 {
-                        let protocols: HashSet<String> =
-                            unsupported_protocols.iter().cloned().collect();
-                        sender
-                            .send(Err(ConnectError::TimedOutWithIncompatibleProtocol(
-                                protocols,
-                                IDENTIFY_PROTOCOL_STR.read().expect("Failed to obtain read lock for IDENTIFY_PROTOCOL_STR. A call to set_network_id performed. This should not happen").clone(),
-                            )))
-                            .expect("receiver should not close");
-                    } else {
-                        sender
-                            .send(Err(ConnectError::TimedOut))
-                            .expect("receiver should not close");
-                    }
-                }
-            }
-            event = event_receiver.recv() => {
-                let event = event.expect("receiver should not close");
-                match event {
-                    NetworkEvent::PeerAdded(_peer_id, peers_len) => {
-                        tracing::trace!("Peer added: {peers_len} in routing table");
-
-                        if peers_len >= CLOSE_GROUP_SIZE {
-                            if let Some(sender) = sender.take() {
-                                sender.send(Ok(())).expect("receiver should not close");
-                            }
-                        }
-                    }
-                    NetworkEvent::PeerWithUnsupportedProtocol { their_protocol, .. } => {
-                        tracing::warn!(their_protocol, "Peer with unsupported protocol");
-
-                        if sender.is_some() {
-                            unsupported_protocols.push(their_protocol);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // TODO: Handle closing of network events sender
 }
 
 /// Events that can be broadcasted by the client.

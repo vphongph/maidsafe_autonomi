@@ -6,13 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// private modules (the innards of the NetworkDriver)
 mod swarm_events;
-pub(crate) mod task_handler;
+mod task_handler;
 
 use std::{num::NonZeroUsize, time::Duration};
 
-use crate::client::networking::interface::NetworkTask;
-use crate::client::networking::NetworkError;
+use crate::networking::interface::NetworkTask;
+use crate::networking::NetworkError;
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
@@ -135,7 +136,7 @@ impl NetworkDriver {
                     match task {
                         Some(task) => self.process_task(task),
                         None => {
-                            println!("Task receiver closed, exiting");
+                            info!("Task receiver closed, exiting");
                             break;
                         }
                     }
@@ -143,7 +144,7 @@ impl NetworkDriver {
                 // swarm events
                 swarm_event = self.swarm.select_next_some() => {
                     if let Err(e) = self.process_swarm_event(swarm_event) {
-                        println!("Error processing swarm event: {:?}", e);
+                        error!("Error processing swarm event: {e}");
                     }
                 }
             }
@@ -203,7 +204,7 @@ impl NetworkDriver {
                             if let Err(e) =
                                 resp.send(Err(NetworkError::PutRecordError(e.to_string())))
                             {
-                                println!("Error sending put record response: {:?}", e);
+                                error!("Error sending put record response: {e:?}");
                             }
                             return;
                         }

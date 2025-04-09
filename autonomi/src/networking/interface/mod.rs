@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::client::networking::OneShotTaskResult;
+use crate::networking::OneShotTaskResult;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
 use libp2p::{
@@ -24,7 +24,7 @@ use libp2p::{
 ///     - it then waits for libp2p events and updates the pending tasks accordingly [`crate::driver::NetworkDriver::process_swarm_event`]
 ///     - ultimately sending the result back to the [`crate::Network`] via the oneshot channel provided when the task was created
 #[derive(Debug)]
-pub(crate) enum NetworkTask {
+pub(super) enum NetworkTask {
     /// cf [`crate::driver::task_handler::TaskHandler::update_closest_peers`]
     GetClosestPeers {
         addr: NetworkAddress,

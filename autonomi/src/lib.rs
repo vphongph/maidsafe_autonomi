@@ -55,6 +55,7 @@
 extern crate tracing;
 
 pub mod client;
+pub mod networking;
 pub mod self_encryption;
 
 // The Network data types

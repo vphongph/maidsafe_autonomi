@@ -30,7 +30,7 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::client::networking::Quorum;
+use crate::networking::Quorum;
 pub use ant_protocol::storage::{Chunk, ChunkAddress};
 
 /// Number of retries to upload chunks.
@@ -144,7 +144,7 @@ impl Client {
                 "Record kind mismatch: expected Chunk, got {:?}",
                 header.kind
             );
-            Err(GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)).into())
+            Err(GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)))
         }
     }
 

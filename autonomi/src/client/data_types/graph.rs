@@ -14,6 +14,8 @@ use crate::client::UploadSummary;
 use crate::client::{Client, GetError};
 
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
+use ant_protocol::storage::try_deserialize_record;
+use ant_protocol::storage::RecordHeader;
 use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     storage::{try_serialize_record, DataTypes, RecordKind},
@@ -22,7 +24,7 @@ use ant_protocol::{
 use bls::PublicKey;
 use libp2p::kad::Record;
 
-use crate::client::networking::{NetworkError, Quorum};
+use crate::networking::{NetworkError, Quorum};
 pub use crate::SecretKey;
 pub use ant_protocol::storage::{GraphContent, GraphEntry, GraphEntryAddress};
 
@@ -34,8 +36,8 @@ pub enum GraphError {
     Network(#[from] NetworkError),
     #[error(transparent)]
     GetError(#[from] GetError),
-    #[error("Serialization error")]
-    Serialization,
+    #[error("Serialization error {0}")]
+    Serialization(String),
     #[error("Verification failed (corrupt)")]
     FailedVerification,
     #[error("Payment failure occurred during creation.")]
@@ -133,7 +135,7 @@ impl Client {
                 &(proof, &entry),
                 RecordKind::DataWithPayment(DataTypes::GraphEntry),
             )
-            .map_err(|_| GraphError::Serialization)?
+            .map_err(|err| GraphError::Serialization(err.to_string()))?
             .to_vec(),
             publisher: None,
             expires: None,
@@ -183,5 +185,21 @@ impl Client {
         );
         debug!("Calculated the cost to create GraphEntry of {key:?} is {total_cost}");
         Ok(total_cost)
+    }
+}
+
+pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>, GraphError> {
+    let header = RecordHeader::from_record(record)
+        .map_err(|_| GraphError::Serialization(format!("Failed to deserialize record header {:?}", PrettyPrintRecordKey::from(&record.key))))?;
+    if let RecordKind::DataOnly(DataTypes::GraphEntry) = header.kind {
+        let entry = try_deserialize_record::<Vec<GraphEntry>>(record)
+            .map_err(|_| GraphError::Serialization(format!("Failed to deserialize record value {:?}", PrettyPrintRecordKey::from(&record.key))))?;
+        Ok(entry)
+    } else {
+        warn!(
+            "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        );
+        Err(GraphError::Serialization(format!("RecordKind mismatch while trying to retrieve graph_entry from record {:?}", PrettyPrintRecordKey::from(&record.key))))
     }
 }

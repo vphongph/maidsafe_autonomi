@@ -102,11 +102,11 @@ impl NetworkDriver {
         request_id: OutboundRequestId,
         response: Response,
     ) -> Result<(), NetworkDriverError> {
-        println!("Request response event: {:?}", response);
+        trace!("Request response event: {:?}", response);
 
         // skip unknown or completed queries
         if !self.pending_tasks.contains_query(&request_id) {
-            println!(
+            trace!(
                 "Ignore result for unknown query (possibly already completed): {request_id:?}"
             );
             return Ok(());

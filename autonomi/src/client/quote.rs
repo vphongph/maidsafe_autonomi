@@ -16,7 +16,7 @@ use libp2p::PeerId;
 use std::collections::HashMap;
 use xor_name::XorName;
 
-use crate::client::networking::{Network, NetworkError};
+use crate::networking::{Network, NetworkError};
 pub use ant_protocol::storage::DataTypes;
 
 // todo: limit depends per RPC endpoint. We should make this configurable
@@ -210,14 +210,24 @@ async fn fetch_store_quote(
     data_type: u32,
     data_size: usize,
 ) -> Result<Vec<(PeerId, PaymentQuote)>, NetworkError> {
-    network
-        .get_store_quote_from_network(
+    let quotes = network
+        .get_quotes(
             NetworkAddress::from(ChunkAddress::new(content_addr)),
             data_type,
             data_size,
-            vec![],
         )
-        .await
+        .await?;
+    let quotes_with_peer_id = quotes.into_iter()
+        .filter_map(|quote| {
+            match quote.peer_id() {
+                Ok(peer_id) => Some((peer_id, quote)),
+                Err(e) => {
+                    warn!("Ignoring invalid quote with invalid peer id: {e}");
+                    None
+                }
+            }
+        }).collect();
+    Ok(quotes_with_peer_id)
 }
 
 /// Fetch a store quote for a content address with a retry strategy.

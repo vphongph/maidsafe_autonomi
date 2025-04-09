@@ -14,9 +14,9 @@ use libp2p::PeerId;
 use std::collections::HashMap;
 use thiserror::Error;
 
-use crate::client::networking::interface::NetworkTask;
-use crate::client::networking::OneShotTaskResult;
-use crate::client::NetworkError;
+use crate::networking::interface::NetworkTask;
+use crate::networking::OneShotTaskResult;
+use crate::networking::NetworkError;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum TaskHandlerError {
@@ -109,7 +109,7 @@ impl TaskHandler {
     ) -> Result<(), TaskHandlerError> {
         match res {
             Ok(kad::GetRecordOk::FoundRecord(record)) => {
-                println!(
+                debug!(
                     "Query {id}: GetRecordOk::FoundRecord {:?}",
                     hex::encode(record.record.key.clone())
                 );
@@ -119,7 +119,7 @@ impl TaskHandler {
                 }
             }
             Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. }) => {
-                println!("Query {id}: GetRecordOk::FinishedWithNoAdditionalRecord");
+                debug!("Query {id}: GetRecordOk::FinishedWithNoAdditionalRecord");
                 let (responder, holders) = self.take_responder_and_holders_for_task(id)?;
                 let peers = holders.keys().cloned().collect();
                 let records_uniq = holders.values().cloned().fold(Vec::new(), |mut acc, x| {
@@ -137,7 +137,7 @@ impl TaskHandler {
                 res.map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetRecordError::NotFound { key, closest_peers }) => {
-                println!(
+                debug!(
                     "Query {id}: GetRecordError::NotFound {:?}, closest_peers: {:?}",
                     hex::encode(key),
                     closest_peers
@@ -154,7 +154,7 @@ impl TaskHandler {
                 records,
                 quorum,
             }) => {
-                println!(
+                debug!(
                     "Query {id}: GetRecordError::QuorumFailed {:?}, records: {:?}, quorum: {:?}",
                     hex::encode(key),
                     records.len(),
@@ -168,7 +168,7 @@ impl TaskHandler {
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetRecordError::Timeout { key }) => {
-                println!("Query {id}: GetRecordError::Timeout {:?}", hex::encode(key));
+                debug!("Query {id}: GetRecordError::Timeout {:?}", hex::encode(key));
                 let (responder, holders) = self.take_responder_and_holders_for_task(id)?;
                 let peers = holders.keys().cloned().collect();
 

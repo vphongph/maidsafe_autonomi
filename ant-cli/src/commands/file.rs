@@ -10,8 +10,7 @@ use crate::exit_code::{upload_exit_code, ExitCodeError, IO_ERROR};
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::payment::PaymentOption;
-use autonomi::ResponseQuorum;
-use autonomi::{ClientOperatingStrategy, InitialPeersConfig, TransactionConfig};
+use autonomi::{InitialPeersConfig, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
 use std::path::PathBuf;
@@ -46,7 +45,7 @@ pub async fn upload(
         config.chunks.verification_quorum = verification_quorum;
     }
     let mut client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config).await?;
+        crate::actions::connect_to_network_with_config(config).await?;
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;
 
@@ -155,7 +154,7 @@ pub async fn download(
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;
     }
-    let client = crate::actions::connect_to_network_with_config(init_peers_config, config).await?;
+    let client = crate::actions::connect_to_network_with_config(config).await?;
     crate::actions::download(addr, dest_path, &client).await
 }
 

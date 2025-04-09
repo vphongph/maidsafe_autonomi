@@ -20,7 +20,7 @@ use bls::{PublicKey, SecretKey};
 use libp2p::kad::Record;
 use tracing::{debug, error, trace};
 
-use crate::client::networking::{NetworkError, Quorum};
+use crate::networking::{NetworkError, Quorum};
 pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
 
 /// Errors that can occur when dealing with Pointers

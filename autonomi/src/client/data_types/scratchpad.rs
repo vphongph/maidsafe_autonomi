@@ -16,7 +16,7 @@ use ant_protocol::{
 };
 use libp2p::kad::Record;
 
-use crate::client::networking::{NetworkError, Quorum};
+use crate::networking::{NetworkError, Quorum};
 use crate::client::GetError;
 pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
@@ -87,7 +87,7 @@ impl Client {
                 debug!("Got multiple scratchpads for {scratch_key:?}");
                 let mut pads = result_map
                     .values()
-                    .map(|record| try_deserialize_record::<Scratchpad>(record))
+                    .map(try_deserialize_record::<Scratchpad>)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(*address))?;
 

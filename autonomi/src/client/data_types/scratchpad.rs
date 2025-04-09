@@ -16,8 +16,8 @@ use ant_protocol::{
 };
 use libp2p::kad::Record;
 
-use crate::networking::{NetworkError, Quorum};
 use crate::client::GetError;
+use crate::networking::NetworkError;
 pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
 pub use bls::{PublicKey, SecretKey, Signature};
@@ -71,7 +71,7 @@ impl Client {
 
         let pad = match self
             .network
-            .get_record(network_address.clone(), Quorum::One)
+            .get_record(network_address.clone(), self.config.scratchpad.get_quorum)
             .await
         {
             Ok(record) => {
@@ -134,7 +134,11 @@ impl Client {
         let key = NetworkAddress::from(*address);
         debug!("Checking scratchpad existence at: {key:?}");
 
-        match self.network.get_record(key, Quorum::One).await {
+        match self
+            .network
+            .get_record(key, self.config.scratchpad.get_quorum)
+            .await
+        {
             Ok(Some(_)) => Ok(true),
             Ok(None) => Ok(false),
             Err(NetworkError::SplitRecord(..)) => Ok(true),
@@ -223,7 +227,7 @@ impl Client {
         let target_nodes = payees.unwrap_or_default();
 
         self.network
-            .put_record(record, target_nodes, Quorum::Majority)
+            .put_record(record, target_nodes, self.config.scratchpad.put_quorum)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - scratchpad {address:?} to the network: {err}")
@@ -304,7 +308,11 @@ impl Client {
         // store the scratchpad on the network
         debug!("Updating scratchpad at address {address:?} to the network");
         self.network
-            .put_record(record, Default::default(), Quorum::Majority)
+            .put_record(
+                record,
+                Default::default(),
+                self.config.scratchpad.put_quorum,
+            )
             .await
             .inspect_err(|err| {
                 error!("Failed to update scratchpad at address {address:?} to the network: {err}")

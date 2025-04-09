@@ -1591,6 +1591,7 @@ dependencies = [
  "bytes",
  "const-hex",
  "evmlib",
+ "exponential-backoff",
  "eyre",
  "futures",
  "hex",

@@ -39,6 +39,7 @@ async fn test_get_closest_to_address() {
             bootstrap_cache_dir: None,
         },
         evm_network,
+        strategy: Default::default(),
     };
 
     let client = Client::init_with_config(config).await.unwrap();
@@ -48,5 +49,7 @@ async fn test_get_closest_to_address() {
     let close_nodes = client.get_closest_to_address(node.peer_id()).await.unwrap();
 
     assert_eq!(close_nodes.len(), 5);
-    assert!(close_nodes.iter().any(|peer| peer.peer_id == node.peer_id()));
+    assert!(close_nodes
+        .iter()
+        .any(|peer| peer.peer_id == node.peer_id()));
 }

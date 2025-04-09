@@ -44,15 +44,15 @@ pub mod external_signer;
 mod network;
 mod utils;
 
+use crate::networking::Multiaddr;
 use ant_bootstrap::InitialPeersConfig;
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use ant_protocol::NetworkAddress;
 use config::ClientConfig;
-use tokio::sync::mpsc;
-use crate::networking::Multiaddr;
 use payment::PayError;
 use quote::CostError;
+use tokio::sync::mpsc;
 
 /// Time before considering the connection timed out.
 pub const CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -60,6 +60,7 @@ pub const CONNECT_TIMEOUT_SECS: u64 = 10;
 const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
+use crate::client::config::ClientOperatingStrategy;
 use crate::networking::multiaddr_is_global;
 use crate::networking::{Network, NetworkError};
 use ant_protocol::storage::RecordKind;
@@ -87,6 +88,8 @@ pub struct Client {
     pub(crate) client_event_sender: Option<mpsc::Sender<ClientEvent>>,
     /// The EVM network to use for the client.
     evm_network: EvmNetwork,
+    /// The configuration for operations on the client.
+    config: ClientOperatingStrategy,
 }
 
 /// Error returned by [`Client::init`].
@@ -103,6 +106,10 @@ pub enum ConnectError {
     /// An error occurred while bootstrapping the client.
     #[error("Failed to bootstrap the client: {0}")]
     Bootstrap(#[from] ant_bootstrap::Error),
+
+    /// The routing table does not contain any known peers to bootstrap from.
+    #[error("No known peers available in the routing table to bootstrap the client")]
+    NoKnownPeers(#[from] libp2p::kad::NoKnownPeers),
 }
 
 /// Errors that can occur during the put operation.
@@ -166,6 +173,7 @@ impl Client {
                 ..Default::default()
             },
             evm_network: EvmNetwork::new(true).unwrap_or_default(),
+            strategy: Default::default(),
         })
         .await
     }
@@ -194,6 +202,7 @@ impl Client {
                 ..Default::default()
             },
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
+            strategy: Default::default(),
         })
         .await
     }
@@ -218,12 +227,13 @@ impl Client {
             Err(e) => return Err(e.into()),
         };
 
-        let network = Network::new(initial_peers);
+        let network = Network::new(initial_peers)?;
 
         Ok(Self {
             network,
             client_event_sender: None,
             evm_network: config.evm_network,
+            config: config.strategy,
         })
     }
 

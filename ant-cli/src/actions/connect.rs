@@ -6,21 +6,22 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code, ExitCodeError};
+use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::{get_evm_network, Client, ClientConfig, InitialPeersConfig};
 use color_eyre::eyre::eyre;
 use indicatif::ProgressBar;
 use std::time::Duration;
 
-use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code, ExitCodeError};
-
 pub async fn connect_to_network(
     init_peers_config: InitialPeersConfig,
 ) -> Result<Client, ExitCodeError> {
-    connect_to_network_with_config(init_peers_config).await
+    connect_to_network_with_config(init_peers_config, Default::default()).await
 }
 
 pub async fn connect_to_network_with_config(
     init_peers_config: InitialPeersConfig,
+    operation_config: ClientOperatingStrategy,
 ) -> Result<Client, ExitCodeError> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
@@ -42,6 +43,7 @@ pub async fn connect_to_network_with_config(
     let config = ClientConfig {
         init_peers_config,
         evm_network,
+        strategy: operation_config,
     };
 
     let res = Client::init_with_config(config).await;

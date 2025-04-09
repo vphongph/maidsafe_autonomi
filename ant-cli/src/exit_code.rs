@@ -105,6 +105,7 @@ pub(crate) fn connect_error_exit_code(err: &ConnectError) -> i32 {
         ConnectError::Bootstrap(error) => bootstrap_error_exit_code(error),
         ConnectError::TimedOut => 59,
         ConnectError::TimedOutWithIncompatibleProtocol(_, _) => 60,
+        ConnectError::NoKnownPeers(_) => 51, // todo: uses duplicate exit code from `BootstrapError::NoBootstrapPeersFound`
     }
 }
 

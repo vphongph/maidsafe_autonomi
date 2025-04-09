@@ -20,7 +20,7 @@ use bls::{PublicKey, SecretKey};
 use libp2p::kad::Record;
 use tracing::{debug, error, trace};
 
-use crate::networking::{NetworkError, Quorum};
+use crate::networking::NetworkError;
 pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
 
 /// Errors that can occur when dealing with Pointers
@@ -56,7 +56,7 @@ impl Client {
 
         let record = self
             .network
-            .get_record(key.clone(), Quorum::One)
+            .get_record(key.clone(), self.config.pointer.get_quorum)
             .await
             .inspect_err(|err| error!("Error fetching pointer: {err:?}"))?
             .ok_or(GetError::RecordNotFound)?;
@@ -94,7 +94,11 @@ impl Client {
         let key = NetworkAddress::from(*address);
         debug!("Checking pointer existence at: {key:?}");
 
-        match self.network.get_record(key.clone(), Quorum::One).await {
+        match self
+            .network
+            .get_record(key.clone(), self.config.pointer.get_quorum)
+            .await
+        {
             Ok(_) => Ok(true),
             Err(NetworkError::SplitRecord(..)) => Ok(true),
             Err(err) => Err(PointerError::Network(err))
@@ -174,7 +178,7 @@ impl Client {
         let target_nodes = payees.unwrap_or_default();
 
         self.network
-            .put_record(record, target_nodes, Quorum::Majority)
+            .put_record(record, target_nodes, self.config.pointer.put_quorum)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - pointer {address:?} to the network: {err}")
@@ -248,7 +252,7 @@ impl Client {
         debug!("Updating pointer at address {address:?} to the network");
 
         self.network
-            .put_record(record, Default::default(), Quorum::Majority)
+            .put_record(record, Default::default(), self.config.pointer.put_quorum)
             .await
             .inspect_err(|err| {
                 error!("Failed to update pointer at address {address:?} to the network: {err}")

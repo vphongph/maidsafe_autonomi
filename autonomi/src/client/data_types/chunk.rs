@@ -30,7 +30,6 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::networking::Quorum;
 pub use ant_protocol::storage::{Chunk, ChunkAddress};
 
 /// Number of retries to upload chunks.
@@ -129,7 +128,7 @@ impl Client {
 
         let record = self
             .network
-            .get_record(key, Quorum::One)
+            .get_record(key, self.config.chunks.get_quorum)
             .await
             .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?
             .ok_or(GetError::RecordNotFound)?;
@@ -144,7 +143,9 @@ impl Client {
                 "Record kind mismatch: expected Chunk, got {:?}",
                 header.kind
             );
-            Err(GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Chunk)))
+            Err(GetError::RecordKindMismatch(RecordKind::DataOnly(
+                DataTypes::Chunk,
+            )))
         }
     }
 
@@ -206,7 +207,7 @@ impl Client {
         debug!("Storing chunk at address: {address:?} to the network");
 
         self.network
-            .put_record(record, payees, Quorum::Majority)
+            .put_record(record, payees, self.config.chunks.put_quorum)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - chunk {address:?} to the network: {err}")
@@ -354,7 +355,7 @@ impl Client {
         };
 
         self.network
-            .put_record(record, storing_nodes.clone(), Quorum::Majority)
+            .put_record(record, storing_nodes.clone(), self.config.chunks.put_quorum)
             .await?;
         debug!("Successfully stored chunk: {chunk:?} to {storing_nodes:?}");
         Ok(*chunk.address())

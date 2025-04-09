@@ -24,7 +24,7 @@ use ant_protocol::{
 use bls::PublicKey;
 use libp2p::kad::Record;
 
-use crate::networking::{NetworkError, Quorum};
+use crate::networking::NetworkError;
 pub use crate::SecretKey;
 pub use ant_protocol::storage::{GraphContent, GraphEntry, GraphEntryAddress};
 
@@ -62,7 +62,7 @@ impl Client {
 
         let record = self
             .network
-            .get_record(key.clone(), Quorum::One)
+            .get_record(key.clone(), self.config.graph_entry.get_quorum)
             .await?
             .ok_or(GetError::RecordNotFound)?;
 
@@ -86,7 +86,11 @@ impl Client {
         let key = NetworkAddress::from(*address);
         debug!("Checking graph_entry existence at: {key:?}");
 
-        match self.network.get_record(key.clone(), Quorum::One).await {
+        match self
+            .network
+            .get_record(key.clone(), self.config.graph_entry.get_quorum)
+            .await
+        {
             Ok(_) => Ok(true),
             Err(NetworkError::SplitRecord(..)) => Ok(true),
             Err(err) => Err(GraphError::Network(err))
@@ -144,7 +148,7 @@ impl Client {
         // put the record to the network
         debug!("Storing GraphEntry at address {address:?} to the network");
         self.network
-            .put_record(record, payees, Quorum::Majority)
+            .put_record(record, payees, self.config.graph_entry.put_quorum)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - GraphEntry {address:?} to the network: {err}")
@@ -189,17 +193,28 @@ impl Client {
 }
 
 pub fn get_graph_entry_from_record(record: &Record) -> Result<Vec<GraphEntry>, GraphError> {
-    let header = RecordHeader::from_record(record)
-        .map_err(|_| GraphError::Serialization(format!("Failed to deserialize record header {:?}", PrettyPrintRecordKey::from(&record.key))))?;
+    let header = RecordHeader::from_record(record).map_err(|_| {
+        GraphError::Serialization(format!(
+            "Failed to deserialize record header {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        ))
+    })?;
     if let RecordKind::DataOnly(DataTypes::GraphEntry) = header.kind {
-        let entry = try_deserialize_record::<Vec<GraphEntry>>(record)
-            .map_err(|_| GraphError::Serialization(format!("Failed to deserialize record value {:?}", PrettyPrintRecordKey::from(&record.key))))?;
+        let entry = try_deserialize_record::<Vec<GraphEntry>>(record).map_err(|_| {
+            GraphError::Serialization(format!(
+                "Failed to deserialize record value {:?}",
+                PrettyPrintRecordKey::from(&record.key)
+            ))
+        })?;
         Ok(entry)
     } else {
         warn!(
             "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
             PrettyPrintRecordKey::from(&record.key)
         );
-        Err(GraphError::Serialization(format!("RecordKind mismatch while trying to retrieve graph_entry from record {:?}", PrettyPrintRecordKey::from(&record.key))))
+        Err(GraphError::Serialization(format!(
+            "RecordKind mismatch while trying to retrieve graph_entry from record {:?}",
+            PrettyPrintRecordKey::from(&record.key)
+        )))
     }
 }

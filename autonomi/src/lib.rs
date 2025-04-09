@@ -96,6 +96,7 @@ pub use client::{
     // Client Configs
     config::BootstrapError,
     config::ClientConfig,
+    config::ClientOperatingStrategy,
     config::InitialPeersConfig,
 
     // Native data types

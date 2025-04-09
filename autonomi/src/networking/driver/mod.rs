@@ -18,6 +18,7 @@ use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
+use libp2p::kad::NoKnownPeers;
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -35,16 +36,15 @@ use tokio::sync::mpsc;
 // Autonomi Network Constants, this should be in the ant-protocol crate
 const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
 const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
-#[allow(unsafe_code)]
-const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(7) };
+const REPLICATION_FACTOR: NonZeroUsize =
+    NonZeroUsize::new(7).expect("REPLICATION_FACTOR must be > 0");
 
 /// Libp2p defaults to 10s which is quite fast, we are more patient
 pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 /// Libp2p defaults to 60s for kad queries, we are more patient
 pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(180);
-#[allow(unsafe_code)]
 /// Libp2p defaults to 3, we are more aggressive
-pub const KAD_ALPHA: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(5) };
+pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(5).expect("KAD_ALPHA must be > 0");
 
 /// Driver for the Autonomi Client Network
 ///
@@ -125,10 +125,7 @@ impl NetworkDriver {
     }
 
     /// Run the network runner, loops forever waiting for tasks and processing them
-    pub async fn run(mut self, peers: Vec<Multiaddr>) {
-        self.connect_to_peers(peers);
-        // TODO? if any hole punching is needed, do it HERE
-
+    pub async fn run(mut self) {
         loop {
             tokio::select! {
                 // tasks sent by client
@@ -162,7 +159,7 @@ impl NetworkDriver {
     }
 
     // Add peers to our routing table
-    fn connect_to_peers(&mut self, peers: Vec<Multiaddr>) {
+    pub(crate) fn connect_to_peers(&mut self, peers: Vec<Multiaddr>) -> Result<(), NoKnownPeers> {
         for contact in peers {
             let contact_id = match contact.iter().find(|p| matches!(p, Protocol::P2p(_))) {
                 Some(Protocol::P2p(id)) => id,
@@ -174,7 +171,8 @@ impl NetworkDriver {
                 .kademlia
                 .add_address(&contact_id, contact);
         }
-        self.swarm.behaviour_mut().kademlia.bootstrap().unwrap(); // NB TODO don't do this
+
+        self.swarm.behaviour_mut().kademlia.bootstrap().map(|_| ())
     }
 
     /// Process a task sent by the client, start the query on kad and add it to the pending tasks

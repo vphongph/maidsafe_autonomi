@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 // all modules are private to this networking module
+mod config;
 mod driver;
 mod interface;
 mod utils;
@@ -17,6 +18,7 @@ pub(crate) use utils::multiaddr_is_global;
 // re-export the types our API exposes to avoid dependency version conflicts
 pub use ant_evm::PaymentQuote;
 pub use ant_protocol::NetworkAddress;
+pub use config::{GetRecordCfg, PutRecordCfg, RetryStrategy, VerificationKind};
 pub use libp2p::kad::PeerInfo;
 pub use libp2p::{
     kad::{Quorum, Record},
@@ -25,13 +27,14 @@ pub use libp2p::{
 
 // internal needs
 use driver::NetworkDriver;
-use interface::NetworkTask;
 use futures::future::try_join_all;
+use interface::NetworkTask;
 use libp2p::futures;
-use thiserror::Error;
-use tokio::sync::{mpsc, oneshot};
+use libp2p::kad::NoKnownPeers;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
 
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
 pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
@@ -81,19 +84,22 @@ pub struct Network {
 
 impl Network {
     /// Create a new network client
-    /// This will start the network driver in a background thread, which is a long running task that runs until the [`Network`] is dropped
+    /// This will start the network driver in a background thread, which is a long-running task that runs until the [`Network`] is dropped
     /// The [`Network`] is cheaply cloneable, prefer cloning over creating new instances to avoid creating multiple network drivers
-    pub fn new(initial_contacts: Vec<Multiaddr>) -> Self {
+    pub fn new(initial_contacts: Vec<Multiaddr>) -> Result<Self, NoKnownPeers> {
         let (task_sender, task_receiver) = mpsc::channel(100);
-        let driver = NetworkDriver::new(task_receiver);
+        let mut driver = NetworkDriver::new(task_receiver);
         let network = Self { task_sender };
+
+        // Bootstrap here so we can early detect a failure
+        driver.connect_to_peers(initial_contacts)?;
 
         // run the network driver in a background task
         tokio::spawn(async move {
-            driver.run(initial_contacts).await;
+            let _ = driver.run().await;
         });
 
-        network
+        Ok(network)
     }
 
     /// Get a record from the network

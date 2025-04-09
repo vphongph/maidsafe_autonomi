@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::networking::interface::NetworkTask;
-use crate::networking::OneShotTaskResult;
 use crate::networking::NetworkError;
+use crate::networking::OneShotTaskResult;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum TaskHandlerError {

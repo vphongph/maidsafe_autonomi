@@ -217,16 +217,16 @@ async fn fetch_store_quote(
             data_size,
         )
         .await?;
-    let quotes_with_peer_id = quotes.into_iter()
-        .filter_map(|quote| {
-            match quote.peer_id() {
-                Ok(peer_id) => Some((peer_id, quote)),
-                Err(e) => {
-                    warn!("Ignoring invalid quote with invalid peer id: {e}");
-                    None
-                }
+    let quotes_with_peer_id = quotes
+        .into_iter()
+        .filter_map(|quote| match quote.peer_id() {
+            Ok(peer_id) => Some((peer_id, quote)),
+            Err(e) => {
+                warn!("Ignoring invalid quote with invalid peer id: {e}");
+                None
             }
-        }).collect();
+        })
+        .collect();
     Ok(quotes_with_peer_id)
 }
 

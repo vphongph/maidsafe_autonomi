@@ -106,9 +106,7 @@ impl NetworkDriver {
 
         // skip unknown or completed queries
         if !self.pending_tasks.contains_query(&request_id) {
-            trace!(
-                "Ignore result for unknown query (possibly already completed): {request_id:?}"
-            );
+            trace!("Ignore result for unknown query (possibly already completed): {request_id:?}");
             return Ok(());
         }
 

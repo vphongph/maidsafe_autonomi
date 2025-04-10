@@ -39,7 +39,7 @@ const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
 /// Libp2p defaults to 10s which is quite fast, we are more patient
 pub const REQ_TIMEOUT: Duration = Duration::from_secs(10);
 /// Libp2p defaults to 60s for kad queries, we are more patient
-pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(60);
+pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(600);
 /// Libp2p defaults to 3, we are more aggressive
 pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
 

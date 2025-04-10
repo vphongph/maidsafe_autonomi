@@ -19,6 +19,7 @@ use ant_protocol::{
     version::REQ_RESPONSE_VERSION_STR,
 };
 use libp2p::kad::NoKnownPeers;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -221,6 +222,7 @@ impl NetworkDriver {
             NetworkTask::GetQuote {
                 addr,
                 peer,
+                peer_addresses,
                 data_type,
                 data_size,
                 resp,
@@ -232,12 +234,33 @@ impl NetworkDriver {
                     nonce: None,
                     difficulty: 0,
                 });
+
+                // todo: move dial to new dial function or task
+                let opts = DialOpts::peer_id(peer)
+                    // If we have a peer ID, we can prevent simultaneous dials.
+                    .condition(PeerCondition::NotDialing)
+                    .addresses(peer_addresses.clone())
+                    .build();
+
+                match self.swarm.dial(opts) {
+                    Ok(()) => {
+                        info!(
+                            "Successfully dialled peer {peer:?} for req_resp with address: {peer_addresses:?}",
+                        );
+                    }
+                    Err(err) => {
+                        error!("Failed to dial peer {peer:?} for req_resp with address: {peer_addresses:?} error: {err}",);
+                    }
+                }
+
                 let req_id = self.req().send_request(&peer, req);
+
                 self.pending_tasks.insert_query(
                     req_id,
                     NetworkTask::GetQuote {
                         addr,
                         peer,
+                        peer_addresses,
                         data_type,
                         data_size,
                         resp,

@@ -182,6 +182,7 @@ impl Network {
         &self,
         addr: NetworkAddress,
         peer: PeerId,
+        peer_addresses: Vec<Multiaddr>,
         data_type: u32,
         data_size: usize,
     ) -> Result<PaymentQuote, NetworkError> {
@@ -189,6 +190,7 @@ impl Network {
         let task = NetworkTask::GetQuote {
             addr,
             peer,
+            peer_addresses,
             data_type,
             data_size,
             resp: tx,
@@ -212,8 +214,10 @@ impl Network {
         closest_peers.truncate(CLOSE_GROUP_SIZE);
 
         let tasks: Vec<_> = closest_peers
-            .iter()
-            .map(|peer| self.get_quote(addr.clone(), peer.peer_id, data_type, data_size))
+            .into_iter()
+            .map(|peer| {
+                self.get_quote(addr.clone(), peer.peer_id, peer.addrs, data_type, data_size)
+            })
             .collect();
 
         let quotes = try_join_all(tasks).await?;

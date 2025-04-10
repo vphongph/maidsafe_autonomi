@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::OneShotTaskResult;
+use crate::Multiaddr;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
 use libp2p::{
@@ -52,6 +53,7 @@ pub(super) enum NetworkTask {
     GetQuote {
         addr: NetworkAddress,
         peer: PeerId,
+        peer_addresses: Vec<Multiaddr>,
         data_type: u32,
         data_size: usize,
         #[debug(skip)]

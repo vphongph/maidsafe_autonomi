@@ -26,6 +26,7 @@ pub use libp2p::{
 };
 
 // internal needs
+use ant_protocol::CLOSE_GROUP_SIZE;
 use driver::NetworkDriver;
 use futures::future::try_join_all;
 use interface::NetworkTask;
@@ -206,12 +207,17 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Vec<PaymentQuote>, NetworkError> {
-        let closest_peers = self.get_closest_peers(addr.clone()).await?;
+        let mut closest_peers = self.get_closest_peers(addr.clone()).await?;
+
+        closest_peers.truncate(CLOSE_GROUP_SIZE);
+
         let tasks: Vec<_> = closest_peers
             .iter()
             .map(|peer| self.get_quote(addr.clone(), peer.peer_id, data_type, data_size))
             .collect();
+
         let quotes = try_join_all(tasks).await?;
+
         Ok(quotes)
     }
 }

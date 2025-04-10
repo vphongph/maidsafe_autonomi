@@ -16,7 +16,7 @@ use libp2p::PeerId;
 use std::collections::HashMap;
 use xor_name::XorName;
 
-use crate::networking::{Network, NetworkError};
+use crate::networking::Network;
 pub use ant_protocol::storage::DataTypes;
 
 // todo: limit depends per RPC endpoint. We should make this configurable
@@ -93,8 +93,8 @@ impl Client {
         let futures: Vec<_> = content_addrs
             .into_iter()
             .map(|(content_addr, data_size)| {
-                fetch_store_quote_with_retries(
-                    self.network.clone(),
+                fetch_store_quote(
+                    &self.network,
                     content_addr,
                     data_type.get_index(),
                     data_size,
@@ -209,14 +209,22 @@ async fn fetch_store_quote(
     content_addr: XorName,
     data_type: u32,
     data_size: usize,
-) -> Result<Vec<(PeerId, PaymentQuote)>, NetworkError> {
+) -> Result<(XorName, Vec<(PeerId, PaymentQuote)>), CostError> {
     let quotes = network
         .get_quotes(
             NetworkAddress::from(ChunkAddress::new(content_addr)),
             data_type,
             data_size,
         )
-        .await?;
+        .await
+        .inspect_err(|err| {
+            error!("Error while fetching store quote: {err:?}");
+        })
+        .map_err(|_| CostError::NotEnoughNodeQuotes {
+            content_addr,
+            got: 0, // todo: return amount of quotes or use different error here
+            required: CLOSE_GROUP_SIZE,
+        })?;
     let quotes_with_peer_id = quotes
         .into_iter()
         .filter_map(|quote| match quote.peer_id() {
@@ -227,56 +235,5 @@ async fn fetch_store_quote(
             }
         })
         .collect();
-    Ok(quotes_with_peer_id)
-}
-
-/// Fetch a store quote for a content address with a retry strategy.
-async fn fetch_store_quote_with_retries(
-    network: Network,
-    content_addr: XorName,
-    data_type: u32,
-    data_size: usize,
-) -> Result<(XorName, Vec<(PeerId, PaymentQuote)>), CostError> {
-    let mut retries = 0;
-
-    loop {
-        match fetch_store_quote(&network, content_addr, data_type, data_size).await {
-            Ok(quote) => {
-                if quote.is_empty() {
-                    // Empty quotes indicates the record already exists.
-                    break Ok((content_addr, quote));
-                }
-                if quote.len() < CLOSE_GROUP_SIZE {
-                    retries += 1;
-                    error!("Error while fetching store quote: not enough quotes ({}/{CLOSE_GROUP_SIZE}), retry #{retries}, quotes {quote:?}",
-                        quote.len());
-                    if retries > 2 {
-                        break Err(CostError::NotEnoughNodeQuotes {
-                            content_addr,
-                            got: quote.len(),
-                            required: CLOSE_GROUP_SIZE,
-                        });
-                    }
-                }
-                break Ok((content_addr, quote));
-            }
-            Err(err) if retries < 2 => {
-                retries += 1;
-                error!("Error while fetching store quote: {err:?}, retry #{retries}");
-            }
-            Err(err) => {
-                error!(
-                    "Error while fetching store quote: {err:?}, stopping after {retries} retries"
-                );
-                break Err(CostError::NotEnoughNodeQuotes {
-                    content_addr,
-                    got: 0,
-                    required: CLOSE_GROUP_SIZE,
-                });
-            }
-        }
-        // Shall have a sleep between retries to avoid choking the network.
-        // This shall be rare to happen though.
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    }
+    Ok((content_addr, quotes_with_peer_id))
 }

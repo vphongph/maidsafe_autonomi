@@ -54,6 +54,7 @@ impl TaskHandler {
     }
 
     pub fn insert_task(&mut self, id: QueryId, task: NetworkTask) {
+        info!("New task: with QueryId({id}): {task:?}");
         match task {
             NetworkTask::GetClosestPeers { resp, .. } => {
                 self.closest_peers.insert(id, resp);
@@ -69,6 +70,7 @@ impl TaskHandler {
     }
 
     pub fn insert_query(&mut self, id: OutboundRequestId, task: NetworkTask) {
+        info!("New query: with OutboundRequestId({id}): {task:?}");
         if let NetworkTask::GetQuote {
             resp, data_type, ..
         } = task
@@ -110,7 +112,7 @@ impl TaskHandler {
         match res {
             Ok(kad::GetRecordOk::FoundRecord(record)) => {
                 debug!(
-                    "Query {id}: GetRecordOk::FoundRecord {:?}",
+                    "QueryId({id}): GetRecordOk::FoundRecord {:?}",
                     hex::encode(record.record.key.clone())
                 );
                 let holders = self.get_record_accumulator.entry(id).or_default();
@@ -119,7 +121,7 @@ impl TaskHandler {
                 }
             }
             Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. }) => {
-                debug!("Query {id}: GetRecordOk::FinishedWithNoAdditionalRecord");
+                debug!("QueryId({id}): GetRecordOk::FinishedWithNoAdditionalRecord");
                 let (responder, holders) = self.take_responder_and_holders_for_task(id)?;
                 let peers = holders.keys().cloned().collect();
                 let records_uniq = holders.values().cloned().fold(Vec::new(), |mut acc, x| {
@@ -138,7 +140,7 @@ impl TaskHandler {
             }
             Err(kad::GetRecordError::NotFound { key, closest_peers }) => {
                 debug!(
-                    "Query {id}: GetRecordError::NotFound {:?}, closest_peers: {:?}",
+                    "QueryId({id}): GetRecordError::NotFound {:?}, closest_peers: {:?}",
                     hex::encode(key),
                     closest_peers
                 );
@@ -155,7 +157,7 @@ impl TaskHandler {
                 quorum,
             }) => {
                 debug!(
-                    "Query {id}: GetRecordError::QuorumFailed {:?}, records: {:?}, quorum: {:?}",
+                    "QueryId({id}): GetRecordError::QuorumFailed {:?}, records: {:?}, quorum: {:?}",
                     hex::encode(key),
                     records.len(),
                     quorum
@@ -168,7 +170,10 @@ impl TaskHandler {
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetRecordError::Timeout { key }) => {
-                debug!("Query {id}: GetRecordError::Timeout {:?}", hex::encode(key));
+                debug!(
+                    "QueryId({id}): GetRecordError::Timeout {:?}",
+                    hex::encode(key)
+                );
                 let (responder, holders) = self.take_responder_and_holders_for_task(id)?;
                 let peers = holders.keys().cloned().collect();
 
@@ -192,18 +197,28 @@ impl TaskHandler {
 
         match res {
             Ok(kad::PutRecordOk { key: _ }) => {
+                debug!("QueryId({id}): PutRecordOk");
                 responder
                     .send(Ok(()))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::PutRecordError::QuorumFailed {
-                success, quorum, ..
+                key,
+                success,
+                quorum,
             }) => {
+                debug!(
+                    "QueryId({id}): PutRecordError::QuorumFailed {:?}, success: {:?}, quorum: {:?}",
+                    hex::encode(key),
+                    success.len(),
+                    quorum
+                );
                 responder
                     .send(Err(NetworkError::PutRecordQuorumFailed(success, quorum)))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::PutRecordError::Timeout { success, .. }) => {
+                debug!("QueryId({id}): PutRecordError::Timeout");
                 responder
                     .send(Err(NetworkError::PutRecordTimeout(success)))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
@@ -225,13 +240,15 @@ impl TaskHandler {
                 "OutboundRequestId {id:?}"
             )))?;
 
-        match verify_quote(quote_res, peer_address, data_type) {
+        match verify_quote(quote_res, peer_address.clone(), data_type) {
             Ok(quote) => {
+                debug!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
                 resp.send(Ok(quote))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
             }
             Err(e) => {
+                warn!("OutboundRequestId({id}): got invalid quote from peer {peer_address:?}");
                 resp.send(Err(e))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
@@ -254,7 +271,6 @@ impl TaskHandler {
     }
 }
 
-// NB TODO: this should be done autonomi API side, not in Networking! Leaving it here for now as autonomi doesn't have those checks in yet!
 fn verify_quote(
     quote_res: Result<PaymentQuote, ant_protocol::error::Error>,
     peer_address: NetworkAddress,

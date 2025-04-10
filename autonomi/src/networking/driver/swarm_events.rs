@@ -62,16 +62,17 @@ impl NetworkDriver {
         stats: &QueryStats,
         step: &ProgressStep,
     ) -> Result<(), NetworkDriverError> {
-        trace!(" | Kad progress event id: {:?}", id);
-        trace!(" | result: {:?}", result);
-        trace!(" | stats: {:?}", stats);
-        trace!(" | step: {:?}", step);
-
         // skip unknown or completed queries
         if !self.pending_tasks.contains(&id) {
             trace!("Ignore result for unknown query (possibly already completed): {id:?}");
             return Ok(());
         }
+
+        // log info for queries we care about
+        trace!(" | Kad progress event id: {:?}", id);
+        trace!(" | result: {:?}", result);
+        trace!(" | stats: {:?}", stats);
+        trace!(" | step: {:?}", step);
 
         match result {
             QueryResult::GetClosestPeers(res) => {

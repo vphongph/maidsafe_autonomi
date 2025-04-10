@@ -91,7 +91,8 @@ impl Client {
             .get_record(key.clone(), self.config.graph_entry.verification_quorum)
             .await
         {
-            Ok(_) => Ok(true),
+            Ok(None) => Ok(false),
+            Ok(Some(_)) => Ok(true),
             Err(NetworkError::SplitRecord(..)) => Ok(true),
             Err(err) => Err(GraphError::Network(err))
                 .inspect_err(|err| error!("Error checking graph_entry existence: {err:?}")),

@@ -99,7 +99,8 @@ impl Client {
             .get_record(key.clone(), self.config.pointer.verification_quorum)
             .await
         {
-            Ok(_) => Ok(true),
+            Ok(None) => Ok(false),
+            Ok(Some(_)) => Ok(true),
             Err(NetworkError::SplitRecord(..)) => Ok(true),
             Err(err) => Err(PointerError::Network(err))
                 .inspect_err(|err| error!("Error checking pointer existence: {err:?}")),

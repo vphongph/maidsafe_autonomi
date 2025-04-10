@@ -70,7 +70,6 @@ impl NetworkDriver {
 
         // log info for queries we care about
         trace!(" | Kad progress event id: {:?}", id);
-        trace!(" | result: {:?}", result);
         trace!(" | stats: {:?}", stats);
         trace!(" | step: {:?}", step);
 

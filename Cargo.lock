@@ -1590,6 +1590,7 @@ dependencies = [
  "blsttc",
  "bytes",
  "const-hex",
+ "custom_debug",
  "evmlib",
  "exponential-backoff",
  "eyre",

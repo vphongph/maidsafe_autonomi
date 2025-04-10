@@ -40,11 +40,11 @@ const REPLICATION_FACTOR: NonZeroUsize =
     NonZeroUsize::new(7).expect("REPLICATION_FACTOR must be > 0");
 
 /// Libp2p defaults to 10s which is quite fast, we are more patient
-pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
+pub const REQ_TIMEOUT: Duration = Duration::from_secs(10);
 /// Libp2p defaults to 60s for kad queries, we are more patient
-pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(180);
+pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 /// Libp2p defaults to 3, we are more aggressive
-pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(5).expect("KAD_ALPHA must be > 0");
+pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
 
 /// Driver for the Autonomi Client Network
 ///

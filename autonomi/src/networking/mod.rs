@@ -34,8 +34,10 @@ use libp2p::futures;
 use libp2p::kad::NoKnownPeers;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
 pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
@@ -81,6 +83,7 @@ pub enum NetworkError {
 #[derive(Debug, Clone)]
 pub struct Network {
     task_sender: tokio::sync::mpsc::Sender<NetworkTask>,
+    _driver_task: Arc<JoinHandle<()>>,
 }
 
 impl Network {
@@ -90,15 +93,19 @@ impl Network {
     pub fn new(initial_contacts: Vec<Multiaddr>) -> Result<Self, NoKnownPeers> {
         let (task_sender, task_receiver) = mpsc::channel(100);
         let mut driver = NetworkDriver::new(task_receiver);
-        let network = Self { task_sender };
 
         // Bootstrap here so we can early detect a failure
         driver.connect_to_peers(initial_contacts)?;
 
         // run the network driver in a background task
-        tokio::spawn(async move {
+        let driver_task = tokio::spawn(async move {
             let _ = driver.run().await;
         });
+
+        let network = Self {
+            task_sender,
+            _driver_task: Arc::new(driver_task),
+        };
 
         Ok(network)
     }

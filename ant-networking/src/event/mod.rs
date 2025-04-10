@@ -21,6 +21,7 @@ use libp2p::{
 };
 
 use ant_evm::{PaymentQuote, ProofOfPayment};
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::storage::DataTypes;
 #[cfg(feature = "open-metrics")]
 use ant_protocol::CLOSE_GROUP_SIZE;
@@ -117,11 +118,12 @@ impl From<void::Void> for NodeEvent {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(CustomDebug)]
 /// Channel to send the `Response` through.
 pub enum MsgResponder {
     /// Respond to a request from `self` through a simple one-shot channel.
-    FromSelf(Option<oneshot::Sender<Result<Response>>>),
+    FromSelf(Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>),
     /// Respond to a request from a peer in the network.
     FromPeer(PeerResponseChannel<Response>),
 }
@@ -171,6 +173,8 @@ pub enum NetworkEvent {
             Option<ProofOfPayment>,
         )>,
     },
+    /// Peers of picked bucket for version query.
+    PeersForVersionQuery(Vec<(PeerId, Addresses)>),
 }
 
 /// Terminate node for the following reason
@@ -242,6 +246,16 @@ impl Debug for NetworkEvent {
                     "NetworkEvent::FreshReplicateToFetch({holder:?}, {keys:?})"
                 )
             }
+            NetworkEvent::PeersForVersionQuery(peers) => {
+                write!(
+                    f,
+                    "NetworkEvent::PeersForVersionQuery({:?})",
+                    peers
+                        .iter()
+                        .map(|(peer, _addrs)| peer)
+                        .collect::<Vec<&PeerId>>()
+                )
+            }
         }
     }
 }
@@ -290,8 +304,8 @@ impl SwarmDriver {
         let kbucket_status = self.get_kbuckets_status();
         self.update_on_kbucket_status(&kbucket_status);
 
-        let distance = NetworkAddress::from_peer(self.self_peer_id)
-            .distance(&NetworkAddress::from_peer(added_peer));
+        let distance =
+            NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
         info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
         self.peers_in_rt, distance.ilog2());
 
@@ -315,11 +329,6 @@ impl SwarmDriver {
         if self.metrics_recorder.is_some() {
             self.check_for_change_in_our_close_group();
         }
-
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics_recorder) = &self.metrics_recorder {
-            metrics_recorder.update_node_versions(&self.peers_version);
-        }
     }
 
     /// Update state on removal of a peer from the routing table.
@@ -331,8 +340,8 @@ impl SwarmDriver {
         // err result just means no connections were open
         let _result = self.swarm.disconnect_peer_id(removed_peer);
 
-        let distance = NetworkAddress::from_peer(self.self_peer_id)
-            .distance(&NetworkAddress::from_peer(removed_peer));
+        let distance =
+            NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(removed_peer));
         info!(
             "Peer removed from routing table: {removed_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.",
             self.peers_in_rt, distance.ilog2()

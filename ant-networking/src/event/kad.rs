@@ -113,7 +113,7 @@ impl SwarmDriver {
                         .handle_get_closest_query(current_closest),
                     PendingGetClosestType::FunctionCall(sender) => {
                         tokio::spawn(async move {
-                            let _ = sender.send(current_closest);
+                            let _ = sender.send(vec![]);
                         });
                     }
                 }
@@ -257,7 +257,7 @@ impl SwarmDriver {
                     // This should only happen once
                     if self.network_discovery.notify_new_peer() {
                         info!("Performing the first bootstrap");
-                        self.trigger_network_discovery();
+                        self.trigger_network_discovery(0);
                     }
                 }
 
@@ -478,7 +478,7 @@ impl SwarmDriver {
         // return error if the entry cannot be found
         if let Some((r_key, senders, result_map, cfg)) = self.pending_get_record.remove(&query_id) {
             let num_of_versions = result_map.len();
-            let data_key_address = NetworkAddress::from_record_key(&r_key);
+            let data_key_address = NetworkAddress::from(&r_key);
 
             // we have a split record, return it
             if num_of_versions > 1 {

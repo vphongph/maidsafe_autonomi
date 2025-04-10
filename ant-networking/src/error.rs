@@ -146,6 +146,10 @@ pub enum NetworkError {
         source: std::io::Error,
     },
 
+    // ---------- Kad Network Errors
+    #[error("Network GetClosest TimedOut")]
+    GetClosestTimedOut,
+
     // ---------- Internal Network Errors
     #[error("Could not get enough peers ({required}) to satisfy the request, found {found}")]
     NotEnoughPeers { found: usize, required: usize },
@@ -192,7 +196,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let xor_name = XorName::random(&mut rng);
         let address = ChunkAddress::new(xor_name);
-        let network_address = NetworkAddress::from_chunk_address(address);
+        let network_address = NetworkAddress::from(address);
         let record_key = network_address.to_record_key();
         let record_str = format!("{}", PrettyPrintRecordKey::from(&record_key));
         let xor_name_str = &format!("{xor_name:64x}")[0..6]; // only the first 6 chars are logged

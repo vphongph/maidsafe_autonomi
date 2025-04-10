@@ -198,7 +198,7 @@ impl Node {
                     try_deserialize_record::<(ProofOfPayment, GraphEntry)>(&record)?;
 
                 // check if the deserialized value's GraphEntryAddress matches the record's key
-                let net_addr = NetworkAddress::from_graph_entry_address(graph_entry.address());
+                let net_addr = NetworkAddress::from(graph_entry.address());
                 let key = net_addr.to_record_key();
                 let pretty_key = PrettyPrintRecordKey::from(&key);
                 if record.key != key {
@@ -258,7 +258,7 @@ impl Node {
             }
             RecordKind::DataOnly(DataTypes::Pointer) => {
                 let pointer = try_deserialize_record::<Pointer>(&record)?;
-                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
+                let net_addr = NetworkAddress::from(pointer.address());
                 let pretty_key = PrettyPrintRecordKey::from(&record.key);
                 let already_exists = self
                     .validate_key_and_existence(&net_addr, &record.key)
@@ -290,7 +290,7 @@ impl Node {
                 let (payment, pointer) =
                     try_deserialize_record::<(ProofOfPayment, Pointer)>(&record)?;
 
-                let net_addr = NetworkAddress::from_pointer_address(pointer.address());
+                let net_addr = NetworkAddress::from(pointer.address());
                 let pretty_key = PrettyPrintRecordKey::from(&record.key);
                 let already_exists = self
                     .validate_key_and_existence(&net_addr, &record.key)
@@ -429,7 +429,7 @@ impl Node {
 
     /// Store a `Chunk` to the RecordStore
     pub(crate) fn store_chunk(&self, chunk: &Chunk, is_client_put: bool) -> Result<()> {
-        let key = NetworkAddress::from_chunk_address(*chunk.address()).to_record_key();
+        let key = NetworkAddress::from(*chunk.address()).to_record_key();
         let pretty_key = PrettyPrintRecordKey::from(&key).into_owned();
 
         // reject if chunk is too large
@@ -561,7 +561,7 @@ impl Node {
             .filter(|s| {
                 // get the record key for the GraphEntry
                 let graph_entry_address = s.address();
-                let network_address = NetworkAddress::from_graph_entry_address(graph_entry_address);
+                let network_address = NetworkAddress::from(graph_entry_address);
                 let graph_entry_record_key = network_address.to_record_key();
                 let graph_entry_pretty = PrettyPrintRecordKey::from(&graph_entry_record_key);
                 if &graph_entry_record_key != record_key {
@@ -652,8 +652,11 @@ impl Node {
             )));
         }
 
-        // verify quote expiration
-        if payment.has_expired() {
+        // verify quote expiration.
+        // Note there could be error when try to deduce elapsed time from other OS clock,
+        // hence here only verify the expiration of own quotes.
+        let own_quotes: Vec<_> = payment.quotes_by_peer(&self_peer_id);
+        if own_quotes.iter().any(|quote| quote.has_expired()) {
             warn!("Payment quote has expired for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(
                 "Payment quote has expired for record {pretty_key}"
@@ -678,21 +681,26 @@ impl Node {
         let mut payees = payment.payees();
         payees.retain(|peer_id| !closest_k_peers.iter().any(|(p, _)| p == peer_id));
         if !payees.is_empty() {
-            warn!("Payment quote has out-of-range payees for record {pretty_key}");
-            return Err(Error::InvalidRequest(format!(
-                "Payment quote has out-of-range payees {payees:?}"
-            )));
-        }
+            // There might be payee got blocked by us or churned out from our perspective.
+            // We shall still consider the payment is valid whenever payees are close enough.
+            // In case we don't have enough knowledge of the network, we shall trust the payment.
+            if let Some(network_density) = self.network().get_network_density().await? {
+                payees.retain(|peer_id| {
+                    NetworkAddress::from(*peer_id).distance(address) > network_density
+                });
 
-        let owned_payment_quotes: Vec<_> = payment
-            .quotes_by_peer(&self_peer_id)
-            .iter()
-            .map(|quote| quote.hash())
-            .collect();
+                if !payees.is_empty() {
+                    warn!("Payment quote has out-of-range payees for record {pretty_key}");
+                    return Err(Error::InvalidRequest(format!(
+                        "Payment quote has out-of-range payees {payees:?}"
+                    )));
+                }
+            }
+        }
 
         // check if payment is valid on chain
         let payments_to_verify = payment.digest();
-
+        let owned_payment_quotes: Vec<_> = own_quotes.iter().map(|quote| quote.hash()).collect();
         let reward_amount = match verify_data_payment(
             self.evm_network(),
             owned_payment_quotes.clone(),
@@ -766,7 +774,7 @@ impl Node {
     /// This only fetches the GraphEntries from the local store and does not perform any network operations.
     async fn get_local_graphentries(&self, addr: GraphEntryAddress) -> Result<Vec<GraphEntry>> {
         // get the local GraphEntries
-        let record_key = NetworkAddress::from_graph_entry_address(addr).to_record_key();
+        let record_key = NetworkAddress::from(addr).to_record_key();
         debug!("Checking for local GraphEntries with key: {record_key:?}");
         let local_record = match self.network().get_local_record(&record_key).await? {
             Some(r) => r,
@@ -795,7 +803,7 @@ impl Node {
     /// If the local Pointer is not present or corrupted, returns `None`.
     async fn get_local_pointer(&self, addr: PointerAddress) -> Option<Pointer> {
         // get the local Pointer
-        let record_key = NetworkAddress::from_pointer_address(addr).to_record_key();
+        let record_key = NetworkAddress::from(addr).to_record_key();
         debug!("Checking for local Pointer with key: {record_key:?}");
         let local_record = match self.network().get_local_record(&record_key).await {
             Ok(Some(r)) => r,
@@ -847,7 +855,7 @@ impl Node {
         }
 
         // Check if the pointer's address matches the record key
-        let net_addr = NetworkAddress::from_pointer_address(pointer.address());
+        let net_addr = NetworkAddress::from(pointer.address());
         if key != net_addr.to_record_key() {
             warn!("Pointer address does not match record key");
             return Err(Error::RecordKeyMismatch);

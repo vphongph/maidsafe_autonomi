@@ -51,6 +51,7 @@ pub use time::{interval, sleep, spawn, Instant, Interval};
 
 use self::{cmd::NetworkSwarmCmd, error::Result};
 use ant_evm::{PaymentQuote, QuotingMetrics};
+use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, Nonce, Query, QueryResponse, Request, Response},
@@ -58,6 +59,7 @@ use ant_protocol::{
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use futures::future::select_all;
+use libp2p::kad::K_VALUE;
 use libp2p::{
     identity::Keypair,
     kad::{KBucketDistance, KBucketKey, Record, RecordKey},
@@ -97,18 +99,8 @@ const MAX_WAIT_BEFORE_READING_A_PUT: Duration = Duration::from_millis(750);
 /// Min duration to wait for verification
 const MIN_WAIT_BEFORE_READING_A_PUT: Duration = Duration::from_millis(300);
 
-/// Sort the provided peers by their distance to the given `NetworkAddress`.
-/// Return with the closest expected number of entries if has.
-pub fn sort_peers_by_address(
-    peers: Vec<(PeerId, Addresses)>,
-    address: &NetworkAddress,
-    expected_entries: usize,
-) -> Result<Vec<(PeerId, Addresses)>> {
-    sort_peers_by_key(peers, &address.as_kbucket_key(), expected_entries)
-}
-
 /// Sort the provided peers by their distance to the given `KBucketKey`.
-/// Return with the closest expected number of entries if has.
+/// Return with the closest expected number of entries it has.
 pub fn sort_peers_by_key<T>(
     peers: Vec<(PeerId, Addresses)>,
     key: &KBucketKey<T>,
@@ -130,7 +122,7 @@ pub fn sort_peers_by_key<T>(
         Vec::with_capacity(peers.len());
 
     for (peer_id, addrs) in peers.into_iter() {
-        let addr = NetworkAddress::from_peer(peer_id);
+        let addr = NetworkAddress::from(peer_id);
         let distance = key.distance(&addr.as_kbucket_key());
         peer_distances.push((peer_id, addrs, distance));
     }
@@ -219,27 +211,6 @@ impl Network {
         self.keypair().public().encode_protobuf()
     }
 
-    /// Returns the closest peers to the given `XorName`, sorted by their distance to the xor_name.
-    /// Excludes the client's `PeerId` while calculating the closest peers.
-    pub async fn client_get_all_close_peers_in_range_or_close_group(
-        &self,
-        key: &NetworkAddress,
-    ) -> Result<Vec<(PeerId, Addresses)>> {
-        self.get_all_close_peers_in_range_or_close_group(key, true)
-            .await
-    }
-
-    /// Returns the closest peers to the given `NetworkAddress`, sorted by their distance to the key.
-    ///
-    /// Includes our node's `PeerId` while calculating the closest peers.
-    pub async fn node_get_closest_peers(
-        &self,
-        key: &NetworkAddress,
-    ) -> Result<Vec<(PeerId, Addresses)>> {
-        self.get_all_close_peers_in_range_or_close_group(key, false)
-            .await
-    }
-
     /// Returns a list of peers in local RT and their correspondent Multiaddr.
     /// Does not include self
     pub async fn get_local_peers_with_multiaddr(&self) -> Result<Vec<(PeerId, Vec<Multiaddr>)>> {
@@ -299,12 +270,20 @@ impl Network {
         nonce: Nonce,
         expected_proof: ChunkProof,
         quorum: ResponseQuorum,
-        retry_strategy: RetryStrategy,
+        _retry_strategy: RetryStrategy,
     ) -> Result<()> {
-        let total_attempts = retry_strategy.attempts();
+        // The above calling place shall already carried out same `re-attempts`.
+        // Hence here just use a fixed number.
+        let total_attempts = 2;
 
         let pretty_key = PrettyPrintRecordKey::from(&chunk_address.to_record_key()).into_owned();
         let expected_n_verified = quorum.get_value();
+
+        let request = Request::Query(Query::GetChunkExistenceProof {
+            key: chunk_address.clone(),
+            nonce,
+            difficulty: 1,
+        });
 
         let mut close_nodes = Vec::new();
         let mut retry_attempts = 0;
@@ -314,27 +293,20 @@ impl Network {
                 // Do not query the closest_peers during every re-try attempt.
                 // The close_nodes don't change often and the previous set of close_nodes might be taking a while to write
                 // the Chunk, so query them again incase of a failure.
-                close_nodes = self
-                    .client_get_all_close_peers_in_range_or_close_group(&chunk_address)
-                    .await?;
+                close_nodes = self.client_get_close_group(&chunk_address).await?;
             }
             retry_attempts += 1;
             info!(
                 "Getting ChunkProof for {pretty_key:?}. Attempts: {retry_attempts:?}/{total_attempts:?}",
             );
 
-            let request = Request::Query(Query::GetChunkExistenceProof {
-                key: chunk_address.clone(),
-                nonce,
-                difficulty: 1,
-            });
             let responses = self
                 .send_and_get_responses(&close_nodes, &request, true)
                 .await;
             let n_verified = responses
                 .into_iter()
                 .filter_map(|(peer, resp)| {
-                    if let Ok(Response::Query(QueryResponse::GetChunkExistenceProof(proofs))) =
+                    if let Ok((Response::Query(QueryResponse::GetChunkExistenceProof(proofs)), _conn_info)) =
                         resp
                     {
                         if proofs.is_empty() {
@@ -392,9 +364,7 @@ impl Network {
     ) -> Result<Vec<(PeerId, PaymentQuote)>> {
         // The requirement of having at least CLOSE_GROUP_SIZE
         // close nodes will be checked internally automatically.
-        let mut close_nodes = self
-            .client_get_all_close_peers_in_range_or_close_group(&record_address)
-            .await?;
+        let mut close_nodes = self.client_get_close_group(&record_address).await?;
         // Filter out results from the ignored peers.
         close_nodes.retain(|(peer_id, _)| !ignore_peers.contains(peer_id));
         info!(
@@ -431,11 +401,14 @@ impl Network {
         for (peer, response) in responses {
             info!("StoreCostReq for {record_address:?} received response: {response:?}");
             match response {
-                Ok(Response::Query(QueryResponse::GetStoreQuote {
-                    quote: Ok(quote),
-                    peer_address,
-                    storage_proofs,
-                })) => {
+                Ok((
+                    Response::Query(QueryResponse::GetStoreQuote {
+                        quote: Ok(quote),
+                        peer_address,
+                        storage_proofs,
+                    }),
+                    _conn_info,
+                )) => {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
@@ -455,11 +428,14 @@ impl Network {
                     all_quotes.push((peer_address.clone(), quote.clone()));
                     quotes_to_pay.push((peer, quote));
                 }
-                Ok(Response::Query(QueryResponse::GetStoreQuote {
-                    quote: Err(ProtocolError::RecordExists(_)),
-                    peer_address,
-                    storage_proofs,
-                })) => {
+                Ok((
+                    Response::Query(QueryResponse::GetStoreQuote {
+                        quote: Err(ProtocolError::RecordExists(_)),
+                        peer_address,
+                        storage_proofs,
+                    }),
+                    _conn_info,
+                )) => {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreQuote to be implemented.");
                     }
@@ -850,7 +826,7 @@ impl Network {
             } = verification_kind
             {
                 self.verify_chunk_existence(
-                    NetworkAddress::from_record_key(&record_key),
+                    NetworkAddress::from(&record_key),
                     *nonce,
                     expected_proof.clone(),
                     get_cfg.get_quorum,
@@ -867,9 +843,9 @@ impl Network {
                     }
                     Err(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
                         warn!("Record {pretty_key:?} not found after PUT, either rejected or not yet stored by nodes when we asked");
-                        return Err(NetworkError::RecordNotStoredByNodes(
-                            NetworkAddress::from_record_key(&record_key),
-                        ));
+                        return Err(NetworkError::RecordNotStoredByNodes(NetworkAddress::from(
+                            &record_key,
+                        )));
                     }
                     Err(NetworkError::GetRecordError(GetRecordError::SplitRecord { .. }))
                         if matches!(verification_kind, VerificationKind::Crdt) =>
@@ -947,7 +923,7 @@ impl Network {
         req: Request,
         peer: PeerId,
         addrs: Addresses,
-    ) -> Result<Response> {
+    ) -> Result<(Response, Option<ConnectionInfo>)> {
         let (sender, receiver) = oneshot::channel();
         let req_str = format!("{req:?}");
         // try to send the request without dialing the peer
@@ -970,9 +946,32 @@ impl Network {
                         "Outbound failed for {req_str} .. {error:?}, dialing it then re-attempt."
                     );
 
+                    // Default Addresses will be used for request sent to close range.
+                    // For example: replication requests.
+                    // In that case, we shall get the proper addrs from local then re-dial.
+                    let dial_addrs = if addrs.0.is_empty() {
+                        debug!("Input addrs of {peer:?} is empty, lookup from local");
+                        let (sender, receiver) = oneshot::channel();
+
+                        self.send_local_swarm_cmd(LocalSwarmCmd::GetPeersWithMultiaddr { sender });
+                        let peers = receiver.await?;
+
+                        let Some(new_addrs) = peers
+                            .iter()
+                            .find(|(id, _addrs)| *id == peer)
+                            .map(|(_id, addrs)| addrs.clone())
+                        else {
+                            error!("Cann't find the addrs of peer {peer:?} from local, during the request reattempt of {req:?}.");
+                            return r;
+                        };
+                        Addresses(new_addrs)
+                    } else {
+                        addrs.clone()
+                    };
+
                     self.send_network_swarm_cmd(NetworkSwarmCmd::DialPeer {
                         peer,
-                        addrs: addrs.clone(),
+                        addrs: dial_addrs.clone(),
                     });
 
                     // Short wait to allow connection re-established.
@@ -983,7 +982,7 @@ impl Network {
                     self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                         req,
                         peer,
-                        addrs: Some(addrs),
+                        addrs: Some(dial_addrs),
                         sender: Some(sender),
                     });
 
@@ -1051,6 +1050,10 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::NotifyPeerVersion { peer, version })
     }
 
+    pub fn remove_peer(&self, peer: PeerId) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::RemovePeer { peer })
+    }
+
     /// Helper to send NetworkSwarmCmd
     fn send_network_swarm_cmd(&self, cmd: NetworkSwarmCmd) {
         send_network_swarm_cmd(self.network_swarm_cmd_sender().clone(), cmd);
@@ -1062,13 +1065,9 @@ impl Network {
     }
 
     /// Returns the closest peers to the given `XorName`, sorted by their distance to the xor_name.
-    /// If `client` is false, then include `self` among the `closest_peers`
-    ///
-    /// If less than CLOSE_GROUP_SIZE peers are found, it will return all the peers.
-    pub async fn get_all_close_peers_in_range_or_close_group(
+    pub async fn get_closest_peers(
         &self,
         key: &NetworkAddress,
-        client: bool,
     ) -> Result<Vec<(PeerId, Addresses)>> {
         let pretty_key = PrettyPrintKBucketKey(key.as_kbucket_key());
         debug!("Getting the all closest peers in range of {pretty_key:?}");
@@ -1078,19 +1077,11 @@ impl Network {
             sender,
         });
 
-        let found_peers = receiver.await?;
+        let closest_peers = receiver.await?;
 
-        // Count self in if among the CLOSE_GROUP_SIZE closest and sort the result
-        let result_len = found_peers.len();
-        let mut closest_peers = found_peers;
-
-        // ensure we're not including self here
-        if client {
-            // remove our peer id from the calculations here:
-            closest_peers.retain(|&(x, _)| x != self.peer_id());
-            if result_len != closest_peers.len() {
-                info!("Remove self client from the closest_peers");
-            }
+        // Error out when fetched result is empty, indicating a timed out network query.
+        if closest_peers.is_empty() {
+            return Err(NetworkError::GetClosestTimedOut);
         }
 
         if tracing::level_enabled!(tracing::Level::DEBUG) {
@@ -1099,7 +1090,7 @@ impl Network {
                 .map(|(peer_id, _)| {
                     format!(
                         "{peer_id:?}({:?})",
-                        PrettyPrintKBucketKey(NetworkAddress::from_peer(*peer_id).as_kbucket_key())
+                        PrettyPrintKBucketKey(NetworkAddress::from(*peer_id).as_kbucket_key())
                     )
                 })
                 .collect();
@@ -1109,8 +1100,53 @@ impl Network {
             );
         }
 
-        let expanded_close_group = CLOSE_GROUP_SIZE + CLOSE_GROUP_SIZE / 2;
-        let closest_peers = sort_peers_by_address(closest_peers, key, expanded_close_group)?;
+        Ok(closest_peers)
+    }
+
+    /// Returns the `n` closest peers to the given `XorName`, sorted by their distance to the xor_name.
+    pub async fn get_n_closest_peers(
+        &self,
+        key: &NetworkAddress,
+        n: usize,
+    ) -> Result<Vec<(PeerId, Addresses)>> {
+        assert!(n <= K_VALUE.get());
+
+        let mut closest_peers = self.get_closest_peers(key).await?;
+
+        // Check if we have enough results
+        if closest_peers.len() < n {
+            return Err(NetworkError::NotEnoughPeers {
+                found: closest_peers.len(),
+                required: n,
+            });
+        }
+
+        // Only need the `n` closest peers
+        closest_peers.truncate(n);
+
+        Ok(closest_peers)
+    }
+
+    /// Returns the closest peers to the given `XorName`, sorted by their distance to the xor_name.
+    /// Excludes the client's `PeerId` while calculating the closest peers.
+    pub async fn client_get_close_group(
+        &self,
+        key: &NetworkAddress,
+    ) -> Result<Vec<(PeerId, Addresses)>> {
+        const EXPANDED_CLOSE_GROUP: usize = CLOSE_GROUP_SIZE + CLOSE_GROUP_SIZE / 2;
+
+        let mut closest_peers = self.get_n_closest_peers(key, EXPANDED_CLOSE_GROUP).await?;
+
+        let closest_peers_len = closest_peers.len();
+
+        // Although it is very unlikely that the client will be in the closest group (it shouldn't even be in a node's RT),
+        // we still filter its peer id from the results just to be sure.
+        closest_peers.retain(|(peer_id, _)| *peer_id != self.peer_id());
+
+        if closest_peers.len() != closest_peers_len {
+            info!("Removed client peer id from the closest peers");
+        }
+
         Ok(closest_peers)
     }
 
@@ -1123,7 +1159,7 @@ impl Network {
         peers: &[(PeerId, Addresses)],
         req: &Request,
         get_all_responses: bool,
-    ) -> BTreeMap<PeerId, Result<Response>> {
+    ) -> BTreeMap<PeerId, Result<(Response, Option<ConnectionInfo>)>> {
         debug!("send_and_get_responses for {req:?}");
         let mut list_of_futures = peers
             .iter()
@@ -1139,7 +1175,7 @@ impl Network {
         while !list_of_futures.is_empty() {
             let ((peer, resp), _, remaining_futures) = select_all(list_of_futures).await;
             let resp_string = match &resp {
-                Ok(resp) => format!("{resp}"),
+                Ok(resp) => format!("{resp:?}"),
                 Err(err) => format!("{err:?}"),
             };
             debug!("Got response from {peer:?} for the req: {req:?}, resp: {resp_string}");
@@ -1152,6 +1188,17 @@ impl Network {
 
         debug!("Received all responses for {req:?}");
         responses
+    }
+
+    /// Get the estimated network density (i.e. the responsible_distance_range).
+    pub async fn get_network_density(&self) -> Result<Option<KBucketDistance>> {
+        let (sender, receiver) = oneshot::channel();
+        self.send_local_swarm_cmd(LocalSwarmCmd::GetNetworkDensity { sender });
+
+        let density = receiver
+            .await
+            .map_err(|_e| NetworkError::InternalMsgChannelDropped)?;
+        Ok(density)
     }
 }
 

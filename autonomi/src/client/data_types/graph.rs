@@ -88,7 +88,7 @@ impl Client {
 
         match self
             .network
-            .get_record(key.clone(), self.config.graph_entry.get_quorum)
+            .get_record(key.clone(), self.config.graph_entry.verification_quorum)
             .await
         {
             Ok(_) => Ok(true),

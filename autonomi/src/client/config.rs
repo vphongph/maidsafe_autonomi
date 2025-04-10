@@ -68,7 +68,7 @@ impl Default for ClientOperatingStrategy {
             graph_entry: Strategy {
                 put_quorum: Quorum::Majority,
                 put_retry: RetryStrategy::Balanced,
-                verification_quorum: Quorum::Majority,
+                verification_quorum: Quorum::N(two),
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: Quorum::N(two), // forks are rare but possible, balance between resilience and speed
                 get_retry: RetryStrategy::Quick,
@@ -77,7 +77,7 @@ impl Default for ClientOperatingStrategy {
             pointer: Strategy {
                 put_quorum: Quorum::Majority,
                 put_retry: RetryStrategy::Balanced,
-                verification_quorum: Quorum::Majority,
+                verification_quorum: Quorum::N(two),
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: Quorum::Majority, // majority to catch possible differences in versions
                 get_retry: RetryStrategy::Quick,
@@ -86,7 +86,7 @@ impl Default for ClientOperatingStrategy {
             scratchpad: Strategy {
                 put_quorum: Quorum::Majority,
                 put_retry: RetryStrategy::Balanced,
-                verification_quorum: Quorum::Majority,
+                verification_quorum: Quorum::N(two),
                 verification_retry: RetryStrategy::Quick, // verification should be quick
                 get_quorum: Quorum::Majority, // majority to catch possible differences in versions
                 get_retry: RetryStrategy::Quick,

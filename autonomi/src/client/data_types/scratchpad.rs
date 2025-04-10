@@ -136,7 +136,7 @@ impl Client {
 
         match self
             .network
-            .get_record(key, self.config.scratchpad.get_quorum)
+            .get_record(key, self.config.scratchpad.verification_quorum)
             .await
         {
             Ok(Some(_)) => Ok(true),

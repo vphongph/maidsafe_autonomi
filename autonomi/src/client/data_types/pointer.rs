@@ -96,7 +96,7 @@ impl Client {
 
         match self
             .network
-            .get_record(key.clone(), self.config.pointer.get_quorum)
+            .get_record(key.clone(), self.config.pointer.verification_quorum)
             .await
         {
             Ok(_) => Ok(true),

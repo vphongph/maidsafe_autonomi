@@ -79,6 +79,8 @@ pub enum CostError {
     MarketPriceError(#[from] ant_evm::payment_vault::error::Error),
     #[error("Received invalid cost")]
     InvalidCost,
+    #[error("Network error: {0:?}")]
+    Network(#[from] crate::networking::NetworkError),
 }
 
 impl Client {
@@ -204,13 +206,14 @@ impl Client {
 }
 
 /// Fetch a store quote for a content address.
+/// Returns an empty vector if the record already exists and there is no need to pay for it.
 async fn fetch_store_quote(
     network: &Network,
     content_addr: XorName,
     data_type: u32,
     data_size: usize,
 ) -> Result<(XorName, Vec<(PeerId, PaymentQuote)>), CostError> {
-    let quotes = network
+    let maybe_quotes = network
         .get_quotes(
             NetworkAddress::from(ChunkAddress::new(content_addr)),
             data_type,
@@ -219,12 +222,10 @@ async fn fetch_store_quote(
         .await
         .inspect_err(|err| {
             error!("Error while fetching store quote: {err:?}");
-        })
-        .map_err(|_| CostError::NotEnoughNodeQuotes {
-            content_addr,
-            got: 0, // todo: return amount of quotes or use different error here
-            required: CLOSE_GROUP_SIZE,
         })?;
+
+    // if no quotes are returned an empty vector is returned
+    let quotes = maybe_quotes.unwrap_or_default();
     let quotes_with_peer_id = quotes
         .into_iter()
         .filter_map(|quote| match quote.peer_id() {

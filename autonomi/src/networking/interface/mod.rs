@@ -7,13 +7,13 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::OneShotTaskResult;
-use crate::Multiaddr;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
 use libp2p::{
     kad::{PeerInfo, Quorum, Record},
     PeerId,
 };
+use std::num::NonZeroUsize;
 
 /// Task for the underlying network driver
 /// Sent by the [`crate::Network`], handled by the [`crate::driver::NetworkDriver`]
@@ -31,6 +31,7 @@ pub(super) enum NetworkTask {
         addr: NetworkAddress,
         #[debug(skip)]
         resp: OneShotTaskResult<Vec<PeerInfo>>,
+        n: NonZeroUsize,
     },
     /// cf [`crate::driver::task_handler::TaskHandler::update_get_record`]
     GetRecord {
@@ -52,11 +53,10 @@ pub(super) enum NetworkTask {
     /// cf [`crate::driver::task_handler::TaskHandler::update_get_quote`]
     GetQuote {
         addr: NetworkAddress,
-        peer: PeerId,
-        peer_addresses: Vec<Multiaddr>,
+        peer: PeerInfo,
         data_type: u32,
         data_size: usize,
         #[debug(skip)]
-        resp: OneShotTaskResult<PaymentQuote>,
+        resp: OneShotTaskResult<Option<PaymentQuote>>,
     },
 }

@@ -18,7 +18,6 @@ use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
-use libp2p::kad::NoKnownPeers;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{
     core::muxing::StreamMuxerBox,
@@ -31,6 +30,10 @@ use libp2p::{
     swarm::NetworkBehaviour,
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
 };
+use libp2p::{
+    kad::{NoKnownPeers, PeerInfo},
+    swarm::DialError,
+};
 use task_handler::TaskHandler;
 use tokio::sync::mpsc;
 
@@ -38,9 +41,9 @@ use tokio::sync::mpsc;
 const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
 const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
 /// Libp2p defaults to 10s which is quite fast, we are more patient
-pub const REQ_TIMEOUT: Duration = Duration::from_secs(10);
+pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 /// Libp2p defaults to 60s for kad queries, we are more patient
-pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(600);
+pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 3, we are more aggressive
 pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
 
@@ -155,7 +158,7 @@ impl NetworkDriver {
         &mut self.swarm.behaviour_mut().request_response
     }
 
-    // Add peers to our routing table
+    /// Add peers to our routing table
     pub(crate) fn connect_to_peers(&mut self, peers: Vec<Multiaddr>) -> Result<(), NoKnownPeers> {
         for contact in peers {
             let contact_id = match contact.iter().find(|p| matches!(p, Protocol::P2p(_))) {
@@ -172,14 +175,27 @@ impl NetworkDriver {
         self.swarm.behaviour_mut().kademlia.bootstrap().map(|_| ())
     }
 
+    /// Dial a peer
+    pub(crate) fn dial_peer(&mut self, peer: &PeerInfo) -> Result<(), DialError> {
+        let opts = DialOpts::peer_id(peer.peer_id)
+            // If we have a peer ID, we can prevent simultaneous dials.
+            .condition(PeerCondition::NotDialing)
+            .addresses(peer.addrs.clone())
+            .build();
+
+        self.swarm.dial(opts)
+    }
+
     /// Process a task sent by the client, start the query on kad and add it to the pending tasks
     /// Events from the swarm will help update the task, they are handled in [`crate::driver::NetworkDriver::process_swarm_event`]
     fn process_task(&mut self, task: NetworkTask) {
         match task {
-            NetworkTask::GetClosestPeers { addr, resp } => {
-                let query_id = self.kad().get_closest_peers(addr.to_record_key().to_vec());
+            NetworkTask::GetClosestPeers { addr, resp, n } => {
+                let query_id = self
+                    .kad()
+                    .get_n_closest_peers(addr.to_record_key().to_vec(), n);
                 self.pending_tasks
-                    .insert_task(query_id, NetworkTask::GetClosestPeers { addr, resp });
+                    .insert_task(query_id, NetworkTask::GetClosestPeers { addr, resp, n });
             }
             NetworkTask::GetRecord { addr, quorum, resp } => {
                 let query_id = self.kad().get_record(addr.to_record_key());
@@ -222,7 +238,6 @@ impl NetworkDriver {
             NetworkTask::GetQuote {
                 addr,
                 peer,
-                peer_addresses,
                 data_type,
                 data_size,
                 resp,
@@ -235,32 +250,20 @@ impl NetworkDriver {
                     difficulty: 0,
                 });
 
-                // todo: move dial to new dial function or task
-                let opts = DialOpts::peer_id(peer)
-                    // If we have a peer ID, we can prevent simultaneous dials.
-                    .condition(PeerCondition::NotDialing)
-                    .addresses(peer_addresses.clone())
-                    .build();
-
-                match self.swarm.dial(opts) {
-                    Ok(()) => {
-                        info!(
-                            "Successfully dialled peer {peer:?} for req_resp with address: {peer_addresses:?}",
-                        );
-                    }
+                match self.dial_peer(&peer) {
+                    Ok(()) => info!("Successfully connected to peer {peer:?} for req_resp"),
                     Err(err) => {
-                        error!("Failed to dial peer {peer:?} for req_resp with address: {peer_addresses:?} error: {err}",);
+                        error!("Failed to connect to peer {peer:?} for req_resp error: {err}")
                     }
                 }
 
-                let req_id = self.req().send_request(&peer, req);
+                let req_id = self.req().send_request(&peer.peer_id, req);
 
                 self.pending_tasks.insert_query(
                     req_id,
                     NetworkTask::GetQuote {
                         addr,
                         peer,
-                        peer_addresses,
                         data_type,
                         data_size,
                         resp,

@@ -28,19 +28,21 @@ pub use libp2p::{
 // internal needs
 use ant_protocol::CLOSE_GROUP_SIZE;
 use driver::NetworkDriver;
-use futures::future::try_join_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use interface::NetworkTask;
-use libp2p::futures;
 use libp2p::kad::NoKnownPeers;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
 pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
+
+/// The number of closest peers to request from the network
+const N_CLOSEST_PEERS: NonZeroUsize =
+    NonZeroUsize::new(CLOSE_GROUP_SIZE + 2).expect("N_CLOSEST_PEERS must be > 0");
 
 /// Errors that can occur when interacting with the [`crate::Network`]
 #[derive(Error, Debug)]
@@ -71,6 +73,13 @@ pub enum NetworkError {
     GetQuoteError(String),
     #[error("Invalid quote: {0}")]
     InvalidQuote(String),
+    #[error("Failed to get enough quotes: {got_quotes}/{CLOSE_GROUP_SIZE} quotes, got {record_exists_responses} record exists responses, and {errors_len} errors: {errors:?}")]
+    InsufficientQuotes {
+        got_quotes: usize,
+        record_exists_responses: usize,
+        errors_len: usize,
+        errors: Vec<NetworkError>,
+    },
 
     /// Error getting record
     #[error("Peers have conflicting entries for this record: {0:?}")]
@@ -82,8 +91,7 @@ pub enum NetworkError {
 /// The Client interface to the Autonomi Network
 #[derive(Debug, Clone)]
 pub struct Network {
-    task_sender: tokio::sync::mpsc::Sender<NetworkTask>,
-    _driver_task: Arc<JoinHandle<()>>,
+    task_sender: Arc<tokio::sync::mpsc::Sender<NetworkTask>>,
 }
 
 impl Network {
@@ -98,13 +106,12 @@ impl Network {
         driver.connect_to_peers(initial_contacts)?;
 
         // run the network driver in a background task
-        let driver_task = tokio::spawn(async move {
+        tokio::spawn(async move {
             let _ = driver.run().await;
         });
 
         let network = Self {
-            task_sender,
-            _driver_task: Arc::new(driver_task),
+            task_sender: Arc::new(task_sender),
         };
 
         Ok(network)
@@ -175,8 +182,17 @@ impl Network {
         &self,
         addr: NetworkAddress,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
+        self.get_n_closest_peers(addr, N_CLOSEST_PEERS).await
+    }
+
+    /// Get the N closest peers to an address on the Network
+    pub async fn get_n_closest_peers(
+        &self,
+        addr: NetworkAddress,
+        n: NonZeroUsize,
+    ) -> Result<Vec<PeerInfo>, NetworkError> {
         let (tx, rx) = oneshot::channel();
-        let task = NetworkTask::GetClosestPeers { addr, resp: tx };
+        let task = NetworkTask::GetClosestPeers { addr, resp: tx, n };
         self.task_sender
             .send(task)
             .await
@@ -185,19 +201,20 @@ impl Network {
     }
 
     /// Get a quote for a record from a Peer on the Network
+    /// Returns an Option:
+    /// - Some(PaymentQuote) if the quote is successfully received
+    /// - None if the record already exists at the peer and no quote is needed
     pub async fn get_quote(
         &self,
         addr: NetworkAddress,
-        peer: PeerId,
-        peer_addresses: Vec<Multiaddr>,
+        peer: PeerInfo,
         data_type: u32,
         data_size: usize,
-    ) -> Result<PaymentQuote, NetworkError> {
+    ) -> Result<Option<PaymentQuote>, NetworkError> {
         let (tx, rx) = oneshot::channel();
         let task = NetworkTask::GetQuote {
             addr,
             peer,
-            peer_addresses,
             data_type,
             data_size,
             resp: tx,
@@ -210,25 +227,62 @@ impl Network {
     }
 
     /// Get the quotes for a Record from the closest Peers to that address on the Network
+    /// Returns an Option:
+    /// - `Some(Vec<PaymentQuote>)` if the quotes are successfully received
+    /// - `None` if the record already exists and no quotes are needed
     pub async fn get_quotes(
         &self,
         addr: NetworkAddress,
         data_type: u32,
         data_size: usize,
-    ) -> Result<Vec<PaymentQuote>, NetworkError> {
+    ) -> Result<Option<Vec<PaymentQuote>>, NetworkError> {
         let mut closest_peers = self.get_closest_peers(addr.clone()).await?;
 
-        closest_peers.truncate(CLOSE_GROUP_SIZE);
+        // request 7 quotes, hope that at least 5 respond
+        let minimum_quotes = CLOSE_GROUP_SIZE;
+        let quote_requests = CLOSE_GROUP_SIZE + 2;
+        closest_peers.truncate(quote_requests);
 
-        let tasks: Vec<_> = closest_peers
-            .into_iter()
-            .map(|peer| {
-                self.get_quote(addr.clone(), peer.peer_id, peer.addrs, data_type, data_size)
-            })
-            .collect();
+        // get all quotes
+        let mut tasks = FuturesUnordered::new();
+        for peer in closest_peers {
+            let addr_clone = addr.clone();
+            tasks.push(async move {
+                let res = self
+                    .get_quote(addr_clone, peer.clone(), data_type, data_size)
+                    .await;
+                (res, peer)
+            });
+        }
 
-        let quotes = try_join_all(tasks).await?;
+        // count quotes and peers that claim there is no need to pay
+        let mut quotes = vec![];
+        let mut no_need_to_pay = vec![];
+        let mut errors = vec![];
+        while let Some((result, peer)) = tasks.next().await {
+            match result {
+                Ok(Some(quote)) => quotes.push(quote),
+                Ok(None) => no_need_to_pay.push(peer),
+                Err(e) => errors.push(e),
+            }
 
-        Ok(quotes)
+            // if we have enough quotes, return them
+            if quotes.len() >= minimum_quotes {
+                return Ok(Some(quotes));
+            } else if no_need_to_pay.len() >= minimum_quotes {
+                return Ok(None);
+            }
+        }
+
+        // we don't have enough happy responses, return an error
+        let got_quotes = quotes.len();
+        let record_exists_responses = no_need_to_pay.len();
+        let errors_len = errors.len();
+        Err(NetworkError::InsufficientQuotes {
+            got_quotes,
+            record_exists_responses,
+            errors_len,
+            errors,
+        })
     }
 }

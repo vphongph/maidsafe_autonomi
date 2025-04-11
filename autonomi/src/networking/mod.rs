@@ -45,7 +45,7 @@ const N_CLOSEST_PEERS: NonZeroUsize =
     NonZeroUsize::new(CLOSE_GROUP_SIZE + 2).expect("N_CLOSEST_PEERS must be > 0");
 
 /// Errors that can occur when interacting with the [`crate::Network`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum NetworkError {
     /// The network driver is offline, better restart the client
     #[error("Failed to send task to network driver")]
@@ -178,15 +178,16 @@ impl Network {
     }
 
     /// Get the closest peers to an address on the Network
+    /// Defaults to [`N_CLOSEST_PEERS`] peers.
     pub async fn get_closest_peers(
         &self,
         addr: NetworkAddress,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
-        self.get_n_closest_peers(addr, N_CLOSEST_PEERS).await
+        self.get_closest_n_peers(addr, N_CLOSEST_PEERS).await
     }
 
     /// Get the N closest peers to an address on the Network
-    pub async fn get_n_closest_peers(
+    pub async fn get_closest_n_peers(
         &self,
         addr: NetworkAddress,
         n: NonZeroUsize,
@@ -197,7 +198,9 @@ impl Network {
             .send(task)
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
-        rx.await?
+        let res = rx.await?;
+        debug_assert!(res.clone().map(|ok| ok.len() == n.get()).unwrap_or(true));
+        res
     }
 
     /// Get a quote for a record from a Peer on the Network
@@ -236,12 +239,12 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Option<Vec<PaymentQuote>>, NetworkError> {
-        let mut closest_peers = self.get_closest_peers(addr.clone()).await?;
-
         // request 7 quotes, hope that at least 5 respond
+        let quote_requests = N_CLOSEST_PEERS;
         let minimum_quotes = CLOSE_GROUP_SIZE;
-        let quote_requests = CLOSE_GROUP_SIZE + 2;
-        closest_peers.truncate(quote_requests);
+        let closest_peers = self
+            .get_closest_n_peers(addr.clone(), quote_requests)
+            .await?;
 
         // get all quotes
         let mut tasks = FuturesUnordered::new();

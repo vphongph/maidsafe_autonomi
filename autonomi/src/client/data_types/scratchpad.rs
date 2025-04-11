@@ -35,7 +35,7 @@ pub enum ScratchpadError {
     CouldNotDeserializeScratchPad(ScratchpadAddress),
     #[error("Network: {0}")]
     Network(#[from] NetworkError),
-    #[error("Scratchpad not found")]
+    #[error("No valid scratchpad found")]
     Missing,
     #[error("Serialization error")]
     Serialization,
@@ -274,7 +274,8 @@ impl Client {
         let address = ScratchpadAddress::new(owner.public_key());
         let current = match self.scratchpad_get(&address).await {
             Ok(scratchpad) => Some(scratchpad),
-            Err(ScratchpadError::GetError(GetError::RecordNotFound)) => None,
+            Err(ScratchpadError::GetError(GetError::RecordNotFound))
+            | Err(ScratchpadError::Missing) => None,
             Err(ScratchpadError::Network(NetworkError::SplitRecord(result_map))) => result_map
                 .values()
                 .filter_map(|record| try_deserialize_record::<Scratchpad>(record).ok())

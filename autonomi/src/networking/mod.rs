@@ -178,7 +178,7 @@ impl Network {
     }
 
     /// Get the closest peers to an address on the Network
-    /// Defaults to [`N_CLOSEST_PEERS`] peers.
+    /// Defaults to N_CLOSEST_PEERS peers.
     pub async fn get_closest_peers(
         &self,
         addr: NetworkAddress,

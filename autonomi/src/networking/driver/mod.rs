@@ -40,6 +40,12 @@ use tokio::sync::mpsc;
 // Autonomi Network Constants, this should be in the ant-protocol crate
 const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
 const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
+
+/// The replication factor we use on the network (this should be in the ant-protocol crate)
+/// Libp2p queries all depend on this, for quorum and others
+pub const REPLICATION_FACTOR: NonZeroUsize =
+    NonZeroUsize::new(7).expect("REPLICATION_FACTOR must be 7");
+
 /// Libp2p defaults to 10s which is quite fast, we are more patient
 pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 /// Libp2p defaults to 60s for kad queries, we are more patient
@@ -104,6 +110,7 @@ impl NetworkDriver {
             .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
             .set_max_packet_size(MAX_PACKET_SIZE)
             .set_parallelism(KAD_ALPHA)
+            .set_replication_factor(REPLICATION_FACTOR)
             .set_query_timeout(KAD_QUERY_TIMEOUT)
             .disjoint_query_paths(true);
 

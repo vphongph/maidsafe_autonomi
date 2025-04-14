@@ -1774,25 +1774,25 @@ impl PointerTarget {
     }
 
     /// Creates a new PointerTarget from a ChunkAddress
-    #[napi(factory)]
+    #[napi(factory, js_name = "ChunkAddress")]
     pub fn from_chunk_address(addr: &ChunkAddress) -> Self {
         Self(autonomi::pointer::PointerTarget::ChunkAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a GraphEntryAddress
-    #[napi(factory)]
+    #[napi(factory, js_name = "GraphEntryAddress")]
     pub fn from_graph_entry_address(addr: &GraphEntryAddress) -> Self {
         Self(autonomi::pointer::PointerTarget::GraphEntryAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a PointerAddress
-    #[napi(factory)]
+    #[napi(factory, js_name = "PointerAddress")]
     pub fn from_pointer_address(addr: &PointerAddress) -> Self {
         Self(autonomi::pointer::PointerTarget::PointerAddress(addr.0))
     }
 
     /// Creates a new PointerTarget from a ScratchpadAddress
-    #[napi(factory)]
+    #[napi(factory, js_name = "ScratchpadAddress")]
     pub fn from_scratchpad_address(addr: &ScratchpadAddress) -> Self {
         Self(autonomi::pointer::PointerTarget::ScratchpadAddress(addr.0))
     }

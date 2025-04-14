@@ -477,13 +477,13 @@ export declare class PointerTarget {
   /** Returns the hex string representation of the target */
   toHex(): string
   /** Creates a new PointerTarget from a ChunkAddress */
-  static fromChunkAddress(addr: ChunkAddress): PointerTarget
+  static ChunkAddress(addr: ChunkAddress): PointerTarget
   /** Creates a new PointerTarget from a GraphEntryAddress */
-  static fromGraphEntryAddress(addr: GraphEntryAddress): PointerTarget
+  static GraphEntryAddress(addr: GraphEntryAddress): PointerTarget
   /** Creates a new PointerTarget from a PointerAddress */
-  static fromPointerAddress(addr: PointerAddress): PointerTarget
+  static PointerAddress(addr: PointerAddress): PointerTarget
   /** Creates a new PointerTarget from a ScratchpadAddress */
-  static fromScratchpadAddress(addr: ScratchpadAddress): PointerTarget
+  static ScratchpadAddress(addr: ScratchpadAddress): PointerTarget
 }
 export declare class PointerAddress {
   /** Creates a new PointerAddress. */

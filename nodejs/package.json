@@ -21,7 +21,8 @@
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4",
     "@types/node": "^22.13.10",
-    "ava": "^6.0.1"
+    "ava": "^6.0.1",
+    "typedoc": "^0.28.2"
   },
   "ava": {
     "timeout": "3m"
@@ -33,6 +34,7 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "docs": "typedoc",
     "prepublishOnly": "napi prepublish --tagstyle npm --skip-gh-release",
     "test": "ava",
     "universal": "napi universal",
@@ -46,5 +48,11 @@
     "pointer",
     "vault"
   ],
-  "packageManager": "yarn@4.7.0"
+  "packageManager": "yarn@4.7.0",
+  "typedocOptions": {
+    "entryPoints": [
+      "./index.d.ts"
+    ],
+    "includeVersion": true
+  }
 }

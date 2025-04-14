@@ -6,11 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::networking::utils::{is_a_relayed_peer, multiaddr_strip_p2p};
+use crate::Multiaddr;
 use ant_protocol::messages::{QueryResponse, Response};
+use libp2p::identify::{Event, Info};
 use libp2p::kad::{Event as KadEvent, ProgressStep, QueryId, QueryResult, QueryStats};
+use libp2p::multiaddr::Protocol;
 use libp2p::request_response::{Event as ReqEvent, Message, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
-
+use std::collections::HashSet;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -29,6 +33,14 @@ impl NetworkDriver {
         swarm_event: SwarmEvent<AutonomiClientBehaviourEvent>,
     ) -> Result<(), NetworkDriverError> {
         match swarm_event {
+            SwarmEvent::Behaviour(AutonomiClientBehaviourEvent::Identify(Event::Received {
+                connection_id,
+                peer_id,
+                info,
+            })) => {
+                self.handle_identify_received(peer_id, info, connection_id);
+                Ok(())
+            }
             SwarmEvent::Behaviour(AutonomiClientBehaviourEvent::RequestResponse(
                 ReqEvent::Message {
                     message:
@@ -49,9 +61,47 @@ impl NetworkDriver {
                 },
             )) => self.handle_kad_progress_event(id, result, &stats, &step),
             _other_event => {
-                // trace!("Other event: {:?}", _other_event)
+                trace!("Other event: {:?}", _other_event);
                 Ok(())
             }
+        }
+    }
+
+    fn handle_identify_received(
+        &mut self,
+        peer_id: libp2p::PeerId,
+        info: Info,
+        connection_id: libp2p::swarm::ConnectionId,
+    ) {
+        debug!(conn_id=%connection_id, %peer_id, ?info, "identify: received info");
+
+        if info.agent_version.contains("client") {
+            debug!("Peer {peer_id:?} is a client. Not dialing or adding to RT.");
+            return;
+        }
+
+        let mut addrs: HashSet<Multiaddr> = info
+            .listen_addrs
+            .into_iter()
+            .map(|addr| multiaddr_strip_p2p(&addr))
+            .collect();
+
+        let is_relayed_peer = is_a_relayed_peer(addrs.iter());
+
+        // Avoid have `direct link format` addrs co-exists with `relay` addr
+        if is_relayed_peer {
+            addrs.retain(|multiaddr| multiaddr.iter().any(|p| matches!(p, Protocol::P2pCircuit)));
+        }
+
+        debug!(%peer_id, ?addrs, "identify: attempting to add addresses to routing table");
+
+        // Attempt to add the addresses to the routing table.
+        for multiaddr in addrs {
+            let _routing_update = self
+                .swarm
+                .behaviour_mut()
+                .kademlia
+                .add_address(&peer_id, multiaddr);
         }
     }
 

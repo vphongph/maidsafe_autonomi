@@ -14,6 +14,7 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
+use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
@@ -74,6 +75,7 @@ pub(crate) struct NetworkDriver {
 #[derive(NetworkBehaviour)]
 pub(crate) struct AutonomiClientBehaviour {
     pub kademlia: kad::Behaviour<MemoryStore>,
+    pub identify: libp2p::identify::Behaviour,
     pub request_response: request_response::cbor::Behaviour<Request, Response>,
 }
 
@@ -91,6 +93,22 @@ impl NetworkDriver {
         let transport_gen = QuicTransport::new(quic_config);
         let trans = transport_gen.map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
         let transport = trans.boxed();
+
+        // identify behaviour
+        let identify = {
+            let identify_protocol_str = IDENTIFY_PROTOCOL_STR
+                .read()
+                .expect("Could not get IDENTIFY_PROTOCOL_STR")
+                .clone();
+            let agent_version = IDENTIFY_CLIENT_VERSION_STR
+                .read()
+                .expect("Could not get IDENTIFY_CLIENT_VERSION_STR")
+                .clone();
+            let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
+                .with_agent_version(agent_version)
+                .with_hide_listen_addrs(true);
+            libp2p::identify::Behaviour::new(cfg)
+        };
 
         // autonomi requests
         let request_response = {
@@ -119,6 +137,7 @@ impl NetworkDriver {
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {
             kademlia: libp2p::kad::Behaviour::with_config(peer_id, store, kad_cfg),
+            identify,
             request_response,
         };
 

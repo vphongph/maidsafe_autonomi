@@ -136,6 +136,37 @@ impl SwarmDriver {
             return (get_closest_candidates, vec![], vec![]);
         }
 
+        // Collect peers from one full bucket (round robin)
+        let picked_full_bucket_index = round_robin_index % full_buckets.len();
+        let mut targeted_bucket = None;
+        let picked_full_bucket_peers =
+            if let Some(kbucket) = full_buckets.get(picked_full_bucket_index) {
+                targeted_bucket = kbucket.range().0.ilog2();
+                kbucket
+                    .iter()
+                    .map(|peer_entry| {
+                        (
+                            peer_entry.node.key.into_preimage(),
+                            Addresses(peer_entry.node.value.clone().into_vec()),
+                        )
+                    })
+                    .collect::<Vec<(PeerId, Addresses)>>()
+            } else {
+                error!(
+                    "Full bucket {picked_full_bucket_index} doesn't exists among {} buckets.",
+                    full_buckets.len()
+                );
+                vec![]
+            };
+        info!(
+            "Going to query {} peers of a full bucket {targeted_bucket:?} to check liveness.",
+            picked_full_bucket_peers.len()
+        );
+
+        if non_full_buckets.is_empty() {
+            return (get_closest_candidates, vec![], picked_full_bucket_peers);
+        }
+
         // Collect peers from one non-full bucket (round robin)
         let picked_non_full_bucket = round_robin_index % non_full_buckets.len();
         let mut targeted_bucket = None;
@@ -161,33 +192,6 @@ impl SwarmDriver {
         info!(
             "Going to query {} peers of a non-full bucket {targeted_bucket:?} to check liveness.",
             picked_non_full_bucket_peers.len()
-        );
-
-        // Collect peers from one full bucket (round robin)
-        let picked_full_bucket_index = round_robin_index % full_buckets.len();
-        let mut targeted_bucket = None;
-        let picked_full_bucket_peers =
-            if let Some(kbucket) = full_buckets.get(picked_full_bucket_index) {
-                targeted_bucket = kbucket.range().0.ilog2();
-                kbucket
-                    .iter()
-                    .map(|peer_entry| {
-                        (
-                            peer_entry.node.key.into_preimage(),
-                            Addresses(peer_entry.node.value.clone().into_vec()),
-                        )
-                    })
-                    .collect::<Vec<(PeerId, Addresses)>>()
-            } else {
-                error!(
-                    "Full bucket {picked_non_full_bucket} doesn't exists among {} buckets.",
-                    full_buckets.len()
-                );
-                vec![]
-            };
-        info!(
-            "Going to query {} peers of a full bucket {targeted_bucket:?} to check liveness.",
-            picked_full_bucket_peers.len()
         );
 
         (

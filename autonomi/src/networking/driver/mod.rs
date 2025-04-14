@@ -84,6 +84,8 @@ impl NetworkDriver {
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
 
+        info!("Client Peer ID: {peer_id}");
+
         // set transport
         let quic_config = libp2p::quic::Config::new(&keypair);
         let transport_gen = QuicTransport::new(quic_config);

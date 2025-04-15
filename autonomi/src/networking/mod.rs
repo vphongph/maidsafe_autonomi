@@ -198,9 +198,12 @@ impl Network {
             .send(task)
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
-        let res = rx.await?;
-        debug_assert!(res.clone().map(|ok| ok.len() >= n.get()).unwrap_or(true));
-        res
+        rx.await?.map(|mut peers| {
+            debug_assert!(peers.len() >= n.get());
+            // We sometimes receive more peers than requested (with empty addrs)
+            peers.truncate(n.get());
+            peers
+        })
     }
 
     /// Get a quote for a record from a Peer on the Network

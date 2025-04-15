@@ -25,8 +25,7 @@ harness = false
 [dependencies]
 ant-build-info = { path = "../ant-build-info", version = "0.1.26" }
 ant-logging = { path = "../ant-logging", version = "0.2.48" }
-ant-protocol = { path = "../ant-protocol", version = "1.0.3" }
-autonomi = { path = "../autonomi", version = "0.4.3", features = [ "loud" ] }
+autonomi = { path = "../autonomi", version = "0.4.3", features = ["loud"] }
 clap = { version = "4.2.1", features = ["derive"] }
 color-eyre = "0.6.3"
 const-hex = "1.13.1"
@@ -44,7 +43,7 @@ tokio = { version = "1.32.0", features = [
     "io-util",
     "macros",
     "parking_lot",
-    "rt",
+    "rt-multi-thread",
     "sync",
     "time",
     "fs",

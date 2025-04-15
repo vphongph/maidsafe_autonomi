@@ -19,7 +19,7 @@ use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p::kad::NoKnownPeers;
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -30,10 +30,6 @@ use libp2p::{
     request_response::{self, ProtocolSupport},
     swarm::NetworkBehaviour,
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
-};
-use libp2p::{
-    kad::{NoKnownPeers, PeerInfo},
-    swarm::DialError,
 };
 use task_handler::TaskHandler;
 use tokio::sync::mpsc;
@@ -207,17 +203,6 @@ impl NetworkDriver {
         self.swarm.behaviour_mut().kademlia.bootstrap().map(|_| ())
     }
 
-    /// Dial a peer
-    pub(crate) fn dial_peer(&mut self, peer: &PeerInfo) -> Result<(), DialError> {
-        let opts = DialOpts::peer_id(peer.peer_id)
-            // If we have a peer ID, we can prevent simultaneous dials.
-            .condition(PeerCondition::NotDialing)
-            .addresses(peer.addrs.clone())
-            .build();
-
-        self.swarm.dial(opts)
-    }
-
     /// Process a task sent by the client, start the query on kad and add it to the pending tasks
     /// Events from the swarm will help update the task, they are handled in [`crate::driver::NetworkDriver::process_swarm_event`]
     fn process_task(&mut self, task: NetworkTask) {
@@ -282,11 +267,9 @@ impl NetworkDriver {
                     difficulty: 0,
                 });
 
-                match self.dial_peer(&peer) {
-                    Ok(()) => info!("Successfully connected to peer {peer:?} for req_resp"),
-                    Err(err) => {
-                        error!("Failed to connect to peer {peer:?} for req_resp error: {err}")
-                    }
+                // Add the peer addresses to our cache before sending a request.
+                for addr in &peer.addrs {
+                    self.swarm.add_peer_address(peer.peer_id, addr.clone());
                 }
 
                 let req_id = self.req().send_request(&peer.peer_id, req);

@@ -14,11 +14,12 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
+use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p::kad::NoKnownPeers;
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -29,10 +30,6 @@ use libp2p::{
     request_response::{self, ProtocolSupport},
     swarm::NetworkBehaviour,
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
-};
-use libp2p::{
-    kad::{NoKnownPeers, PeerInfo},
-    swarm::DialError,
 };
 use task_handler::TaskHandler;
 use tokio::sync::mpsc;
@@ -52,6 +49,9 @@ pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 3, we are more aggressive
 pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
+/// Interval of resending identify to connected peers.
+/// Libp2p defaults to 5 minutes, we use 1 hour.
+const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: taken over from ant-networking. Why 1 hour?
 
 /// Driver for the Autonomi Client Network
 ///
@@ -74,6 +74,7 @@ pub(crate) struct NetworkDriver {
 #[derive(NetworkBehaviour)]
 pub(crate) struct AutonomiClientBehaviour {
     pub kademlia: kad::Behaviour<MemoryStore>,
+    pub identify: libp2p::identify::Behaviour,
     pub request_response: request_response::cbor::Behaviour<Request, Response>,
 }
 
@@ -91,6 +92,23 @@ impl NetworkDriver {
         let transport_gen = QuicTransport::new(quic_config);
         let trans = transport_gen.map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
         let transport = trans.boxed();
+
+        // identify behaviour
+        let identify = {
+            let identify_protocol_str = IDENTIFY_PROTOCOL_STR
+                .read()
+                .expect("Could not get IDENTIFY_PROTOCOL_STR")
+                .clone();
+            let agent_version = IDENTIFY_CLIENT_VERSION_STR
+                .read()
+                .expect("Could not get IDENTIFY_CLIENT_VERSION_STR")
+                .clone();
+            let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
+                .with_agent_version(agent_version)
+                .with_interval(RESEND_IDENTIFY_INVERVAL) // todo: find a way to disable this. Clients shouldn't need to
+                .with_hide_listen_addrs(true);
+            libp2p::identify::Behaviour::new(cfg)
+        };
 
         // autonomi requests
         let request_response = {
@@ -119,6 +137,7 @@ impl NetworkDriver {
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {
             kademlia: libp2p::kad::Behaviour::with_config(peer_id, store, kad_cfg),
+            identify,
             request_response,
         };
 
@@ -182,17 +201,6 @@ impl NetworkDriver {
         }
 
         self.swarm.behaviour_mut().kademlia.bootstrap().map(|_| ())
-    }
-
-    /// Dial a peer
-    pub(crate) fn dial_peer(&mut self, peer: &PeerInfo) -> Result<(), DialError> {
-        let opts = DialOpts::peer_id(peer.peer_id)
-            // If we have a peer ID, we can prevent simultaneous dials.
-            .condition(PeerCondition::NotDialing)
-            .addresses(peer.addrs.clone())
-            .build();
-
-        self.swarm.dial(opts)
     }
 
     /// Process a task sent by the client, start the query on kad and add it to the pending tasks
@@ -259,11 +267,9 @@ impl NetworkDriver {
                     difficulty: 0,
                 });
 
-                match self.dial_peer(&peer) {
-                    Ok(()) => info!("Successfully connected to peer {peer:?} for req_resp"),
-                    Err(err) => {
-                        error!("Failed to connect to peer {peer:?} for req_resp error: {err}")
-                    }
+                // Add the peer addresses to our cache before sending a request.
+                for addr in &peer.addrs {
+                    self.swarm.add_peer_address(peer.peer_id, addr.clone());
                 }
 
                 let req_id = self.req().send_request(&peer.peer_id, req);

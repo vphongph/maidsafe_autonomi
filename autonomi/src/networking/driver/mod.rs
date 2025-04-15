@@ -53,6 +53,9 @@ pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 3, we are more aggressive
 pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
+/// Interval of resending identify to connected peers.
+/// Libp2p defaults to 5 minutes, we use 1 hour.
+const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: taken over from ant-networking. Why 1 hour?
 
 /// Driver for the Autonomi Client Network
 ///
@@ -106,6 +109,7 @@ impl NetworkDriver {
                 .clone();
             let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
                 .with_agent_version(agent_version)
+                .with_interval(RESEND_IDENTIFY_INVERVAL) // todo: find a way to disable this. Clients shouldn't need to
                 .with_hide_listen_addrs(true);
             libp2p::identify::Behaviour::new(cfg)
         };

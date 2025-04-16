@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_evm::PaymentQuote;
-use ant_protocol::NetworkAddress;
+use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 use libp2p::kad::{self, PeerInfo, QueryId, Record};
 use libp2p::request_response::OutboundRequestId;
 use libp2p::PeerId;
@@ -113,7 +113,7 @@ impl TaskHandler {
             Ok(kad::GetRecordOk::FoundRecord(record)) => {
                 debug!(
                     "QueryId({id}): GetRecordOk::FoundRecord {:?}",
-                    hex::encode(record.record.key.clone())
+                    PrettyPrintRecordKey::from(&record.record.key)
                 );
                 let holders = self.get_record_accumulator.entry(id).or_default();
                 if let Some(peer_id) = record.peer {

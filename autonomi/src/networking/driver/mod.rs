@@ -15,10 +15,12 @@ use std::{num::NonZeroUsize, time::Duration};
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
 use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
+use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
+use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
 use libp2p::{
     core::muxing::StreamMuxerBox,
@@ -37,7 +39,7 @@ use tokio::sync::mpsc;
 // Autonomi Network Constants, this should be in the ant-protocol crate
 const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
 const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
-
+const MAX_RECORD_SIZE: usize = 1024 * 1024 * 4;
 /// The replication factor we use on the network (this should be in the ant-protocol crate)
 /// Libp2p queries all depend on this, for quorum and others
 pub const REPLICATION_FACTOR: NonZeroUsize =
@@ -124,7 +126,11 @@ impl NetworkDriver {
         };
 
         // kademlia
-        let store = MemoryStore::new(peer_id);
+        let store_cfg = MemoryStoreConfig {
+            max_value_bytes: MAX_RECORD_SIZE,
+            ..Default::default()
+        };
+        let store = MemoryStore::with_config(peer_id, store_cfg);
         let mut kad_cfg = libp2p::kad::Config::new(KAD_STREAM_PROTOCOL_ID);
         kad_cfg
             .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
@@ -229,6 +235,8 @@ impl NetworkDriver {
                     match self.kad().put_record(record.clone(), quorum) {
                         Ok(id) => id,
                         Err(e) => {
+                            let k = PrettyPrintRecordKey::from(&record.key);
+                            warn!("Put record failed immediately for {k:?}: {e}");
                             if let Err(e) =
                                 resp.send(Err(NetworkError::PutRecordError(e.to_string())))
                             {

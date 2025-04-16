@@ -14,10 +14,13 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
+use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
+use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
+use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
 use libp2p::{
     core::muxing::StreamMuxerBox,
@@ -36,15 +39,21 @@ use tokio::sync::mpsc;
 // Autonomi Network Constants, this should be in the ant-protocol crate
 const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
 const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5;
-const REPLICATION_FACTOR: NonZeroUsize =
-    NonZeroUsize::new(7).expect("REPLICATION_FACTOR must be > 0");
+const MAX_RECORD_SIZE: usize = 1024 * 1024 * 4;
+/// The replication factor we use on the network (this should be in the ant-protocol crate)
+/// Libp2p queries all depend on this, for quorum and others
+pub const REPLICATION_FACTOR: NonZeroUsize =
+    NonZeroUsize::new(7).expect("REPLICATION_FACTOR must be 7");
 
 /// Libp2p defaults to 10s which is quite fast, we are more patient
 pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
 /// Libp2p defaults to 60s for kad queries, we are more patient
-pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(180);
+pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 3, we are more aggressive
-pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(5).expect("KAD_ALPHA must be > 0");
+pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must be > 0");
+/// Interval of resending identify to connected peers.
+/// Libp2p defaults to 5 minutes, we use 1 hour.
+const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: taken over from ant-networking. Why 1 hour?
 
 /// Driver for the Autonomi Client Network
 ///
@@ -67,6 +76,7 @@ pub(crate) struct NetworkDriver {
 #[derive(NetworkBehaviour)]
 pub(crate) struct AutonomiClientBehaviour {
     pub kademlia: kad::Behaviour<MemoryStore>,
+    pub identify: libp2p::identify::Behaviour,
     pub request_response: request_response::cbor::Behaviour<Request, Response>,
 }
 
@@ -77,11 +87,30 @@ impl NetworkDriver {
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
 
+        info!("Client Peer ID: {peer_id}");
+
         // set transport
         let quic_config = libp2p::quic::Config::new(&keypair);
         let transport_gen = QuicTransport::new(quic_config);
         let trans = transport_gen.map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
         let transport = trans.boxed();
+
+        // identify behaviour
+        let identify = {
+            let identify_protocol_str = IDENTIFY_PROTOCOL_STR
+                .read()
+                .expect("Could not get IDENTIFY_PROTOCOL_STR")
+                .clone();
+            let agent_version = IDENTIFY_CLIENT_VERSION_STR
+                .read()
+                .expect("Could not get IDENTIFY_CLIENT_VERSION_STR")
+                .clone();
+            let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
+                .with_agent_version(agent_version)
+                .with_interval(RESEND_IDENTIFY_INVERVAL) // todo: find a way to disable this. Clients shouldn't need to
+                .with_hide_listen_addrs(true);
+            libp2p::identify::Behaviour::new(cfg)
+        };
 
         // autonomi requests
         let request_response = {
@@ -97,19 +126,24 @@ impl NetworkDriver {
         };
 
         // kademlia
-        let store = MemoryStore::new(peer_id);
+        let store_cfg = MemoryStoreConfig {
+            max_value_bytes: MAX_RECORD_SIZE,
+            ..Default::default()
+        };
+        let store = MemoryStore::with_config(peer_id, store_cfg);
         let mut kad_cfg = libp2p::kad::Config::new(KAD_STREAM_PROTOCOL_ID);
         kad_cfg
             .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
             .set_max_packet_size(MAX_PACKET_SIZE)
             .set_parallelism(KAD_ALPHA)
-            .set_query_timeout(KAD_QUERY_TIMEOUT)
             .set_replication_factor(REPLICATION_FACTOR)
+            .set_query_timeout(KAD_QUERY_TIMEOUT)
             .disjoint_query_paths(true);
 
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {
             kademlia: libp2p::kad::Behaviour::with_config(peer_id, store, kad_cfg),
+            identify,
             request_response,
         };
 
@@ -158,7 +192,7 @@ impl NetworkDriver {
         &mut self.swarm.behaviour_mut().request_response
     }
 
-    // Add peers to our routing table
+    /// Add peers to our routing table
     pub(crate) fn connect_to_peers(&mut self, peers: Vec<Multiaddr>) -> Result<(), NoKnownPeers> {
         for contact in peers {
             let contact_id = match contact.iter().find(|p| matches!(p, Protocol::P2p(_))) {
@@ -179,10 +213,12 @@ impl NetworkDriver {
     /// Events from the swarm will help update the task, they are handled in [`crate::driver::NetworkDriver::process_swarm_event`]
     fn process_task(&mut self, task: NetworkTask) {
         match task {
-            NetworkTask::GetClosestPeers { addr, resp } => {
-                let query_id = self.kad().get_closest_peers(addr.to_record_key().to_vec());
+            NetworkTask::GetClosestPeers { addr, resp, n } => {
+                let query_id = self
+                    .kad()
+                    .get_n_closest_peers(addr.to_record_key().to_vec(), n);
                 self.pending_tasks
-                    .insert_task(query_id, NetworkTask::GetClosestPeers { addr, resp });
+                    .insert_task(query_id, NetworkTask::GetClosestPeers { addr, resp, n });
             }
             NetworkTask::GetRecord { addr, quorum, resp } => {
                 let query_id = self.kad().get_record(addr.to_record_key());
@@ -199,6 +235,8 @@ impl NetworkDriver {
                     match self.kad().put_record(record.clone(), quorum) {
                         Ok(id) => id,
                         Err(e) => {
+                            let k = PrettyPrintRecordKey::from(&record.key);
+                            warn!("Put record failed immediately for {k:?}: {e}");
                             if let Err(e) =
                                 resp.send(Err(NetworkError::PutRecordError(e.to_string())))
                             {
@@ -236,7 +274,14 @@ impl NetworkDriver {
                     nonce: None,
                     difficulty: 0,
                 });
-                let req_id = self.req().send_request(&peer, req);
+
+                // Add the peer addresses to our cache before sending a request.
+                for addr in &peer.addrs {
+                    self.swarm.add_peer_address(peer.peer_id, addr.clone());
+                }
+
+                let req_id = self.req().send_request(&peer.peer_id, req);
+
                 self.pending_tasks.insert_query(
                     req_id,
                     NetworkTask::GetQuote {

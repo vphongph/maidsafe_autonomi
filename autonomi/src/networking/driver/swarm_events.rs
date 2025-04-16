@@ -10,7 +10,6 @@ use ant_protocol::messages::{QueryResponse, Response};
 use libp2p::kad::{Event as KadEvent, ProgressStep, QueryId, QueryResult, QueryStats};
 use libp2p::request_response::{Event as ReqEvent, Message, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
-
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -49,7 +48,7 @@ impl NetworkDriver {
                 },
             )) => self.handle_kad_progress_event(id, result, &stats, &step),
             _other_event => {
-                // trace!("Other event: {:?}", _other_event)
+                // trace!("Other event: {:?}", _other_event);
                 Ok(())
             }
         }

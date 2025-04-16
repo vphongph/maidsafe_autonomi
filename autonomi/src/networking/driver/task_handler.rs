@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_evm::PaymentQuote;
-use ant_protocol::NetworkAddress;
+use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 use libp2p::kad::{self, PeerInfo, QueryId, Record};
 use libp2p::request_response::OutboundRequestId;
 use libp2p::PeerId;
@@ -37,7 +37,7 @@ type RecordAndHolders = (Option<Record>, Vec<PeerId>);
 pub(crate) struct TaskHandler {
     closest_peers: HashMap<QueryId, OneShotTaskResult<Vec<PeerInfo>>>,
     put_record: HashMap<QueryId, OneShotTaskResult<()>>,
-    get_cost: HashMap<OutboundRequestId, (OneShotTaskResult<PaymentQuote>, QuoteDataType)>,
+    get_cost: HashMap<OutboundRequestId, (OneShotTaskResult<Option<PaymentQuote>>, QuoteDataType)>,
     get_record: HashMap<QueryId, OneShotTaskResult<RecordAndHolders>>,
     get_record_accumulator: HashMap<QueryId, HashMap<PeerId, Record>>,
 }
@@ -113,7 +113,7 @@ impl TaskHandler {
             Ok(kad::GetRecordOk::FoundRecord(record)) => {
                 debug!(
                     "QueryId({id}): GetRecordOk::FoundRecord {:?}",
-                    hex::encode(record.record.key.clone())
+                    PrettyPrintRecordKey::from(&record.record.key)
                 );
                 let holders = self.get_record_accumulator.entry(id).or_default();
                 if let Some(peer_id) = record.peer {
@@ -241,14 +241,20 @@ impl TaskHandler {
             )))?;
 
         match verify_quote(quote_res, peer_address.clone(), data_type) {
-            Ok(quote) => {
+            Ok(Some(quote)) => {
                 debug!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
-                resp.send(Ok(quote))
+                resp.send(Ok(Some(quote)))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                Ok(())
+            }
+            Ok(None) => {
+                debug!("OutboundRequestId({id}): no quote needed as record already exists at peer {peer_address:?}");
+                resp.send(Ok(None))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
             }
             Err(e) => {
-                warn!("OutboundRequestId({id}): got invalid quote from peer {peer_address:?}");
+                warn!("OutboundRequestId({id}): got invalid quote from peer {peer_address:?}: {e}");
                 resp.send(Err(e))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
@@ -275,8 +281,12 @@ fn verify_quote(
     quote_res: Result<PaymentQuote, ant_protocol::error::Error>,
     peer_address: NetworkAddress,
     expected_data_type: QuoteDataType,
-) -> Result<PaymentQuote, NetworkError> {
-    let quote = quote_res.map_err(|e| NetworkError::GetQuoteError(e.to_string()))?;
+) -> Result<Option<PaymentQuote>, NetworkError> {
+    let quote = match quote_res {
+        Ok(quote) => quote,
+        Err(ant_protocol::error::Error::RecordExists(_)) => return Ok(None),
+        Err(e) => return Err(NetworkError::GetQuoteError(e.to_string())),
+    };
 
     // Check the quote itself is valid
     let peer_id = peer_address
@@ -295,5 +305,5 @@ fn verify_quote(
         )));
     }
 
-    Ok(quote)
+    Ok(Some(quote))
 }

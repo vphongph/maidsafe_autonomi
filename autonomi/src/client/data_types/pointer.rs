@@ -6,18 +6,20 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use std::collections::HashMap;
+
 use crate::client::{
     payment::{PayError, PaymentOption},
     quote::CostError,
     Client, GetError,
 };
+use crate::networking::{PeerId, Record};
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
 use ant_protocol::{
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
 };
 use bls::{PublicKey, SecretKey};
-use libp2p::kad::Record;
 use tracing::{debug, error, trace};
 
 use crate::networking::NetworkError;
@@ -54,32 +56,22 @@ impl Client {
         let key = NetworkAddress::from(*address);
         debug!("Fetching pointer from network at: {key:?}");
 
-        let record = self
+        let pointer = match self
             .network
             .get_record(key.clone(), self.config.pointer.get_quorum)
             .await
-            .inspect_err(|err| error!("Error fetching pointer: {err:?}"))?
-            .ok_or(GetError::RecordNotFound)?;
-
-        let header = RecordHeader::from_record(&record).map_err(|err| {
-            PointerError::Corrupt(format!(
-                "Failed to parse record header for pointer at {key:?}: {err:?}"
-            ))
-        })?;
-
-        let kind = header.kind;
-        if !matches!(kind, RecordKind::DataOnly(DataTypes::Pointer)) {
-            error!("Record kind mismatch: expected Pointer, got {kind:?}");
-            return Err(
-                GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Pointer)).into(),
-            );
+        {
+            Ok(Some(r)) => pointer_from_record(r)?,
+            Ok(None) => Err(GetError::RecordNotFound)?,
+            Err(NetworkError::SplitRecord(result_map)) => {
+                warn!("Pointer at {key:?} is split, trying resolution");
+                select_highest_pointer_version(result_map, key)?
+            }
+            Err(err) => {
+                error!("Error fetching pointer: {err:?}");
+                Err(err)?
+            }
         };
-
-        let pointer: Pointer = try_deserialize_record(&record).map_err(|err| {
-            PointerError::Corrupt(format!(
-                "Failed to parse record for pointer at {key:?}: {err:?}"
-            ))
-        })?;
 
         info!("Got pointer at address {address:?}: {pointer:?}");
         Self::pointer_verify(&pointer)?;
@@ -281,4 +273,57 @@ impl Client {
         debug!("Calculated the cost to create pointer of {key:?} is {total_cost}");
         Ok(total_cost)
     }
+}
+
+/// Select the highest versioned pointer from a list of conflicting pointer records
+///
+/// If there are multiple conflicting pointers at the latest version, the first one is returned
+/// If there are no valid pointers, an error is returned
+fn select_highest_pointer_version(
+    result_map: HashMap<PeerId, Record>,
+    key: NetworkAddress,
+) -> Result<Pointer, PointerError> {
+    let highest_version = result_map
+        .into_iter()
+        .filter_map(|(peer, record)| match pointer_from_record(record) {
+            Ok(pointer) => Some(pointer),
+            Err(err) => {
+                warn!("Peer {peer:?} returned invalid pointer at {key} with error: {err}");
+                None
+            }
+        })
+        .max_by_key(|pointer| pointer.counter());
+
+    match highest_version {
+        Some(pointer) => Ok(pointer),
+        None => {
+            let msg = format!("Found multiple conflicting invalid pointers at {key}");
+            warn!("{msg}");
+            Err(PointerError::Corrupt(msg))
+        }
+    }
+}
+
+/// Deserialize a pointer from a record
+fn pointer_from_record(record: Record) -> Result<Pointer, PointerError> {
+    let key = &record.key;
+    let header = RecordHeader::from_record(&record).map_err(|err| {
+        PointerError::Corrupt(format!(
+            "Failed to parse record header for pointer at {key:?}: {err:?}"
+        ))
+    })?;
+
+    let kind = header.kind;
+    if !matches!(kind, RecordKind::DataOnly(DataTypes::Pointer)) {
+        error!("Record kind mismatch: expected Pointer, got {kind:?}");
+        return Err(GetError::RecordKindMismatch(RecordKind::DataOnly(DataTypes::Pointer)).into());
+    };
+
+    let pointer: Pointer = try_deserialize_record(&record).map_err(|err| {
+        PointerError::Corrupt(format!(
+            "Failed to parse record for pointer at {key:?}: {err:?}"
+        ))
+    })?;
+
+    Ok(pointer)
 }

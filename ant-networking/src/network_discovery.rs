@@ -386,7 +386,7 @@ impl NetworkDiscoveryCandidates {
         self.try_refresh_candidates();
 
         // Always add self in
-        let mut targets = vec![NetworkAddress::from_peer(self.self_peer_id)];
+        let mut targets = vec![NetworkAddress::from(self.self_peer_id)];
 
         // Pick targets of non-full-non-empty buckets first
         targets.extend(

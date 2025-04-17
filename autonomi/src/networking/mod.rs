@@ -40,6 +40,9 @@ use tokio::sync::{mpsc, oneshot};
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
 pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
 
+/// The majority size within the close group.
+pub const CLOSE_GROUP_SIZE_MAJORITY: usize = CLOSE_GROUP_SIZE / 2 + 1;
+
 /// The number of closest peers to request from the network
 const N_CLOSEST_PEERS: NonZeroUsize =
     NonZeroUsize::new(CLOSE_GROUP_SIZE + 2).expect("N_CLOSEST_PEERS must be > 0");
@@ -275,7 +278,7 @@ impl Network {
             // if we have enough quotes, return them
             if quotes.len() >= minimum_quotes {
                 return Ok(Some(quotes));
-            } else if no_need_to_pay.len() >= minimum_quotes {
+            } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 return Ok(None);
             }
         }

@@ -207,7 +207,12 @@ impl Network {
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
         rx.await?.map(|mut peers| {
-            debug_assert!(peers.len() >= n.get());
+            debug_assert!(
+                peers.len() >= n.get(),
+                "Received {} closest peers, expected at least {}",
+                peers.len(),
+                n.get()
+            );
             // We sometimes receive more peers than requested (with empty addrs)
             peers.truncate(n.get());
             peers

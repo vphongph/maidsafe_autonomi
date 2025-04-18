@@ -61,6 +61,11 @@ pub enum NetworkError {
     /// Error getting closest peers
     #[error("Failed to get closest peers: {0}")]
     ClosestPeersError(String),
+    #[error("Received {got_peers} closest peers, expected at least {expected_peers}")]
+    InsufficientPeers {
+        got_peers: usize,
+        expected_peers: usize,
+    },
 
     /// Error putting record
     #[error("Failed to put record: {0}")]
@@ -206,17 +211,21 @@ impl Network {
             .send(task)
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
-        rx.await?.map(|mut peers| {
-            debug_assert!(
-                peers.len() >= n.get(),
-                "Received {} closest peers, expected at least {}",
-                peers.len(),
-                n.get()
-            );
-            // We sometimes receive more peers than requested (with empty addrs)
-            peers.truncate(n.get());
-            peers
-        })
+
+        match rx.await? {
+            Ok(mut peers) => {
+                if peers.len() < n.get() {
+                    return Err(NetworkError::InsufficientPeers {
+                        got_peers: peers.len(),
+                        expected_peers: n.get(),
+                    });
+                }
+                // We sometimes receive more peers than requested (with empty addrs)
+                peers.truncate(n.get());
+                Ok(peers)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Get a quote for a record from a Peer on the Network

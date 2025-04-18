@@ -10,7 +10,8 @@ use ant_evm::PaymentQuote;
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 
 use super::{Network, RetryStrategy};
-use super::{NetworkError, PeerId, Record, Strategy};
+use super::{NetworkError, PeerId, PeerInfo, Record, Strategy};
+use tokio::time::sleep;
 
 impl Network {
     /// Put a record to the network with retries
@@ -28,10 +29,7 @@ impl Network {
                 // return success
                 Ok(()) => return Ok(()),
                 // return fatal errors
-                Err(err)
-                    if matches!(err, NetworkError::NetworkDriverOffline)
-                        || matches!(err, NetworkError::NetworkDriverReceive(_)) =>
-                {
+                Err(err) if err.is_fatal() => {
                     return Err(err);
                 }
                 // retry on other errors
@@ -39,7 +37,7 @@ impl Network {
                     warn!("Put record failed at {addr}: {err:?}, retrying in {duration:?}");
                     errors.push(err.clone());
                     match duration {
-                        Some(retry_delay) => tokio::time::sleep(retry_delay).await,
+                        Some(retry_delay) => sleep(retry_delay).await,
                         None => return Err(err),
                     }
                 }
@@ -65,17 +63,14 @@ impl Network {
                     return Err(err);
                 }
                 // return fatal errors
-                Err(err)
-                    if matches!(err, NetworkError::NetworkDriverOffline)
-                        || matches!(err, NetworkError::NetworkDriverReceive(_)) =>
-                {
+                Err(err) if err.is_fatal() => {
                     return Err(err);
                 }
                 // retry on no record
                 Ok(None) => {
                     warn!("Record not found at {addr}, retrying in {duration:?}");
                     match duration {
-                        Some(retry_delay) => tokio::time::sleep(retry_delay).await,
+                        Some(retry_delay) => sleep(retry_delay).await,
                         None => return Ok(None),
                     }
                 }
@@ -84,7 +79,7 @@ impl Network {
                     warn!("Get record failed at {addr}: {err:?}, retrying in {duration:?}");
                     errors.push(err.clone());
                     match duration {
-                        Some(retry_delay) => tokio::time::sleep(retry_delay).await,
+                        Some(retry_delay) => sleep(retry_delay).await,
                         None => return Err(err),
                     }
                 }
@@ -106,10 +101,7 @@ impl Network {
                 // return success
                 Ok(quotes) => return Ok(quotes),
                 // return fatal errors
-                Err(err)
-                    if matches!(err, NetworkError::NetworkDriverOffline)
-                        || matches!(err, NetworkError::NetworkDriverReceive(_)) =>
-                {
+                Err(err) if err.is_fatal() => {
                     return Err(err);
                 }
                 // retry on other errors
@@ -117,7 +109,35 @@ impl Network {
                     warn!("Get quotes failed at {addr}: {err:?}, retrying in {duration:?}");
                     errors.push(err.clone());
                     match duration {
-                        Some(retry_delay) => tokio::time::sleep(retry_delay).await,
+                        Some(retry_delay) => sleep(retry_delay).await,
+                        None => return Err(err),
+                    }
+                }
+            }
+        }
+        Err(NetworkError::InvalidRetryStrategy)
+    }
+
+    /// Get closest peers to an address with retries
+    pub async fn get_closest_peers_with_retries(
+        &self,
+        addr: NetworkAddress,
+    ) -> Result<Vec<PeerInfo>, NetworkError> {
+        let mut errors = vec![];
+        for duration in RetryStrategy::Balanced.backoff() {
+            match self.get_closest_peers(addr.clone()).await {
+                // return success
+                Ok(peers) => return Ok(peers),
+                // return fatal errors
+                Err(err) if err.is_fatal() => {
+                    return Err(err);
+                }
+                // retry on other errors
+                Err(err) => {
+                    warn!("Get closest peers failed at {addr}: {err:?}, retrying in {duration:?}");
+                    errors.push(err.clone());
+                    match duration {
+                        Some(retry_delay) => sleep(retry_delay).await,
                         None => return Err(err),
                     }
                 }

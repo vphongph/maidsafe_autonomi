@@ -102,6 +102,16 @@ pub enum NetworkError {
     InvalidRetryStrategy,
 }
 
+impl NetworkError {
+    /// When encountering these, create a new [`Network`] instance
+    pub fn is_fatal(&self) -> bool {
+        matches!(
+            self,
+            NetworkError::NetworkDriverOffline | NetworkError::NetworkDriverReceive(_)
+        )
+    }
+}
+
 /// The Client interface to the Autonomi Network
 #[derive(Debug, Clone)]
 pub struct Network {

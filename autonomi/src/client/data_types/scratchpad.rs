@@ -32,11 +32,9 @@ pub enum ScratchpadError {
     #[error(transparent)]
     GetError(#[from] GetError),
     #[error("Scratchpad found at {0:?} was not a valid record.")]
-    CouldNotDeserializeScratchPad(ScratchpadAddress),
+    Corrupt(ScratchpadAddress),
     #[error("Network: {0}")]
     Network(#[from] NetworkError),
-    #[error("No valid scratchpad found")]
-    Missing,
     #[error("Serialization error")]
     Serialization,
     #[error("Scratchpad already exists at this address: {0:?}")]
@@ -74,14 +72,11 @@ impl Client {
             .get_record(network_address.clone(), self.config.scratchpad.get_quorum)
             .await
         {
-            Ok(record) => {
-                if let Some(record) = record {
-                    debug!("Got scratchpad for {scratch_key:?}");
-                    return try_deserialize_record::<Scratchpad>(&record)
-                        .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(*address));
-                }
-
-                return Err(ScratchpadError::Missing);
+            Ok(maybe_record) => {
+                let record = maybe_record.ok_or(GetError::RecordNotFound)?;
+                debug!("Got scratchpad for {scratch_key:?}");
+                return try_deserialize_record::<Scratchpad>(&record)
+                    .map_err(|_| ScratchpadError::Corrupt(*address));
             }
             Err(NetworkError::SplitRecord(result_map)) => {
                 debug!("Got multiple scratchpads for {scratch_key:?}");
@@ -89,7 +84,7 @@ impl Client {
                     .values()
                     .map(try_deserialize_record::<Scratchpad>)
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| ScratchpadError::CouldNotDeserializeScratchPad(*address))?;
+                    .map_err(|_| ScratchpadError::Corrupt(*address))?;
 
                 // take the latest versions
                 pads.sort_by_key(|s| s.counter());
@@ -110,8 +105,8 @@ impl Client {
                         multi
                     }
                     [] => {
-                        error!("Got empty scratchpad vector for {scratch_key:?}");
-                        return Err(ScratchpadError::Missing);
+                        error!("Got no valid scratchpads for {scratch_key:?}");
+                        return Err(ScratchpadError::Corrupt(*address));
                     }
                 };
                 pad.to_owned()
@@ -274,8 +269,7 @@ impl Client {
         let address = ScratchpadAddress::new(owner.public_key());
         let current = match self.scratchpad_get(&address).await {
             Ok(scratchpad) => Some(scratchpad),
-            Err(ScratchpadError::GetError(GetError::RecordNotFound))
-            | Err(ScratchpadError::Missing) => None,
+            Err(ScratchpadError::GetError(GetError::RecordNotFound)) => None,
             Err(ScratchpadError::Network(NetworkError::SplitRecord(result_map))) => result_map
                 .values()
                 .filter_map(|record| try_deserialize_record::<Scratchpad>(record).ok())

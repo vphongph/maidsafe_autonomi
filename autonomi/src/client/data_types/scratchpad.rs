@@ -122,6 +122,8 @@ impl Client {
     }
 
     /// Check if a scratchpad exists on the network
+    /// This method is much faster than [`Client::scratchpad_get`]
+    /// This may fail if called immediately after creating the scratchpad, as nodes sometimes take longer to store the scratchpad than this request takes to execute!
     pub async fn scratchpad_check_existence(
         &self,
         address: &ScratchpadAddress,

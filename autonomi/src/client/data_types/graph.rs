@@ -79,6 +79,8 @@ impl Client {
     }
 
     /// Check if a graph_entry exists on the network
+    /// This method is much faster than [`Client::graph_entry_get`]
+    /// This may fail if called immediately after creating the graph_entry, as nodes sometimes take longer to store the graph_entry than this request takes to execute!
     pub async fn graph_entry_check_existence(
         &self,
         address: &GraphEntryAddress,

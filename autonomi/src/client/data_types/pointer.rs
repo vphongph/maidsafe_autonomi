@@ -79,6 +79,8 @@ impl Client {
     }
 
     /// Check if a pointer exists on the network
+    /// This method is much faster than [`Client::pointer_get`]
+    /// This may fail if called immediately after creating the pointer, as nodes sometimes take longer to store the pointer than this request takes to execute!
     pub async fn pointer_check_existence(
         &self,
         address: &PointerAddress,

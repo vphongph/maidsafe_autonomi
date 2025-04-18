@@ -10,6 +10,7 @@
 mod config;
 mod driver;
 mod interface;
+mod retries;
 mod utils;
 
 // export the utils
@@ -18,7 +19,7 @@ pub(crate) use utils::multiaddr_is_global;
 // re-export the types our API exposes to avoid dependency version conflicts
 pub use ant_evm::PaymentQuote;
 pub use ant_protocol::NetworkAddress;
-pub use config::{GetRecordCfg, PutRecordCfg, RetryStrategy, VerificationKind};
+pub use config::{RetryStrategy, Strategy};
 pub use libp2p::kad::PeerInfo;
 pub use libp2p::{
     kad::{Quorum, Record},
@@ -89,6 +90,10 @@ pub enum NetworkError {
     SplitRecord(HashMap<PeerId, Record>),
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
+
+    /// Invalid retry strategy
+    #[error("Invalid retry strategy, check your config or use the default")]
+    InvalidRetryStrategy,
 }
 
 /// The Client interface to the Autonomi Network

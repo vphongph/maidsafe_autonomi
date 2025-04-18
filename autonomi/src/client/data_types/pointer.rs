@@ -58,7 +58,7 @@ impl Client {
 
         let pointer = match self
             .network
-            .get_record(key.clone(), self.config.pointer.get_quorum)
+            .get_record_with_retries(key.clone(), &self.config.pointer)
             .await
         {
             Ok(Some(r)) => pointer_from_record(r)?,
@@ -171,7 +171,7 @@ impl Client {
         let target_nodes = payees.unwrap_or_default();
 
         self.network
-            .put_record(record, target_nodes, self.config.pointer.put_quorum)
+            .put_record_with_retries(record, target_nodes, &self.config.pointer)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - pointer {address:?} to the network: {err}")
@@ -245,7 +245,7 @@ impl Client {
         debug!("Updating pointer at address {address:?} to the network");
 
         self.network
-            .put_record(record, Default::default(), self.config.pointer.put_quorum)
+            .put_record_with_retries(record, Default::default(), &self.config.pointer)
             .await
             .inspect_err(|err| {
                 error!("Failed to update pointer at address {address:?} to the network: {err}")

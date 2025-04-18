@@ -62,7 +62,7 @@ impl Client {
 
         let record = self
             .network
-            .get_record(key.clone(), self.config.graph_entry.get_quorum)
+            .get_record_with_retries(key.clone(), &self.config.graph_entry)
             .await?
             .ok_or(GetError::RecordNotFound)?;
 
@@ -149,7 +149,7 @@ impl Client {
         // put the record to the network
         debug!("Storing GraphEntry at address {address:?} to the network");
         self.network
-            .put_record(record, payees, self.config.graph_entry.put_quorum)
+            .put_record_with_retries(record, payees, &self.config.graph_entry)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - GraphEntry {address:?} to the network: {err}")

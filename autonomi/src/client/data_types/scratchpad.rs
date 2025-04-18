@@ -69,7 +69,7 @@ impl Client {
 
         let pad = match self
             .network
-            .get_record(network_address.clone(), self.config.scratchpad.get_quorum)
+            .get_record_with_retries(network_address.clone(), &self.config.scratchpad)
             .await
         {
             Ok(maybe_record) => {
@@ -222,7 +222,7 @@ impl Client {
         let target_nodes = payees.unwrap_or_default();
 
         self.network
-            .put_record(record, target_nodes, self.config.scratchpad.put_quorum)
+            .put_record_with_retries(record, target_nodes, &self.config.scratchpad)
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - scratchpad {address:?} to the network: {err}")
@@ -303,11 +303,7 @@ impl Client {
         // store the scratchpad on the network
         debug!("Updating scratchpad at address {address:?} to the network");
         self.network
-            .put_record(
-                record,
-                Default::default(),
-                self.config.scratchpad.put_quorum,
-            )
+            .put_record_with_retries(record, Default::default(), &self.config.scratchpad)
             .await
             .inspect_err(|err| {
                 error!("Failed to update scratchpad at address {address:?} to the network: {err}")

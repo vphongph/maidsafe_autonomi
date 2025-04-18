@@ -59,12 +59,13 @@ pub enum NetworkError {
     NetworkDriverReceive(#[from] tokio::sync::oneshot::error::RecvError),
 
     /// Error getting closest peers
-    #[error("Failed to get closest peers: {0}")]
-    ClosestPeersError(String),
+    #[error("Get closest peers request timeout")]
+    GetClosestPeersTimeout,
     #[error("Received {got_peers} closest peers, expected at least {expected_peers}")]
     InsufficientPeers {
         got_peers: usize,
         expected_peers: usize,
+        peers: Vec<PeerInfo>,
     },
 
     /// Error putting record
@@ -218,6 +219,7 @@ impl Network {
                     return Err(NetworkError::InsufficientPeers {
                         got_peers: peers.len(),
                         expected_peers: n.get(),
+                        peers,
                     });
                 }
                 // We sometimes receive more peers than requested (with empty addrs)

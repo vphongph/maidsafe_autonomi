@@ -138,8 +138,7 @@ impl NetworkDriver {
             .set_parallelism(KAD_ALPHA)
             .set_replication_factor(REPLICATION_FACTOR)
             .set_query_timeout(KAD_QUERY_TIMEOUT)
-            .set_periodic_bootstrap_interval(None)
-            .disjoint_query_paths(true);
+            .set_periodic_bootstrap_interval(None);
 
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {

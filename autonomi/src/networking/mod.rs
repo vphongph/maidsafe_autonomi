@@ -277,11 +277,8 @@ impl Network {
         data_size: usize,
     ) -> Result<Option<Vec<PaymentQuote>>, NetworkError> {
         // request 7 quotes, hope that at least 5 respond
-        let quote_requests = N_CLOSEST_PEERS;
         let minimum_quotes = CLOSE_GROUP_SIZE;
-        let closest_peers = self
-            .get_closest_n_peers(addr.clone(), quote_requests)
-            .await?;
+        let closest_peers = self.get_closest_peers_with_retries(addr.clone()).await?;
 
         // get all quotes
         let mut tasks = FuturesUnordered::new();

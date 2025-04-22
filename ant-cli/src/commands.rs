@@ -294,19 +294,40 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 value,
                 hex,
                 max_fee_per_gas,
-            } => register::create(&name, &value, hex, opt.peers, max_fee_per_gas).await,
+            } => {
+                register::create(
+                    &name,
+                    &value,
+                    hex,
+                    opt.peers,
+                    max_fee_per_gas,
+                    opt.network_id,
+                )
+                .await
+            }
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
                 hex,
                 max_fee_per_gas,
-            } => register::edit(address, name, &value, hex, opt.peers, max_fee_per_gas).await,
+            } => {
+                register::edit(
+                    address,
+                    name,
+                    &value,
+                    hex,
+                    opt.peers,
+                    max_fee_per_gas,
+                    opt.network_id,
+                )
+                .await
+            }
             RegisterCmd::Get { address, name, hex } => {
-                register::get(address, name, hex, opt.peers).await
+                register::get(address, name, hex, opt.peers, opt.network_id).await
             }
             RegisterCmd::History { address, name, hex } => {
-                register::history(address, name, hex, opt.peers).await
+                register::history(address, name, hex, opt.peers, opt.network_id).await
             }
             RegisterCmd::List => register::list(),
         },
@@ -334,7 +355,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             WalletCmd::Balance => wallet::balance(opt.peers.local).await,
         },
         Some(SubCmd::Analyze { addr, verbose }) => {
-            analyze::analyze(&addr, verbose, opt.peers).await
+            analyze::analyze(&addr, verbose, opt.peers, opt.network_id).await
         }
         None => {
             // If no subcommand is given, default to clap's error behaviour.

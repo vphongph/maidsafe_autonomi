@@ -182,8 +182,9 @@ pub async fn get(
     name: bool,
     hex: bool,
     init_peers_config: InitialPeersConfig,
+    network_id: Option<u8>,
 ) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config)
+    let client = crate::actions::connect_to_network(init_peers_config, network_id)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -244,8 +245,9 @@ pub async fn history(
     name: bool,
     hex: bool,
     init_peers_config: InitialPeersConfig,
+    network_id: Option<u8>,
 ) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config)
+    let client = crate::actions::connect_to_network(init_peers_config, network_id)
         .await
         .map_err(|(err, _)| err)?;
 

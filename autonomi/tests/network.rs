@@ -40,6 +40,7 @@ async fn test_get_closest_to_address() {
         },
         evm_network,
         strategy: ClientOperatingStrategy::default(),
+        network_id: None,
     };
 
     let client = Client::init_with_config(config).await.unwrap();

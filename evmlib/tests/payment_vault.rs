@@ -63,14 +63,14 @@ async fn setup() -> (
         Ethereum,
     >,
 ) {
-    let (anvil, rpc_url) = start_node();
+    let (node, rpc_url) = start_node();
 
-    let network_token = deploy_network_token_contract(&rpc_url, &anvil).await;
+    let network_token = deploy_network_token_contract(&rpc_url, &node).await;
 
     let data_payments =
-        deploy_data_payments_contract(&rpc_url, &anvil, *network_token.contract.address()).await;
+        deploy_data_payments_contract(&rpc_url, &node, *network_token.contract.address()).await;
 
-    (anvil, network_token, data_payments)
+    (node, network_token, data_payments)
 }
 
 #[allow(clippy::unwrap_used)]

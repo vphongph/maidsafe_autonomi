@@ -1,116 +1,76 @@
-# Autonomi Node.js Client
+The client API for Autonomi. This Node.js addon provides bindings into the Rust `autonomi` crate.
 
-TypeScript/JavaScript bindings for the Autonomi client.
+# Usage
 
-## Installation
-
-```bash
-npm install @autonomi/client
+Add the `@withautonomi/autonomi` package to your project. For example, using `npm`:
+```console
+$ npm install @withautonomi/autonomi
 ```
 
-## Usage
+Using a modern version of Node.js we can use `import` and `async` easily when we use the `.mjs` extension. Import the `Client` and you're ready to connect to the network!
 
-```typescript
-import { Client } from '@autonomi/client';
-
-async function example() {
-  // Connect to the network
-  const client = await Client.connect({
-    peers: ['/ip4/127.0.0.1/tcp/12000']
-  });
-
-  // Create a payment option using a wallet
-  const payment = {
-    type: 'wallet' as const,
-    wallet: 'your_wallet_address'
-  };
-
-  // Upload public data
-  const data = Buffer.from('Hello, Safe Network!');
-  const addr = await client.dataPutPublic(data, payment);
-  console.log(`Data uploaded to: ${addr}`);
-
-  // Download public data
-  const retrieved = await client.dataGetPublic(addr);
-  console.log(`Retrieved: ${retrieved.toString()}`);
-}
+```js
+// main.mjs
+import { Client } from '@withautonomi/autonomi'
+const client = await Client.initLocal()
 ```
 
-## Features
+Run the script:
 
-- TypeScript support with full type definitions
-- Async/await API
-- Support for:
-  - Public and private data operations
-  - Graph
-  - Pointers
-  - Vaults
-  - User data management
-
-## API Reference
-
-### Client
-
-The main interface to interact with the Autonomi network.
-
-#### Connection
-
-```typescript
-static connect(config: NetworkConfig): Promise<Client>
+```console
+$ node main.js
 ```
 
-#### Data Operations
+## Examples
 
-```typescript
-dataPutPublic(data: Buffer, payment: PaymentOption): Promise<string>
-dataGetPublic(address: string): Promise<Buffer>
+> Work in progress:
+> 
+> For general guides and usage, see the [Developer Documentation](https://docs.autonomi.com/developers). This is currently worked on specifically to include Node.js usage.
+
+For example usage, see the [`__test__`](./__test__) directory. Replace `import { .. } from '../index.js'` to import from `@withautonomi/autonomi` instead.
+
+# Contributing, compilation and publishing
+
+To contribute or develop on the source code directly, we need a few requirements.
+
+- Yarn
+  - `npm install --global yarn`
+- We need the NAPI RS CLI tool
+  - `yarn global add @napi-rs/cli`
+
+Install the dependencies for the project:
+```console
+$ yarn install
 ```
 
-#### Graph Operations
+## Build
 
-```typescript
-GraphEntryGet(address: string): Promise<any[]>
-GraphEntryPut(options: GraphEntryOptions, payment: PaymentOption): Promise<void>
-GraphEntryCost(key: string): Promise<string>
+Then build using the `napi` CLI:
+```console
+$ npx napi build
 ```
 
-#### Pointer Operations
+## Running tests
 
-```typescript
-pointerGet(address: string): Promise<any>
-pointerPut(options: PointerOptions, payment: PaymentOption): Promise<void>
-pointerCost(key: string): Promise<string>
+Run the `test` script:
+
+```console
+yarn test
+# Or run a specific test
+yarn test __test__/register.spec.mjs -m 'registers errors'
 ```
 
-#### Vault Operations
+## Publishing
 
-```typescript
-vaultCost(key: string): Promise<string>
-writeBytesToVault(data: Buffer, payment: PaymentOption, options: VaultOptions): Promise<string>
-fetchAndDecryptVault(key: string): Promise<[Buffer, number]>
-getUserDataFromVault(key: string): Promise<UserData>
-putUserDataToVault(key: string, payment: PaymentOption, userData: UserData): Promise<void>
+Before publishing, bump the versions of *all* packages with the following:
+```console
+$ npm version patch --no-git-tag-version
 ```
 
-## Development
+Use `major` or `minor` instead of `patch` depending on the release.
 
-```bash
-# Install dependencies
-npm install
+It's a good practice to have an unreleased version number ready to go. So if `0.4.0` is the version released on NPM currently, `package.json` should be at `0.4.1`.
 
-# Build
-npm run build
+### Workflow
 
-# Run tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Lint
-npm run lint
-```
-
-## License
-
-GPL-3.0
+Use the 'JS publish to NPM' workflow (`nodejs-publish.yml`) to publish the package from `main` or a tag. This workflow has to be manually dispatched through GitHub.

@@ -46,7 +46,7 @@ static PUBLIC_ARBITRUM_SEPOLIA_HTTP_RPC_URL: LazyLock<reqwest::Url> = LazyLock::
 });
 
 const ARBITRUM_ONE_PAYMENT_TOKEN_ADDRESS: Address =
-    address!("0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684");
+    address!("a78d8321B20c4Ef90eCd72f2588AA985A4BDb684");
 
 const ARBITRUM_SEPOLIA_PAYMENT_TOKEN_ADDRESS: Address =
     address!("BE1802c27C324a28aeBcd7eeC7D734246C807194");
@@ -100,6 +100,19 @@ impl std::fmt::Display for Network {
             Network::ArbitrumSepolia => write!(f, "evm-arbitrum-sepolia"),
             Network::ArbitrumSepoliaTest => write!(f, "evm-arbitrum-sepolia-test"),
             Network::Custom(_) => write!(f, "evm-custom"),
+        }
+    }
+}
+
+impl std::str::FromStr for Network {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "evm-arbitrum-one" => Ok(Network::ArbitrumOne),
+            "evm-arbitrum-sepolia" => Ok(Network::ArbitrumSepolia),
+            "evm-arbitrum-sepolia-test" => Ok(Network::ArbitrumSepoliaTest),
+            _ => Err(()),
         }
     }
 }

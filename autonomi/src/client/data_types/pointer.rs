@@ -49,7 +49,7 @@ pub enum PointerError {
 impl Client {
     /// Get a pointer from the network
     pub async fn pointer_get(&self, address: &PointerAddress) -> Result<Pointer, PointerError> {
-        let key = NetworkAddress::from_pointer_address(*address).to_record_key();
+        let key = NetworkAddress::from(*address).to_record_key();
         debug!("Fetching pointer from network at: {key:?}");
 
         let get_cfg = self.config.pointer.get_cfg();
@@ -78,6 +78,7 @@ impl Client {
             ))
         })?;
 
+        info!("Got pointer at address {address:?}: {pointer:?}");
         Self::pointer_verify(&pointer)?;
         Ok(pointer)
     }
@@ -87,7 +88,7 @@ impl Client {
         &self,
         address: &PointerAddress,
     ) -> Result<bool, PointerError> {
-        let key = NetworkAddress::from_pointer_address(*address).to_record_key();
+        let key = NetworkAddress::from(*address).to_record_key();
         debug!("Checking pointer existance at: {key:?}");
         let get_cfg = self.config.pointer.verification_cfg();
         match self
@@ -146,7 +147,7 @@ impl Client {
         let (record, payees) = if let Some(proof) = proof {
             let payees = Some(proof.payees());
             let record = Record {
-                key: NetworkAddress::from_pointer_address(address).to_record_key(),
+                key: NetworkAddress::from(address).to_record_key(),
                 value: try_serialize_record(
                     &(proof, &pointer),
                     RecordKind::DataWithPayment(DataTypes::Pointer),
@@ -159,7 +160,7 @@ impl Client {
             (record, payees)
         } else {
             let record = Record {
-                key: NetworkAddress::from_pointer_address(address).to_record_key(),
+                key: NetworkAddress::from(address).to_record_key(),
                 value: try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))
                     .map_err(|_| PointerError::Serialization)?
                     .to_vec(),
@@ -212,6 +213,7 @@ impl Client {
         target: PointerTarget,
     ) -> Result<(), PointerError> {
         let address = PointerAddress::new(owner.public_key());
+        info!("Updating pointer at address {address:?} to {target:?}");
         let current = match self.pointer_get(&address).await {
             Ok(pointer) => Some(pointer),
             Err(PointerError::Network(NetworkError::GetRecordError(
@@ -230,6 +232,7 @@ impl Client {
 
         let pointer = if let Some(p) = current {
             let version = p.counter() + 1;
+            info!("Updating pointer at address {address:?} to version {version}");
             Pointer::new(owner, version, target)
         } else {
             warn!("Pointer at address {address:?} cannot be updated as it does not exist, please create it first or wait for it to be created");
@@ -238,7 +241,7 @@ impl Client {
 
         // prepare the record to be stored
         let record = Record {
-            key: NetworkAddress::from_pointer_address(address).to_record_key(),
+            key: NetworkAddress::from(address).to_record_key(),
             value: try_serialize_record(&pointer, RecordKind::DataOnly(DataTypes::Pointer))
                 .map_err(|_| PointerError::Serialization)?
                 .to_vec(),
@@ -248,7 +251,7 @@ impl Client {
 
         // store the pointer on the network
         debug!("Updating pointer at address {address:?} to the network");
-        let put_cfg = self.config.pointer.put_cfg(None);
+        let put_cfg = self.config.pointer.put_cfg_specific(None, record.clone());
         self.network
             .put_record(record, &put_cfg)
             .await

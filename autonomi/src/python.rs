@@ -2006,6 +2006,18 @@ impl PyScratchpad {
         }
     }
 
+    /// Return the current data encoding.
+    pub fn data_encoding(&self) -> u64 {
+        self.inner.data_encoding()
+    }
+
+    /// Get the counter of the Scratchpad, the higher the counter, the more recent the Scratchpad is.
+    ///
+    /// Similarly to counter CRDTs only the latest version (highest counter) of the Scratchpad is kept on the network
+    pub fn counter(&self) -> u64 {
+        self.inner.counter()
+    }
+
     /// Returns the encrypted_data, decrypted via the passed SecretKey
     pub fn decrypt_data(&self, sk: PySecretKey) -> PyResult<Vec<u8>> {
         let data = self

@@ -12,9 +12,10 @@ use xor_name::XorName;
 
 use super::AddressParseError;
 
-/// Address of a [`crate::storage::chunks::Chunk`]
-/// It is derived from the content of the chunk
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug)]
+/// Address of a [`crate::storage::chunks::Chunk`].
+///
+/// It is derived from the content of the chunk.
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct ChunkAddress(XorName);
 
 impl ChunkAddress {
@@ -34,7 +35,7 @@ impl ChunkAddress {
     }
 
     /// Creates a new ChunkAddress from a hex string.
-    pub fn try_from_hex(hex: &str) -> Result<Self, AddressParseError> {
+    pub fn from_hex(hex: &str) -> Result<Self, AddressParseError> {
         let bytes = hex::decode(hex)?;
         let xor = XorName(
             bytes
@@ -46,6 +47,12 @@ impl ChunkAddress {
 }
 
 impl std::fmt::Display for ChunkAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.to_hex())
+    }
+}
+
+impl std::fmt::Debug for ChunkAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.to_hex())
     }

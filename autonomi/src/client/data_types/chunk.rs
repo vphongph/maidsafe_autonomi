@@ -43,12 +43,7 @@ pub(crate) static CHUNK_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
     let batch_size = std::env::var("CHUNK_UPLOAD_BATCH_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-                * 8,
-        );
+        .unwrap_or(1);
     info!("Chunk upload batch size: {}", batch_size);
     batch_size
 });
@@ -60,19 +55,14 @@ pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
     let batch_size = std::env::var("CHUNK_DOWNLOAD_BATCH_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-                * 8,
-        );
+        .unwrap_or(1);
     info!("Chunk download batch size: {}", batch_size);
     batch_size
 });
 
 /// Private data on the network can be accessed with this
 /// Uploading this data in a chunk makes it publicly accessible from the address of that Chunk
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DataMapChunk(pub(crate) Chunk);
 
 impl DataMapChunk {
@@ -99,6 +89,18 @@ impl From<Chunk> for DataMapChunk {
     }
 }
 
+impl std::fmt::Display for DataMapChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.to_hex())
+    }
+}
+
+impl std::fmt::Debug for DataMapChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.to_hex())
+    }
+}
+
 fn hash_to_short_string(input: &str) -> String {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
@@ -111,7 +113,7 @@ impl Client {
     pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         info!("Getting chunk: {addr:?}");
 
-        let key = NetworkAddress::from_chunk_address(*addr).to_record_key();
+        let key = NetworkAddress::from(*addr).to_record_key();
         debug!("Fetching chunk from network at: {key:?}");
 
         let get_cfg = self.config.chunks.get_cfg();
@@ -142,6 +144,14 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, ChunkAddress), PutError> {
         let address = chunk.network_address();
+
+        if chunk.size() > Chunk::MAX_SIZE {
+            return Err(PutError::Serialization(format!(
+                "Chunk is too large: {} bytes, when max size is {}",
+                chunk.size(),
+                Chunk::MAX_SIZE
+            )));
+        }
 
         // pay for the chunk storage
         let xor_name = *chunk.name();
@@ -209,10 +219,7 @@ impl Client {
 
         let xor = *addr.xorname();
         let store_quote = self
-            .get_store_quotes(
-                DataTypes::Chunk,
-                std::iter::once((xor, Chunk::DEFAULT_MAX_SIZE)),
-            )
+            .get_store_quotes(DataTypes::Chunk, std::iter::once((xor, Chunk::MAX_SIZE)))
             .await?;
         let total_cost = AttoTokens::from_atto(
             store_quote
@@ -235,22 +242,52 @@ impl Client {
 
         loop {
             let mut upload_tasks = vec![];
-            for chunk in chunks {
+            #[cfg(feature = "loud")]
+            let total_chunks = chunks.len();
+            for (_i, &chunk) in chunks.iter().enumerate() {
                 let self_clone = self.clone();
                 let address = *chunk.address();
 
                 let Some((proof, _)) = receipt.get(chunk.name()) else {
                     debug!("Chunk at {address:?} was already paid for so skipping");
+                    #[cfg(feature = "loud")]
+                    println!(
+                        "({}/{}) Chunk stored at: {} (skipping, already exists)",
+                        _i + 1,
+                        chunks.len(),
+                        chunk.address().to_hex()
+                    );
                     continue;
                 };
 
                 upload_tasks.push(async move {
-                    self_clone
+                    let res = self_clone
                         .chunk_upload_with_payment(chunk, proof.clone())
                         .await
                         .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
+                        .inspect(|_addr| {})
                         // Return chunk reference too, to re-use it next attempt/iteration
-                        .map_err(|err| (chunk, err))
+                        .map_err(|err| (chunk, err));
+                    #[cfg(feature = "loud")]
+                    match res {
+                        Ok(_addr) => {
+                            println!(
+                                "({}/{}) Chunk stored at: {}",
+                                _i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                        Err((_chunk, ref err)) => {
+                            println!(
+                                "({}/{}) Chunk failed to be stored at: {} ({err})",
+                                _i + 1,
+                                total_chunks,
+                                chunk.address().to_hex()
+                            );
+                        }
+                    }
+                    res
                 });
             }
             let uploads =

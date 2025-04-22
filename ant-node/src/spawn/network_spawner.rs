@@ -166,6 +166,19 @@ impl RunningNetwork {
             node.shutdown();
         }
     }
+
+    pub fn update_peer(&mut self, index: usize, new_peer: RunningNode) {
+        if index < self.running_nodes.len() {
+            self.running_nodes[index] = new_peer.clone();
+            println!(
+                "Updated index: {} with peer_id: {}",
+                index,
+                new_peer.peer_id()
+            );
+        } else {
+            println!("Invalid index: {index}");
+        }
+    }
 }
 
 async fn spawn_network(
@@ -240,14 +253,18 @@ mod tests {
 
         assert_eq!(running_network.running_nodes().len(), network_size);
 
-        // Wait for nodes to dial each other
+        // Wait for nodes to fill up their RT
         sleep(Duration::from_secs(15)).await;
 
         // Validate that all nodes know each other
         for node in running_network.running_nodes() {
-            let known_peers = node.get_swarm_local_state().await.unwrap().connected_peers;
+            let peers_in_routing_table = node
+                .get_swarm_local_state()
+                .await
+                .unwrap()
+                .peers_in_routing_table;
 
-            assert_eq!(known_peers.len(), network_size - 1);
+            assert_eq!(peers_in_routing_table, network_size - 1);
         }
 
         running_network.shutdown();

@@ -466,8 +466,8 @@ impl Node {
                 self.record_metrics(Marker::PeerRemovedFromRoutingTable(&peer_id));
 
                 let self_id = self.network().peer_id();
-                let distance = NetworkAddress::from_peer(self_id)
-                    .distance(&NetworkAddress::from_peer(peer_id));
+                let distance =
+                    NetworkAddress::from(self_id).distance(&NetworkAddress::from(peer_id));
                 info!("Node {self_id:?} removed peer from routing table: {peer_id:?}. It has a {:?} distance to us.", distance.ilog2());
 
                 let network = self.network().clone();
@@ -645,7 +645,7 @@ impl Node {
                                 quote: Err(ProtocolError::RecordExists(
                                     PrettyPrintRecordKey::from(&record_key).into_owned(),
                                 )),
-                                peer_address: NetworkAddress::from_peer(self_id),
+                                peer_address: NetworkAddress::from(self_id),
                                 storage_proofs,
                             }
                         } else {
@@ -656,7 +656,7 @@ impl Node {
                                     &quoting_metrics,
                                     &payment_address,
                                 ),
-                                peer_address: NetworkAddress::from_peer(self_id),
+                                peer_address: NetworkAddress::from(self_id),
                                 storage_proofs,
                             }
                         }
@@ -665,14 +665,14 @@ impl Node {
                         warn!("GetStoreQuote failed for {key:?}: {err}");
                         QueryResponse::GetStoreQuote {
                             quote: Err(ProtocolError::GetStoreQuoteFailed),
-                            peer_address: NetworkAddress::from_peer(self_id),
+                            peer_address: NetworkAddress::from(self_id),
                             storage_proofs,
                         }
                     }
                 }
             }
             Query::GetReplicatedRecord { requester: _, key } => {
-                let our_address = NetworkAddress::from_peer(network.peer_id());
+                let our_address = NetworkAddress::from(network.peer_id());
                 let mut result = Err(ProtocolError::ReplicatedRecordNotFound {
                     holder: Box::new(our_address.clone()),
                     key: Box::new(key.clone()),
@@ -706,7 +706,7 @@ impl Node {
                     };
 
                 QueryResponse::CheckNodeInProblem {
-                    reporter_address: NetworkAddress::from_peer(network.peer_id()),
+                    reporter_address: NetworkAddress::from(network.peer_id()),
                     target_address,
                     is_in_trouble,
                 }
@@ -724,7 +724,7 @@ impl Node {
                     .await
             }
             Query::GetVersion(_) => QueryResponse::GetVersion {
-                peer: NetworkAddress::from_peer(network.peer_id()),
+                peer: NetworkAddress::from(network.peer_id()),
                 version: ant_build_info::package_version(),
             },
         };
@@ -748,11 +748,7 @@ impl Node {
         let signature = if sign_result {
             let mut bytes = rmp_serde::to_vec(&target).unwrap_or_default();
             bytes.extend_from_slice(&rmp_serde::to_vec(&peers).unwrap_or_default());
-            if let Ok(sig) = network.sign(&bytes) {
-                Some(sig)
-            } else {
-                None
-            }
+            network.sign(&bytes).ok()
         } else {
             None
         };
@@ -776,7 +772,7 @@ impl Node {
                 peer_addrs
                     .iter()
                     .filter_map(|(peer_id, multi_addrs)| {
-                        let addr = NetworkAddress::from_peer(*peer_id);
+                        let addr = NetworkAddress::from(*peer_id);
                         if target.distance(&addr).0 <= distance {
                             Some((addr, multi_addrs.clone()))
                         } else {
@@ -789,7 +785,7 @@ impl Node {
                 let mut result: Vec<(NetworkAddress, Vec<Multiaddr>)> = peer_addrs
                     .iter()
                     .map(|(peer_id, multi_addrs)| {
-                        let addr = NetworkAddress::from_peer(*peer_id);
+                        let addr = NetworkAddress::from(*peer_id);
                         (addr, multi_addrs.clone())
                     })
                     .collect();
@@ -915,7 +911,7 @@ impl Node {
 
         // To ensure the neighbours sharing same knowledge as to us,
         // The target is choosen to be not far from us.
-        let self_addr = NetworkAddress::from_peer(network.peer_id());
+        let self_addr = NetworkAddress::from(network.peer_id());
         verify_candidates.sort_by_key(|addr| self_addr.distance(addr));
         let index: usize = OsRng.gen_range(0..num_of_targets / 2);
         let target = verify_candidates[index].clone();
@@ -996,10 +992,10 @@ impl Node {
 
     /// Query peer's version and update local knowledge.
     async fn try_query_peer_version(network: Network, peer: PeerId, addrs: Addresses) {
-        let request = Request::Query(Query::GetVersion(NetworkAddress::from_peer(peer)));
+        let request = Request::Query(Query::GetVersion(NetworkAddress::from(peer)));
         // We can skip passing `addrs` here as the new peer should be part of the kad::RT and swarm can get the addr.
         let version = match network.send_request(request, peer, addrs).await {
-            Ok(Response::Query(QueryResponse::GetVersion { version, .. })) => {
+            Ok((Response::Query(QueryResponse::GetVersion { version, .. }), _conn_info)) => {
                 info!("Fetched peer version {peer:?} as {version:?}");
                 version
             }
@@ -1025,14 +1021,14 @@ impl Node {
     #[allow(dead_code)]
     async fn network_density_sampling(network: Network) {
         for _ in 0..10 {
-            let target = NetworkAddress::from_peer(PeerId::random());
+            let target = NetworkAddress::from(PeerId::random());
             // Result is sorted and only return CLOSE_GROUP_SIZE entries
-            let peers = network.node_get_closest_peers(&target).await;
+            let peers = network.get_n_closest_peers(&target, CLOSE_GROUP_SIZE).await;
             if let Ok(peers) = peers {
                 if peers.len() >= CLOSE_GROUP_SIZE {
                     // Calculate the distance to the farthest.
                     let distance =
-                        target.distance(&NetworkAddress::from_peer(peers[CLOSE_GROUP_SIZE - 1].0));
+                        target.distance(&NetworkAddress::from(peers[CLOSE_GROUP_SIZE - 1].0));
                     network.add_network_density_sample(distance);
                 }
             }
@@ -1054,7 +1050,7 @@ async fn scoring_peer(
         .send_and_get_responses(&[peer], &request, true)
         .await;
 
-    if let Some(Ok(Response::Query(QueryResponse::GetChunkExistenceProof(answers)))) =
+    if let Some(Ok((Response::Query(QueryResponse::GetChunkExistenceProof(answers)), _conn_info))) =
         responses.get(&peer_id)
     {
         if answers.is_empty() {
@@ -1149,7 +1145,7 @@ mod tests {
     #[test]
     fn test_no_local_peers() {
         let local_peers: Vec<(PeerId, Vec<Multiaddr>)> = vec![];
-        let target = NetworkAddress::from_peer(PeerId::random());
+        let target = NetworkAddress::from(PeerId::random());
         let num_of_peers = Some(5);
         let range = None;
         let result = Node::calculate_get_closest_peers(local_peers, target, num_of_peers, range);
@@ -1173,7 +1169,7 @@ mod tests {
                 vec![Multiaddr::from_str("/ip4/192.168.1.2/tcp/8080").unwrap()],
             ),
         ];
-        let target = NetworkAddress::from_peer(PeerId::random());
+        let target = NetworkAddress::from(PeerId::random());
         let num_of_peers = Some(2);
         let range = None;
         let result = Node::calculate_get_closest_peers(
@@ -1187,7 +1183,7 @@ mod tests {
         let mut expected_result: Vec<(NetworkAddress, Vec<Multiaddr>)> = local_peers
             .iter()
             .map(|(peer_id, multi_addrs)| {
-                let addr = NetworkAddress::from_peer(*peer_id);
+                let addr = NetworkAddress::from(*peer_id);
                 (addr, multi_addrs.clone())
             })
             .collect();
@@ -1213,7 +1209,7 @@ mod tests {
                 vec![Multiaddr::from_str("/ip4/192.168.1.2/tcp/8080").unwrap()],
             ),
         ];
-        let target = NetworkAddress::from_peer(PeerId::random());
+        let target = NetworkAddress::from(PeerId::random());
         let num_of_peers = Some(0);
         let range_value = [128; 32];
         let range = Some(range_value);
@@ -1229,7 +1225,7 @@ mod tests {
         let expected_result: Vec<(NetworkAddress, Vec<Multiaddr>)> = local_peers
             .into_iter()
             .filter_map(|(peer_id, multi_addrs)| {
-                let addr = NetworkAddress::from_peer(peer_id);
+                let addr = NetworkAddress::from(peer_id);
                 if target.distance(&addr).0 <= distance {
                     Some((addr, multi_addrs.clone()))
                 } else {

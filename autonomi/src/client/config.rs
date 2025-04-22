@@ -13,7 +13,7 @@ use libp2p::{kad::Record, PeerId};
 use rand::{thread_rng, Rng};
 use std::{collections::HashSet, num::NonZero};
 
-pub use ant_bootstrap::InitialPeersConfig;
+pub use ant_bootstrap::{error::Error as BootstrapError, InitialPeersConfig};
 pub use ant_networking::{ResponseQuorum, RetryStrategy};
 
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
@@ -28,6 +28,10 @@ pub struct ClientConfig {
 
     /// Strategy for data operations by the client.
     pub strategy: ClientOperatingStrategy,
+
+    /// The network ID to use for the client.
+    /// This is used to differentiate between different networks.
+    pub network_id: Option<u8>,
 }
 
 /// Strategy configuration for data operations by the client.
@@ -161,6 +165,23 @@ impl Strategy {
                     expected_proof,
                     nonce: random_nonce,
                 },
+                self.verification_cfg_specific(expected),
+            )),
+        }
+    }
+
+    /// Put config for storing a record and making sure it matches the expected record
+    pub(crate) fn put_cfg_specific(
+        &self,
+        put_to: Option<Vec<PeerId>>,
+        expected: Record,
+    ) -> PutRecordCfg {
+        PutRecordCfg {
+            put_quorum: self.put_quorum,
+            retry_strategy: self.put_retry,
+            use_put_record_to: put_to,
+            verification: Some((
+                self.verification_kind.clone(),
                 self.verification_cfg_specific(expected),
             )),
         }

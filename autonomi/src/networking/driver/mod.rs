@@ -133,7 +133,7 @@ impl NetworkDriver {
         let store = MemoryStore::with_config(peer_id, store_cfg);
         let mut kad_cfg = libp2p::kad::Config::new(KAD_STREAM_PROTOCOL_ID);
         kad_cfg
-            .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
+            .set_kbucket_inserts(libp2p::kad::BucketInserts::OnConnected)
             .set_max_packet_size(MAX_PACKET_SIZE)
             .set_parallelism(KAD_ALPHA)
             .set_replication_factor(REPLICATION_FACTOR)

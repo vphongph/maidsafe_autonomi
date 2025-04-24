@@ -15,13 +15,15 @@ use std::time::Duration;
 
 pub async fn connect_to_network(
     init_peers_config: InitialPeersConfig,
+    network_id: Option<u8>,
 ) -> Result<Client, ExitCodeError> {
-    connect_to_network_with_config(init_peers_config, Default::default()).await
+    connect_to_network_with_config(init_peers_config, Default::default(), network_id).await
 }
 
 pub async fn connect_to_network_with_config(
     init_peers_config: InitialPeersConfig,
     operation_config: ClientOperatingStrategy,
+    network_id: Option<u8>,
 ) -> Result<Client, ExitCodeError> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
@@ -44,6 +46,7 @@ pub async fn connect_to_network_with_config(
         init_peers_config,
         evm_network,
         strategy: operation_config,
+        network_id,
     };
 
     let res = Client::init_with_config(config).await;

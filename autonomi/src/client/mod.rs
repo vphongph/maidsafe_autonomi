@@ -174,6 +174,7 @@ impl Client {
             },
             evm_network: EvmNetwork::new(true).unwrap_or_default(),
             strategy: Default::default(),
+            network_id: None,
         })
         .await
     }
@@ -203,6 +204,7 @@ impl Client {
             },
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
             strategy: Default::default(),
+            network_id: None,
         })
         .await
     }
@@ -222,6 +224,10 @@ impl Client {
     /// # }
     /// ```
     pub async fn init_with_config(config: ClientConfig) -> Result<Self, ConnectError> {
+        if let Some(network_id) = config.network_id {
+            ant_protocol::version::set_network_id(network_id);
+        }
+
         let initial_peers = match config.init_peers_config.get_addrs(None, None).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),

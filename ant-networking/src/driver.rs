@@ -285,13 +285,33 @@ impl SwarmDriver {
 
                 // runs every bootstrap_interval time
                 _ = network_discover_interval.tick() => {
+                    round_robin_index += 1;
+                    if round_robin_index > 255 {
+                        round_robin_index = 0;
+                    }
+
                     if let Some(new_interval) = self.run_network_discover_continuously(network_discover_interval.period(), round_robin_index).await {
                         network_discover_interval = new_interval;
-                        round_robin_index += 1;
-                        if round_robin_index > 255 {
-                            round_robin_index = 0;
+                    }
+
+                    // Collect all peers_in_non_full_buckets
+                    let mut peers_in_non_full_buckets = vec![];
+                    for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
+                        let num_entires = kbucket.num_entries();
+                        if num_entires >= K_VALUE.get() {
+                            continue;
+                        } else {
+                            let peers_in_kbucket = kbucket
+                                .iter()
+                                .map(|peer_entry| peer_entry.node.key.into_preimage())
+                                .collect::<Vec<PeerId>>();
+                            peers_in_non_full_buckets.extend(peers_in_kbucket);
                         }
                     }
+
+                    // Ensure all existing node_version records are for those peers_in_non_full_buckets
+                    self.peers_version
+                        .retain(|peer_id, _version| peers_in_non_full_buckets.contains(peer_id));
 
                     #[cfg(feature = "open-metrics")]
                     if let Some(metrics_recorder) = &self.metrics_recorder {

@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "ant-bootstrap"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "ant-build-info"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "chrono",
  "tracing",
@@ -805,11 +805,10 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "ant-build-info",
  "ant-logging",
- "ant-protocol",
  "autonomi",
  "clap",
  "color-eyre",
@@ -835,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "ant-evm"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "custom_debug",
  "evmlib",
@@ -856,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "ant-logging"
-version = "0.2.48"
+version = "0.2.49"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -881,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "ant-metrics"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "clap",
  "color-eyre",
@@ -895,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "ant-networking"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -936,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -993,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-manager"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1036,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-rpc-client"
-version = "0.6.45"
+version = "0.6.46"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -1060,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "ant-build-info",
  "ant-evm",
@@ -1110,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "ant-service-management"
-version = "0.4.11"
+version = "0.4.12"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",
@@ -1138,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "ant-token-supplies"
-version = "0.1.65"
+version = "0.1.66"
 dependencies = [
  "dirs-next",
  "reqwest 0.11.27",
@@ -1576,13 +1575,12 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "autonomi"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "alloy",
  "ant-bootstrap",
  "ant-evm",
  "ant-logging",
- "ant-node",
  "ant-protocol",
  "bip39",
  "blst",
@@ -2549,9 +2547,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2814,7 +2812,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1145d32e826a7748b69ee8fc62d3e6355ff7f1051df53141e7048162fc90481b"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.96",
 ]
 
 [[package]]
@@ -3215,7 +3213,7 @@ dependencies = [
 
 [[package]]
 name = "evm-testnet"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "ant-evm",
  "clap",
@@ -3226,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -6146,7 +6144,7 @@ dependencies = [
 
 [[package]]
 name = "nat-detection"
-version = "0.2.19"
+version = "0.2.20"
 dependencies = [
  "ant-build-info",
  "ant-networking",
@@ -8930,7 +8928,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "test-utils"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "bytes",
  "color-eyre",
@@ -9101,9 +9099,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "492a604e2fd7f814268a378409e6c92b5525d747d10db9a229723f55a417958c"
 dependencies = [
  "backtrace",
  "bytes",

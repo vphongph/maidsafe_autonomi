@@ -179,6 +179,25 @@ impl Client {
         .await
     }
 
+    /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
+    pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let client_config = ClientConfig {
+            init_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec!["http://146.190.225.26/bootstrap_cache.json".to_string()],
+                local: false,
+                disable_mainnet_contacts: true,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
+            evm_network: EvmNetwork::ArbitrumSepoliaTest,
+            strategy: Default::default(),
+            network_id: Some(2),
+        };
+        Self::init_with_config(client_config).await
+    }
+
     /// Initialize a client that bootstraps from a list of peers.
     ///
     /// If any of the provided peers is a global address, the client will not be local.

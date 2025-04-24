@@ -96,7 +96,7 @@ impl TaskHandler {
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetClosestPeersError::Timeout { key, peers }) => {
-                debug!(
+                trace!(
                     "QueryId({id}): GetClosestPeersError::Timeout {:?}, peers: {:?}",
                     hex::encode(key),
                     peers
@@ -116,7 +116,7 @@ impl TaskHandler {
     ) -> Result<(), TaskHandlerError> {
         match res {
             Ok(kad::GetRecordOk::FoundRecord(record)) => {
-                debug!(
+                trace!(
                     "QueryId({id}): GetRecordOk::FoundRecord {:?}",
                     PrettyPrintRecordKey::from(&record.record.key)
                 );
@@ -126,7 +126,7 @@ impl TaskHandler {
                 }
             }
             Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. }) => {
-                debug!("QueryId({id}): GetRecordOk::FinishedWithNoAdditionalRecord");
+                trace!("QueryId({id}): GetRecordOk::FinishedWithNoAdditionalRecord");
                 let (responder, holders) = self.take_responder_and_holders_for_task(id)?;
                 let peers = holders.keys().cloned().collect();
                 let records_uniq = holders.values().cloned().fold(Vec::new(), |mut acc, x| {
@@ -144,7 +144,7 @@ impl TaskHandler {
                 res.map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetRecordError::NotFound { key, closest_peers }) => {
-                debug!(
+                trace!(
                     "QueryId({id}): GetRecordError::NotFound {:?}, closest_peers: {:?}",
                     hex::encode(key),
                     closest_peers
@@ -161,7 +161,7 @@ impl TaskHandler {
                 records,
                 quorum,
             }) => {
-                debug!(
+                trace!(
                     "QueryId({id}): GetRecordError::QuorumFailed {:?}, records: {:?}, quorum: {:?}",
                     hex::encode(key),
                     records.len(),
@@ -175,7 +175,7 @@ impl TaskHandler {
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::GetRecordError::Timeout { key }) => {
-                debug!(
+                trace!(
                     "QueryId({id}): GetRecordError::Timeout {:?}",
                     hex::encode(key)
                 );
@@ -202,7 +202,7 @@ impl TaskHandler {
 
         match res {
             Ok(kad::PutRecordOk { key: _ }) => {
-                debug!("QueryId({id}): PutRecordOk");
+                trace!("QueryId({id}): PutRecordOk");
                 responder
                     .send(Ok(()))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
@@ -212,7 +212,7 @@ impl TaskHandler {
                 success,
                 quorum,
             }) => {
-                debug!(
+                trace!(
                     "QueryId({id}): PutRecordError::QuorumFailed {:?}, success: {:?}, quorum: {:?}",
                     hex::encode(key),
                     success.len(),
@@ -223,7 +223,7 @@ impl TaskHandler {
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(kad::PutRecordError::Timeout { success, .. }) => {
-                debug!("QueryId({id}): PutRecordError::Timeout");
+                trace!("QueryId({id}): PutRecordError::Timeout");
                 responder
                     .send(Err(NetworkError::PutRecordTimeout(success)))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
@@ -247,13 +247,13 @@ impl TaskHandler {
 
         match verify_quote(quote_res, peer_address.clone(), data_type) {
             Ok(Some(quote)) => {
-                debug!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
+                trace!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
                 resp.send(Ok(Some(quote)))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
             }
             Ok(None) => {
-                debug!("OutboundRequestId({id}): no quote needed as record already exists at peer {peer_address:?}");
+                trace!("OutboundRequestId({id}): no quote needed as record already exists at peer {peer_address:?}");
                 resp.send(Ok(None))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())

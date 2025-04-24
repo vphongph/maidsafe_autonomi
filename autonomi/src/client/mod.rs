@@ -213,14 +213,14 @@ impl Client {
     /// # }
     /// ```
     pub async fn init_with_config(config: ClientConfig) -> Result<Self, ConnectError> {
+        if let Some(network_id) = config.network_id {
+            ant_protocol::version::set_network_id(network_id);
+        }
+
         let initial_peers = match config.init_peers_config.get_addrs(None, None).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };
-
-        if let Some(network_id) = config.network_id {
-            ant_protocol::version::set_network_id(network_id);
-        }
 
         let (shutdown_tx, network, event_receiver) =
             build_client_and_run_swarm(&config.init_peers_config, initial_peers);

@@ -117,15 +117,15 @@ pub enum ConnectError {
 pub enum PutError {
     #[error("Failed to self-encrypt data.")]
     SelfEncryption(#[from] crate::self_encryption::Error),
-    #[error("A network error occurred.")]
+    #[error("A network error occurred: {0}")]
     Network(#[from] NetworkError),
-    #[error("Error occurred during cost estimation.")]
+    #[error("Error occurred during cost estimation: {0}")]
     CostError(#[from] CostError),
-    #[error("Error occurred during payment.")]
+    #[error("Error occurred during payment: {0}")]
     PayError(#[from] PayError),
     #[error("Serialization error: {0}")]
     Serialization(String),
-    #[error("A wallet error occurred.")]
+    #[error("A wallet error occurred: {0}")]
     Wallet(#[from] ant_evm::EvmError),
     #[error("The owner key does not match the client's public key")]
     ScratchpadBadOwner,
@@ -144,9 +144,9 @@ pub enum GetError {
     Decryption(crate::self_encryption::Error),
     #[error("Failed to deserialize")]
     Deserialization(#[from] rmp_serde::decode::Error),
-    #[error("General networking error: {0:?}")]
+    #[error("General networking error: {0}")]
     Network(#[from] NetworkError),
-    #[error("General protocol error: {0:?}")]
+    #[error("General protocol error: {0}")]
     Protocol(#[from] ant_protocol::Error),
     #[error("Record could not be found.")]
     RecordNotFound,

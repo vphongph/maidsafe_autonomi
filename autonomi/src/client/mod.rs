@@ -188,7 +188,7 @@ impl Client {
                 network_contacts_url: vec!["http://146.190.225.26/bootstrap_cache.json".to_string()],
                 local: false,
                 disable_mainnet_contacts: true,
-                ignore_cache: true,
+                ignore_cache: false,
                 bootstrap_cache_dir: None,
             },
             evm_network: EvmNetwork::ArbitrumSepoliaTest,

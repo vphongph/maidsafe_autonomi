@@ -102,6 +102,7 @@ pub(crate) fn bootstrap_error_exit_code(err: &BootstrapError) -> i32 {
 
 pub(crate) fn connect_error_exit_code(err: &ConnectError) -> i32 {
     match err {
+        ConnectError::EvmNetworkError(_) => 61,
         ConnectError::Bootstrap(error) => bootstrap_error_exit_code(error),
         ConnectError::TimedOut => 59,
         ConnectError::TimedOutWithIncompatibleProtocol(_, _) => 60,

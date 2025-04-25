@@ -8,6 +8,7 @@
 
 use crate::wallet::load_wallet;
 use autonomi::{InitialPeersConfig, TransactionConfig};
+use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
@@ -96,8 +97,17 @@ pub async fn sync(
             .await
             .wrap_err("Failed to fetch vault from network")
             .with_suggestion(|| "Make sure you have already created a vault on the network")?;
-        println!("Syncing vault with local user data...");
-        crate::user_data::write_local_user_data(&net_user_data)?;
+
+        let net_register_key = net_user_data.register_key.clone();
+        let local_register_key = crate::access::keys::get_register_signing_key()
+            .map(|k| k.to_hex())
+            .ok();
+        if local_register_key.is_some() && net_register_key != local_register_key {
+            return Err(eyre!("The register key in the vault does not match the local register key, aborting sync to prevent loss of current register key")
+                .with_suggestion(|| "You can overwrite the data in the vault with the local data by providing the `force` flag")
+                .with_suggestion(|| "Or you can overwrite the local data with the data in the vault by using the `load` command")
+            );
+        }
     }
 
     println!("Pushing local user data to network vault...");

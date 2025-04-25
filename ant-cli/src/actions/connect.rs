@@ -66,13 +66,14 @@ pub async fn connect_to_network_with_config(
     match res {
         Ok(client) => {
             info!("Connected to the Network");
-            progress_bar.finish_with_message("Connected to the Network");
+            progress_bar.finish_with_message(format!("Connected to the {network_id:?} Network"));
             let client = client.with_strategy(operation_config);
             Ok(client)
         }
         Err(e) => {
             error!("Failed to connect to the network: {e}");
-            progress_bar.finish_with_message("Failed to connect to the network");
+            progress_bar
+                .finish_with_message(format!("Failed to connect to the {network_id:?} Network"));
             let exit_code = connect_error_exit_code(&e);
             Err((
                 eyre!(e).wrap_err("Failed to connect to the network"),

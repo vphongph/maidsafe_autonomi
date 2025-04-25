@@ -237,7 +237,7 @@ impl Client {
             let mut upload_tasks = vec![];
             #[cfg(feature = "loud")]
             let total_chunks = chunks.len();
-            for (i, &chunk) in chunks.iter().enumerate() {
+            for (_i, &chunk) in chunks.iter().enumerate() {
                 let self_clone = self.clone();
                 let address = *chunk.address();
 
@@ -246,7 +246,7 @@ impl Client {
                     #[cfg(feature = "loud")]
                     println!(
                         "({}/{}) Chunk stored at: {} (skipping, already exists)",
-                        i + 1,
+                        _i + 1,
                         chunks.len(),
                         chunk.address().to_hex()
                     );
@@ -266,7 +266,7 @@ impl Client {
                         Ok(_addr) => {
                             println!(
                                 "({}/{}) Chunk stored at: {}",
-                                i + 1,
+                                _i + 1,
                                 total_chunks,
                                 chunk.address().to_hex()
                             );
@@ -274,7 +274,7 @@ impl Client {
                         Err((_chunk, ref err)) => {
                             println!(
                                 "({}/{}) Chunk failed to be stored at: {} ({err})",
-                                i + 1,
+                                _i + 1,
                                 total_chunks,
                                 chunk.address().to_hex()
                             );

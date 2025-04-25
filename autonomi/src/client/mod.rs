@@ -110,6 +110,10 @@ pub enum ConnectError {
     /// The routing table does not contain any known peers to bootstrap from.
     #[error("No known peers available in the routing table to bootstrap the client")]
     NoKnownPeers(#[from] libp2p::kad::NoKnownPeers),
+
+    /// An error occurred while initializing the EVM network.
+    #[error("Failed to initialize the EVM network: {0}")]
+    EvmNetworkError(String),
 }
 
 /// Errors that can occur during the put operation.
@@ -172,7 +176,8 @@ impl Client {
                 local: true,
                 ..Default::default()
             },
-            evm_network: EvmNetwork::new(true).unwrap_or_default(),
+            evm_network: EvmNetwork::new(true)
+                .map_err(|e| ConnectError::EvmNetworkError(e.to_string()))?,
             strategy: Default::default(),
             network_id: None,
         })
@@ -260,6 +265,12 @@ impl Client {
             evm_network: config.evm_network,
             config: config.strategy,
         })
+    }
+
+    /// Set the `ClientOperatingStrategy` for the client.
+    pub fn with_strategy(mut self, strategy: ClientOperatingStrategy) -> Self {
+        self.config = strategy;
+        self
     }
 
     /// Receive events from the client.

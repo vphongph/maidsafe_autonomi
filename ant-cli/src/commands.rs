@@ -69,11 +69,6 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
-        /// Experimental: Optionally specify the quorum for the verification of the upload.
-        ///
-        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
-        #[arg(short, long, value_parser = parse_quorum)]
-        quorum: Option<Quorum>,
         /// Optional: Specify the maximum fee per gas in u128.
         #[arg(long)]
         max_fee_per_gas: Option<u128>,
@@ -252,18 +247,10 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             FileCmd::Upload {
                 file,
                 public,
-                quorum,
                 max_fee_per_gas,
             } => {
-                if let Err((err, exit_code)) = file::upload(
-                    &file,
-                    public,
-                    opt.peers,
-                    quorum,
-                    max_fee_per_gas,
-                    opt.network_id,
-                )
-                .await
+                if let Err((err, exit_code)) =
+                    file::upload(&file, public, opt.peers, max_fee_per_gas, opt.network_id).await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);
@@ -353,7 +340,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => wallet::balance(opt.peers.local).await,
+            WalletCmd::Balance => wallet::balance(opt.peers.local, opt.network_id).await,
         },
         Some(SubCmd::Analyze { addr, verbose }) => {
             analyze::analyze(&addr, verbose, opt.peers, opt.network_id).await

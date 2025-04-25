@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::exit_code::{upload_exit_code, ExitCodeError, IO_ERROR};
+use crate::opt::NetworkId;
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::config::ClientOperatingStrategy;
@@ -20,7 +21,7 @@ use std::path::PathBuf;
 pub async fn cost(
     file: &str,
     init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
+    network_id: NetworkId,
 ) -> Result<()> {
     let client = crate::actions::connect_to_network(init_peers_config, network_id)
         .await
@@ -43,18 +44,10 @@ pub async fn upload(
     file: &str,
     public: bool,
     init_peers_config: InitialPeersConfig,
-    optional_verification_quorum: Option<Quorum>,
     max_fee_per_gas: Option<u128>,
-    network_id: Option<u8>,
+    network_id: NetworkId,
 ) -> Result<(), ExitCodeError> {
-    let mut config = ClientOperatingStrategy::new();
-    if let Some(verification_quorum) = optional_verification_quorum {
-        config.chunks.verification_quorum = verification_quorum;
-    }
-
-    let mut client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config, network_id)
-            .await?;
+    let mut client = crate::actions::connect_to_network(init_peers_config, network_id).await?;
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;
 
@@ -158,7 +151,7 @@ pub async fn download(
     dest_path: &str,
     init_peers_config: InitialPeersConfig,
     quorum: Option<Quorum>,
-    network_id: Option<u8>,
+    network_id: NetworkId,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {

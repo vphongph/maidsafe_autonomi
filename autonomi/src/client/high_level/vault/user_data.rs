@@ -25,6 +25,8 @@ use super::{app_name_to_vault_content_type, VaultContentType, VaultError, VaultS
 pub static USER_DATA_VAULT_CONTENT_IDENTIFIER: LazyLock<VaultContentType> =
     LazyLock::new(|| app_name_to_vault_content_type("UserData"));
 
+pub type RegisterSecretKeyHex = String;
+
 /// UserData is stored in Vaults and contains most of a user's private data:
 /// It allows users to keep track of only the key to their User Data Vault
 /// while having the rest kept on the Network encrypted in a Vault for them
@@ -37,6 +39,8 @@ pub struct UserData {
     pub private_file_archives: HashMap<PrivateArchiveDataMap, String>,
     /// Owned register addresses, along with their names (can be empty)
     pub register_addresses: HashMap<RegisterAddress, String>,
+    /// Register key
+    pub register_key: Option<RegisterSecretKeyHex>,
 }
 
 /// Errors that can occur during the get operation.
@@ -56,6 +60,20 @@ impl UserData {
     /// Create a new empty UserData
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the register key
+    /// Returns Some(old register key) if it was already set and was different from the new one
+    pub fn set_register_key(
+        &mut self,
+        register_key: RegisterSecretKeyHex,
+    ) -> Option<RegisterSecretKeyHex> {
+        let mut old_key = self.register_key.clone();
+        if old_key == Some(register_key.clone()) {
+            old_key = None;
+        }
+        self.register_key = Some(register_key);
+        old_key
     }
 
     /// Add a register. Returning `Option::Some` with the old name if the register was already in the set.

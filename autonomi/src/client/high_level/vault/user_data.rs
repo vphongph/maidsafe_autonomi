@@ -31,7 +31,7 @@ pub type RegisterSecretKeyHex = String;
 /// It allows users to keep track of only the key to their User Data Vault
 /// while having the rest kept on the Network encrypted in a Vault for them
 /// Using User Data Vault is optional, one can decide to keep all their data locally instead.
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq, Deserialize)]
 pub struct UserData {
     /// Owned file archive addresses, along with their names (can be empty)
     pub file_archives: HashMap<ArchiveAddress, String>,
@@ -43,32 +43,6 @@ pub struct UserData {
     #[serde(default)]
     // This makes the field optional to support old versions without that field
     pub register_key: Option<RegisterSecretKeyHex>,
-}
-
-impl<'de> Deserialize<'de> for UserData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Helper {
-            pub file_archives: HashMap<ArchiveAddress, String>,
-            pub private_file_archives: HashMap<PrivateArchiveDataMap, String>,
-            pub register_addresses: HashMap<RegisterAddress, String>,
-            #[serde(default)] // This makes the field optional
-            pub register_key: Option<RegisterSecretKeyHex>,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
-
-        Ok(UserData {
-            file_archives: helper.file_archives,
-            private_file_archives: helper.private_file_archives,
-            register_addresses: helper.register_addresses,
-            register_key: helper.register_key,
-        })
-    }
 }
 
 /// Errors that can occur during the get operation.

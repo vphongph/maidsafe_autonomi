@@ -33,13 +33,15 @@ pub fn get_local_user_data() -> Result<UserData> {
     let file_archives = get_local_public_file_archives()?;
     let private_file_archives = get_local_private_file_archives()?;
     let registers = get_local_registers()?;
-    let register_key = super::keys::get_register_signing_key()?;
+    let register_key = super::keys::get_register_signing_key()
+        .map(|k| k.to_hex())
+        .ok();
 
     let user_data = UserData {
         file_archives,
         private_file_archives,
         register_addresses: registers,
-        register_key: Some(register_key.to_hex()),
+        register_key,
     };
     Ok(user_data)
 }

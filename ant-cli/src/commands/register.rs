@@ -109,7 +109,7 @@ pub async fn create(
 
     crate::user_data::write_local_register(&address, name)
         .wrap_err("Failed to save register to local user data")
-        .with_suggestion(|| "Local user data saves the register address above to disk, without it you need to keep track of the address yourself")?;
+        .with_suggestion(|| "Local user data saves the register address above to disk (for the register list command), without it you need to keep track of the address yourself")?;
     info!("Saved register to local user data");
 
     Ok(())
@@ -174,6 +174,13 @@ pub async fn edit(
     println!("Total cost: {cost} AttoTokens");
     info!("Successfully updated register at address: {address}");
 
+    if name {
+        let addr = RegisterAddress::new(register_key.public_key());
+        crate::user_data::write_local_register(&addr, &address)
+            .wrap_err("Failed to save register to local user data")
+            .with_suggestion(|| "Local user data saves the register address above to disk (for the register list command), without it you need to keep track of the address yourself")?;
+        info!("Saved register to local user data");
+    }
     Ok(())
 }
 
@@ -227,6 +234,12 @@ pub async fn get(
         info!("With value: [{value}]");
     }
 
+    if name {
+        crate::user_data::write_local_register(&addr, &address)
+            .wrap_err("Failed to save register to local user data")
+            .with_suggestion(|| "Local user data saves the register address above to disk (for the register list command), without it you need to keep track of the address yourself")?;
+        info!("Saved register to local user data");
+    }
     Ok(())
 }
 

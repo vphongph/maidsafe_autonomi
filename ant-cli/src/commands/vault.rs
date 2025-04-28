@@ -54,12 +54,9 @@ pub async fn create(
 
     println!("Retrieving local user data...");
     let local_user_data = crate::user_data::get_local_user_data()?;
-    let file_archives_len = local_user_data.file_archives.len();
-    let private_file_archives_len = local_user_data.private_file_archives.len();
-    let registers_len = local_user_data.register_addresses.len();
     println!("Pushing to network vault...");
     let total_cost = client
-        .put_user_data_to_vault(&vault_sk, wallet.into(), local_user_data)
+        .put_user_data_to_vault(&vault_sk, wallet.into(), local_user_data.clone())
         .await?;
 
     if total_cost.is_zero() {
@@ -70,9 +67,7 @@ pub async fn create(
 
     println!("Total cost: {total_cost} AttoTokens");
     println!("Vault contains:");
-    println!("{file_archives_len} public file archive(s)");
-    println!("{private_file_archives_len} private file archive(s)");
-    println!("{registers_len} register(s)");
+    local_user_data.display_stats();
     Ok(())
 }
 
@@ -98,33 +93,35 @@ pub async fn sync(
             .wrap_err("Failed to fetch vault from network")
             .with_suggestion(|| "Make sure you have already created a vault on the network")?;
 
+        // prevent loss of local register key if it differs from one in the vault
         let net_register_key = net_user_data.register_key.clone();
         let local_register_key = crate::access::keys::get_register_signing_key()
             .map(|k| k.to_hex())
             .ok();
-        if local_register_key.is_some() && net_register_key != local_register_key {
+        if local_register_key.is_some()
+            && net_register_key.is_some()
+            && net_register_key != local_register_key
+        {
             return Err(eyre!("The register key in the vault does not match the local register key, aborting sync to prevent loss of current register key")
                 .with_suggestion(|| "You can overwrite the data in the vault with the local data by providing the `force` flag")
                 .with_suggestion(|| "Or you can overwrite the local data with the data in the vault by using the `load` command")
             );
         }
+
+        println!("Syncing vault with local user data...");
+        crate::user_data::write_local_user_data(&net_user_data)?;
     }
 
     println!("Pushing local user data to network vault...");
     let local_user_data = crate::user_data::get_local_user_data()?;
-    let file_archives_len = local_user_data.file_archives.len();
-    let private_file_archives_len = local_user_data.private_file_archives.len();
-    let registers_len = local_user_data.register_addresses.len();
     client
-        .put_user_data_to_vault(&vault_sk, wallet.into(), local_user_data)
+        .put_user_data_to_vault(&vault_sk, wallet.into(), local_user_data.clone())
         .await
         .with_suggestion(|| "Make sure you have already created a vault on the network")?;
 
     println!("✅ Successfully synced vault");
     println!("Vault contains:");
-    println!("{file_archives_len} public file archive(s)");
-    println!("{private_file_archives_len} private file archive(s)");
-    println!("{registers_len} register(s)");
+    local_user_data.display_stats();
     Ok(())
 }
 
@@ -141,11 +138,6 @@ pub async fn load(init_peers_config: InitialPeersConfig, network_id: Option<u8>)
     crate::user_data::write_local_user_data(&user_data)?;
 
     println!("✅ Successfully loaded vault with:");
-    println!("{} public file archive(s)", user_data.file_archives.len());
-    println!(
-        "{} private file archive(s)",
-        user_data.private_file_archives.len()
-    );
-    println!("{} register(s)", user_data.register_addresses.len());
+    user_data.display_stats();
     Ok(())
 }

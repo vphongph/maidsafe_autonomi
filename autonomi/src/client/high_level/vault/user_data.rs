@@ -135,6 +135,22 @@ impl UserData {
         let vault_content = rmp_serde::from_slice(&bytes)?;
         Ok(vault_content)
     }
+
+    /// Display content
+    pub fn display_stats(&self) {
+        let file_archives_len = self.file_archives.len();
+        let private_file_archives_len = self.private_file_archives.len();
+        let registers_len = self.register_addresses.len();
+        let register_key = match self.register_key.is_some() {
+            true => "1",
+            false => "0",
+        };
+
+        println!("{file_archives_len} public file archive(s)");
+        println!("{private_file_archives_len} private file archive(s)");
+        println!("{registers_len} register(s)");
+        println!("{register_key} register key");
+    }
 }
 
 impl Client {

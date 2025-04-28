@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-04-22
+
+### Network
+
+#### Added
+
+- While refreshing the routing table the node adds itself as one of the closest targets. This
+  improves network discovery.
+
+#### Changed
+
+- A strict condition based on the `identify` agent info has now been removed. This would allow us to
+  use this field to transfer node/client version information.
+- The node relay server is now only enabled if the node is detected as public and is not a relay
+  client. Previously it was not disabled, but rather unused.
+- Change logging output for `NetworkAddress` to assist in investigating issues using ELK.
+- To reduce resource usage, peer versions are only filtered when metrics are updated. 
+- Several improvements for reducing resource usage:
+    + Peer versions are only filtered when metrics are updated. 
+    + While refreshing the routing table we avoid unnecessary random generation of indexes for
+      picking closest candidates.
+    + Reduce the frequency of network discovery.
+- While refreshing the routing table we fill up as many of the closest targets among empty buckets
+  as possible. This improves network discovery.
+
+#### Fixed
+
+- For using `evm-testnet` in a remote setup, some code for instructing Anvil to read the binding
+  address from the `ANVIL_IP_ADDR` was removed. It was restored again for this functionality.
+- Added some margin for the max chunk size to account for encryption and compression overhead. In
+  rare cases, valid chunks were considered too big.
+- Improve network discovery by avoiding holes between full buckets.
+- Eliminate the chance that network discovery `round_robin_index` got stalled due to edge case.
+- Avoid division by zero errors in an edge case with empty buckets.
+
+### API
+
+#### Added
+
+- We can now set `network_id` via the client API. This allows for programming against different
+  networks rather than just mainnet.
+- Public function `get_raw_quotes` to get quotes from nodes without the market prices from the smart
+  contract.
+- Public function `get_closest_to_address` to get the closest peers to an address.
+
+#### Changed
+
+- Various improvements in the client API for better usability.
+- Documentation was moved from the autonomi repository to https://github.com/maidsafe/docs.
+
+#### Fixed
+
+- Archive serialization was made backwards compatible.
+- Issue that prevented pointer mutation in some cases.
+- The pointer `xorname` function now returns its own address rather than the target.
+
+### Language Bindings
+
+#### Added
+
+- Documentation for behaviour of the Scratchpad in Python bindings.
+- Documentation and examples for using wallets in Python bindings.
+- Initial bindings for NodeJS have been provided using `napi-rs`.
+
+### Client
+
+#### Added
+
+- Provide an `analyze` command, which queries the details of an address on the network. This
+  should help developers debugging their apps and understanding the network.
+- Provide a `register history` command, which is useful for showing how the register's content has
+  changed over time.
+- The `register` `create`, `edit` and `get` commands now provide a `--hex` value for working with
+  hex addresses.
+- The `file download` command now supports downloading from a data map or public address.
+- The `file upload` command has extra output for indicating uploaded chunks.
+- File uploads and downloads now emit unique error codes for different error scenarios.
+
+### Launchpad
+
+#### Added
+
+- Provided documentation for connecting to a custom network.
+- Individual node management.
+
 ## 2025-04-01
 
 ### Network

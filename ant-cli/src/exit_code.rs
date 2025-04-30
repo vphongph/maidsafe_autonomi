@@ -79,8 +79,6 @@ pub(crate) fn put_error_exit_code(err: &PutError) -> i32 {
         PutError::PayError(pay_error) => pay_error_exit_code(pay_error),
         PutError::Serialization(_) => SERIALIZATION_ERROR,
         PutError::Wallet(_) => 42,
-        PutError::ScratchpadBadOwner => 43,
-        PutError::PaymentUnexpectedlyInvalid(_) => 44,
         PutError::PayeesMissing => 45,
     }
 }

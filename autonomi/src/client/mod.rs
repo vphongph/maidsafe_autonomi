@@ -48,7 +48,6 @@ use crate::networking::Multiaddr;
 use ant_bootstrap::InitialPeersConfig;
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
-use ant_protocol::NetworkAddress;
 use config::ClientConfig;
 use payment::PayError;
 use quote::CostError;
@@ -131,10 +130,6 @@ pub enum PutError {
     Serialization(String),
     #[error("A wallet error occurred: {0}")]
     Wallet(#[from] ant_evm::EvmError),
-    #[error("The owner key does not match the client's public key")]
-    ScratchpadBadOwner,
-    #[error("Payment unexpectedly invalid for {0:?}")]
-    PaymentUnexpectedlyInvalid(NetworkAddress),
     #[error("The payment proof contains no payees.")]
     PayeesMissing,
 }

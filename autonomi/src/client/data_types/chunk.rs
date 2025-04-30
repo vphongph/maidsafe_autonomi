@@ -11,7 +11,7 @@ use crate::{
         payment::{PaymentOption, Receipt},
         quote::CostError,
         utils::process_tasks_with_max_concurrency,
-        GetError, PutError,
+        GetError, PutError, PutErrorState,
     },
     self_encryption::DataMapLevel,
     Client,
@@ -26,6 +26,7 @@ use libp2p::kad::Record;
 use self_encryption::{decrypt_full_set, DataMap, EncryptedChunk};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     sync::LazyLock,
 };
@@ -201,6 +202,11 @@ impl Client {
             .await
             .inspect_err(|err| {
                 error!("Failed to put record - chunk {address:?} to the network: {err}")
+            })
+            .map_err(|err| PutError::Network {
+                address: address.clone(),
+                network_error: err,
+                state: PutErrorState::one(Some(payment_proofs), address),
             })?;
 
         Ok((total_cost, *chunk.address()))
@@ -226,7 +232,7 @@ impl Client {
     }
 
     /// Upload chunks and retry failed uploads up to `RETRY_ATTEMPTS` times.
-    pub async fn upload_chunks_with_retries<'a>(
+    pub(crate) async fn upload_chunks_with_retries<'a>(
         &self,
         mut chunks: Vec<&'a Chunk>,
         receipt: &Receipt,
@@ -241,7 +247,7 @@ impl Client {
                 let self_clone = self.clone();
                 let address = *chunk.address();
 
-                let Some((proof, _)) = receipt.get(chunk.name()) else {
+                let Some((proof, price)) = receipt.get(chunk.name()) else {
                     debug!("Chunk at {address:?} was already paid for so skipping");
                     #[cfg(feature = "loud")]
                     println!(
@@ -255,7 +261,7 @@ impl Client {
 
                 upload_tasks.push(async move {
                     let res = self_clone
-                        .chunk_upload_with_payment(chunk, proof.clone())
+                        .chunk_upload_with_payment(chunk, proof.clone(), *price)
                         .await
                         .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
                         .inspect(|_addr| {})
@@ -319,6 +325,7 @@ impl Client {
         &self,
         chunk: &Chunk,
         payment: ProofOfPayment,
+        price: AttoTokens,
     ) -> Result<ChunkAddress, PutError> {
         let storing_nodes = payment.payees();
 
@@ -333,7 +340,7 @@ impl Client {
         let record_kind = RecordKind::DataWithPayment(DataTypes::Chunk);
         let record = Record {
             key: key.clone(),
-            value: try_serialize_record(&(payment, chunk.clone()), record_kind)
+            value: try_serialize_record(&(payment.clone(), chunk.clone()), record_kind)
                 .map_err(|e| {
                     PutError::Serialization(format!(
                         "Failed to serialize chunk with payment: {e:?}"
@@ -345,8 +352,19 @@ impl Client {
         };
 
         self.network
-            .put_record(record, storing_nodes.clone(), self.config.chunks.put_quorum)
-            .await?;
+            .put_record_with_retries(record, storing_nodes.clone(), &self.config.chunks)
+            .await
+            .map_err(|err| {
+                let receipt = HashMap::from_iter([(*chunk.name(), (payment, price))]);
+                PutError::Network {
+                    address: NetworkAddress::from(*chunk.address()),
+                    network_error: err,
+                    state: PutErrorState::one(
+                        Some(receipt),
+                        NetworkAddress::from(*chunk.address()),
+                    ),
+                }
+            })?;
         debug!("Successfully stored chunk: {chunk:?} to {storing_nodes:?}");
         Ok(*chunk.address())
     }

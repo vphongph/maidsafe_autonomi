@@ -74,7 +74,7 @@ pub(crate) fn analysis_exit_code(err: &AnalysisError) -> i32 {
 pub(crate) fn put_error_exit_code(err: &PutError) -> i32 {
     match err {
         PutError::SelfEncryption(_) => SELF_ENCRYPTION_ERROR,
-        PutError::Network(_) => NETWORK_ERROR,
+        PutError::Network { .. } => NETWORK_ERROR,
         PutError::CostError(_) => 41,
         PutError::PayError(pay_error) => pay_error_exit_code(pay_error),
         PutError::Serialization(_) => SERIALIZATION_ERROR,

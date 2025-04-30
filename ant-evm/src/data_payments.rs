@@ -17,7 +17,7 @@ pub use std::time::SystemTime;
 use xor_name::XorName;
 
 /// The time in seconds that a quote is valid for
-pub const QUOTE_EXPIRATION_SECS: u64 = 3600;
+pub const QUOTE_EXPIRATION_SECS: u64 = 3600 * 24;
 
 /// The margin allowed for live_time
 const LIVE_TIME_MARGIN: u64 = 10;

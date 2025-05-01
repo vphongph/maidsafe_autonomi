@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::client::{
     payment::{PayError, PaymentOption},
     quote::CostError,
-    Client, GetError, PutError, PutErrorState,
+    Client, GetError, PutError,
 };
 use crate::networking::{PeerId, Record};
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
@@ -182,7 +182,7 @@ impl Client {
                 PointerError::PutError(PutError::Network {
                     address: NetworkAddress::from(address),
                     network_error: err,
-                    state: PutErrorState::one(Some(payment_proofs), NetworkAddress::from(address)),
+                    payment: Some(payment_proofs),
                 })
             })?;
 
@@ -265,7 +265,7 @@ impl Client {
                 PointerError::PutError(PutError::Network {
                     address: NetworkAddress::from(address),
                     network_error: err,
-                    state: PutErrorState::one(None, NetworkAddress::from(address)),
+                    payment: None,
                 })
             })?;
 

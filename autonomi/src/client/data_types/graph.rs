@@ -11,7 +11,6 @@ use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::ClientEvent;
 use crate::client::PutError;
-use crate::client::PutErrorState;
 use crate::client::UploadSummary;
 use crate::client::{Client, GetError};
 
@@ -162,11 +161,8 @@ impl Client {
             .map_err(|err| {
                 GraphError::PutError(PutError::Network {
                     address: NetworkAddress::from(address),
-                    network_error: err,
-                    state: PutErrorState::one(
-                        Some(payment_proofs.clone()),
-                        NetworkAddress::from(address),
-                    ),
+                    network_error: err.clone(),
+                    payment: Some(payment_proofs.clone()),
                 })
             })?;
 

@@ -16,7 +16,7 @@ use ant_protocol::{
 };
 use libp2p::kad::Record;
 
-use crate::client::{GetError, PutError, PutErrorState};
+use crate::client::{GetError, PutError};
 use crate::networking::NetworkError;
 pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
@@ -232,8 +232,8 @@ impl Client {
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
                     address: NetworkAddress::from(*address),
-                    network_error: err,
-                    state: PutErrorState::one(Some(payment_proofs), NetworkAddress::from(*address)),
+                    network_error: err.clone(),
+                    payment: Some(payment_proofs),
                 })
             })?;
 
@@ -323,7 +323,7 @@ impl Client {
                 ScratchpadError::PutError(PutError::Network {
                     address: NetworkAddress::from(address),
                     network_error: err,
-                    state: PutErrorState::one(None, NetworkAddress::from(address)),
+                    payment: None,
                 })
             })?;
 

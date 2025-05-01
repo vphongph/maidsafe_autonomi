@@ -43,7 +43,8 @@ mod network;
 mod put_error_state;
 mod utils;
 
-pub use put_error_state::PutErrorState;
+use payment::Receipt;
+pub use put_error_state::ChunkBatchUploadState;
 
 use crate::networking::Multiaddr;
 use crate::networking::NetworkAddress;
@@ -137,8 +138,11 @@ pub enum PutError {
     Network {
         address: NetworkAddress,
         network_error: NetworkError,
-        state: PutErrorState,
+        /// if a payment was made, it will be returned here so it can be reused
+        payment: Option<Receipt>,
     },
+    #[error("Batch upload: {0}")]
+    Batch(ChunkBatchUploadState),
 }
 
 /// Errors that can occur during the get operation.

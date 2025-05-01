@@ -12,6 +12,8 @@ use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::client::payment::PaymentOption;
+use autonomi::client::PutError;
+use autonomi::files::UploadError;
 use autonomi::networking::Quorum;
 use autonomi::{InitialPeersConfig, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
@@ -80,6 +82,16 @@ pub async fn upload(
                 local_addr = xor_name.to_hex();
                 local_addr.clone()
             }
+            Err(UploadError::PutError(PutError::Batch(upload_state))) => {
+                // NB TODO: save payment to local disk for re-use
+                let exit_code =
+                    upload_exit_code(&UploadError::PutError(PutError::Batch(Default::default())));
+                return Err((
+                    eyre!(UploadError::PutError(PutError::Batch(upload_state)))
+                        .wrap_err("Failed to upload file".to_string()),
+                    exit_code,
+                ));
+            }
             Err(err) => {
                 let exit_code = upload_exit_code(&err);
                 return Err((
@@ -94,6 +106,16 @@ pub async fn upload(
             Ok((_cost, private_data_access)) => {
                 local_addr = private_data_access.address();
                 private_data_access.to_hex()
+            }
+            Err(UploadError::PutError(PutError::Batch(upload_state))) => {
+                // NB TODO: save payment to local disk for re-use
+                let exit_code =
+                    upload_exit_code(&UploadError::PutError(PutError::Batch(Default::default())));
+                return Err((
+                    eyre!(UploadError::PutError(PutError::Batch(upload_state)))
+                        .wrap_err("Failed to upload file".to_string()),
+                    exit_code,
+                ));
             }
             Err(err) => {
                 let exit_code = upload_exit_code(&err);

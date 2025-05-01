@@ -298,8 +298,8 @@ impl Client {
             archive.add_file(path, DataAddress::new(map_xor_name), metadata);
         }
 
-        let root_serialized = rmp_serde::to_vec(&archive)?;
-        content_addrs.extend(self.get_content_addrs(Bytes::from(root_serialized))?);
+        let serialized = archive.to_bytes()?;
+        content_addrs.extend(self.get_content_addrs(serialized)?);
 
         let total_cost = self.get_cost_estimation(content_addrs).await?;
         debug!("Total cost for the directory: {total_cost:?}");

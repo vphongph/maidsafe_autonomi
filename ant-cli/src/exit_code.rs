@@ -29,9 +29,6 @@ pub(crate) fn upload_exit_code(err: &UploadError) -> i32 {
         UploadError::WalkDir(_) => IO_ERROR,
         UploadError::IoError(_) => IO_ERROR,
         UploadError::PutError(err) => put_error_exit_code(err),
-        UploadError::GetError(err) => get_error_exit_code(err),
-        UploadError::Serialization(_) => SERIALIZATION_ERROR,
-        UploadError::Deserialization(_) => SERIALIZATION_ERROR,
     }
 }
 

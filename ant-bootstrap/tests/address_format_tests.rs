@@ -51,7 +51,8 @@ async fn test_multiaddr_format_parsing() -> Result<(), Box<dyn std::error::Error
             bootstrap_cache_dir: None,
         };
 
-        let bootstrap_addresses = args.get_bootstrap_addr(None, None).await?;
+        // Without limiting the code to 1 address it will fetch peers from the production network.
+        let bootstrap_addresses = args.get_bootstrap_addr(None, Some(1)).await?;
         assert_eq!(bootstrap_addresses.len(), 1, "Should have one peer");
         assert_eq!(
             bootstrap_addresses[0].addr, addr,
@@ -88,7 +89,7 @@ async fn test_network_contacts_format() -> Result<(), Box<dyn std::error::Error>
         bootstrap_cache_dir: None,
     };
 
-    let addrs = args.get_bootstrap_addr(None, None).await?;
+    let addrs = args.get_bootstrap_addr(None, Some(2)).await?;
     assert_eq!(
         addrs.len(),
         2,

@@ -37,7 +37,6 @@ fn create_test_v1_struct() -> NodeServiceDataV1 {
                 local: false,
                 addrs: vec![],
                 network_contacts_url: vec![],
-                disable_mainnet_contacts: false,
                 ignore_cache: false,
                 bootstrap_cache_dir: None,
             },
@@ -278,6 +277,74 @@ fn test_v0_to_v1_field_transformations() {
     // - home_network: true in V0 should become relay: true in V1
     assert!(!data.no_upnp);
     assert!(data.relay);
+}
+
+#[test]
+fn test_backward_compatibility_with_deprecated_fields() {
+    let json_with_deprecated_field = serde_json::json!({
+        "schema_version": NODE_SERVICE_DATA_SCHEMA_V1,
+        "antnode_path": "/usr/bin/antnode",
+        "auto_restart": true,
+        "connected_peers": [
+            "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+        ],
+        "data_dir_path": "/home/user/.local/share/safe/node/1",
+        "evm_network": "ArbitrumSepoliaTest",
+        "initial_peers_config": {
+            "first": false,
+            "local": false,
+            "addrs": [],
+            "network_contacts_url": [],
+            "disable_mainnet_contacts": false, // This field was removed from the peers config
+            "ignore_cache": false,
+            "bootstrap_cache_dir": null
+        },
+        "listen_addr": [
+            "/ip4/127.0.0.1/udp/56215/quic-v1/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+        ],
+        "log_dir_path": "/home/user/.local/share/safe/node/1/logs",
+        "log_format": "Default",
+        "max_archived_log_files": 5,
+        "max_log_files": 10,
+        "metrics_port": 8080,
+        "network_id": 1,
+        "node_ip": "127.0.0.1",
+        "node_port": 56215,
+        "no_upnp": false,
+        "number": 1,
+        "peer_id": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        "pid": 12345,
+        "relay": true,
+        "rewards_address": "0x1234567890123456789012345678901234567890",
+        "reward_balance": "1000000000000000000",
+        "rpc_socket_addr": "127.0.0.1:8000",
+        "service_name": "safenode-1",
+        "status": "Running",
+        "user": "safe",
+        "user_mode": true,
+        "version": "0.1.0"
+    });
+
+    let service_data: Result<NodeServiceData, _> = serde_json::from_value(json_with_deprecated_field);
+    
+    assert!(
+        service_data.is_ok(),
+        "Failed to deserialize data with deprecated field 'disable_mainnet_contacts': {:?}",
+        service_data.err()
+    );
+    
+    let data = service_data.unwrap();
+    
+    assert_eq!(data.schema_version, NODE_SERVICE_DATA_SCHEMA_V1);
+    assert_eq!(data.service_name, "safenode-1");
+    assert_eq!(data.node_port, Some(56215));
+    
+    assert!(!data.initial_peers_config.first);
+    assert!(!data.initial_peers_config.local);
+    assert!(data.initial_peers_config.addrs.is_empty());
+    assert!(data.initial_peers_config.network_contacts_url.is_empty());
+    assert!(!data.initial_peers_config.ignore_cache);
+    assert!(data.initial_peers_config.bootstrap_cache_dir.is_none());
 }
 
 #[test]

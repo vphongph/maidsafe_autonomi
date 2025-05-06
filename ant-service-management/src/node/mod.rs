@@ -298,9 +298,6 @@ pub fn push_arguments_from_initial_peers_config(
                 .join(","),
         ));
     }
-    if init_peers_config.disable_mainnet_contacts {
-        args.push(OsString::from("--testnet"));
-    }
     if init_peers_config.ignore_cache {
         args.push(OsString::from("--ignore-cache"));
     }

@@ -57,11 +57,6 @@ pub struct InitialPeersConfig {
     /// Set to indicate this is a local network.
     #[clap(long, conflicts_with = "network_contacts_url", default_value = "false")]
     pub local: bool,
-    /// Set to indicate this is a testnet.
-    ///
-    /// This disables fetching peers from the mainnet network contacts.
-    #[clap(name = "testnet", long)]
-    pub disable_mainnet_contacts: bool,
     /// Set to not load the bootstrap addresses from the local cache.
     #[clap(long, default_value = "false")]
     pub ignore_cache: bool,
@@ -197,7 +192,7 @@ impl InitialPeersConfig {
             }
         }
 
-        if !self.local && !self.disable_mainnet_contacts {
+        if !self.local {
             let mut contacts_fetcher = ContactsFetcher::with_mainnet_endpoints()?;
             if let Some(count) = count {
                 contacts_fetcher.set_max_addrs(count);

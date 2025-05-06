@@ -221,11 +221,14 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let opt = Opt::parse();
 
-    if let Some(network_id) = opt.network_id {
-        version::set_network_id(network_id);
+    let network_id = if let Some(network_id) = opt.network_id {
+        network_id
     } else if opt.alpha {
-        version::set_network_id(2);
-    }
+        2
+    } else {
+        1
+    };
+    version::set_network_id(network_id);
 
     let identify_protocol_str = version::IDENTIFY_PROTOCOL_STR
         .read()
@@ -265,7 +268,7 @@ fn main() -> Result<()> {
 
     let evm_network: EvmNetwork = match opt.evm_network.as_ref() {
         Some(evm_network) => Ok(evm_network.clone().into()),
-        None => match get_evm_network(opt.peers.local) {
+        None => match get_evm_network(opt.peers.local, Some(network_id)) {
             Ok(net) => Ok(net),
             Err(_) => Err(eyre!(
                 "EVM network not specified. Please specify a network using the subcommand or by setting the `EVM_NETWORK` environment variable."

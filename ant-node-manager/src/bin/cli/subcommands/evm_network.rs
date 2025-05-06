@@ -46,7 +46,7 @@ impl TryInto<EvmNetwork> for EvmNetworkCommand {
             Self::EvmArbitrumOne => Ok(EvmNetwork::ArbitrumOne),
             Self::EvmArbitrumSepoliaTest => Ok(EvmNetwork::ArbitrumSepoliaTest),
             Self::EvmLocal => {
-                let network = get_evm_network(true)?;
+                let network = get_evm_network(true, None)?;
                 Ok(network)
             }
             Self::EvmCustom {

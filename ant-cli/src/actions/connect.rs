@@ -51,7 +51,7 @@ pub async fn connect_to_network_with_config(
         progress_bar.set_message("Connecting to The Autonomi Network...");
     };
 
-    let evm_network = get_evm_network(network_context.peers.local).map_err(|err| {
+    let evm_network = get_evm_network(network_context.peers.local, Some(network_context.network_id)).map_err(|err| {
         let exit_code = evm_util_error_exit_code(&err);
         (err.into(), exit_code)
     })?;

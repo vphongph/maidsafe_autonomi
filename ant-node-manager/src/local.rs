@@ -409,6 +409,7 @@ pub async fn run_node(
         .collect();
 
     Ok(NodeServiceData {
+        alpha: false,
         antnode_path: launcher.get_antnode_path(),
         auto_restart: false,
         connected_peers,

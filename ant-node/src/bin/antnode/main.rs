@@ -77,6 +77,10 @@ pub fn parse_log_output(val: &str) -> Result<LogOutputDestArg> {
 #[command(disable_version_flag = true)]
 #[clap(name = "antnode cli", version = env!("CARGO_PKG_VERSION"))]
 struct Opt {
+    /// Set to connect to the alpha network.
+    #[clap(long)]
+    alpha: bool,
+
     /// Print the crate version.
     #[clap(long)]
     crate_version: bool,
@@ -219,6 +223,8 @@ fn main() -> Result<()> {
 
     if let Some(network_id) = opt.network_id {
         version::set_network_id(network_id);
+    } else if opt.alpha {
+        version::set_network_id(2);
     }
 
     let identify_protocol_str = version::IDENTIFY_PROTOCOL_STR

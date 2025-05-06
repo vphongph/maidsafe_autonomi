@@ -6,8 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::actions::NetworkContext;
 use autonomi::{
-    client::analyze::AnalysisError, InitialPeersConfig, Multiaddr, RewardsAddress, SecretKey,
+    client::analyze::AnalysisError, Multiaddr, RewardsAddress, SecretKey,
     Wallet,
 };
 use color_eyre::eyre::Result;
@@ -16,8 +17,7 @@ use std::str::FromStr;
 pub async fn analyze(
     addr: &str,
     verbose: bool,
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
+    network_context: NetworkContext,
 ) -> Result<()> {
     macro_rules! println_if_verbose {
         ($($arg:tt)*) => {
@@ -29,7 +29,7 @@ pub async fn analyze(
     println_if_verbose!("Analyzing address: {}", addr);
 
     // then connect to network and check data
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 

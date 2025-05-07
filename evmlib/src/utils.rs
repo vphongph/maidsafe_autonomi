@@ -13,9 +13,10 @@ use crate::{CustomNetwork, Network};
 use alloy::network::Ethereum;
 use alloy::providers::fillers::{
     BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+    SimpleNonceManager,
 };
-use alloy::providers::{Identity, ProviderBuilder, ReqwestProvider};
-use alloy::transports::http::{reqwest, Client, Http};
+use alloy::providers::{Identity, ProviderBuilder, RootProvider};
+use alloy::transports::http::reqwest;
 use dirs_next::data_dir;
 use rand::Rng;
 use std::env;
@@ -119,10 +120,6 @@ fn get_evm_network_from_env() -> Result<Network, Error> {
         .map(|v| v == "arbitrum-one")
         .unwrap_or(false);
 
-    let use_arbitrum_sepolia = std::env::var("EVM_NETWORK")
-        .map(|v| v == "arbitrum-sepolia")
-        .unwrap_or(false);
-
     let use_arbitrum_sepolia_test = std::env::var("EVM_NETWORK")
         .map(|v| v == "arbitrum-sepolia-test")
         .unwrap_or(false);
@@ -130,9 +127,6 @@ fn get_evm_network_from_env() -> Result<Network, Error> {
     if use_arbitrum_one {
         info!("Using Arbitrum One EVM network as EVM_NETWORK is set to 'arbitrum-one'");
         Ok(Network::ArbitrumOne)
-    } else if use_arbitrum_sepolia {
-        info!("Using Arbitrum Sepolia EVM network as EVM_NETWORK is set to 'arbitrum-sepolia'");
-        Ok(Network::ArbitrumSepolia)
     } else if use_arbitrum_sepolia_test {
         info!("Using Arbitrum Sepolia Test EVM network as EVM_NETWORK is set to 'arbitrum-sepolia-test'");
         Ok(Network::ArbitrumSepoliaTest)
@@ -187,14 +181,16 @@ pub fn http_provider(
     rpc_url: reqwest::Url,
 ) -> FillProvider<
     JoinFill<
-        Identity,
-        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+        JoinFill<
+            Identity,
+            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+        >,
+        NonceFiller<SimpleNonceManager>,
     >,
-    ReqwestProvider,
-    Http<Client>,
+    RootProvider,
     Ethereum,
 > {
     ProviderBuilder::new()
-        .with_recommended_fillers()
-        .on_http(rpc_url)
+        .with_simple_nonce_management()
+        .connect_http(rpc_url)
 }

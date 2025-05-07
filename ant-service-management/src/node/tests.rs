@@ -31,7 +31,7 @@ fn create_test_v1_struct() -> NodeServiceDataV1 {
                 PeerId::from_str("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN").unwrap(),
             ]),
             data_dir_path: PathBuf::from("/home/user/.local/share/safe/node/1"),
-            evm_network: EvmNetwork::ArbitrumSepolia,
+            evm_network: EvmNetwork::ArbitrumSepoliaTest,
             initial_peers_config: InitialPeersConfig {
                 first: false,
                 local: false,

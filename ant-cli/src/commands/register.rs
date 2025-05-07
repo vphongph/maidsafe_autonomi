@@ -8,10 +8,11 @@
 
 #![allow(deprecated)]
 
+use crate::actions::NetworkContext;
 use crate::wallet::load_wallet;
 use autonomi::client::register::RegisterAddress;
 use autonomi::client::register::SecretKey as RegisterSecretKey;
-use autonomi::{Client, InitialPeersConfig, TransactionConfig};
+use autonomi::{Client, TransactionConfig};
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
@@ -36,14 +37,10 @@ pub fn generate_key(overwrite: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn cost(
-    name: &str,
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
-) -> Result<()> {
+pub async fn cost(name: &str, network_context: NetworkContext) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -62,13 +59,12 @@ pub async fn create(
     name: &str,
     value: &str,
     hex: bool,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     max_fee_per_gas: Option<u128>,
-    network_id: Option<u8>,
 ) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -120,13 +116,12 @@ pub async fn edit(
     name: bool,
     value: &str,
     hex: bool,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     max_fee_per_gas: Option<u128>,
-    network_id: Option<u8>,
 ) -> Result<()> {
     let main_registers_key = crate::keys::get_register_signing_key()
         .wrap_err("The register key is required to perform this action")?;
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -188,10 +183,9 @@ pub async fn get(
     address: String,
     name: bool,
     hex: bool,
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
+    network_context: NetworkContext,
 ) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -257,10 +251,9 @@ pub async fn history(
     address: String,
     name: bool,
     hex: bool,
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
+    network_context: NetworkContext,
 ) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 

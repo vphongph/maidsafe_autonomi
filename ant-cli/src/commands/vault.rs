@@ -6,20 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::opt::NetworkId;
+use crate::actions::NetworkContext;
 use crate::wallet::load_wallet;
-use autonomi::{InitialPeersConfig, TransactionConfig};
+use autonomi::TransactionConfig;
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use color_eyre::Section;
 
-pub async fn cost(
-    init_peers_config: InitialPeersConfig,
-    expected_max_size: u64,
-    network_id: NetworkId,
-) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn cost(network_context: NetworkContext, expected_max_size: u64) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -36,12 +32,8 @@ pub async fn cost(
     Ok(())
 }
 
-pub async fn create(
-    init_peers_config: InitialPeersConfig,
-    max_fee_per_gas: Option<u128>,
-    network_id: NetworkId,
-) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn create(network_context: NetworkContext, max_fee_per_gas: Option<u128>) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -72,12 +64,8 @@ pub async fn create(
     Ok(())
 }
 
-pub async fn sync(
-    force: bool,
-    init_peers_config: InitialPeersConfig,
-    network_id: NetworkId,
-) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn sync(force: bool, network_context: NetworkContext) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -126,8 +114,8 @@ pub async fn sync(
     Ok(())
 }
 
-pub async fn load(init_peers_config: InitialPeersConfig, network_id: NetworkId) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn load(network_context: NetworkContext) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 

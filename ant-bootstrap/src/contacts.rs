@@ -13,7 +13,7 @@ use reqwest::Client;
 use std::time::Duration;
 use url::Url;
 
-const MAINNET_CONTACTS: &[&str] = &[
+pub const MAINNET_CONTACTS: &[&str] = &[
     "https://sn-testnet.s3.eu-west-2.amazonaws.com/network-contacts",
     "http://159.89.251.80/bootstrap_cache.json",
     "http://159.65.210.89/bootstrap_cache.json",
@@ -21,7 +21,7 @@ const MAINNET_CONTACTS: &[&str] = &[
     "http://139.59.201.153/bootstrap_cache.json",
     "http://139.59.200.27/bootstrap_cache.json",
 ];
-const ALPHANET_CONTACTS: &[&str] = &[
+pub const ALPHANET_CONTACTS: &[&str] = &[
     "http://188.166.133.208/bootstrap_cache.json",
     "http://188.166.133.125/bootstrap_cache.json",
     "http://178.128.137.64/bootstrap_cache.json",

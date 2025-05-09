@@ -11,10 +11,11 @@ use crate::client::data_types::chunk::ChunkAddress;
 use crate::client::payment::Receipt;
 use crate::client::NetworkAddress;
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChunkBatchUploadState {
     pub successful: Vec<ChunkAddress>,
     pub failed: Vec<(ChunkAddress, String)>,

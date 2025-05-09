@@ -382,14 +382,14 @@ async fn add_node(args: MaintainNodesArgs) {
 
     let port_range = Some(PortRange::Single(current_port));
     match ant_node_manager::cmd::node::add(
+        false, // alpha,
         false, // auto_restart,
         config.auto_set_nat_flags,
         Some(config.count),
         config.data_dir_path,
-        true, // enable_metrics_server,
-        None, // env_variables,
-        None, // evm_network
-        config.home_network,
+        true,       // enable_metrics_server,
+        None,       // env_variables,
+        None,       // evm_network
         None,       // log_dir_path,
         None,       // log_format,
         None,       // max_archived_log_files,
@@ -399,6 +399,7 @@ async fn add_node(args: MaintainNodesArgs) {
         None,       // node_ip,
         port_range, // node_port
         config.init_peers_config.clone(),
+        config.relay, // relay,
         RewardsAddress::from_str(config.rewards_address.as_str()).unwrap(),
         None,                        // rpc_address,
         None,                        // rpc_port,
@@ -513,7 +514,7 @@ struct NodeConfig {
     count: u16,
     custom_ports: Option<PortRange>,
     data_dir_path: Option<PathBuf>,
-    home_network: bool,
+    relay: bool,
     network_id: Option<u8>,
     owner: Option<String>,
     init_peers_config: InitialPeersConfig,
@@ -578,7 +579,7 @@ fn prepare_node_config(args: &MaintainNodesArgs) -> NodeConfig {
         } else {
             Some(args.owner.clone())
         },
-        home_network: args.connection_mode == ConnectionMode::HomeNetwork,
+        relay: args.connection_mode == ConnectionMode::HomeNetwork,
         network_id: args.network_id,
         init_peers_config: args.init_peers_config.clone(),
         rewards_address: args.rewards_address.clone(),
@@ -602,8 +603,8 @@ fn debug_log_config(config: &NodeConfig, args: &MaintainNodesArgs) {
         config.data_dir_path, args.connection_mode
     );
     debug!(
-        " auto_set_nat_flags: {:?}, custom_ports: {:?}, upnp: {}, home_network: {}",
-        config.auto_set_nat_flags, config.custom_ports, config.upnp, config.home_network
+        " auto_set_nat_flags: {:?}, custom_ports: {:?}, upnp: {}, relay: {}",
+        config.auto_set_nat_flags, config.custom_ports, config.upnp, config.relay
     );
 }
 
@@ -631,6 +632,7 @@ fn get_port_range(custom_ports: &Option<PortRange>) -> (u16, u16) {
 async fn scale_down_nodes(config: &NodeConfig, count: u16) {
     match ant_node_manager::cmd::node::maintain_n_running_nodes(
         false,
+        false,
         config.auto_set_nat_flags,
         CONNECTION_TIMEOUT_START,
         count,
@@ -638,7 +640,6 @@ async fn scale_down_nodes(config: &NodeConfig, count: u16) {
         true,
         None,
         Some(EvmNetwork::default()),
-        config.home_network,
         None,
         None,
         None,
@@ -648,6 +649,7 @@ async fn scale_down_nodes(config: &NodeConfig, count: u16) {
         None,
         None, // We don't care about the port, as we are scaling down
         config.init_peers_config.clone(),
+        config.relay,
         RewardsAddress::from_str(config.rewards_address.as_str()).unwrap(),
         None,
         None,
@@ -704,6 +706,7 @@ async fn add_nodes(
         let port_range = Some(PortRange::Single(*current_port));
         match ant_node_manager::cmd::node::maintain_n_running_nodes(
             false,
+            false,
             config.auto_set_nat_flags,
             CONNECTION_TIMEOUT_START,
             config.count,
@@ -711,7 +714,6 @@ async fn add_nodes(
             true,
             None,
             Some(EvmNetwork::default()),
-            config.home_network,
             None,
             None,
             None,
@@ -721,6 +723,7 @@ async fn add_nodes(
             None,
             port_range,
             config.init_peers_config.clone(),
+            config.relay,
             RewardsAddress::from_str(config.rewards_address.as_str()).unwrap(),
             None,
             None,

@@ -77,19 +77,22 @@ pub enum SubCmd {
     /// distributions, however, use Systemd, which *does* support user-mode services.
     #[clap(name = "add")]
     Add {
+        /// Set if you want the service to connect to the alpha network.
+        #[clap(long, default_value_t = false)]
+        alpha: bool,
         /// Set to automatically restart antnode services upon OS reboot.
         ///
         /// If not used, any added services will *not* restart automatically when the OS reboots
         /// and they will need to be explicitly started again.
         #[clap(long, default_value_t = false)]
         auto_restart: bool,
-        /// Auto set NAT flags (--upnp or --relay) if our NAT status has been obtained by
+        /// Auto set NAT flags (--no-upnp or --relay) if our NAT status has been obtained by
         /// running the NAT detection command.
         ///
         /// Using the argument will cause an error if the NAT detection command has not already
         /// ran.
         ///
-        /// This will override any --upnp or --relay options.
+        /// This will override any --no-upnp or --relay options.
         #[clap(long, default_value_t = false)]
         auto_set_nat_flags: bool,
         /// The number of service instances.
@@ -923,6 +926,7 @@ async fn main() -> Result<()> {
 
     match args.cmd {
         Some(SubCmd::Add {
+            alpha,
             auto_restart,
             auto_set_nat_flags,
             count,
@@ -950,6 +954,7 @@ async fn main() -> Result<()> {
             version,
         }) => {
             cmd::node::add(
+                alpha,
                 auto_restart,
                 auto_set_nat_flags,
                 count,
@@ -957,7 +962,6 @@ async fn main() -> Result<()> {
                 enable_metrics_server,
                 env_variables,
                 Some(evm_network.try_into()?),
-                relay,
                 log_dir_path,
                 log_format,
                 max_archived_log_files,
@@ -967,6 +971,7 @@ async fn main() -> Result<()> {
                 node_ip,
                 node_port,
                 peers,
+                relay,
                 rewards_address,
                 rpc_address,
                 rpc_port,

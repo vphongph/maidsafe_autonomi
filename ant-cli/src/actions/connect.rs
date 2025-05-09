@@ -14,17 +14,28 @@ use std::time::Duration;
 
 use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code, ExitCodeError};
 
-pub async fn connect_to_network(
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
-) -> Result<Client, ExitCodeError> {
-    connect_to_network_with_config(init_peers_config, Default::default(), network_id).await
+/// Network connection context containing peer configuration and network ID
+pub struct NetworkContext {
+    /// Configuration for connecting to peers
+    pub peers: InitialPeersConfig,
+    /// The network ID
+    pub network_id: u8,
+}
+
+impl NetworkContext {
+    /// Creates a new NetworkContext with the specified peer configuration and network ID
+    pub fn new(peers: InitialPeersConfig, network_id: u8) -> Self {
+        Self { peers, network_id }
+    }
+}
+
+pub async fn connect_to_network(network_context: NetworkContext) -> Result<Client, ExitCodeError> {
+    connect_to_network_with_config(network_context, Default::default()).await
 }
 
 pub async fn connect_to_network_with_config(
-    init_peers_config: InitialPeersConfig,
-    operation_config: ClientOperatingStrategy,
-    network_id: Option<u8>,
+    network_context: NetworkContext,
+    operating_strategy: ClientOperatingStrategy,
 ) -> Result<Client, ExitCodeError> {
     let progress_bar = ProgressBar::new_spinner();
     progress_bar.enable_steady_tick(Duration::from_millis(120));
@@ -32,22 +43,26 @@ pub async fn connect_to_network_with_config(
     let new_style = progress_bar.style().tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈🔗");
     progress_bar.set_style(new_style);
 
-    if init_peers_config.local {
+    if network_context.peers.local {
         progress_bar.set_message("Connecting to a local Autonomi Network...");
     } else {
         progress_bar.set_message("Connecting to The Autonomi Network...");
     };
 
-    let evm_network = get_evm_network(init_peers_config.local).map_err(|err| {
+    let evm_network = get_evm_network(
+        network_context.peers.local,
+        Some(network_context.network_id),
+    )
+    .map_err(|err| {
         let exit_code = evm_util_error_exit_code(&err);
         (err.into(), exit_code)
     })?;
 
     let config = ClientConfig {
-        init_peers_config,
+        init_peers_config: network_context.peers,
         evm_network,
-        strategy: operation_config,
-        network_id,
+        strategy: operating_strategy,
+        network_id: Some(network_context.network_id),
     };
 
     let res = Client::init_with_config(config).await;

@@ -36,6 +36,7 @@ use tracing::debug;
 
 /// Returns the added service names
 pub async fn add(
+    alpha: bool,
     auto_restart: bool,
     auto_set_nat_flags: bool,
     count: Option<u16>,
@@ -43,7 +44,6 @@ pub async fn add(
     enable_metrics_server: bool,
     env_variables: Option<Vec<(String, String)>>,
     evm_network: Option<EvmNetwork>,
-    relay: bool,
     log_dir_path: Option<PathBuf>,
     log_format: Option<LogFormat>,
     max_archived_log_files: Option<usize>,
@@ -53,6 +53,7 @@ pub async fn add(
     node_ip: Option<Ipv4Addr>,
     node_port: Option<PortRange>,
     mut init_peers_config: InitialPeersConfig,
+    relay: bool,
     rewards_address: RewardsAddress,
     rpc_address: Option<Ipv4Addr>,
     rpc_port: Option<PortRange>,
@@ -115,6 +116,7 @@ pub async fn add(
     init_peers_config.bootstrap_cache_dir = bootstrap_cache_dir;
 
     let options = AddNodeServiceOptions {
+        alpha,
         auto_restart,
         auto_set_nat_flags,
         count,
@@ -583,6 +585,7 @@ pub async fn upgrade(
 ///
 /// The arguments here are mostly mirror those used in `add`.
 pub async fn maintain_n_running_nodes(
+    alpha: bool,
     auto_restart: bool,
     auto_set_nat_flags: bool,
     connection_timeout_s: u64,
@@ -591,7 +594,6 @@ pub async fn maintain_n_running_nodes(
     enable_metrics_server: bool,
     env_variables: Option<Vec<(String, String)>>,
     evm_network: Option<EvmNetwork>,
-    home_network: bool,
     log_dir_path: Option<PathBuf>,
     log_format: Option<LogFormat>,
     max_archived_log_files: Option<usize>,
@@ -601,6 +603,7 @@ pub async fn maintain_n_running_nodes(
     node_ip: Option<Ipv4Addr>,
     node_port: Option<PortRange>,
     peers_args: InitialPeersConfig,
+    relay: bool,
     rewards_address: RewardsAddress,
     rpc_address: Option<Ipv4Addr>,
     rpc_port: Option<PortRange>,
@@ -688,6 +691,7 @@ pub async fn maintain_n_running_nodes(
 
                 for (i, port) in ports_to_use.into_iter().enumerate() {
                     let added_service = add(
+                        alpha,
                         auto_restart,
                         auto_set_nat_flags,
                         Some(1),
@@ -695,7 +699,6 @@ pub async fn maintain_n_running_nodes(
                         enable_metrics_server,
                         env_variables.clone(),
                         evm_network.clone(),
-                        home_network,
                         log_dir_path.clone(),
                         log_format,
                         max_archived_log_files,
@@ -705,6 +708,7 @@ pub async fn maintain_n_running_nodes(
                         node_ip,
                         Some(PortRange::Single(port)),
                         peers_args.clone(),
+                        relay,
                         rewards_address,
                         rpc_address,
                         rpc_port.clone(),

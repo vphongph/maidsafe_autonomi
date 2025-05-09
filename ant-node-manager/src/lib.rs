@@ -673,7 +673,7 @@ mod tests {
     use ant_logging::LogFormat;
     use ant_service_management::{
         error::{Error as ServiceControlError, Result as ServiceControlResult},
-        node::{NodeService, NodeServiceData},
+        node::{NodeService, NodeServiceData, NODE_SERVICE_DATA_SCHEMA_LATEST},
         rpc::{NetworkInfo, NodeInfo, RecordAddress, RpcActions},
         UpgradeOptions, UpgradeResult,
     };
@@ -767,6 +767,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -779,7 +780,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -791,7 +793,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -799,9 +800,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Added,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -880,6 +882,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -892,7 +895,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -906,7 +910,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -914,9 +917,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Stopped,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -958,6 +962,7 @@ mod tests {
             .returning(|_| Ok(100));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -970,7 +975,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -984,7 +990,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -992,9 +997,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1076,6 +1082,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1088,7 +1095,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1102,7 +1110,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1110,9 +1117,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1167,6 +1175,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1179,7 +1188,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1191,7 +1201,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1199,9 +1208,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Added,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1268,6 +1278,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1280,7 +1291,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1292,7 +1304,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1300,9 +1311,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Added,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: true,
             version: "0.98.1".to_string(),
@@ -1368,6 +1380,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1380,7 +1393,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1392,7 +1406,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1400,9 +1413,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Added,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1438,6 +1452,7 @@ mod tests {
             .returning(|_| Ok(100));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1450,7 +1465,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1464,7 +1480,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1472,9 +1487,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1500,6 +1516,7 @@ mod tests {
     #[tokio::test]
     async fn stop_should_not_return_error_for_attempt_to_stop_installed_service() -> Result<()> {
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1512,7 +1529,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1524,7 +1542,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1532,9 +1549,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Added,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1560,6 +1578,7 @@ mod tests {
     async fn stop_should_return_ok_when_attempting_to_stop_service_that_was_already_stopped(
     ) -> Result<()> {
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1572,7 +1591,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1586,7 +1606,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1594,9 +1613,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Stopped,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1623,6 +1643,7 @@ mod tests {
     #[tokio::test]
     async fn stop_should_return_ok_when_attempting_to_stop_a_removed_service() -> Result<()> {
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1635,7 +1656,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1647,7 +1669,6 @@ mod tests {
             node_port: None,
             number: 1,
             peer_id: None,
-            peers_args: InitialPeersConfig::default(),
             pid: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1655,9 +1676,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Removed,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -1697,6 +1719,7 @@ mod tests {
             .returning(|_| Ok(100));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1709,8 +1732,9 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
             listen_addr: None,
+            initial_peers_config: InitialPeersConfig::default(),
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
             max_archived_log_files: None,
@@ -1723,7 +1747,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1731,9 +1754,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: None,
             user_mode: true,
             version: "0.98.1".to_string(),
@@ -1836,6 +1860,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1848,7 +1873,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1862,7 +1888,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1870,9 +1895,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -1936,6 +1962,7 @@ mod tests {
         let mock_rpc_client = MockRpcClient::new();
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -1948,7 +1975,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -1962,7 +1990,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -1970,9 +1997,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2081,6 +2109,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -2093,7 +2122,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2107,7 +2137,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2115,9 +2144,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2238,6 +2268,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -2250,7 +2281,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2264,7 +2296,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2272,9 +2303,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2390,6 +2422,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -2402,7 +2435,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2416,7 +2450,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2424,9 +2457,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2543,6 +2577,7 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -2555,7 +2590,8 @@ mod tests {
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2569,7 +2605,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2577,9 +2612,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: None,
             user_mode: true,
             version: current_version.to_string(),
@@ -2730,11 +2766,20 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: true,
+                addrs: vec![],
+                network_contacts_url: vec![],
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2748,15 +2793,6 @@ mod tests {
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig {
-                first: true,
-                addrs: vec![],
-                network_contacts_url: vec![],
-                local: false,
-                disable_mainnet_contacts: false,
-                ignore_cache: false,
-                bootstrap_cache_dir: None,
-            },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2764,9 +2800,10 @@ mod tests {
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2790,7 +2827,13 @@ mod tests {
             })
             .await?;
 
-        assert!(service_manager.service.service_data.peers_args.first);
+        assert!(
+            service_manager
+                .service
+                .service_data
+                .initial_peers_config
+                .first
+        );
 
         Ok(())
     }
@@ -2902,11 +2945,23 @@ mod tests {
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config:  InitialPeersConfig {
+                first: false,
+                addrs: vec![
+                    "/ip4/127.0.0.1/tcp/8080/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+                        .parse()?,
+                ],
+                network_contacts_url: vec![],
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -2920,18 +2975,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args:  InitialPeersConfig {
-                first: false,
-                addrs: vec![
-                    "/ip4/127.0.0.1/tcp/8080/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
-                        .parse()?,
-                ],
-                network_contacts_url: vec![],
-                local: false,
-                disable_mainnet_contacts: false,
-                ignore_cache: false,
-        bootstrap_cache_dir: None,
-    },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -2939,9 +2982,9 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
-            service_name: "antnode1".to_string(),
+ schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,            service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -2968,7 +3011,7 @@ network_id: None,
         assert!(!service_manager
             .service
             .service_data
-            .peers_args
+            .initial_peers_config
             .addrs
             .is_empty());
 
@@ -3080,11 +3123,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -3098,7 +3143,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: Default::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -3106,9 +3150,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -3241,11 +3286,20 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec![],
+                local: true,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -3259,15 +3313,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
-                network_contacts_url: vec![],
-                local: true,
-                disable_mainnet_contacts: false,
-                ignore_cache: false,
-                bootstrap_cache_dir: None,
-            },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -3275,9 +3320,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -3301,7 +3347,13 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.peers_args.local);
+        assert!(
+            service_manager
+                .service
+                .service_data
+                .initial_peers_config
+                .local
+        );
 
         Ok(())
     }
@@ -3411,11 +3463,23 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec![
+                    "http://localhost:8080/contacts.json".to_string(),
+                    "http://localhost:8081/contacts.json".to_string(),
+                ],
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -3429,18 +3493,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
-                network_contacts_url: vec![
-                    "http://localhost:8080/contacts.json".to_string(),
-                    "http://localhost:8081/contacts.json".to_string(),
-                ],
-                local: false,
-                disable_mainnet_contacts: false,
-                ignore_cache: false,
-                bootstrap_cache_dir: None,
-            },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -3448,9 +3500,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -3478,185 +3531,10 @@ network_id: None,
             service_manager
                 .service
                 .service_data
-                .peers_args
+                .initial_peers_config
                 .network_contacts_url
                 .len(),
             2
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn upgrade_should_retain_the_testnet_flag() -> Result<()> {
-        let current_version = "0.1.0";
-        let target_version = "0.2.0";
-
-        let tmp_data_dir = assert_fs::TempDir::new()?;
-        let current_install_dir = tmp_data_dir.child("antnode_install");
-        current_install_dir.create_dir_all()?;
-
-        let current_node_bin = current_install_dir.child("antnode");
-        current_node_bin.write_binary(b"fake antnode binary")?;
-        let target_node_bin = tmp_data_dir.child("antnode");
-        target_node_bin.write_binary(b"fake antnode binary")?;
-
-        let mut mock_service_control = MockServiceControl::new();
-        let mut mock_rpc_client = MockRpcClient::new();
-
-        // before binary upgrade
-        mock_service_control
-            .expect_get_process_pid()
-            .with(eq(current_node_bin.to_path_buf().clone()))
-            .times(1)
-            .returning(|_| Ok(1000));
-        mock_service_control
-            .expect_stop()
-            .with(eq("antnode1"), eq(false))
-            .times(1)
-            .returning(|_, _| Ok(()));
-
-        // after binary upgrade
-        mock_service_control
-            .expect_uninstall()
-            .with(eq("antnode1"), eq(false))
-            .times(1)
-            .returning(|_, _| Ok(()));
-        mock_service_control
-            .expect_install()
-            .with(
-                eq(ServiceInstallCtx {
-                    args: vec![
-                        OsString::from("--rpc"),
-                        OsString::from("127.0.0.1:8081"),
-                        OsString::from("--root-dir"),
-                        OsString::from("/var/antctl/services/antnode1"),
-                        OsString::from("--log-output-dest"),
-                        OsString::from("/var/log/antnode/antnode1"),
-                        OsString::from("--testnet"),
-                        OsString::from("--rewards-address"),
-                        OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
-                        OsString::from("evm-arbitrum-one"),
-                    ],
-                    autostart: false,
-                    contents: None,
-                    environment: None,
-                    label: "antnode1".parse()?,
-                    program: current_node_bin.to_path_buf(),
-                    username: Some("ant".to_string()),
-                    working_directory: None,
-                    disable_restart_on_failure: true,
-                }),
-                eq(false),
-            )
-            .times(1)
-            .returning(|_, _| Ok(()));
-
-        // after service restart
-        mock_service_control
-            .expect_start()
-            .with(eq("antnode1"), eq(false))
-            .times(1)
-            .returning(|_, _| Ok(()));
-        mock_service_control
-            .expect_wait()
-            .with(eq(3000))
-            .times(1)
-            .returning(|_| ());
-        mock_service_control
-            .expect_get_process_pid()
-            .with(eq(current_node_bin.to_path_buf().clone()))
-            .times(1)
-            .returning(|_| Ok(100));
-
-        mock_rpc_client.expect_node_info().times(1).returning(|| {
-            Ok(NodeInfo {
-                pid: 2000,
-                peer_id: PeerId::from_str("12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR")?,
-                data_path: PathBuf::from("/var/antctl/services/antnode1"),
-                log_path: PathBuf::from("/var/log/antnode/antnode1"),
-                version: target_version.to_string(),
-                uptime: std::time::Duration::from_secs(1), // the service was just started
-                wallet_balance: 0,
-            })
-        });
-        mock_rpc_client
-            .expect_network_info()
-            .times(1)
-            .returning(|| {
-                Ok(NetworkInfo {
-                    connected_peers: Vec::new(),
-                    listeners: Vec::new(),
-                })
-            });
-
-        let mut service_data = NodeServiceData {
-            auto_restart: false,
-            connected_peers: None,
-            data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
-            evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
-            listen_addr: None,
-            log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
-            log_format: None,
-            max_archived_log_files: None,
-            max_log_files: None,
-            metrics_port: None,
-            network_id: None,
-            node_ip: None,
-            node_port: None,
-            number: 1,
-            peer_id: Some(PeerId::from_str(
-                "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
-            )?),
-            peers_args: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
-                network_contacts_url: vec![],
-                local: false,
-                disable_mainnet_contacts: true,
-                ignore_cache: false,
-                bootstrap_cache_dir: None,
-            },
-            pid: Some(1000),
-            rewards_address: RewardsAddress::from_str(
-                "0x03B770D9cD32077cC0bF330c13C114a87643B124",
-            )?,
-            reward_balance: Some(AttoTokens::zero()),
-            rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
-            antnode_path: current_node_bin.to_path_buf(),
-            service_name: "antnode1".to_string(),
-            status: ServiceStatus::Running,
-            upnp: false,
-            user: Some("ant".to_string()),
-            user_mode: false,
-            version: current_version.to_string(),
-        };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
-
-        let mut service_manager = ServiceManager::new(
-            service,
-            Box::new(mock_service_control),
-            VerbosityLevel::Normal,
-        );
-
-        service_manager
-            .upgrade(UpgradeOptions {
-                auto_restart: false,
-                env_variables: None,
-                force: false,
-                start_service: true,
-                target_bin_path: target_node_bin.to_path_buf(),
-                target_version: Version::parse(target_version).unwrap(),
-            })
-            .await?;
-
-        assert!(
-            service_manager
-                .service
-                .service_data
-                .peers_args
-                .disable_mainnet_contacts
         );
 
         Ok(())
@@ -3766,11 +3644,20 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec![],
+                local: false,
+                ignore_cache: true,
+                bootstrap_cache_dir: None,
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -3784,15 +3671,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
-                network_contacts_url: vec![],
-                local: false,
-                disable_mainnet_contacts: false,
-                ignore_cache: true,
-                bootstrap_cache_dir: None,
-            },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -3800,9 +3678,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -3826,7 +3705,13 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.peers_args.ignore_cache);
+        assert!(
+            service_manager
+                .service
+                .service_data
+                .initial_peers_config
+                .ignore_cache
+        );
 
         Ok(())
     }
@@ -3936,11 +3821,22 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec![],
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: Some(PathBuf::from(
+                    "/var/antctl/services/antnode1/bootstrap_cache",
+                )),
+            },
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -3954,17 +3850,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
-                network_contacts_url: vec![],
-                local: false,
-                disable_mainnet_contacts: false,
-                ignore_cache: false,
-                bootstrap_cache_dir: Some(PathBuf::from(
-                    "/var/antctl/services/antnode1/bootstrap_cache",
-                )),
-            },
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -3972,9 +3857,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4002,7 +3888,7 @@ network_id: None,
             service_manager
                 .service
                 .service_data
-                .peers_args
+                .initial_peers_config
                 .bootstrap_cache_dir,
             Some(PathBuf::from(
                 "/var/antctl/services/antnode1/bootstrap_cache"
@@ -4013,7 +3899,7 @@ network_id: None,
     }
 
     #[tokio::test]
-    async fn upgrade_should_retain_the_upnp_flag() -> Result<()> {
+    async fn upgrade_should_retain_the_no_upnp_flag() -> Result<()> {
         let current_version = "0.1.0";
         let target_version = "0.2.0";
 
@@ -4058,7 +3944,7 @@ network_id: None,
                         OsString::from("/var/antctl/services/antnode1"),
                         OsString::from("--log-output-dest"),
                         OsString::from("/var/log/antnode/antnode1"),
-                        OsString::from("--upnp"),
+                        OsString::from("--no-upnp"),
                         OsString::from("--rewards-address"),
                         OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
                         OsString::from("evm-arbitrum-one"),
@@ -4116,11 +4002,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -4130,11 +4018,11 @@ network_id: None,
             network_id: None,
             node_ip: None,
             node_port: None,
+            no_upnp: true,
             number: 1,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -4142,9 +4030,9 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: true,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4168,7 +4056,7 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.upnp);
+        assert!(service_manager.service.service_data.no_upnp);
 
         Ok(())
     }
@@ -4278,11 +4166,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: Some(LogFormat::Json),
@@ -4296,7 +4186,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -4304,9 +4193,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4340,7 +4230,7 @@ network_id: None,
     }
 
     #[tokio::test]
-    async fn upgrade_should_retain_the_home_network_flag() -> Result<()> {
+    async fn upgrade_should_retain_the_relay_flag() -> Result<()> {
         let current_version = "0.1.0";
         let target_version = "0.2.0";
 
@@ -4385,7 +4275,7 @@ network_id: None,
                         OsString::from("/var/antctl/services/antnode1"),
                         OsString::from("--log-output-dest"),
                         OsString::from("/var/log/antnode/antnode1"),
-                        OsString::from("--home-network"),
+                        OsString::from("--relay"),
                         OsString::from("--rewards-address"),
                         OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
                         OsString::from("evm-arbitrum-one"),
@@ -4443,11 +4333,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: true,
+            relay: true,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -4461,7 +4353,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -4469,9 +4360,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4495,7 +4387,7 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.home_network);
+        assert!(service_manager.service.service_data.relay);
 
         Ok(())
     }
@@ -4605,11 +4497,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -4623,7 +4517,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -4631,9 +4524,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4770,11 +4664,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -4788,7 +4684,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -4796,9 +4691,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -4932,10 +4828,12 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -4949,14 +4847,14 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5097,10 +4995,12 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5114,14 +5014,14 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5259,11 +5159,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5277,7 +5179,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -5285,9 +5186,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5424,11 +5326,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5442,7 +5346,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -5450,9 +5353,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5587,11 +5491,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: true,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5605,7 +5511,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -5613,9 +5518,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5753,6 +5659,7 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: true,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -5765,7 +5672,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5779,7 +5687,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -5788,9 +5695,10 @@ network_id: None,
 
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -5928,6 +5836,7 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: true,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -5940,7 +5849,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -5954,7 +5864,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -5963,9 +5872,10 @@ network_id: None,
 
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -6040,7 +5950,6 @@ network_id: None,
                         OsString::from("/var/antctl/services/antnode1"),
                         OsString::from("--log-output-dest"),
                         OsString::from("/var/log/antnode/antnode1"),
-                        OsString::from("--upnp"),
                         OsString::from("--rewards-address"),
                         OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
                         OsString::from("evm-arbitrum-one"),
@@ -6101,11 +6010,13 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
             evm_network: EvmNetwork::ArbitrumOne,
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -6119,7 +6030,6 @@ network_id: None,
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?),
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -6127,9 +6037,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: true,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: current_version.to_string(),
@@ -6177,6 +6088,7 @@ network_id: None,
             .returning(|_, _| Ok(()));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: data_dir.to_path_buf(),
@@ -6189,7 +6101,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: log_dir.to_path_buf(),
             log_format: None,
@@ -6200,7 +6113,6 @@ network_id: None,
             node_ip: None,
             node_port: None,
             number: 1,
-            peers_args: InitialPeersConfig::default(),
             peer_id: None,
             pid: None,
             rewards_address: RewardsAddress::from_str(
@@ -6209,10 +6121,11 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: antnode_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             status: ServiceStatus::Stopped,
             service_name: "antnode1".to_string(),
             version: "0.98.1".to_string(),
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
         };
@@ -6245,6 +6158,7 @@ network_id: None,
             .returning(|_| Ok(1000));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -6257,7 +6171,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -6268,7 +6183,6 @@ network_id: None,
             node_ip: None,
             node_port: None,
             number: 1,
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
@@ -6279,9 +6193,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -6328,6 +6243,7 @@ network_id: None,
             });
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
@@ -6340,7 +6256,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
             log_format: None,
@@ -6351,7 +6268,6 @@ network_id: None,
             node_ip: None,
             node_port: None,
             number: 1,
-            peers_args: InitialPeersConfig::default(),
             pid: Some(1000),
             peer_id: Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
@@ -6362,9 +6278,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: PathBuf::from("/var/antctl/services/antnode1/antnode"),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Running,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -6406,6 +6323,7 @@ network_id: None,
             .returning(|_, _| Ok(()));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: data_dir.to_path_buf(),
@@ -6418,7 +6336,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: log_dir.to_path_buf(),
             log_format: None,
@@ -6430,7 +6349,6 @@ network_id: None,
             node_port: None,
             number: 1,
             pid: None,
-            peers_args: InitialPeersConfig::default(),
             peer_id: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -6438,9 +6356,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: antnode_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             service_name: "antnode1".to_string(),
             status: ServiceStatus::Stopped,
-            upnp: false,
+            no_upnp: false,
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
@@ -6482,6 +6401,7 @@ network_id: None,
             .returning(|_, _| Ok(()));
 
         let mut service_data = NodeServiceData {
+            alpha: false,
             auto_restart: false,
             connected_peers: None,
             data_dir_path: data_dir.to_path_buf(),
@@ -6494,7 +6414,8 @@ network_id: None,
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
             }),
-            home_network: false,
+            relay: false,
+            initial_peers_config: Default::default(),
             listen_addr: None,
             log_dir_path: log_dir.to_path_buf(),
             log_format: None,
@@ -6506,7 +6427,6 @@ network_id: None,
             node_port: None,
             number: 1,
             pid: None,
-            peers_args: InitialPeersConfig::default(),
             peer_id: None,
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
@@ -6514,9 +6434,10 @@ network_id: None,
             reward_balance: Some(AttoTokens::zero()),
             rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
             antnode_path: antnode_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
             status: ServiceStatus::Stopped,
             service_name: "antnode1".to_string(),
-            upnp: false,
+            no_upnp: false,
             user: None,
             user_mode: true,
             version: "0.98.1".to_string(),
@@ -6536,6 +6457,176 @@ network_id: None,
         );
         log_dir.assert(predicate::path::missing());
         data_dir.assert(predicate::path::missing());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn upgrade_should_retain_the_alpha_flag() -> Result<()> {
+        let current_version = "0.1.0";
+        let target_version = "0.2.0";
+
+        let tmp_data_dir = assert_fs::TempDir::new()?;
+        let current_install_dir = tmp_data_dir.child("antnode_install");
+        current_install_dir.create_dir_all()?;
+
+        let current_node_bin = current_install_dir.child("antnode");
+        current_node_bin.write_binary(b"fake antnode binary")?;
+        let target_node_bin = tmp_data_dir.child("antnode");
+        target_node_bin.write_binary(b"fake antnode binary")?;
+
+        let mut mock_service_control = MockServiceControl::new();
+        let mut mock_rpc_client = MockRpcClient::new();
+
+        // before binary upgrade
+        mock_service_control
+            .expect_get_process_pid()
+            .with(eq(current_node_bin.to_path_buf().clone()))
+            .times(1)
+            .returning(|_| Ok(1000));
+        mock_service_control
+            .expect_stop()
+            .with(eq("antnode1"), eq(false))
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        // after binary upgrade
+        mock_service_control
+            .expect_uninstall()
+            .with(eq("antnode1"), eq(false))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        mock_service_control
+            .expect_install()
+            .with(
+                eq(ServiceInstallCtx {
+                    args: vec![
+                        OsString::from("--rpc"),
+                        OsString::from("127.0.0.1:8081"),
+                        OsString::from("--root-dir"),
+                        OsString::from("/var/antctl/services/antnode1"),
+                        OsString::from("--log-output-dest"),
+                        OsString::from("/var/log/antnode/antnode1"),
+                        OsString::from("--alpha"),
+                        OsString::from("--rewards-address"),
+                        OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                        OsString::from("evm-arbitrum-one"),
+                    ],
+                    autostart: false,
+                    contents: None,
+                    environment: None,
+                    label: "antnode1".parse()?,
+                    program: current_node_bin.to_path_buf(),
+                    username: Some("ant".to_string()),
+                    working_directory: None,
+                    disable_restart_on_failure: true,
+                }),
+                eq(false),
+            )
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        // after service restart
+        mock_service_control
+            .expect_start()
+            .with(eq("antnode1"), eq(false))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        mock_service_control
+            .expect_wait()
+            .with(eq(3000))
+            .times(1)
+            .returning(|_| ());
+        mock_service_control
+            .expect_get_process_pid()
+            .with(eq(current_node_bin.to_path_buf().clone()))
+            .times(1)
+            .returning(|_| Ok(100));
+
+        mock_rpc_client.expect_node_info().times(1).returning(|| {
+            Ok(NodeInfo {
+                pid: 2000,
+                peer_id: PeerId::from_str("12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR")?,
+                data_path: PathBuf::from("/var/antctl/services/antnode1"),
+                log_path: PathBuf::from("/var/log/antnode/antnode1"),
+                version: target_version.to_string(),
+                uptime: std::time::Duration::from_secs(1), // the service was just started
+                wallet_balance: 0,
+            })
+        });
+        mock_rpc_client
+            .expect_network_info()
+            .times(1)
+            .returning(|| {
+                Ok(NetworkInfo {
+                    connected_peers: Vec::new(),
+                    listeners: Vec::new(),
+                })
+            });
+
+        let mut service_data = NodeServiceData {
+            alpha: true,
+            auto_restart: false,
+            connected_peers: None,
+            data_dir_path: PathBuf::from("/var/antctl/services/antnode1"),
+            evm_network: EvmNetwork::ArbitrumOne,
+            relay: false,
+            initial_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: vec![],
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
+            listen_addr: None,
+            log_dir_path: PathBuf::from("/var/log/antnode/antnode1"),
+            log_format: None,
+            max_archived_log_files: None,
+            max_log_files: None,
+            metrics_port: None,
+            network_id: None,
+            node_ip: None,
+            node_port: None,
+            number: 1,
+            peer_id: Some(PeerId::from_str(
+                "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
+            )?),
+            pid: Some(1000),
+            rewards_address: RewardsAddress::from_str(
+                "0x03B770D9cD32077cC0bF330c13C114a87643B124",
+            )?,
+            reward_balance: Some(AttoTokens::zero()),
+            rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
+            antnode_path: current_node_bin.to_path_buf(),
+            schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
+            service_name: "antnode1".to_string(),
+            status: ServiceStatus::Running,
+            no_upnp: false,
+            user: Some("ant".to_string()),
+            user_mode: false,
+            version: current_version.to_string(),
+        };
+        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+
+        let mut service_manager = ServiceManager::new(
+            service,
+            Box::new(mock_service_control),
+            VerbosityLevel::Normal,
+        );
+
+        service_manager
+            .upgrade(UpgradeOptions {
+                auto_restart: false,
+                env_variables: None,
+                force: false,
+                start_service: true,
+                target_bin_path: target_node_bin.to_path_buf(),
+                target_version: Version::parse(target_version).unwrap(),
+            })
+            .await?;
+
+        assert!(service_manager.service.service_data.alpha);
 
         Ok(())
     }

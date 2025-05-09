@@ -42,7 +42,7 @@ pub mod external_signer;
 mod network;
 mod utils;
 
-use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
+use ant_bootstrap::{contacts::ALPHANET_CONTACTS, BootstrapCacheStore, InitialPeersConfig};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use ant_networking::{
@@ -168,6 +168,24 @@ impl Client {
         .await
     }
 
+    /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
+    pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let client_config = ClientConfig {
+            init_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: ALPHANET_CONTACTS.iter().map(|s| s.to_string()).collect(),
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
+            evm_network: EvmNetwork::ArbitrumSepoliaTest,
+            strategy: Default::default(),
+            network_id: Some(2),
+        };
+        Self::init_with_config(client_config).await
+    }
+
     /// Initialize a client that bootstraps from a list of peers.
     ///
     /// If any of the provided peers is a global address, the client will not be local.
@@ -213,14 +231,14 @@ impl Client {
     /// # }
     /// ```
     pub async fn init_with_config(config: ClientConfig) -> Result<Self, ConnectError> {
+        if let Some(network_id) = config.network_id {
+            ant_protocol::version::set_network_id(network_id);
+        }
+
         let initial_peers = match config.init_peers_config.get_addrs(None, None).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };
-
-        if let Some(network_id) = config.network_id {
-            ant_protocol::version::set_network_id(network_id);
-        }
 
         let (shutdown_tx, network, event_receiver) =
             build_client_and_run_swarm(&config.init_peers_config, initial_peers);

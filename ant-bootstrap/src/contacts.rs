@@ -13,13 +13,20 @@ use reqwest::Client;
 use std::time::Duration;
 use url::Url;
 
-const MAINNET_CONTACTS: &[&str] = &[
+pub const MAINNET_CONTACTS: &[&str] = &[
     "https://sn-testnet.s3.eu-west-2.amazonaws.com/network-contacts",
     "http://159.89.251.80/bootstrap_cache.json",
     "http://159.65.210.89/bootstrap_cache.json",
     "http://159.223.246.45/bootstrap_cache.json",
     "http://139.59.201.153/bootstrap_cache.json",
     "http://139.59.200.27/bootstrap_cache.json",
+];
+pub const ALPHANET_CONTACTS: &[&str] = &[
+    "http://188.166.133.208/bootstrap_cache.json",
+    "http://188.166.133.125/bootstrap_cache.json",
+    "http://178.128.137.64/bootstrap_cache.json",
+    "http://159.223.242.7/bootstrap_cache.json",
+    "http://143.244.197.147/bootstrap_cache.json",
 ];
 
 /// The client fetch timeout
@@ -74,6 +81,17 @@ impl ContactsFetcher {
             .map(|url| url.parse().expect("Failed to parse static URL"))
             .collect();
         fetcher.endpoints = mainnet_contact;
+        Ok(fetcher)
+    }
+
+    /// Create a new struct with the alphanet endpoints
+    pub fn with_alphanet_endpoints() -> Result<Self> {
+        let mut fetcher = Self::new()?;
+        let alphanet_contact = ALPHANET_CONTACTS
+            .iter()
+            .map(|url| url.parse().expect("Failed to parse static URL"))
+            .collect();
+        fetcher.endpoints = alphanet_contact;
         Ok(fetcher)
     }
 

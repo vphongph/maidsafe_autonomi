@@ -18,8 +18,8 @@ nightly = []
 
 [dependencies]
 ant-build-info = { path = "../ant-build-info", version = "0.1.27" }
-ant-networking = { path = "../ant-networking", version = "0.3.11" }
-ant-protocol = { path = "../ant-protocol", version = "1.0.4" }
+ant-networking = { path = "../ant-networking", version = "0.3.12" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.5" }
 clap = { version = "4.5.4", features = ["derive"] }
 clap-verbosity-flag = "2.2.0"
 color-eyre = { version = "0.6", default-features = false }
@@ -34,7 +34,7 @@ libp2p = { version = "0.55.0", features = [
     "macros",
     "upnp",
 ] }
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { version = "1.43.1", features = ["full"] }
 tracing = { version = "~0.1.26" }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

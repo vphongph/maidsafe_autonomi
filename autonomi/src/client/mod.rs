@@ -42,7 +42,7 @@ pub mod external_signer;
 mod network;
 mod utils;
 
-use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
+use ant_bootstrap::{contacts::ALPHANET_CONTACTS, BootstrapCacheStore, InitialPeersConfig};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use ant_networking::{
@@ -174,7 +174,7 @@ impl Client {
             init_peers_config: InitialPeersConfig {
                 first: false,
                 addrs: vec![],
-                network_contacts_url: vec!["http://146.190.225.26/bootstrap_cache.json".to_string()],
+                network_contacts_url: ALPHANET_CONTACTS.iter().map(|s| s.to_string()).collect(),
                 local: false,
                 ignore_cache: false,
                 bootstrap_cache_dir: None,

@@ -6,8 +6,13 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use autonomi::client::{payment::Receipt, ChunkBatchUploadState};
+use autonomi::client::{
+    payment::{ProofOfPayment, Receipt},
+    ChunkBatchUploadState,
+};
+use autonomi::{AttoTokens, XorName};
 use color_eyre::eyre::{Context, Result};
+use std::collections::HashMap;
 use std::fs::{DirEntry, File};
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
@@ -24,7 +29,7 @@ pub fn get_payments_dir() -> Result<PathBuf> {
 /// Save the payment for the given file name to be reused later.
 pub fn save_payment(file: &str, upload_state: &ChunkBatchUploadState) -> Result<()> {
     let dir = get_payments_dir()?;
-    let timestamp = now();
+    let timestamp = get_timestamp_from(upload_state.payment.as_ref().unwrap_or(&HashMap::new()));
     let file_hash = filename_short(file);
     let file_path = dir.join(format!("{timestamp}_{file_hash}"));
 
@@ -116,6 +121,20 @@ fn now() -> String {
         .unwrap_or_default()
         .as_secs();
     timestamp.to_string()
+}
+
+fn get_timestamp_from(payment: &HashMap<XorName, (ProofOfPayment, AttoTokens)>) -> String {
+    if let Some((proof, _)) = payment.values().next() {
+        if let Some(timestamp) = proof.peer_quotes.first().map(|(_, quote)| quote.timestamp) {
+            return timestamp
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .to_string();
+        }
+    }
+
+    now()
 }
 
 #[cfg(test)]

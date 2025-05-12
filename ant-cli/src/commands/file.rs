@@ -42,13 +42,10 @@ pub async fn upload(
     file: &str,
     public: bool,
     network_context: NetworkContext,
-    optional_verification_quorum: Option<Quorum>,
     max_fee_per_gas: Option<u128>,
 ) -> Result<(), ExitCodeError> {
-    let mut config = ClientOperatingStrategy::new();
-    if let Some(verification_quorum) = optional_verification_quorum {
-        config.chunks.verification_quorum = verification_quorum;
-    }
+    let config = ClientOperatingStrategy::new();
+
     let mut client =
         crate::actions::connect_to_network_with_config(network_context, config).await?;
 

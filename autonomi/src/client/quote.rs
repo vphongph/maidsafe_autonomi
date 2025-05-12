@@ -9,10 +9,10 @@
 use super::Client;
 use crate::client::data_types::chunk::CHUNK_UPLOAD_BATCH_SIZE;
 use crate::client::utils::process_tasks_with_max_concurrency;
+use crate::networking::common::Addresses;
 use crate::networking::Network;
 use ant_evm::payment_vault::get_market_price;
 use ant_evm::{Amount, PaymentQuote, QuotePayment, QuotingMetrics};
-use ant_networking::Addresses;
 pub use ant_protocol::storage::DataTypes;
 use ant_protocol::{storage::ChunkAddress, NetworkAddress, CLOSE_GROUP_SIZE};
 use libp2p::PeerId;

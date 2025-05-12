@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 // all modules are private to this networking module
+pub(crate) mod common;
 mod config;
 mod driver;
 mod interface;

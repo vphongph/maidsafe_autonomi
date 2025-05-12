@@ -28,7 +28,6 @@ loud = []
 [dependencies]
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.2" }
 ant-evm = { path = "../ant-evm", version = "0.1.13" }
-ant-networking = { path = "../ant-networking", version = "0.3.11" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.4" }
 bip39 = "2.0.0"
 blst = "0.3.13"

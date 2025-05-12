@@ -247,7 +247,7 @@ pub enum WalletCmd {
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
-    let network_context = NetworkContext::new(opt.peers, opt.network_id as u8);
+    let network_context = NetworkContext::new(opt.peers, opt.network_id);
 
     match cmd {
         Some(SubCmd::File { command }) => match command {

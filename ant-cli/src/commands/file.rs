@@ -7,26 +7,21 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::access::cached_payments;
+use crate::actions::NetworkContext;
 use crate::exit_code::{upload_exit_code, ExitCodeError, IO_ERROR};
-use crate::opt::NetworkId;
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
-use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::client::payment::PaymentOption;
 use autonomi::client::PutError;
 use autonomi::files::UploadError;
 use autonomi::networking::Quorum;
-use autonomi::{InitialPeersConfig, TransactionConfig};
+use autonomi::{ClientOperatingStrategy, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
 use std::path::PathBuf;
 
-pub async fn cost(
-    file: &str,
-    init_peers_config: InitialPeersConfig,
-    network_id: NetworkId,
-) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn cost(file: &str, network_context: NetworkContext) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -46,11 +41,13 @@ pub async fn cost(
 pub async fn upload(
     file: &str,
     public: bool,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     max_fee_per_gas: Option<u128>,
-    network_id: NetworkId,
 ) -> Result<(), ExitCodeError> {
-    let mut client = crate::actions::connect_to_network(init_peers_config, network_id).await?;
+    let config = ClientOperatingStrategy::new();
+
+    let mut client =
+        crate::actions::connect_to_network_with_config(network_context, config).await?;
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;
 
@@ -180,17 +177,14 @@ pub async fn upload(
 pub async fn download(
     addr: &str,
     dest_path: &str,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     quorum: Option<Quorum>,
-    network_id: NetworkId,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;
     }
-    let client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config, network_id)
-            .await?;
+    let client = crate::actions::connect_to_network_with_config(network_context, config).await?;
     crate::actions::download(addr, dest_path, &client).await
 }
 

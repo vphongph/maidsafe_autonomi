@@ -10,7 +10,7 @@ use crate::opt::NetworkId;
 use crate::wallet::fs::{select_wallet_private_key, store_private_key};
 use crate::wallet::input::request_password;
 use crate::wallet::DUMMY_NETWORK;
-use autonomi::Wallet;
+use autonomi::{get_evm_network, Wallet};
 use color_eyre::eyre::eyre;
 use color_eyre::Result;
 use prettytable::{Cell, Row, Table};
@@ -82,7 +82,7 @@ pub fn export() -> Result<()> {
 }
 
 pub async fn balance(local: bool, network_id: NetworkId) -> Result<()> {
-    let network = network_id.evm_network(local)?;
+    let network = get_evm_network(local, Some(network_id as u8))?;
     let wallet = crate::wallet::load_wallet(&network)?;
 
     let token_balance = wallet.balance_of_tokens().await?;

@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-05-09
+
+### Network
+
+#### Added
+
+- The `antnode` binary now provides an `--alpha` flag argument. When used, it will connect the node
+  to the alpha network and use Arbitrum Sepolia as the EVM provider.
+
+### API
+
+#### Added
+
+- Provide an `init_alpha` function on the `Client`. It will return a client that is initialised
+  specifically for the alpha network.
+- Provide a `set_register_key` function on `UserData`. It sets the register key and returns the old
+  one if it was already set.
+- Provide a `display_stats` function on `UserData` to print out the current user data.
+
+#### Changed
+
+- Use the same set of payees for verification of quotes. This improves upload success rate.
+
+### Client
+
+#### Added
+
+- The `ant` binary now provides an `--alpha` flag argument. When used, it will connect the client to
+  the alpha network and use Arbitrum Sepolia as the EVM provider.
+- Synchronise the register signing key in the vault.
+
+#### Fixed
+
+- Correct the formatting of `AttoTokens` from 32 to 18 decimal places.
+
+#### Changed
+
+- Peers are dialled before a put record request. This improves upload success rate.
+
+### Antctl
+
+#### Added
+
+- Provide backwards compatibility in the form of reading old node registries that do not have new
+  fields.
+- The `add` command now provides an `--alpha` flag argument. When used, the node services will
+  connect to the alpha network.
+
+### Language Bindings
+
+#### Added
+
+- Several new classes were added to the Python bindings:
+    + `Chunk`
+    + `ClientEvent`
+    + `ClientEventReceiver`
+    + `DataTypes`
+    + `PaymentQuote`
+    + `QuotingMetrics`
+    + `Receipt`
+    + `StoreQuote`
+    + `UploadSummary`
+- The Python `Client` class also has several methods added:
+    + `init_alpha`
+    + `enable_client_events`
+    + `evm_network`
+    + `file_content_upload`
+    + `file_content_upload_public`
+    + `get_raw_quotes`
+    + `get_store_quotes`
+    + `pointer_verify`
+    + `scratchpad_verify`
+    + `upload_chunks_with_retries`
+
 ## 2025-04-29
 
 ### Network

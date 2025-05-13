@@ -97,6 +97,9 @@ impl Pointer {
 
     /// Get the bytes that the signature is calculated from
     fn bytes_to_sign(owner: &PublicKey, counter: u64, target: &PointerTarget) -> Vec<u8> {
+        // to support retrocompatibility with old pointers, we need to cast the counter to u32
+        let counter = counter as u32;
+
         let mut bytes = Vec::new();
         // Add owner public key bytes
         bytes.extend_from_slice(&owner.to_bytes());
@@ -214,41 +217,53 @@ mod tests {
         };
 
         // Serialize the old pointer format
-        let serialized = rmp_serde::to_vec(&old_pointer).expect("Failed to serialize old pointer");
+        let serialized_old =
+            rmp_serde::to_vec(&old_pointer).expect("Failed to serialize old pointer");
 
         // Deserialize into new pointer format
-        let deserialized: Pointer =
-            rmp_serde::from_slice(&serialized).expect("Failed to deserialize");
+        let deserialized_as_new: Pointer =
+            rmp_serde::from_slice(&serialized_old).expect("Failed to deserialize");
 
         // Verify the counter was correctly converted to u64
-        assert_eq!(deserialized.counter(), 42u64);
-        assert_eq!(deserialized.owner(), &old_pointer.owner);
-        assert_eq!(deserialized.target(), &old_pointer.target);
-        assert_eq!(deserialized.signature, old_pointer.signature);
+        assert_eq!(deserialized_as_new.counter(), 42u64);
+        assert_eq!(deserialized_as_new.owner(), &old_pointer.owner);
+        assert_eq!(deserialized_as_new.target(), &old_pointer.target);
+        assert_eq!(deserialized_as_new.signature, old_pointer.signature);
 
         // Serialize the new pointer format
         let new_pointer =
             Pointer::new(&sk, 42, PointerTarget::ChunkAddress(ChunkAddress::new(xor)));
 
         // Serialize the new pointer format
-        let serialized = rmp_serde::to_vec(&new_pointer).expect("Failed to serialize new pointer");
+        let serialized_new =
+            rmp_serde::to_vec(&new_pointer).expect("Failed to serialize new pointer");
 
         // Deserialize into pointer format
-        let deserialized: Pointer =
-            rmp_serde::from_slice(&serialized).expect("Failed to deserialize");
+        let deserialized_new: Pointer =
+            rmp_serde::from_slice(&serialized_new).expect("Failed to deserialize");
 
         // Verify the counter was correctly converted to u64
-        assert_eq!(deserialized.counter(), 42u64);
-        assert_eq!(deserialized.owner(), &new_pointer.owner);
-        assert_eq!(deserialized.target(), &new_pointer.target);
-        assert_eq!(deserialized.signature, new_pointer.signature);
+        assert_eq!(deserialized_new.counter(), 42u64);
+        assert_eq!(deserialized_new.owner(), &new_pointer.owner);
+        assert_eq!(deserialized_new.target(), &new_pointer.target);
+        assert_eq!(deserialized_new.signature, new_pointer.signature);
+
+        // Deserialize into old pointer format
+        let deserialized_as_old: OldPointer =
+            rmp_serde::from_slice(&serialized_new).expect("Failed to deserialize");
+
+        // Verify the counter was correctly converted to u32
+        assert_eq!(deserialized_as_old.counter, 42u32);
+        assert_eq!(deserialized_as_old.owner, new_pointer.owner);
+        assert_eq!(deserialized_as_old.target, new_pointer.target);
+        assert_eq!(deserialized_as_old.signature, new_pointer.signature);
 
         // compare old and new pointer
         assert_eq!(old_pointer.counter as u64, new_pointer.counter);
         assert_eq!(old_pointer.owner, new_pointer.owner);
         assert_eq!(old_pointer.target, new_pointer.target);
 
-        // signature differs though
-        assert_ne!(old_pointer.signature, new_pointer.signature);
+        // signature is the same
+        assert_eq!(old_pointer.signature, new_pointer.signature);
     }
 }

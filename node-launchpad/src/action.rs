@@ -115,7 +115,6 @@ pub enum StatusActions {
 pub enum OptionsActions {
     ResetNodes,
     UpdateNodes,
-    StartAllNodes,
 
     TriggerChangeDrive,
     TriggerChangeConnectionMode,

@@ -245,7 +245,7 @@ impl Component for Options {
             vec![Row::new(vec![
                 Cell::from(
                     Line::from(vec![Span::styled(
-                        " Open the Logs folder on this device ",
+                        " Open the logs folder on this device ",
                         Style::default().fg(LIGHT_PERIWINKLE),
                     )])
                     .alignment(Alignment::Left),
@@ -282,7 +282,7 @@ impl Component for Options {
                 Row::new(vec![
                     Cell::from(
                         Line::from(vec![Span::styled(
-                            " Upgrade all Nodes ",
+                            " Upgrade all nodes ",
                             Style::default().fg(LIGHT_PERIWINKLE),
                         )])
                         .alignment(Alignment::Left),
@@ -298,7 +298,7 @@ impl Component for Options {
                 Row::new(vec![
                     Cell::from(
                         Line::from(vec![Span::styled(
-                            " Reset all Nodes on this device ",
+                            " Reset all nodes on this device ",
                             Style::default().fg(LIGHT_PERIWINKLE),
                         )])
                         .alignment(Alignment::Left),

@@ -527,9 +527,8 @@ async fn run_nat_detection(action_sender: &UnboundedSender<Action>) {
     info!("Running nat detection....");
 
     // Notify that NAT detection is starting
-    if let Err(err) = action_sender.send(Action::StatusActions(
-        StatusActions::NatDetectionStarted,
-    )) {
+    if let Err(err) = action_sender.send(Action::StatusActions(StatusActions::NatDetectionStarted))
+    {
         error!("Error while sending action: {err:?}");
     }
 

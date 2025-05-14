@@ -374,7 +374,7 @@ impl Status<'_> {
             && self.error_while_running_nat_detection < MAX_ERRORS_WHILE_RUNNING_NAT_DETECTION
     }
 
-    fn nodes_starting(&self) -> bool {
+    fn _nodes_starting(&self) -> bool {
         if let Some(items) = &self.items {
             items
                 .items

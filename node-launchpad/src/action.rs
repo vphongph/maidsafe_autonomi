@@ -67,6 +67,7 @@ pub enum StatusActions {
         service_name: String,
     },
     UpdateNodesCompleted,
+    NatDetectionStarted,
     SuccessfullyDetectedNatStatus,
     ErrorWhileRunningNatDetection,
     ErrorLoadingNodeRegistry {
@@ -114,6 +115,7 @@ pub enum StatusActions {
 pub enum OptionsActions {
     ResetNodes,
     UpdateNodes,
+    StartAllNodes,
 
     TriggerChangeDrive,
     TriggerChangeConnectionMode,

@@ -526,6 +526,13 @@ struct NodeConfig {
 async fn run_nat_detection(action_sender: &UnboundedSender<Action>) {
     info!("Running nat detection....");
 
+    // Notify that NAT detection is starting
+    if let Err(err) = action_sender.send(Action::StatusActions(
+        StatusActions::NatDetectionStarted,
+    )) {
+        error!("Error while sending action: {err:?}");
+    }
+
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
     let version = match release_repo
         .get_latest_version(&ReleaseType::NatDetection)
@@ -560,6 +567,11 @@ async fn run_nat_detection(action_sender: &UnboundedSender<Action>) {
         }
     } else {
         info!("Successfully ran nat detection.");
+        if let Err(err) = action_sender.send(Action::StatusActions(
+            StatusActions::SuccessfullyDetectedNatStatus,
+        )) {
+            error!("Error while sending action: {err:?}");
+        }
     }
 }
 

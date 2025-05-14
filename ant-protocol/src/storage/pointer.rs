@@ -97,14 +97,20 @@ impl Pointer {
 
     /// Get the bytes that the signature is calculated from
     fn bytes_to_sign(owner: &PublicKey, counter: u64, target: &PointerTarget) -> Vec<u8> {
-        // to support retrocompatibility with old pointers, we need to cast the counter to u32
-        let counter = counter as u32;
+        // to support retrocompatibility with old pointers (u32 counter), we need to cast the counter to u32
+        // the support is limited to counters under u32::MAX
+        let counter_bytes: Vec<u8> = if counter > u32::MAX as u64 {
+            counter.to_le_bytes().to_vec()
+        } else {
+            let u32_counter = counter as u32;
+            u32_counter.to_le_bytes().to_vec()
+        };
 
         let mut bytes = Vec::new();
         // Add owner public key bytes
         bytes.extend_from_slice(&owner.to_bytes());
         // Add counter
-        bytes.extend_from_slice(&counter.to_le_bytes());
+        bytes.extend_from_slice(&counter_bytes);
         // Add target bytes using MessagePack serialization
         if let Ok(target_bytes) = rmp_serde::to_vec(target) {
             bytes.extend_from_slice(&target_bytes);

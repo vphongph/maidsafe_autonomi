@@ -41,6 +41,8 @@ impl StatefulWidget for Footer {
         let mut open_logs_text_style = text_disabled;
         let mut stop_all_command_style = command_disabled;
         let mut stop_all_text_style = text_disabled;
+        let start_all_command_style = command_disabled;
+        let start_all_text_style = text_disabled;
 
         match state {
             NodesToStart::Running => {
@@ -83,6 +85,9 @@ impl StatefulWidget for Footer {
         ];
 
         let stop_all = vec![
+            Span::styled("[Ctrl+G] ", start_all_command_style),
+            Span::styled("Start All", start_all_text_style),
+            Span::styled(" ", Style::default()),
             Span::styled("[Ctrl+X] ", stop_all_command_style),
             Span::styled("Stop All", stop_all_text_style),
         ];

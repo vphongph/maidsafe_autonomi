@@ -174,10 +174,7 @@ impl App {
         let action_tx_clone = action_tx.clone();
 
         tokio::spawn(async move {
-            let upnp_support = tokio::task::spawn_blocking(get_upnp_support)
-                .await
-                .unwrap_or(UpnpSupport::Unknown);
-
+            let upnp_support = get_upnp_support();
             let _ = action_tx_clone.send(Action::SetUpnpSupport(upnp_support));
         });
 
@@ -331,6 +328,7 @@ impl App {
             }
         }
         tui.exit()?;
+        info!("Exiting application");
         Ok(())
     }
 }

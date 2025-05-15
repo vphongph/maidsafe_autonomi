@@ -23,7 +23,7 @@ ant-build-info = { path = "../ant-build-info", version = "0.1.27" }
 ant-evm = { path = "../ant-evm", version = "0.1.14" }
 ant-node-manager = { version = "0.13.0", path = "../ant-node-manager" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.5" }
-ant-releases = { version = "0.4.0" }
+ant-releases = { version = "0.4.1" }
 ant-service-management = { version = "0.4.13", path = "../ant-service-management" }
 arboard = "3.4.1"
 atty = "0.2.14"
@@ -61,12 +61,14 @@ regex = "1.11.0"
 reqwest = { version = "0.12.2", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }
+semver = "1.0.20"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 signal-hook = "0.3.17"
 strip-ansi-escapes = "0.2.0"
 strum = { version = "0.26.1", features = ["derive"] }
 sysinfo = "0.30.12"
+tempfile = "3.12.0"
 throbber-widgets-tui = "0.8.0"
 tokio = { version = "1.43.1", features = ["full"] }
 tokio-util = "0.7.9"
@@ -78,6 +80,3 @@ which = "6.0.1"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = ["build", "git", "gitoxide", "cargo"] }
-
-[dev-dependencies]
-tempfile = "3.12.0"

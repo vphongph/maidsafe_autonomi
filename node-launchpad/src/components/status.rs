@@ -444,7 +444,10 @@ impl Component for Status<'_> {
                 let _ = self.update_node_items(None);
             }
             Action::SwitchScene(scene) => match scene {
-                Scene::Status | Scene::StatusRewardsAddressPopUp | Scene::RemoveNodePopUp => {
+                Scene::Status
+                | Scene::StatusRewardsAddressPopUp
+                | Scene::RemoveNodePopUp
+                | Scene::UpgradeLaunchpadPopUp => {
                     self.active = true;
                     // make sure we're in navigation mode
                     return Ok(Some(Action::SwitchInputMode(InputMode::Navigation)));

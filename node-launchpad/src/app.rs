@@ -6,8 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use std::path::PathBuf;
-
+use crate::components::popup::upgrade_launchpad::UpgradeLaunchpadPopup;
 use crate::upnp::{get_upnp_support, UpnpSupport};
 use crate::{
     action::Action,
@@ -35,6 +34,7 @@ use ant_bootstrap::InitialPeersConfig;
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ratatui::{prelude::Rect, style::Style, widgets::Block};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 pub struct App {
@@ -131,6 +131,24 @@ impl App {
         let rewards_address = RewardsAddress::new(app_data.discord_username.clone());
         let upgrade_nodes = UpgradeNodesPopUp::new();
         let remove_node = RemoveNodePopUp::default();
+        let upgrade_launchpad_popup = UpgradeLaunchpadPopup::default();
+
+        let components: Vec<Box<dyn Component>> = vec![
+            // Sections
+            Box::new(status),
+            Box::new(options),
+            Box::new(help),
+            // Popups
+            Box::new(change_drive),
+            Box::new(change_connection_mode),
+            Box::new(port_range),
+            Box::new(rewards_address),
+            Box::new(reset_nodes),
+            Box::new(manage_nodes),
+            Box::new(upgrade_nodes),
+            Box::new(remove_node),
+            Box::new(upgrade_launchpad_popup),
+        ];
 
         Ok(Self {
             config,
@@ -145,21 +163,7 @@ impl App {
             },
             tick_rate,
             frame_rate,
-            components: vec![
-                // Sections
-                Box::new(status),
-                Box::new(options),
-                Box::new(help),
-                // Popups
-                Box::new(change_drive),
-                Box::new(change_connection_mode),
-                Box::new(port_range),
-                Box::new(rewards_address),
-                Box::new(reset_nodes),
-                Box::new(manage_nodes),
-                Box::new(upgrade_nodes),
-                Box::new(remove_node),
-            ],
+            components,
             should_quit: false,
             should_suspend: false,
             input_mode: InputMode::Navigation,
@@ -174,10 +178,7 @@ impl App {
         let action_tx_clone = action_tx.clone();
 
         tokio::spawn(async move {
-            let upnp_support = tokio::task::spawn_blocking(get_upnp_support)
-                .await
-                .unwrap_or(UpnpSupport::Unknown);
-
+            let upnp_support = get_upnp_support();
             let _ = action_tx_clone.send(Action::SetUpnpSupport(upnp_support));
         });
 
@@ -331,6 +332,7 @@ impl App {
             }
         }
         tui.exit()?;
+        info!("Exiting application");
         Ok(())
     }
 }

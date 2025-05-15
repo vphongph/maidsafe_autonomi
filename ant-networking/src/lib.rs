@@ -6,6 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::result_large_err)]
+
 #[macro_use]
 extern crate tracing;
 

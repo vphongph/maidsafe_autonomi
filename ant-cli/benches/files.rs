@@ -120,7 +120,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     for size in sizes.iter() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let temp_dir_path = temp_dir.into_path();
+        let temp_dir_path = temp_dir.keep();
         let temp_dir_path_str = temp_dir_path.to_str().expect("Invalid unicode encountered");
 
         // create 23 random files. This is to keep the benchmark results consistent with prior runs. The change to make

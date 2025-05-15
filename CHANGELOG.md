@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-05-14
+
+### Client
+
+#### Fixed
+
+- Correctly obtain the EVM network on the `wallet balance` command. The change for the `--alpha`
+  flag unintentionally introduced a regression that resulted in not being able to obtain the balance
+  unless the EVM network was explicitly set. It will now be correctly selected based on the network
+  ID.
+
+### Launchpad
+
+#### Added
+
+- Display a dialog to indicate NAT detection is running when a new node service is requested.
+  Without this, the launchpad appeared to be unresponsive.
+- Introduce a check for the latest version. To encourage upgrades, a dialog will now appear to
+  indicate the availability of a new version.
+
+#### Changed
+
+- Improve the grammar of some text used on the `Options` panel.
+
 ## 2025-05-09
 
 ### Network

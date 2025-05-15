@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -6384,7 +6384,7 @@ dependencies = [
 
 [[package]]
 name = "node-launchpad"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",

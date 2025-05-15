@@ -80,6 +80,8 @@ pub struct Status<'a> {
     // NAT
     is_nat_status_determined: bool,
     error_while_running_nat_detection: usize,
+    // Track if NAT detection is currently running
+    nat_detection_in_progress: bool,
     // Device Stats Section
     node_stats: NodeStats,
     node_stats_last_update: Instant,
@@ -136,6 +138,7 @@ impl Status<'_> {
             active: true,
             is_nat_status_determined: false,
             error_while_running_nat_detection: 0,
+            nat_detection_in_progress: false,
             network_id: config.network_id,
             node_stats: NodeStats::default(),
             node_stats_last_update: Instant::now(),
@@ -371,7 +374,7 @@ impl Status<'_> {
             && self.error_while_running_nat_detection < MAX_ERRORS_WHILE_RUNNING_NAT_DETECTION
     }
 
-    fn nodes_starting(&self) -> bool {
+    fn _nodes_starting(&self) -> bool {
         if let Some(items) = &self.items {
             items
                 .items
@@ -582,9 +585,15 @@ impl Component for Status<'_> {
                         "Successfully detected nat status, is_nat_status_determined set to true"
                     );
                     self.is_nat_status_determined = true;
+                    self.nat_detection_in_progress = false;
+                }
+                StatusActions::NatDetectionStarted => {
+                    debug!("NAT detection started");
+                    self.nat_detection_in_progress = true;
                 }
                 StatusActions::ErrorWhileRunningNatDetection => {
                     self.error_while_running_nat_detection += 1;
+                    self.nat_detection_in_progress = false;
                     debug!(
                         "Error while running nat detection. Error count: {}",
                         self.error_while_running_nat_detection
@@ -847,6 +856,11 @@ impl Component for Status<'_> {
                         run_nat_detection: self.should_we_run_nat_detection(),
                     };
 
+                    // Set NAT detection in progress flag if we're going to run detection
+                    if maintain_nodes_args.run_nat_detection {
+                        self.nat_detection_in_progress = true;
+                    }
+
                     debug!("Calling maintain_n_running_nodes");
 
                     self.node_management
@@ -941,6 +955,11 @@ impl Component for Status<'_> {
                         rewards_address: self.rewards_address.clone(),
                         run_nat_detection: self.should_we_run_nat_detection(),
                     };
+
+                    // Set NAT detection in progress flag if we're going to run detection
+                    if add_node_args.run_nat_detection {
+                        self.nat_detection_in_progress = true;
+                    }
 
                     self.node_management
                         .send_task(NodeManagementTask::AddNode {
@@ -1386,12 +1405,12 @@ impl Component for Status<'_> {
             }
         }
 
-        if self.nodes_starting() && self.should_we_run_nat_detection() {
+        if self.nat_detection_in_progress {
             let popup_text = vec![
-                Line::raw("Starting nodes..."),
+                Line::raw("NAT Detection Running..."),
                 Line::raw(""),
                 Line::raw(""),
-                Line::raw("Please wait, performing initial NAT detection"),
+                Line::raw("Please wait, performing NAT detection"),
                 Line::raw("This may take a couple minutes."),
             ];
 
@@ -1401,7 +1420,7 @@ impl Component for Status<'_> {
             let popup_border = Paragraph::new("").block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" Manage Nodes ")
+                    .title(" NAT Detection ")
                     .bold()
                     .title_style(Style::new().fg(VIVID_SKY_BLUE))
                     .padding(Padding::uniform(2))

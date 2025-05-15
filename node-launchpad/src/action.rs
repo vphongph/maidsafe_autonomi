@@ -67,6 +67,7 @@ pub enum StatusActions {
         service_name: String,
     },
     UpdateNodesCompleted,
+    NatDetectionStarted,
     SuccessfullyDetectedNatStatus,
     ErrorWhileRunningNatDetection,
     ErrorLoadingNodeRegistry {

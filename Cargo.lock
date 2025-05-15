@@ -6463,6 +6463,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest 0.12.12",
+ "semver 1.0.25",
  "serde",
  "serde_json",
  "signal-hook",

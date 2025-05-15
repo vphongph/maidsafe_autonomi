@@ -47,6 +47,8 @@ use ant_service_management::{
 };
 use colored::Colorize;
 use semver::Version;
+use tokio::sync::mpsc;
+use tokio::task;
 use tracing::debug;
 
 pub const DAEMON_DEFAULT_PORT: u16 = 12500;
@@ -558,12 +560,32 @@ pub async fn refresh_node_registry(
 ) -> Result<()> {
     // This message is useful for users, but needs to be suppressed when a JSON output is
     // requested.
+
     if print_refresh_message {
         println!("Refreshing the node registry...");
     }
     info!("Refreshing the node registry");
 
-    for node in &mut node_registry.nodes {
+    let total_nodes = node_registry.nodes.len();
+    let (tx, mut rx) = mpsc::channel::<usize>(100);
+
+    // Progress printer task
+    let handle = task::spawn(async move {
+        let mut last_percent = 0;
+        while let Some(processed) = rx.recv().await {
+            let percent = (processed * 100) / total_nodes.max(1);
+            if percent != last_percent {
+                use std::io::{stdout, Write};
+                stdout().flush().unwrap();
+                print!("\rRefresh progress - {:>3}%", percent);
+                last_percent = percent;
+            }
+        }
+        println!("\rRefresh progress - 100%");
+    });
+
+    // Main processing loop
+    for (i, node) in node_registry.nodes.iter_mut().enumerate() {
         // The `status` command can run before a node is started and therefore before its wallet
         // exists.
         // TODO: remove this as we have no way to know the reward balance of nodes since EVM payments!
@@ -631,7 +653,14 @@ pub async fn refresh_node_registry(
                 }
             }
         }
+
+        let _ = tx.send(i + 1).await;
     }
+
+    // Drop the sender to end the progress task
+    drop(tx);
+    let _ = handle.await;
+
     Ok(())
 }
 

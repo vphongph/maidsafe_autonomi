@@ -37,6 +37,7 @@ pub enum Request {
 }
 
 /// A response to peers in the network.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Response {
     /// The response to a cmd.

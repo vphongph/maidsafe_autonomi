@@ -32,6 +32,8 @@ pub enum Action {
 
     SetUpnpSupport(UpnpSupport),
 
+    UpgradeLaunchpadActions(UpgradeLaunchpadActions),
+
     Tick,
     Render,
     Resize(u16, u16),
@@ -67,6 +69,7 @@ pub enum StatusActions {
         service_name: String,
     },
     UpdateNodesCompleted,
+    NatDetectionStarted,
     SuccessfullyDetectedNatStatus,
     ErrorWhileRunningNatDetection,
     ErrorLoadingNodeRegistry {
@@ -126,4 +129,12 @@ pub enum OptionsActions {
     UpdatePortRange(u32, u32),
     UpdateRewardsAddress(String),
     UpdateStorageDrive(PathBuf, String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Display, Deserialize)]
+pub enum UpgradeLaunchpadActions {
+    UpdateAvailable {
+        current_version: String,
+        latest_version: String,
+    },
 }

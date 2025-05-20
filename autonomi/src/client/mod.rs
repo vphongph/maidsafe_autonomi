@@ -42,7 +42,7 @@ pub mod external_signer;
 mod network;
 mod utils;
 
-use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
+use ant_bootstrap::{contacts::ALPHANET_CONTACTS, BootstrapCacheStore, InitialPeersConfig};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use ant_networking::{
@@ -166,6 +166,24 @@ impl Client {
             network_id: None,
         })
         .await
+    }
+
+    /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
+    pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let client_config = ClientConfig {
+            init_peers_config: InitialPeersConfig {
+                first: false,
+                addrs: vec![],
+                network_contacts_url: ALPHANET_CONTACTS.iter().map(|s| s.to_string()).collect(),
+                local: false,
+                ignore_cache: false,
+                bootstrap_cache_dir: None,
+            },
+            evm_network: EvmNetwork::ArbitrumSepoliaTest,
+            strategy: Default::default(),
+            network_id: Some(2),
+        };
+        Self::init_with_config(client_config).await
     }
 
     /// Initialize a client that bootstraps from a list of peers.

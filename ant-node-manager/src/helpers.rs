@@ -386,14 +386,14 @@ pub fn check_port_availability(port_option: &PortRange, nodes: &[NodeServiceData
 
     match port_option {
         PortRange::Single(port) => {
-            if all_ports.iter().any(|p| *p == *port) {
+            if all_ports.contains(port) {
                 error!("Port {port} is being used by another service");
                 return Err(eyre!("Port {port} is being used by another service"));
             }
         }
         PortRange::Range(start, end) => {
             for i in *start..=*end {
-                if all_ports.iter().any(|p| *p == i) {
+                if all_ports.contains(&i) {
                     error!("Port {i} is being used by another service");
                     return Err(eyre!("Port {i} is being used by another service"));
                 }

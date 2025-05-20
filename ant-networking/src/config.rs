@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::Addresses;
 use ant_protocol::{
     messages::{ChunkProof, Nonce},
     PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
@@ -181,7 +182,7 @@ pub struct PutRecordCfg {
     pub retry_strategy: RetryStrategy,
     /// Use the `kad::put_record_to` to PUT the record only to the specified peers. If this option is set to None, we
     /// will be using `kad::put_record` which would PUT the record to all the closest members of the record.
-    pub use_put_record_to: Option<Vec<PeerId>>,
+    pub use_put_record_to: Option<Vec<(PeerId, Addresses)>>,
     /// Enables verification after writing. The VerificationKind is used to determine the method to use.
     pub verification: Option<(VerificationKind, GetRecordCfg)>,
 }
@@ -213,14 +214,14 @@ fn verify_retry_strategy_intervals() {
     };
 
     assert_eq!(intervals(RetryStrategy::None), Vec::<u32>::new());
-    assert_eq!(intervals(RetryStrategy::Quick), vec![2, 4, 8]);
-    assert_eq!(intervals(RetryStrategy::Balanced), vec![2, 4, 8, 8, 8]);
+    assert_eq!(intervals(RetryStrategy::Quick), vec![1, 2, 4]);
+    assert_eq!(intervals(RetryStrategy::Balanced), vec![1, 2, 4, 8, 8]);
     assert_eq!(
         intervals(RetryStrategy::Persistent),
-        vec![2, 4, 8, 8, 8, 8, 8, 8, 8]
+        vec![1, 2, 4, 8, 8, 8, 8, 8, 8]
     );
     assert_eq!(
         intervals(RetryStrategy::N(NonZeroUsize::new(12).unwrap())),
-        vec![2, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+        vec![1, 2, 4, 8, 8, 8, 8, 8, 8, 8, 8]
     );
 }

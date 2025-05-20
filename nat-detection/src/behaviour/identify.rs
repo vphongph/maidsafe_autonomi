@@ -28,11 +28,7 @@ impl App {
                 }
 
                 // Disconnect if peer has no AutoNAT support.
-                if !info
-                    .protocols
-                    .iter()
-                    .any(|p| *p == autonat::DEFAULT_PROTOCOL_NAME)
-                {
+                if !info.protocols.contains(&autonat::DEFAULT_PROTOCOL_NAME) {
                     warn!(conn_id=%connection_id, %peer_id, "Peer does not support AutoNAT. Disconnecting from peer.");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     return;

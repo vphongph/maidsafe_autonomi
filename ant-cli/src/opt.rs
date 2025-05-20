@@ -19,6 +19,10 @@ use std::time::Duration;
 #[command(disable_version_flag = true)]
 #[command(author, version, about, long_about = None)]
 pub(crate) struct Opt {
+    /// Set to connect to the alpha network.
+    #[clap(long)]
+    pub alpha: bool,
+
     // Available subcommands. This is optional to allow `--version` to work without a subcommand.
     #[clap(subcommand)]
     pub command: Option<SubCmd>,

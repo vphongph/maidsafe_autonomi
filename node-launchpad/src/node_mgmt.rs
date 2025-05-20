@@ -1,3 +1,11 @@
+// Copyright 2025 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
 use crate::action::{Action, StatusActions};
 use crate::connection_mode::ConnectionMode;
 use ant_bootstrap::InitialPeersConfig;
@@ -382,6 +390,7 @@ async fn add_node(args: MaintainNodesArgs) {
 
     let port_range = Some(PortRange::Single(current_port));
     match ant_node_manager::cmd::node::add(
+        false, // alpha,
         false, // auto_restart,
         config.auto_set_nat_flags,
         Some(config.count),
@@ -525,6 +534,12 @@ struct NodeConfig {
 async fn run_nat_detection(action_sender: &UnboundedSender<Action>) {
     info!("Running nat detection....");
 
+    // Notify that NAT detection is starting
+    if let Err(err) = action_sender.send(Action::StatusActions(StatusActions::NatDetectionStarted))
+    {
+        error!("Error while sending action: {err:?}");
+    }
+
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
     let version = match release_repo
         .get_latest_version(&ReleaseType::NatDetection)
@@ -559,6 +574,11 @@ async fn run_nat_detection(action_sender: &UnboundedSender<Action>) {
         }
     } else {
         info!("Successfully ran nat detection.");
+        if let Err(err) = action_sender.send(Action::StatusActions(
+            StatusActions::SuccessfullyDetectedNatStatus,
+        )) {
+            error!("Error while sending action: {err:?}");
+        }
     }
 }
 
@@ -630,6 +650,7 @@ fn get_port_range(custom_ports: &Option<PortRange>) -> (u16, u16) {
 /// Scale down the nodes
 async fn scale_down_nodes(config: &NodeConfig, count: u16) {
     match ant_node_manager::cmd::node::maintain_n_running_nodes(
+        false,
         false,
         config.auto_set_nat_flags,
         CONNECTION_TIMEOUT_START,
@@ -703,6 +724,7 @@ async fn add_nodes(
 
         let port_range = Some(PortRange::Single(*current_port));
         match ant_node_manager::cmd::node::maintain_n_running_nodes(
+            false,
             false,
             config.auto_set_nat_flags,
             CONNECTION_TIMEOUT_START,

@@ -6,23 +6,20 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::actions::NetworkContext;
 use crate::args::max_fee_per_gas::{get_max_fee_per_gas_from_opt_param, MaxFeePerGasParam};
 use crate::exit_code::{upload_exit_code, ExitCodeError, FEES_ERROR, IO_ERROR};
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::payment::PaymentOption;
 use autonomi::ResponseQuorum;
-use autonomi::{ClientOperatingStrategy, InitialPeersConfig, TransactionConfig};
+use autonomi::{ClientOperatingStrategy, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
 use std::path::PathBuf;
 
-pub async fn cost(
-    file: &str,
-    init_peers_config: InitialPeersConfig,
-    network_id: Option<u8>,
-) -> Result<()> {
-    let client = crate::actions::connect_to_network(init_peers_config, network_id)
+pub async fn cost(file: &str, network_context: NetworkContext) -> Result<()> {
+    let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
@@ -42,10 +39,9 @@ pub async fn cost(
 pub async fn upload(
     file: &str,
     public: bool,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     optional_verification_quorum: Option<ResponseQuorum>,
     max_fee_per_gas_param: Option<MaxFeePerGasParam>,
-    network_id: Option<u8>,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
 
@@ -54,12 +50,10 @@ pub async fn upload(
     }
 
     let mut client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config, network_id)
-            .await?;
+        crate::actions::connect_to_network_with_config(network_context, config).await?;
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;
 
-    // todo: @roland which exit code should be used here?
     let max_fee_per_gas =
         get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())
             .map_err(|err| (err, FEES_ERROR))?;
@@ -159,17 +153,14 @@ pub async fn upload(
 pub async fn download(
     addr: &str,
     dest_path: &str,
-    init_peers_config: InitialPeersConfig,
+    network_context: NetworkContext,
     quorum: Option<ResponseQuorum>,
-    network_id: Option<u8>,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;
     }
-    let client =
-        crate::actions::connect_to_network_with_config(init_peers_config, config, network_id)
-            .await?;
+    let client = crate::actions::connect_to_network_with_config(network_context, config).await?;
     crate::actions::download(addr, dest_path, &client).await
 }
 

@@ -18,7 +18,6 @@ impl MaxFeePerGasParam {
     fn get_network_average_gas_fee(network: &Network) -> color_eyre::Result<u128> {
         match network {
             Network::ArbitrumOne => Ok(AVERAGE_GAS_FEE_ARBITRUM_ONE),
-            Network::ArbitrumSepolia => Ok(AVERAGE_GAS_FEE_ARBITRUM_SEPOLIA),
             Network::ArbitrumSepoliaTest => Ok(AVERAGE_GAS_FEE_ARBITRUM_SEPOLIA),
             Network::Custom(_) => Err(
                 color_eyre::eyre::eyre!("`--max-fee-per-gas` options `low` and `market` (default) are not supported when using a custom EVM network.")

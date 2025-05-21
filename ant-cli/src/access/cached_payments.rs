@@ -14,6 +14,9 @@ use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// Cleanup old cached payments after 30 days
+const PAYMENT_EXPIRATION_SECS: u64 = 3600 * 24 * 30;
+
 pub fn get_payments_dir() -> Result<PathBuf> {
     let dir = super::data_dir::get_client_data_dir_path()?;
     let payments_dir = dir.join("payments");
@@ -103,7 +106,7 @@ fn filename_short(filename: &str) -> String {
 }
 
 fn is_expired_file(filename: &str) -> bool {
-    let exp = autonomi::QUOTE_EXPIRATION_SECS;
+    let exp = PAYMENT_EXPIRATION_SECS;
     let expired_if_before = SystemTime::now() - Duration::from_secs(exp);
 
     let timestr = filename.split('_').next().unwrap_or_default();
@@ -144,25 +147,22 @@ mod tests {
 
     #[test]
     fn test_is_expired_filename() {
-        let just_expired = (SystemTime::now()
-            - Duration::from_secs(autonomi::QUOTE_EXPIRATION_SECS))
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .to_string();
-        let just_expired_1 = (SystemTime::now()
-            - Duration::from_secs(autonomi::QUOTE_EXPIRATION_SECS + 1))
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .to_string();
+        let just_expired = (SystemTime::now() - Duration::from_secs(PAYMENT_EXPIRATION_SECS))
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string();
+        let just_expired_1 = (SystemTime::now() - Duration::from_secs(PAYMENT_EXPIRATION_SECS + 1))
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string();
         let not_expired = now();
-        let not_expired_1 = (SystemTime::now()
-            + Duration::from_secs(autonomi::QUOTE_EXPIRATION_SECS - 1))
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .to_string();
+        let not_expired_1 = (SystemTime::now() + Duration::from_secs(PAYMENT_EXPIRATION_SECS - 1))
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string();
 
         let file_hash = filename_short("test");
         assert!(is_expired_file(&format!("{just_expired}_{file_hash}")));

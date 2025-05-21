@@ -68,11 +68,6 @@ pub(crate) fn verify_quote_for_storecost(
         return Err(Error::InvalidQuoteContent);
     }
 
-    // check if the quote has expired
-    if quote.has_expired() {
-        return Err(Error::QuoteExpired(address.clone()));
-    }
-
     // check sig
     let bytes = quote.bytes_for_sig();
     let signature = quote.signature;

@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::args::max_fee_per_gas::{get_max_fee_per_gas_from_opt_param, MaxFeePerGasParam};
 use crate::actions::NetworkContext;
+use crate::args::max_fee_per_gas::{get_max_fee_per_gas_from_opt_param, MaxFeePerGasParam};
 use crate::wallet::load_wallet;
 use autonomi::TransactionConfig;
 use color_eyre::eyre::eyre;
@@ -33,7 +33,10 @@ pub async fn cost(network_context: NetworkContext, expected_max_size: u64) -> Re
     Ok(())
 }
 
-pub async fn create(network_context: NetworkContext, max_fee_per_gas_param: Option<MaxFeePerGasParam>) -> Result<()> {
+pub async fn create(
+    network_context: NetworkContext,
+    max_fee_per_gas_param: Option<MaxFeePerGasParam>,
+) -> Result<()> {
     let client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
@@ -42,7 +45,7 @@ pub async fn create(network_context: NetworkContext, max_fee_per_gas_param: Opti
 
     let max_fee_per_gas =
         get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())?;
-    wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas));
+    wallet.set_transaction_config(TransactionConfig { max_fee_per_gas });
 
     let vault_sk = crate::keys::get_vault_secret_key()?;
 

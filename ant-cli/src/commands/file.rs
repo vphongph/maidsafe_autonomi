@@ -57,7 +57,7 @@ pub async fn upload(
     let max_fee_per_gas =
         get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())
             .map_err(|err| (err, FEES_ERROR))?;
-    wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas));
+    wallet.set_transaction_config(TransactionConfig { max_fee_per_gas });
 
     let payment = PaymentOption::Wallet(wallet);
     let event_receiver = client.enable_client_events();

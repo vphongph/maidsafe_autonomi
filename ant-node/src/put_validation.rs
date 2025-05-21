@@ -652,18 +652,8 @@ impl Node {
             )));
         }
 
-        // verify quote expiration.
-        // Note there could be error when try to deduce elapsed time from other OS clock,
-        // hence here only verify the expiration of own quotes.
-        let own_quotes: Vec<_> = payment.quotes_by_peer(&self_peer_id);
-        if own_quotes.iter().any(|quote| quote.has_expired()) {
-            warn!("Payment quote has expired for record {pretty_key}");
-            return Err(Error::InvalidRequest(format!(
-                "Payment quote has expired for record {pretty_key}"
-            )));
-        }
-
         // verify data type matches
+        let own_quotes: Vec<_> = payment.quotes_by_peer(&self_peer_id);
         if !payment.verify_data_type(data_type.get_index()) {
             warn!("Payment quote has wrong data type for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(

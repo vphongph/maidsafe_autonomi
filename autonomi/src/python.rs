@@ -2267,11 +2267,6 @@ impl PyPaymentQuote {
         Ok(self.inner.check_is_signed_by_claimed_peer(peer_id))
     }
 
-    /// Returns true if the quote has expired
-    fn has_expired(&self) -> bool {
-        self.inner.has_expired()
-    }
-
     /// Check whether self is newer than the target quote
     fn is_newer_than(&self, other: &PyPaymentQuote) -> bool {
         self.inner.is_newer_than(&other.inner)

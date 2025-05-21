@@ -274,8 +274,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 quorum,
                 transaction_opt,
             } => {
-                if let Err((err, exit_code)) =
-                    file::upload(&file, public, network_context, quorum, transaction_opt.max_fee_per_gas).await
+                if let Err((err, exit_code)) = file::upload(
+                    &file,
+                    public,
+                    network_context,
+                    quorum,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);
@@ -307,14 +313,33 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 value,
                 hex,
                 transaction_opt,
-            } => register::create(&name, &value, hex, network_context, transaction_opt.max_fee_per_gas).await,
+            } => {
+                register::create(
+                    &name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
                 hex,
                 transaction_opt,
-            } => register::edit(address, name, &value, hex, network_context, transaction_opt.max_fee_per_gas).await,
+            } => {
+                register::edit(
+                    address,
+                    name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Get { address, name, hex } => {
                 register::get(address, name, hex, network_context).await
             }

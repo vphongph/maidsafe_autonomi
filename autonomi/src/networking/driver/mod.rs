@@ -22,6 +22,7 @@ use ant_protocol::{
 };
 use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -246,7 +247,28 @@ impl NetworkDriver {
                         }
                     }
                 } else {
-                    let to = to.clone().into_iter();
+                    for peer_info in &to {
+                        let opts = DialOpts::peer_id(peer_info.peer_id)
+                            // If we have a peer ID, we can prevent simultaneous dials.
+                            .condition(PeerCondition::NotDialing)
+                            .addresses(peer_info.addrs.clone())
+                            .build();
+
+                        match self.swarm.dial(opts) {
+                            Ok(()) => {
+                                debug!(
+                                    "Dialing peer {:?} before put_record_to with addresses: {:?}",
+                                    peer_info.peer_id, peer_info.addrs
+                                );
+                            }
+                            Err(err) => {
+                                error!("Failed to dial peer {:?} before put_record_to with addresses: {:?} error: {err}", peer_info.peer_id, peer_info.addrs);
+                            }
+                        }
+                    }
+
+                    let to = to.clone().into_iter().map(|p| p.peer_id);
+
                     self.kad().put_record_to(record.clone(), to, quorum)
                 };
 

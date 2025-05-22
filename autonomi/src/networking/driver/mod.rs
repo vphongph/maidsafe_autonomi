@@ -22,7 +22,6 @@ use ant_protocol::{
 };
 use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -55,6 +54,9 @@ pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must 
 /// Interval of resending identify to connected peers.
 /// Libp2p defaults to 5 minutes, we use 1 hour.
 const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: taken over from ant-networking. Why 1 hour?
+/// Size of the LRU cache for peers and their addresses.
+/// Libp2p defaults to 100, we use 10k.
+const PEER_CACHE_SIZE: usize = 10_000;
 
 /// Driver for the Autonomi Client Network
 ///
@@ -109,7 +111,8 @@ impl NetworkDriver {
             let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
                 .with_agent_version(agent_version)
                 .with_interval(RESEND_IDENTIFY_INVERVAL) // todo: find a way to disable this. Clients shouldn't need to
-                .with_hide_listen_addrs(true);
+                .with_hide_listen_addrs(true)
+                .with_cache_size(PEER_CACHE_SIZE);
             libp2p::identify::Behaviour::new(cfg)
         };
 
@@ -248,22 +251,9 @@ impl NetworkDriver {
                     }
                 } else {
                     for peer_info in &to {
-                        let opts = DialOpts::peer_id(peer_info.peer_id)
-                            // If we have a peer ID, we can prevent simultaneous dials.
-                            .condition(PeerCondition::NotDialing)
-                            .addresses(peer_info.addrs.clone())
-                            .build();
-
-                        match self.swarm.dial(opts) {
-                            Ok(()) => {
-                                debug!(
-                                    "Dialing peer {:?} before put_record_to with addresses: {:?}",
-                                    peer_info.peer_id, peer_info.addrs
-                                );
-                            }
-                            Err(err) => {
-                                error!("Failed to dial peer {:?} before put_record_to with addresses: {:?} error: {err}", peer_info.peer_id, peer_info.addrs);
-                            }
+                        // Add the peer addresses to our cache before sending a query.
+                        for addr in &peer_info.addrs {
+                            self.swarm.add_peer_address(peer_info.peer_id, addr.clone());
                         }
                     }
 

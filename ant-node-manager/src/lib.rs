@@ -6241,7 +6241,7 @@ network_id: None,
         match result {
             Ok(_) => panic!("This test should result in an error"),
             Err(e) => assert_eq!(
-                "The service(s) is already running: [\"antnode1\"]",
+                "Unable to remove a running service [\"antnode1\"], stop this service first before removing",
                 e.to_string()
             ),
         }

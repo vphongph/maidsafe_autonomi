@@ -55,8 +55,8 @@ pub const KAD_ALPHA: NonZeroUsize = NonZeroUsize::new(3).expect("KAD_ALPHA must 
 /// Libp2p defaults to 5 minutes, we use 1 hour.
 const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: taken over from ant-networking. Why 1 hour?
 /// Size of the LRU cache for peers and their addresses.
-/// Libp2p defaults to 100, we use 10k.
-const PEER_CACHE_SIZE: usize = 10_000;
+/// Libp2p defaults to 100, we use 2k.
+const PEER_CACHE_SIZE: usize = 2_000;
 
 /// Driver for the Autonomi Client Network
 ///

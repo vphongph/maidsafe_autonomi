@@ -112,7 +112,7 @@ fn prevent_loss_of_keys(net_user_data: &UserData) -> Result<()> {
         register_addresses: _,
     } = net_user_data;
 
-    let mut endangered_key_type = String::new();
+    let mut endangered_key_types = Vec::new();
 
     // check local register key if it differs from one in the vault
     let net_register_key = register_key.clone();
@@ -123,7 +123,7 @@ fn prevent_loss_of_keys(net_user_data: &UserData) -> Result<()> {
         && net_register_key.is_some()
         && net_register_key != local_register_key
     {
-        endangered_key_type = "register key".to_string();
+        endangered_key_types.push("register key".to_string());
     }
 
     // check local scratchpad key if it differs from one in the vault
@@ -135,7 +135,7 @@ fn prevent_loss_of_keys(net_user_data: &UserData) -> Result<()> {
         && net_scratchpad_key.is_some()
         && net_scratchpad_key != local_scratchpad_key
     {
-        endangered_key_type.push_str(" scratchpad key");
+        endangered_key_types.push("scratchpad key".to_string());
     }
 
     // check local pointer key if it differs from one in the vault
@@ -147,11 +147,12 @@ fn prevent_loss_of_keys(net_user_data: &UserData) -> Result<()> {
         && net_pointer_key.is_some()
         && net_pointer_key != local_pointer_key
     {
-        endangered_key_type.push_str(" pointer key");
+        endangered_key_types.push("pointer key".to_string());
     }
 
-    if !endangered_key_type.is_empty() {
-        return Err(eyre!("The {endangered_key_type} in the vault do not match the local {endangered_key_type}, aborting sync to prevent loss of current keys")
+    if !endangered_key_types.is_empty() {
+        let endangered_key_types = endangered_key_types.join(", ");
+        return Err(eyre!("The {endangered_key_types} in the vault do not match the local {endangered_key_types}, aborting sync to prevent loss of current keys")
             .with_suggestion(|| "You can overwrite the data in the vault with the local data by providing the `force` flag")
             .with_suggestion(|| "Or you can overwrite the local data with the data in the vault by using the `load` command")
         );

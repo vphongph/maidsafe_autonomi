@@ -240,7 +240,7 @@ impl Client {
             })
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
-                    address: NetworkAddress::from(*address),
+                    address: Box::new(NetworkAddress::from(*address)),
                     network_error: err.clone(),
                     payment: Some(payment_proofs),
                 })
@@ -330,7 +330,7 @@ impl Client {
             })
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
-                    address: NetworkAddress::from(address),
+                    address: Box::new(NetworkAddress::from(address)),
                     network_error: err,
                     payment: None,
                 })

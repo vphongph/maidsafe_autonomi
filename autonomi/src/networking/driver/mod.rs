@@ -236,19 +236,13 @@ impl NetworkDriver {
                 resp,
             } => {
                 let query_id = if to.is_empty() {
-                    match self.kad().put_record(record.clone(), quorum) {
-                        Ok(id) => id,
-                        Err(e) => {
-                            let k = PrettyPrintRecordKey::from(&record.key);
-                            warn!("Put record failed immediately for {k:?}: {e}");
-                            if let Err(e) =
-                                resp.send(Err(NetworkError::PutRecordError(e.to_string())))
-                            {
-                                error!("Error sending put record response: {e:?}");
-                            }
-                            return;
-                        }
+                    let _pretty_key = PrettyPrintRecordKey::from(&record.key);
+                    let error_str =
+                        "Target holders of record {_pretty_key:?} shall be provided".to_string();
+                    if let Err(e) = resp.send(Err(NetworkError::PutRecordError(error_str))) {
+                        error!("Error sending put record response: {e:?}");
                     }
+                    return;
                 } else {
                     for peer_info in &to {
                         // Add the peer addresses to our cache before sending a query.

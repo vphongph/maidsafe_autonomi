@@ -96,7 +96,7 @@ impl Network {
         data_size: usize,
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
         let mut errors = vec![];
-        for duration in RetryStrategy::Balanced.backoff() {
+        for duration in RetryStrategy::Once.backoff() {
             match self.get_quotes(addr.clone(), data_type, data_size).await {
                 // return success
                 Ok(quotes) => return Ok(quotes),
@@ -124,7 +124,7 @@ impl Network {
         addr: NetworkAddress,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
         let mut errors = vec![];
-        for duration in RetryStrategy::Balanced.backoff() {
+        for duration in RetryStrategy::Once.backoff() {
             match self.get_closest_peers(addr.clone()).await {
                 // return success
                 Ok(peers) => return Ok(peers),

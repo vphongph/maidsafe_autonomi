@@ -23,6 +23,8 @@ use super::Quorum;
 pub enum RetryStrategy {
     /// Attempt once (no retries)
     None = 1,
+    /// Retry once (waits 2s; max total sleep time ~2s)  
+    Once = 2,
     /// Try 4 times (waits 2s, 4s, 8s; max total sleep time ~14s)
     Quick = 4,
     /// Try 6 times (waits 2s, 4s, 8s, 8s, 8s; max total sleep time ~30s)

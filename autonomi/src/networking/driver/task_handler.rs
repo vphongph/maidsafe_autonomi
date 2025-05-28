@@ -259,18 +259,21 @@ impl TaskHandler {
         match verify_quote(quote_res, peer_address.clone(), data_type) {
             Ok(Some(quote)) => {
                 trace!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
+                // Send can fail here if we already accumulated enough quotes.
                 resp.send(Ok(Some((peer, quote))))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
             }
             Ok(None) => {
                 trace!("OutboundRequestId({id}): no quote needed as record already exists at peer {peer_address:?}");
+                // Send can fail here if we already accumulated enough quotes.
                 resp.send(Ok(None))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())
             }
             Err(e) => {
                 warn!("OutboundRequestId({id}): got invalid quote from peer {peer_address:?}: {e}");
+                // Send can fail here if we already accumulated enough quotes.
                 resp.send(Err(e))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
                 Ok(())

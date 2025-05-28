@@ -278,6 +278,25 @@ impl TaskHandler {
         }
     }
 
+    pub fn terminate_get_quote(
+        &mut self,
+        id: OutboundRequestId,
+        peer: PeerId,
+        error: libp2p::autonat::OutboundFailure,
+    ) -> Result<(), TaskHandlerError> {
+        let (resp, _data_type, original_peer) =
+            self.get_cost
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
+
+        trace!("OutboundRequestId({id}): initially sent to peer {original_peer:?} got fatal error from peer {peer:?}: {error:?}");
+        resp.send(Err(NetworkError::GetQuoteError(error.to_string())))
+            .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+        Ok(())
+    }
+
     /// Helper function to take the responder and holders from a get record task
     fn take_responder_and_holders_for_task(
         &mut self,

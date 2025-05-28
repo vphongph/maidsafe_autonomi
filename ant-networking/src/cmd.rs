@@ -8,12 +8,11 @@
 
 use crate::time::Instant;
 use crate::{
-    config::GetRecordCfg,
     driver::{PendingGetClosestType, SwarmDriver},
     error::{NetworkError, Result},
     event::TerminateNodeReason,
     log_markers::Marker,
-    Addresses, GetRecordError, MsgResponder, NetworkEvent, ResponseQuorum, CLOSE_GROUP_SIZE,
+    Addresses, MsgResponder, NetworkEvent, CLOSE_GROUP_SIZE,
 };
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::messages::ConnectionInfo;
@@ -217,28 +216,6 @@ pub enum NetworkSwarmCmd {
         resp: Response,
         channel: MsgResponder,
     },
-
-    /// Get Record from the Kad network
-    GetNetworkRecord {
-        key: RecordKey,
-        sender: oneshot::Sender<std::result::Result<Record, GetRecordError>>,
-        cfg: GetRecordCfg,
-    },
-
-    /// Put record to network
-    PutRecord {
-        record: Record,
-        sender: oneshot::Sender<Result<()>>,
-        quorum: ResponseQuorum,
-    },
-    /// Put record to specific node
-    PutRecordTo {
-        peers: Vec<PeerId>,
-        record: Record,
-        sender: oneshot::Sender<Result<()>>,
-        quorum: ResponseQuorum,
-    },
-
     // Attempt to dial specific peer.
     DialPeer {
         peer: PeerId,
@@ -384,27 +361,6 @@ impl Debug for LocalSwarmCmd {
 impl Debug for NetworkSwarmCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NetworkSwarmCmd::GetNetworkRecord { key, cfg, .. } => {
-                write!(
-                    f,
-                    "NetworkSwarmCmd::GetNetworkRecord {{ key: {:?}, cfg: {cfg:?}",
-                    PrettyPrintRecordKey::from(key)
-                )
-            }
-            NetworkSwarmCmd::PutRecord { record, .. } => {
-                write!(
-                    f,
-                    "NetworkSwarmCmd::PutRecord {{ key: {:?} }}",
-                    PrettyPrintRecordKey::from(&record.key)
-                )
-            }
-            NetworkSwarmCmd::PutRecordTo { peers, record, .. } => {
-                write!(
-                    f,
-                    "NetworkSwarmCmd::PutRecordTo {{ peers: {peers:?}, key: {:?} }}",
-                    PrettyPrintRecordKey::from(&record.key)
-                )
-            }
             NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, .. } => {
                 write!(f, "NetworkSwarmCmd::GetClosestPeers {{ key: {key:?} }}")
             }
@@ -439,105 +395,6 @@ impl SwarmDriver {
         let start = Instant::now();
         let cmd_string;
         match cmd {
-            NetworkSwarmCmd::GetNetworkRecord { key, sender, cfg } => {
-                cmd_string = "GetNetworkRecord";
-
-                for (pending_query, (inflight_record_query_key, senders, _, _)) in
-                    self.pending_get_record.iter_mut()
-                {
-                    if *inflight_record_query_key == key {
-                        debug!(
-                            "GetNetworkRecord for {:?} is already in progress. Adding sender to {pending_query:?}",
-                            PrettyPrintRecordKey::from(&key)
-                        );
-                        senders.push(sender);
-
-                        // early exit as we're already processing this query
-                        return Ok(());
-                    }
-                }
-
-                let query_id = self.swarm.behaviour_mut().kademlia.get_record(key.clone());
-
-                debug!(
-                    "Record {:?} with task {query_id:?} expected to be held by {:?}",
-                    PrettyPrintRecordKey::from(&key),
-                    cfg.expected_holders
-                );
-
-                if self
-                    .pending_get_record
-                    .insert(query_id, (key, vec![sender], Default::default(), cfg))
-                    .is_some()
-                {
-                    warn!("An existing get_record task {query_id:?} got replaced");
-                }
-                // Logging the status of the `pending_get_record`.
-                // We also interested in the status of `result_map` (which contains record) inside.
-                let total_records: usize = self
-                    .pending_get_record
-                    .iter()
-                    .map(|(_, (_, _, result_map, _))| result_map.len())
-                    .sum();
-                info!("We now have {} pending get record attempts and cached {total_records} fetched copies",
-                      self.pending_get_record.len());
-            }
-            NetworkSwarmCmd::PutRecord {
-                record,
-                sender,
-                quorum,
-            } => {
-                cmd_string = "PutRecord";
-                let record_key = PrettyPrintRecordKey::from(&record.key).into_owned();
-                debug!(
-                    "Putting record sized: {:?} to network {:?}",
-                    record.value.len(),
-                    record_key
-                );
-                let res = match self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .put_record(record, quorum.get_kad_quorum())
-                {
-                    Ok(request_id) => {
-                        debug!("Sent record {record_key:?} to network. Request id: {request_id:?} to network");
-                        Ok(())
-                    }
-                    Err(error) => {
-                        error!("Error sending record {record_key:?} to network");
-                        Err(NetworkError::from(error))
-                    }
-                };
-
-                if let Err(err) = sender.send(res) {
-                    error!("Could not send response to PutRecord cmd: {:?}", err);
-                }
-            }
-            NetworkSwarmCmd::PutRecordTo {
-                peers,
-                record,
-                sender,
-                quorum,
-            } => {
-                cmd_string = "PutRecordTo";
-                let record_key = PrettyPrintRecordKey::from(&record.key).into_owned();
-                debug!(
-                    "Putting record {record_key:?} sized: {:?} to {peers:?}",
-                    record.value.len(),
-                );
-                let peers_count = peers.len();
-                let request_id = self.swarm.behaviour_mut().kademlia.put_record_to(
-                    record,
-                    peers.into_iter(),
-                    quorum.get_kad_quorum(),
-                );
-                info!("Sent record {record_key:?} to {peers_count:?} peers. Request id: {request_id:?}");
-
-                if let Err(err) = sender.send(Ok(())) {
-                    error!("Could not send response to PutRecordTo cmd: {:?}", err);
-                }
-            }
             NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender } => {
                 cmd_string = "GetClosestPeersToAddressFromNetwork";
                 let query_id = self
@@ -553,7 +410,6 @@ impl SwarmDriver {
                     ),
                 );
             }
-
             NetworkSwarmCmd::SendRequest {
                 req,
                 peer,

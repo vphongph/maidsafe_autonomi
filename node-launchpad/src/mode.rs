@@ -28,6 +28,7 @@ pub enum Scene {
     },
     ResetNodesPopUp,
     UpgradeNodesPopUp,
+    UpgradeLaunchpadPopUp,
     RemoveNodePopUp,
 }
 

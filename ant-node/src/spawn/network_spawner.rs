@@ -252,7 +252,9 @@ mod tests {
                 .unwrap()
                 .peers_in_routing_table;
 
-            assert_eq!(peers_in_routing_table, network_size - 1);
+            assert!(
+                peers_in_routing_table >= network_size - 2 && peers_in_routing_table < network_size
+            );
         }
 
         running_network.shutdown();

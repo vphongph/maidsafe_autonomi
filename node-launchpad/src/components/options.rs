@@ -1,4 +1,10 @@
-use std::{cmp::max, path::PathBuf};
+// Copyright 2025 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
 
 use color_eyre::eyre::Result;
 use ratatui::{
@@ -8,6 +14,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Row, Table},
     Frame,
 };
+use std::{cmp::max, path::PathBuf};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{header::SelectedMenuItem, utils::open_logs, Component};
@@ -245,7 +252,7 @@ impl Component for Options {
             vec![Row::new(vec![
                 Cell::from(
                     Line::from(vec![Span::styled(
-                        " Open the Logs folder on this device ",
+                        " Open the logs folder on this device ",
                         Style::default().fg(LIGHT_PERIWINKLE),
                     )])
                     .alignment(Alignment::Left),
@@ -282,7 +289,7 @@ impl Component for Options {
                 Row::new(vec![
                     Cell::from(
                         Line::from(vec![Span::styled(
-                            " Upgrade all Nodes ",
+                            " Upgrade all nodes ",
                             Style::default().fg(LIGHT_PERIWINKLE),
                         )])
                         .alignment(Alignment::Left),
@@ -298,7 +305,7 @@ impl Component for Options {
                 Row::new(vec![
                     Cell::from(
                         Line::from(vec![Span::styled(
-                            " Reset all Nodes on this device ",
+                            " Reset all nodes on this device ",
                             Style::default().fg(LIGHT_PERIWINKLE),
                         )])
                         .alignment(Alignment::Left),

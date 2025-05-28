@@ -35,7 +35,7 @@ async fn test_cache_store_operations() -> Result<(), Box<dyn std::error::Error>>
     let addrs = cache_store.get_sorted_addrs().collect::<Vec<_>>();
     assert!(!addrs.is_empty(), "Cache should contain the added peer");
     assert!(
-        addrs.iter().any(|&a| a == &addr),
+        addrs.contains(&(&addr)),
         "Cache should contain our specific peer"
     );
 

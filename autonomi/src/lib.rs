@@ -50,6 +50,8 @@
 
 // docs.rs generation will enable unstable `doc_cfg` feature
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::result_large_err)]
 
 #[macro_use]
 extern crate tracing;

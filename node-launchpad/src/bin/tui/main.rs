@@ -21,7 +21,7 @@ use node_launchpad::{
     config::configure_winsw,
     utils::{initialize_logging, initialize_panic_handler},
 };
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(disable_version_flag = true)]
@@ -73,69 +73,79 @@ fn is_running_in_terminal() -> bool {
     atty::is(atty::Stream::Stdout)
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
-    initialize_logging()?;
-    configure_winsw().await?;
+fn main() -> Result<()> {
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    let result: Result<()> = rt.block_on(async {
+        initialize_logging()?;
+        configure_winsw().await?;
 
-    if !is_running_in_terminal() {
-        info!("Running in non-terminal mode. Launching terminal.");
-        // If we weren't already running in a terminal, this process returns early, having spawned
-        // a new process that launches a terminal.
-        let terminal_type = terminal::detect_and_setup_terminal()?;
-        terminal::launch_terminal(&terminal_type)
-            .inspect_err(|err| error!("Error while launching terminal: {err:?}"))?;
-        return Ok(());
-    } else {
-        // Windows spawns the terminal directly, so the check for root has to happen here as well.
-        debug!("Running inside a terminal!");
-        #[cfg(target_os = "windows")]
-        if !is_running_as_root() {
-            {
-                // TODO: There is no terminal to show this error message when double clicking on the exe.
-                error!("Admin privileges required to run on Windows. Exiting.");
-                color_eyre::eyre::bail!("Admin privileges required to run on Windows. Exiting.");
+        if !is_running_in_terminal() {
+            info!("Running in non-terminal mode. Launching terminal.");
+            // If we weren't already running in a terminal, this process returns early, having spawned
+            // a new process that launches a terminal.
+            let terminal_type = terminal::detect_and_setup_terminal()?;
+            terminal::launch_terminal(&terminal_type)
+                .inspect_err(|err| error!("Error while launching terminal: {err:?}"))?;
+            return Ok(());
+        } else {
+            // Windows spawns the terminal directly, so the check for root has to happen here as well.
+            debug!("Running inside a terminal!");
+            #[cfg(target_os = "windows")]
+            if !is_running_as_root() {
+                {
+                    // TODO: There is no terminal to show this error message when double clicking on the exe.
+                    error!("Admin privileges required to run on Windows. Exiting.");
+                    color_eyre::eyre::bail!(
+                        "Admin privileges required to run on Windows. Exiting."
+                    );
+                }
             }
         }
-    }
 
-    initialize_panic_handler()?;
-    let args = Cli::parse();
+        initialize_panic_handler()?;
+        let args = Cli::parse();
 
-    if args.version {
-        println!(
-            "{}",
-            ant_build_info::version_string(
-                "Autonomi Node Launchpad",
-                env!("CARGO_PKG_VERSION"),
-                None
-            )
-        );
-        return Ok(());
-    }
+        if args.version {
+            println!(
+                "{}",
+                ant_build_info::version_string(
+                    "Autonomi Node Launchpad",
+                    env!("CARGO_PKG_VERSION"),
+                    None
+                )
+            );
+            return Ok(());
+        }
 
-    if args.crate_version {
-        println!("{}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
+        if args.crate_version {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
 
-    #[cfg(not(feature = "nightly"))]
-    if args.package_version {
-        println!("{}", ant_build_info::package_version());
-        return Ok(());
-    }
+        #[cfg(not(feature = "nightly"))]
+        if args.package_version {
+            println!("{}", ant_build_info::package_version());
+            return Ok(());
+        }
 
-    info!("Starting app with args: {args:?}");
-    let mut app = App::new(
-        args.tick_rate,
-        args.frame_rate,
-        args.peers,
-        args.antnode_path,
-        args.path,
-        args.network_id,
-    )
-    .await?;
-    app.run().await?;
+        info!("Starting app with args: {args:?}");
+        let mut app = App::new(
+            args.tick_rate,
+            args.frame_rate,
+            args.peers,
+            args.antnode_path,
+            args.path,
+            args.network_id,
+        )
+        .await?;
+        app.run().await?;
+        info!("App finished running");
+        Ok(())
+    });
+    result?;
+
+    info!("Shutting down runtime");
+    rt.shutdown_timeout(Duration::from_millis(100));
 
     Ok(())
 }

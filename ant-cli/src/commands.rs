@@ -13,7 +13,7 @@ mod vault;
 mod wallet;
 
 use crate::actions::NetworkContext;
-use crate::opt::Opt;
+use crate::opt::{NetworkId, Opt};
 use autonomi::networking::Quorum;
 use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
 use color_eyre::Result;
@@ -242,7 +242,11 @@ pub enum WalletCmd {
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
-    let network_context = NetworkContext::new(opt.peers, opt.network_id);
+    let network_context = if opt.alpha {
+        NetworkContext::new(opt.peers, NetworkId::Alpha)
+    } else {
+        NetworkContext::new(opt.peers, opt.network_id)
+    };
 
     match cmd {
         Some(SubCmd::File { command }) => match command {
@@ -322,9 +326,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => {
-                wallet::balance(network_context.peers.local, network_context.network_id).await
-            }
+            WalletCmd::Balance => wallet::balance(network_context).await,
         },
         Some(SubCmd::Analyze { addr, verbose }) => {
             analyze::analyze(&addr, verbose, network_context).await

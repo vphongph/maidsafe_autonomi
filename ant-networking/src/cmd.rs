@@ -154,10 +154,6 @@ pub enum LocalSwarmCmd {
     TriggerIntervalReplication,
     /// Triggers unrelevant record cleanup
     TriggerIrrelevantRecordCleanup,
-    /// Add a network density sample
-    AddNetworkDensitySample {
-        distance: Distance,
-    },
     /// Send peer scores (collected from storage challenge) to replication_fetcher
     NotifyPeerScores {
         peer_scores: Vec<(PeerId, bool)>,
@@ -319,9 +315,6 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::TriggerIrrelevantRecordCleanup => {
                 write!(f, "LocalSwarmCmd::TriggerUnrelevantRecordCleanup")
-            }
-            LocalSwarmCmd::AddNetworkDensitySample { distance } => {
-                write!(f, "LocalSwarmCmd::AddNetworkDensitySample({distance:?})")
             }
             LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
                 write!(f, "LocalSwarmCmd::NotifyPeerScores({peer_scores:?})")
@@ -841,10 +834,6 @@ impl SwarmDriver {
                     .kademlia
                     .store_mut()
                     .cleanup_irrelevant_records();
-            }
-            LocalSwarmCmd::AddNetworkDensitySample { distance } => {
-                cmd_string = "AddNetworkDensitySample";
-                self.network_density_samples.add(distance);
             }
             LocalSwarmCmd::NotifyPeerScores { peer_scores } => {
                 cmd_string = "NotifyPeerScores";

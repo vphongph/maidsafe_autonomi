@@ -15,12 +15,13 @@ async fn main() -> eyre::Result<()> {
     let evm_sk = evm_testnet.default_wallet_private_key();
 
     // Wallet with almost infinite gas and ANT test tokens
-    let _funded_wallet =
+    let funded_wallet =
         Wallet::new_from_private_key(evm_network.clone(), &evm_sk).expect("Invalid private key");
 
     // Local Autonomi network
     let network = NetworkSpawner::new()
         .with_evm_network(evm_network.clone())
+        .with_rewards_address(funded_wallet.address()) // This MUST be set to something else than 0x0!
         .with_local(true)
         .with_size(20)
         .spawn()
@@ -45,6 +46,8 @@ async fn main() -> eyre::Result<()> {
 
     // Autonomi client
     let _client = Client::init_with_config(config).await?;
+
+    // Might have to give the client a sec to connect to the network
 
     Ok(())
 }

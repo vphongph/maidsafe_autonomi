@@ -17,7 +17,6 @@ use crate::{
     error::Result,
     event::{NetworkEvent, NodeEvent},
     external_address::ExternalAddressManager,
-    fifo_register::FifoRegister,
     log_markers::Marker,
     network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL},
     relay_manager::RelayManager,
@@ -164,8 +163,6 @@ pub struct SwarmDriver {
     pub(crate) last_replication: Option<Instant>,
     /// when was the last outdated connection prunning undertaken.
     pub(crate) last_connection_pruning_time: Instant,
-    /// FIFO cache for the network density samples
-    pub(crate) network_density_samples: FifoRegister,
     /// record versions of those peers that in the non-full-kbuckets.
     pub(crate) peers_version: HashMap<PeerId, String>,
 }

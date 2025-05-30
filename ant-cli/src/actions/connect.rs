@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::exit_code::{connect_error_exit_code, evm_util_error_exit_code, ExitCodeError};
-use crate::opt::NetworkId;
+use crate::opt::{NetworkId, ALPHA_NETWORK_ID, LOCAL_NETWORK_ID, MAIN_NETWORK_ID};
 use autonomi::client::config::ClientOperatingStrategy;
 use autonomi::{get_evm_network, Client, ClientConfig, InitialPeersConfig};
 use color_eyre::eyre::eyre;
@@ -43,24 +43,24 @@ pub async fn connect_to_network_with_config(
     let new_style = progress_bar.style().tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈🔗");
     progress_bar.set_style(new_style);
 
-    let res = match network_context.network_id {
-        NetworkId::Local => {
+    let res = match network_context.network_id.as_u8() {
+        LOCAL_NETWORK_ID => {
             progress_bar.set_message("Connecting to a local Autonomi Network...");
             Client::init_local().await
         }
-        NetworkId::Main => {
+        MAIN_NETWORK_ID => {
             progress_bar.set_message("Connecting to The Autonomi Network...");
             Client::init().await
         }
-        NetworkId::Alpha => {
+        ALPHA_NETWORK_ID => {
             progress_bar.set_message("Connecting to the Alpha Autonomi Network...");
             Client::init_alpha().await
         }
-        NetworkId::Custom => {
+        _ => {
             progress_bar.set_message("Connecting to a custom Autonomi Network...");
             let evm_network = get_evm_network(
                 network_context.peers.local,
-                Some(network_context.network_id as u8),
+                Some(network_context.network_id.as_u8()),
             )
             .map_err(|err| {
                 let exit_code = evm_util_error_exit_code(&err);
@@ -71,7 +71,7 @@ pub async fn connect_to_network_with_config(
                 init_peers_config: network_context.peers,
                 evm_network,
                 strategy: operating_strategy.clone(),
-                network_id: Some(network_context.network_id as u8),
+                network_id: Some(network_context.network_id.as_u8()),
             };
 
             Client::init_with_config(config).await

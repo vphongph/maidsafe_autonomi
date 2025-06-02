@@ -283,7 +283,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     Ok(())
                 }
             }
-            FileCmd::List { verbose } => file::list(network_context, verbose).await,
+            FileCmd::List { verbose } => {
+                if let Err((err, exit_code)) = file::list(network_context, verbose).await {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),

@@ -89,7 +89,11 @@ pub enum FileCmd {
     },
 
     /// List previous uploads
-    List,
+    List {
+        /// List files in archives. Requires network connection.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -279,7 +283,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     Ok(())
                 }
             }
-            FileCmd::List => file::list(),
+            FileCmd::List { verbose } => {
+                if let Err((err, exit_code)) = file::list(network_context, verbose).await {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),

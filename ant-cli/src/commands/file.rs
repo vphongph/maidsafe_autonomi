@@ -11,10 +11,11 @@ use crate::actions::NetworkContext;
 use crate::exit_code::{upload_exit_code, ExitCodeError, IO_ERROR};
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
+use autonomi::client::analyze::Analysis;
 use autonomi::client::payment::PaymentOption;
 use autonomi::client::PutError;
 use autonomi::files::UploadError;
-use autonomi::networking::Quorum;
+use autonomi::networking::{Quorum, RetryStrategy};
 use autonomi::{ClientOperatingStrategy, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
@@ -188,11 +189,28 @@ pub async fn download(
     crate::actions::download(addr, dest_path, &client).await
 }
 
-pub fn list() -> Result<()> {
+pub async fn list(network_context: NetworkContext, verbose: bool) -> Result<(), ExitCodeError> {
+    let mut config = ClientOperatingStrategy::new();
+    config.chunks.get_quorum = Quorum::One;
+    config.chunks.get_retry = RetryStrategy::None;
+
+    let maybe_client = if verbose {
+        match crate::actions::connect_to_network_with_config(network_context, config).await {
+            Ok(client) => Some(client),
+            Err((mut err, code)) => {
+                err = err.with_suggestion(|| "Try running without --verbose, -v");
+                return Err((err, code));
+            }
+        }
+    } else {
+        None
+    };
+
     // get public file archives
     println!("Retrieving local user data...");
     let file_archives = crate::user_data::get_local_public_file_archives()
-        .wrap_err("Failed to get local public file archives")?;
+        .wrap_err("Failed to get local public file archives")
+        .map_err(|err| (err, IO_ERROR))?;
 
     println!(
         "✅ You have {} public file archive(s):",
@@ -200,12 +218,24 @@ pub fn list() -> Result<()> {
     );
     for (addr, name) in file_archives {
         println!("{}: {}", name, addr.to_hex());
+        if let (true, Some(client)) = (verbose, maybe_client.as_ref()) {
+            if let Ok(Analysis::PublicArchive { archive, .. }) =
+                client.analyze_address(&addr.to_string(), false).await
+            {
+                for (file_path, data_addr, _meta) in archive.iter() {
+                    println!("  - {file_path:?}: {data_addr:?}");
+                }
+            } else {
+                println!("  - Not found on network");
+            }
+        }
     }
 
     // get private file archives
     println!();
     let private_file_archives = crate::user_data::get_local_private_file_archives()
-        .wrap_err("Failed to get local private file archives")?;
+        .wrap_err("Failed to get local private file archives")
+        .map_err(|err| (err, IO_ERROR))?;
 
     println!(
         "✅ You have {} private file archive(s):",
@@ -213,6 +243,17 @@ pub fn list() -> Result<()> {
     );
     for (addr, name) in private_file_archives {
         println!("{}: {}", name, addr.address());
+        if let (true, Some(client)) = (verbose, maybe_client.as_ref()) {
+            if let Ok(Analysis::PrivateArchive(private_archive)) =
+                client.analyze_address(&addr.to_string(), false).await
+            {
+                for (file_path, _data_addr, _meta) in private_archive.iter() {
+                    println!("  - {file_path:?}");
+                }
+            } else {
+                println!("  - Not found on network");
+            }
+        }
     }
 
     println!();

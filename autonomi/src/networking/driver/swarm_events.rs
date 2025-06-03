@@ -88,7 +88,8 @@ impl NetworkDriver {
                 self.pending_tasks.update_closest_peers(id, res)?;
             }
             QueryResult::GetRecord(res) => {
-                trace!("GetRecord: {:?}", res);
+                // The result here is not logged because it can produce megabytes of text.
+                trace!("GetRecord event occurred");
                 self.pending_tasks.update_get_record(id, res)?;
             }
             QueryResult::PutRecord(res) => {

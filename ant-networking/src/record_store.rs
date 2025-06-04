@@ -1045,6 +1045,7 @@ mod tests {
     use eyre::ContextCompat;
     use libp2p::{core::multihash::Multihash, kad::RecordKey};
     use quickcheck::*;
+    use serial_test::serial;
     use tokio::runtime::Runtime;
     use tokio::time::{sleep, Duration};
 
@@ -1084,6 +1085,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn put_get_remove_record() {
         fn prop(r: ArbitraryRecord) {
             let rt = if let Ok(rt) = Runtime::new() {
@@ -1165,6 +1167,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn can_store_after_restart() -> eyre::Result<()> {
         let tmp_dir = TempDir::new()?;
         let current_test_dir = tmp_dir.child("can_store_after_restart");
@@ -1282,6 +1285,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn can_store_and_retrieve_chunk() {
         let temp_dir = std::env::temp_dir();
         let store_config = NodeRecordStoreConfig {
@@ -1348,6 +1352,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn can_store_and_retrieve_scratchpad() -> eyre::Result<()> {
         let temp_dir = std::env::temp_dir();
         let store_config = NodeRecordStoreConfig {
@@ -1430,6 +1435,7 @@ mod tests {
         Ok(())
     }
     #[tokio::test]
+    #[serial]
     async fn pruning_on_full() -> Result<()> {
         let max_iterations = 10;
         // lower max records for faster testing
@@ -1564,6 +1570,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn get_records_within_range() -> eyre::Result<()> {
         let max_records = 50;
 
@@ -1652,6 +1659,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn historic_quoting_metrics() -> Result<()> {
         let temp_dir = std::env::temp_dir();
         let unique_dir_name = uuid::Uuid::new_v4().to_string();
@@ -1698,6 +1706,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_cache_pruning_and_size_limit() {
         // Create cache with small size and short timeout for testing
         let cache_size = 3;

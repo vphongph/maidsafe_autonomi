@@ -1,3 +1,4 @@
+// Standard library imports
 use std::{
     path::PathBuf,
     str::FromStr,
@@ -5,38 +6,160 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::client::data::DataAddress;
-use crate::client::files::archive_private::PrivateArchiveDataMap;
-use crate::client::files::archive_public::ArchiveAddress;
-use crate::client::pointer::PointerTarget;
+// External dependencies
+use ant_bootstrap::BootstrapCacheConfig;
+use ant_evm::{PaymentQuote, QuotingMetrics, RewardsAddress};
+use ant_protocol::storage::DataTypes; //TODOv: add NetworkAddress for PyANTNetwork
+use bls::{PublicKey, SecretKey, PK_SIZE};
+use bytes::Bytes;
+use exponential_backoff::Backoff;
+use libp2p::Multiaddr;
+use pyo3::{
+    basic::CompareOp,
+    exceptions::{PyConnectionError, PyRuntimeError, PyValueError},
+    prelude::*,
+};
+use pyo3_async_runtimes::tokio::future_into_py;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use xor_name::{XorName, XOR_NAME_LEN};
+
+// Internal imports
 use crate::{
     client::{
         chunk::DataMapChunk,
+        data::DataAddress,
+        files::{archive_private::PrivateArchiveDataMap, archive_public::ArchiveAddress},
+        key_derivation::{
+            DerivationIndex, DerivedPubkey, DerivedSecretKey, MainPubkey, MainSecretKey,
+        },
         payment::{PaymentOption, Receipt},
-        quote::StoreQuote,
+        pointer::PointerTarget,
+        quote::{QuoteForAddress, StoreQuote},
         vault::{UserData, VaultSecretKey},
         ClientEvent, UploadSummary,
     },
     files::{Metadata, PrivateArchive, PublicArchive},
+    networking::{PeerId, Quorum, RetryStrategy, Strategy},
+    //TODOv: add Network as ANTNetwork, PeerInfo, Record for PyANTNetwork
     register::{RegisterAddress, RegisterHistory},
-    Client, ClientConfig,
-};
-use crate::{Bytes, Network as EVMNetwork, Wallet};
-use crate::{
-    Chunk, ChunkAddress, GraphEntry, GraphEntryAddress, Pointer, PointerAddress, Scratchpad,
+    Amount,
+    AttoTokens,
+    Chunk,
+    ChunkAddress,
+    Client,
+    ClientConfig,
+    ClientOperatingStrategy,
+    GraphEntry,
+    GraphEntryAddress,
+    InitialPeersConfig,
+    Network as EVMNetwork,
+    Pointer,
+    PointerAddress,
+    Scratchpad,
     ScratchpadAddress,
+    Signature,
+    TransactionConfig,
+    Wallet,
 };
 
-use ant_evm::{PaymentQuote, QuotingMetrics, RewardsAddress};
-use ant_protocol::storage::DataTypes;
-use bls::{PublicKey, SecretKey};
-use libp2p::{Multiaddr, PeerId};
-use pyo3::exceptions::{PyConnectionError, PyRuntimeError, PyValueError};
-use pyo3::prelude::*;
-use pyo3_async_runtimes::tokio::future_into_py;
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use xor_name::XorName;
+// #[pyclass(name = "ANTNetwork")]
+// #[derive(Debug, Clone)]
+// pub struct PyANTNetwork {
+//     inner: ANTNetwork,
+// }
+
+//TODOv: add the 12 methods of PyANTNetwork
+
+#[pyclass(name = "AttoTokens")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PyAttoTokens {
+    inner: AttoTokens,
+}
+
+#[pymethods]
+impl PyAttoTokens {
+    /// Creates a new instance with zero tokens
+    #[staticmethod]
+    fn zero() -> Self {
+        Self {
+            inner: AttoTokens::zero(),
+        }
+    }
+
+    /// Returns whether this represents zero tokens
+    fn is_zero(&self) -> bool {
+        self.inner.is_zero()
+    }
+
+    /// Creates a new instance from atto amount
+    #[staticmethod]
+    fn from_atto(value: String) -> PyResult<Self> {
+        let amount = Amount::from_str(&value)
+            .map_err(|e| PyValueError::new_err(format!("Invalid amount: {e}")))?;
+        Ok(Self {
+            inner: AttoTokens::from_atto(amount),
+        })
+    }
+
+    /// Creates a new instance from a u64 number of atto tokens
+    #[staticmethod]
+    fn from_u64(value: u64) -> Self {
+        Self {
+            inner: AttoTokens::from_u64(value),
+        }
+    }
+
+    /// Creates a new instance from a u128 number of atto tokens
+    #[staticmethod]
+    fn from_u128(value: u128) -> Self {
+        Self {
+            inner: AttoTokens::from_u128(value),
+        }
+    }
+
+    /// Gets the amount as an atto value string
+    fn as_atto(&self) -> String {
+        self.inner.as_atto().to_string()
+    }
+
+    /// Adds another AttoTokens value, returning None if overflow occurred
+    fn checked_add(&self, rhs: &PyAttoTokens) -> Option<PyAttoTokens> {
+        self.inner
+            .checked_add(rhs.inner)
+            .map(|inner| PyAttoTokens { inner })
+    }
+
+    /// Subtracts another AttoTokens value, returning None if overflow occurred
+    fn checked_sub(&self, rhs: &PyAttoTokens) -> Option<PyAttoTokens> {
+        self.inner
+            .checked_sub(rhs.inner)
+            .map(|inner| PyAttoTokens { inner })
+    }
+
+    /// Converts the value as/to bytes
+    fn as_bytes(&self) -> Vec<u8> {
+        self.inner.to_bytes()
+    }
+
+    /// Creates a new instance from a string representation
+    #[staticmethod]
+    fn from_str(value_str: &str) -> PyResult<Self> {
+        AttoTokens::from_str(value_str)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse AttoTokens: {e}")))
+    }
+
+    /// Returns the string representation of the value
+    fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+
+    /// Returns the representation of the value for debugging
+    fn __repr__(&self) -> String {
+        format!("AttoTokens('{}')", self.inner)
+    }
+}
 
 #[pyclass(name = "DataTypes", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1299,6 +1422,65 @@ impl PyClientEventReceiver {
     }
 }
 
+#[pyclass(name = "ClientOperatingStrategy")]
+#[derive(Debug, Clone)]
+pub struct PyClientOperatingStrategy {
+    inner: ClientOperatingStrategy,
+}
+
+#[pymethods]
+impl PyClientOperatingStrategy {
+    /// Create a new ClientOperatingStrategy with default values
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: ClientOperatingStrategy::new(),
+        }
+    }
+
+    /// Get the strategy for chunk operations
+    #[getter]
+    fn get_chunks(&self) -> PyStrategy {
+        PyStrategy {
+            inner: self.inner.chunks.clone(),
+        }
+    }
+
+    /// Get the strategy for graph entry operations
+    #[getter]
+    fn get_graph_entry(&self) -> PyStrategy {
+        PyStrategy {
+            inner: self.inner.graph_entry.clone(),
+        }
+    }
+
+    /// Get the strategy for pointer operations
+    #[getter]
+    fn get_pointer(&self) -> PyStrategy {
+        PyStrategy {
+            inner: self.inner.pointer.clone(),
+        }
+    }
+
+    /// Get the strategy for scratchpad operations
+    #[getter]
+    fn get_scratchpad(&self) -> PyStrategy {
+        PyStrategy {
+            inner: self.inner.scratchpad.clone(),
+        }
+    }
+
+    /// Return a string representation of the strategy
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Get a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
 /// Address of a Pointer, is derived from the owner's unique public key.
 #[pyclass(name = "PointerAddress", eq, ord)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -1540,6 +1722,13 @@ impl PyChunkAddress {
         })
     }
 
+    /// Returns the XorName
+    pub fn xorname(&self) -> PyXorName {
+        PyXorName {
+            inner: *self.inner.xorname(),
+        }
+    }
+
     /// Generate a chunk address for the given content (for content-addressable-storage).
     #[staticmethod]
     fn from_content(data: Vec<u8>) -> PyResult<Self> {
@@ -1559,6 +1748,14 @@ impl PyChunkAddress {
     #[getter]
     fn hex(&self) -> String {
         self.inner.to_hex()
+    }
+
+    /// Create a ChunkAddress from a hex string.
+    #[staticmethod]
+    fn from_hex(hex: &str) -> PyResult<Self> {
+        Ok(Self {
+            inner: ChunkAddress::from_hex(hex).map_err(|e| PyValueError::new_err(e.to_string()))?,
+        })
     }
 
     fn __str__(&self) -> PyResult<String> {
@@ -1610,6 +1807,433 @@ impl PyGraphEntryAddress {
     }
 }
 
+/// Configuration for the bootstrap cache
+#[pyclass(name = "BootstrapCacheConfig")]
+#[derive(Debug, Clone)]
+pub struct PyBootstrapCacheConfig {
+    pub(crate) inner: BootstrapCacheConfig,
+}
+
+#[pymethods]
+impl PyBootstrapCacheConfig {
+    /// Creates a new BootstrapCacheConfig with default settings
+    ///
+    /// When `local` is set to true, a different cache file name is used.
+    /// I.e. the file name will include `_local_` in the name.
+    #[staticmethod]
+    fn default_config(local: bool) -> PyResult<Self> {
+        match BootstrapCacheConfig::default_config(local) {
+            Ok(config) => Ok(Self { inner: config }),
+            Err(e) => Err(PyRuntimeError::new_err(format!(
+                "Failed to create default config: {e}"
+            ))),
+        }
+    }
+
+    /// Creates a new BootstrapCacheConfig with empty settings
+    #[staticmethod]
+    fn empty() -> Self {
+        Self {
+            inner: BootstrapCacheConfig::empty(),
+        }
+    }
+
+    /// Set a new addr expiry duration in seconds
+    fn with_addr_expiry_duration(&self, seconds: u64) -> Self {
+        Self {
+            inner: self
+                .inner
+                .clone()
+                .with_addr_expiry_duration(Duration::from_secs(seconds)),
+        }
+    }
+
+    /// Update the config with a custom cache file path
+    fn with_cache_path(&self, path: PathBuf) -> Self {
+        Self {
+            inner: self.inner.clone().with_cache_path(path),
+        }
+    }
+
+    /// Sets the maximum number of peers
+    fn with_max_peers(&self, max_peers: usize) -> Self {
+        Self {
+            inner: self.inner.clone().with_max_peers(max_peers),
+        }
+    }
+
+    /// Sets the maximum number of addresses for a single peer
+    fn with_addrs_per_peer(&self, max_addrs: usize) -> Self {
+        Self {
+            inner: self.inner.clone().with_addrs_per_peer(max_addrs),
+        }
+    }
+
+    /// Sets the flag to disable writing to the cache file
+    fn with_disable_cache_writing(&self, disable: bool) -> Self {
+        Self {
+            inner: self.inner.clone().with_disable_cache_writing(disable),
+        }
+    }
+
+    /// Get the address expiry duration in seconds
+    #[getter]
+    fn addr_expiry_duration(&self) -> u64 {
+        self.inner.addr_expiry_duration.as_secs()
+    }
+
+    /// Get the maximum number of peers
+    #[getter]
+    fn max_peers(&self) -> usize {
+        self.inner.max_peers
+    }
+
+    /// Get the maximum number of addresses per peer
+    #[getter]
+    fn max_addrs_per_peer(&self) -> usize {
+        self.inner.max_addrs_per_peer
+    }
+
+    /// Get the cache file path
+    #[getter]
+    fn cache_file_path(&self) -> PathBuf {
+        self.inner.cache_file_path.clone()
+    }
+
+    /// Get whether cache writing is disabled
+    #[getter]
+    fn disable_cache_writing(&self) -> bool {
+        self.inner.disable_cache_writing
+    }
+
+    /// Get the minimum cache save duration in seconds
+    #[getter]
+    fn min_cache_save_duration(&self) -> u64 {
+        self.inner.min_cache_save_duration.as_secs()
+    }
+
+    /// Get the maximum cache save duration in seconds
+    #[getter]
+    fn max_cache_save_duration(&self) -> u64 {
+        self.inner.max_cache_save_duration.as_secs()
+    }
+
+    /// Get the cache save scaling factor
+    #[getter]
+    fn cache_save_scaling_factor(&self) -> u64 {
+        self.inner.cache_save_scaling_factor
+    }
+
+    /// Return a string representation
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Return a debug representation
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "InitialPeersConfig")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PyInitialPeersConfig {
+    inner: InitialPeersConfig,
+}
+
+#[pymethods]
+impl PyInitialPeersConfig {
+    /// Create a new InitialPeersConfig with default values
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: InitialPeersConfig::default(),
+        }
+    }
+
+    #[getter]
+    fn get_first(&self) -> bool {
+        self.inner.first
+    }
+
+    #[setter]
+    fn set_first(&mut self, value: bool) {
+        self.inner.first = value;
+    }
+
+    /// Addresses to use for bootstrap, in multiaddr format
+    #[getter]
+    fn get_addrs(&self) -> Vec<String> {
+        self.inner
+            .addrs
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect()
+    }
+
+    #[setter]
+    fn set_addrs(&mut self, addrs: Vec<String>) -> PyResult<()> {
+        self.inner.addrs = addrs
+            .iter()
+            .filter_map(|addr| Multiaddr::from_str(addr).ok())
+            .collect();
+        Ok(())
+    }
+
+    /// URLs to fetch network contacts from
+    #[getter]
+    fn get_network_contacts_url(&self) -> Vec<String> {
+        self.inner.network_contacts_url.clone()
+    }
+
+    #[setter]
+    fn set_network_contacts_url(&mut self, urls: Vec<String>) {
+        self.inner.network_contacts_url = urls;
+    }
+
+    /// Whether this is a local network
+    #[getter]
+    fn get_local(&self) -> bool {
+        self.inner.local
+    }
+
+    #[setter]
+    fn set_local(&mut self, value: bool) {
+        self.inner.local = value;
+    }
+
+    /// Whether to ignore the bootstrap cache
+    #[getter]
+    fn get_ignore_cache(&self) -> bool {
+        self.inner.ignore_cache
+    }
+
+    #[setter]
+    fn set_ignore_cache(&mut self, value: bool) {
+        self.inner.ignore_cache = value;
+    }
+
+    /// Directory for bootstrap cache files
+    #[getter]
+    fn get_bootstrap_cache_dir(&self) -> Option<PathBuf> {
+        self.inner.bootstrap_cache_dir.clone()
+    }
+
+    #[setter]
+    fn set_bootstrap_cache_dir(&mut self, dir: Option<PathBuf>) {
+        self.inner.bootstrap_cache_dir = dir;
+    }
+
+    /// Get bootstrap peers sorted by the failure rate. The peer with the lowest failure rate will be
+    /// the first in the list.
+    #[pyo3(signature = (config=None, count=None))]
+    fn fetch_bootstrap_addrs<'a>(
+        &self,
+        py: Python<'a>,
+        config: Option<PyBootstrapCacheConfig>,
+        count: Option<usize>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner_config = self.inner.clone();
+        let rust_config = config.map(|c| c.inner);
+
+        future_into_py(py, async move {
+            match inner_config.get_addrs(rust_config, count).await {
+                Ok(addrs) => Ok(addrs
+                    .into_iter()
+                    .map(|addr| addr.to_string())
+                    .collect::<Vec<String>>()),
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get bootstrap addresses: {e}"
+                ))),
+            }
+        })
+    }
+
+    /// Get bootstrap peers with their bootstrap addresses sorted by the failure rate.
+    /// The peer with the lowest failure rate will be the first in the list.
+    #[pyo3(signature = (config=None, count=None))]
+    fn fetch_bootstrap_addr_details<'a>(
+        &self,
+        py: Python<'a>,
+        config: Option<PyBootstrapCacheConfig>,
+        count: Option<usize>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner_config = self.inner.clone();
+        let rust_config = config.map(|c| c.inner);
+
+        future_into_py(py, async move {
+            match inner_config.get_bootstrap_addr(rust_config, count).await {
+                Ok(bootstrap_addrs) => {
+                    // Since failure_rate is private, we'll just return the addresses as strings
+                    let addrs = bootstrap_addrs
+                        .into_iter()
+                        .map(|addr| addr.addr.to_string())
+                        .collect::<Vec<String>>();
+                    Ok(addrs)
+                }
+                Err(e) => Err(PyRuntimeError::new_err(format!(
+                    "Failed to get bootstrap addresses: {e}"
+                ))),
+            }
+        })
+    }
+
+    /// Read multiaddresses from the ANT_PEERS environment variable
+    #[staticmethod]
+    fn read_addr_from_env() -> Vec<String> {
+        InitialPeersConfig::read_addr_from_env()
+            .into_iter()
+            .map(|addr| addr.to_string())
+            .collect()
+    }
+
+    /// Read bootstrap addresses from the ANT_PEERS environment variable
+    #[staticmethod]
+    fn read_bootstrap_addr_from_env() -> Vec<String> {
+        // Since failure_rate is private, we'll just return the addresses as strings
+        InitialPeersConfig::read_bootstrap_addr_from_env()
+            .into_iter()
+            .map(|addr| addr.addr.to_string())
+            .collect()
+    }
+
+    /// Get the path to the bootstrap cache JSON file if `self.bootstrap_cache_dir` is set
+    fn get_bootstrap_cache_path(&self) -> PyResult<Option<PathBuf>> {
+        self.inner.get_bootstrap_cache_path().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to get bootstrap cache path: {e}"))
+        })
+    }
+
+    /// Return a string representation
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Return a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "MainPubkey")]
+#[derive(Copy, PartialEq, Eq, Ord, PartialOrd, Clone, Serialize, Deserialize, Hash)]
+pub struct PyMainPubkey {
+    inner: MainPubkey,
+}
+
+#[pymethods]
+impl PyMainPubkey {
+    /// Create a new MainPubkey from a PublicKey
+    #[new]
+    fn new(public_key: PyPublicKey) -> Self {
+        Self {
+            inner: MainPubkey::new(public_key.inner),
+        }
+    }
+
+    /// Verify that the signature is valid for the message
+    fn verify(&self, sig: &PySignature, msg: &[u8]) -> bool {
+        self.inner.verify(&sig.inner, msg)
+    }
+
+    /// Generate a new DerivedPubkey from provided DerivationIndex
+    fn derive_key(&self, index: &PyDerivationIndex) -> PyDerivedPubkey {
+        PyDerivedPubkey {
+            inner: self.inner.derive_key(&index.inner),
+        }
+    }
+
+    /// Return the inner pubkey's bytes representation
+    fn as_bytes(&self) -> [u8; PK_SIZE] {
+        self.inner.to_bytes()
+    }
+
+    /// Return a hex representation of the MainPubkey
+    fn as_hex(&self) -> String {
+        self.inner.to_hex()
+    }
+
+    /// Create a new MainPubkey from a hex string
+    #[staticmethod]
+    fn from_hex(hex_str: &str) -> PyResult<Self> {
+        MainPubkey::from_hex(hex_str)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse hex: {e}")))
+    }
+
+    /// Return string representation (hex format)
+    fn __str__(&self) -> String {
+        self.inner.to_hex()
+    }
+
+    /// Return representation for debugging
+    fn __repr__(&self) -> String {
+        format!("MainPubkey('{}')", self.inner.to_hex())
+    }
+}
+
+#[pyclass(name = "MainSecretKey")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PyMainSecretKey {
+    inner: MainSecretKey,
+}
+
+#[pymethods]
+impl PyMainSecretKey {
+    /// Create a new MainSecretKey from a SecretKey
+    #[new]
+    fn new(secret_key: PySecretKey) -> Self {
+        Self {
+            inner: MainSecretKey::new(secret_key.inner),
+        }
+    }
+
+    /// Return the matching MainPubkey
+    fn public_key(&self) -> PyMainPubkey {
+        PyMainPubkey {
+            inner: self.inner.public_key(),
+        }
+    }
+
+    /// Signs the given message
+    fn sign(&self, msg: &[u8]) -> PySignature {
+        PySignature {
+            inner: self.inner.sign(msg),
+        }
+    }
+
+    /// Derive a DerivedSecretKey from a DerivationIndex
+    fn derive_key(&self, index: &PyDerivationIndex) -> PyDerivedSecretKey {
+        PyDerivedSecretKey {
+            inner: self.inner.derive_key(&index.inner),
+        }
+    }
+
+    /// Return the inner secret key's bytes representation
+    fn to_bytes(&self) -> Vec<u8> {
+        self.inner.to_bytes()
+    }
+
+    /// Generate a new random MainSecretKey
+    #[staticmethod]
+    fn random() -> Self {
+        Self {
+            inner: MainSecretKey::random(),
+        }
+    }
+
+    /// Generate a new random DerivedSecretKey from the MainSecretKey
+    fn random_derived_key(&self) -> PyDerivedSecretKey {
+        PyDerivedSecretKey {
+            inner: self.inner.random_derived_key(&mut rand::thread_rng()),
+        }
+    }
+
+    /// Return string representation for debugging
+    fn __repr__(&self) -> String {
+        format!("MainSecretKey(public_key={})", self.public_key().as_hex())
+    }
+}
 /// Address of a Scratchpad, is derived from the owner's unique public key.
 #[pyclass(name = "ScratchpadAddress", eq, ord)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -1914,6 +2538,305 @@ impl PySecretKey {
     }
 }
 
+#[pyclass(name = "Signature")]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct PySignature {
+    pub(crate) inner: Signature,
+}
+
+#[pymethods]
+impl PySignature {
+    /// Returns `true` if the signature contains an odd number of ones.
+    fn parity(&self) -> bool {
+        self.inner.parity()
+    }
+
+    /// Returns the signature with the given representation, if valid.
+    #[staticmethod]
+    fn from_bytes(bytes: [u8; bls::SIG_SIZE]) -> PyResult<Self> {
+        Signature::from_bytes(bytes)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("Invalid signature: {e}")))
+    }
+
+    /// Returns a byte array representation of the signature.
+    fn to_bytes(&self) -> [u8; bls::SIG_SIZE] {
+        self.inner.to_bytes()
+    }
+
+    /// String representation
+    fn __str__(&self) -> String {
+        hex::encode(self.inner.to_bytes())
+    }
+
+    /// Debug representation
+    fn __repr__(&self) -> String {
+        format!("Signature('{}')", hex::encode(self.inner.to_bytes()))
+    }
+}
+
+#[pyclass(name = "StoreQuote")]
+pub struct PyStoreQuote {
+    inner: StoreQuote,
+}
+
+#[pymethods]
+impl PyStoreQuote {
+    /// Returns the total price of all quotes
+    pub fn price(&self) -> String {
+        self.inner.price().to_string()
+    }
+
+    /// Returns the number of quotes
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if there are no quotes
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Returns a list of payment details (hash, rewards_address, price)
+    pub fn payments(&self) -> Vec<(String, String, String)> {
+        self.inner
+            .payments()
+            .into_iter()
+            .map(|(hash, rewards_address, price)| {
+                (
+                    format!("0x{}", hex::encode(hash.0)),
+                    format!("0x{}", hex::encode(rewards_address.0)),
+                    price.to_string(),
+                )
+            })
+            .collect()
+    }
+}
+
+#[pyclass(name = "Backoff")]
+#[derive(Debug, Clone)]
+pub struct PyBackoff {
+    inner: Backoff,
+}
+
+#[pymethods]
+impl PyBackoff {
+    /// String representation
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+// Wrapper approach for RetryStrategy
+#[pyclass(name = "RetryStrategy")]
+#[derive(Clone, Debug, Copy, Default)]
+pub struct PyRetryStrategy {
+    inner: RetryStrategy,
+}
+
+#[pymethods]
+impl PyRetryStrategy {
+    /// Create a new RetryStrategy with 'None' setting (1 attempt, no retries)
+    #[staticmethod]
+    fn none() -> Self {
+        Self {
+            inner: RetryStrategy::None,
+        }
+    }
+
+    /// Create a new RetryStrategy with 'Quick' setting (4 attempts)
+    #[staticmethod]
+    fn quick() -> Self {
+        Self {
+            inner: RetryStrategy::Quick,
+        }
+    }
+
+    /// Create a new RetryStrategy with 'Balanced' setting (6 attempts)
+    #[staticmethod]
+    fn balanced() -> Self {
+        Self {
+            inner: RetryStrategy::Balanced,
+        }
+    }
+
+    /// Create a new RetryStrategy with 'Persistent' setting (10 attempts)
+    #[staticmethod]
+    fn persistent() -> Self {
+        Self {
+            inner: RetryStrategy::Persistent,
+        }
+    }
+
+    /// Get the default RetryStrategy (Balanced)
+    #[staticmethod]
+    fn default() -> Self {
+        Self {
+            inner: RetryStrategy::default(),
+        }
+    }
+
+    /// Get the number of retry attempts
+    fn attempts(&self) -> usize {
+        self.inner.attempts()
+    }
+
+    /// Get a Backoff object configured for this retry strategy
+    fn backoff(&self) -> PyBackoff {
+        PyBackoff {
+            inner: self.inner.backoff(),
+        }
+    }
+
+    /// Get a string representation of the retry strategy
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Get a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "Quorum")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PyQuorum {
+    inner: Quorum,
+}
+
+#[pymethods]
+impl PyQuorum {
+    /// Get a string representation of the quorum
+    fn __str__(&self) -> String {
+        match self.inner {
+            Quorum::One => "Quorum::One".to_string(),
+            Quorum::Majority => "Quorum::Majority".to_string(),
+            Quorum::All => "Quorum::All".to_string(),
+            Quorum::N(n) => format!("Quorum::N({n})"),
+        }
+    }
+
+    /// Get a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "Strategy")]
+#[derive(Debug, Clone)]
+pub struct PyStrategy {
+    inner: Strategy,
+}
+
+#[pymethods]
+impl PyStrategy {
+    /// Get the quorum for put operations
+    #[getter]
+    fn get_put_quorum(&self) -> PyQuorum {
+        PyQuorum {
+            inner: self.inner.put_quorum,
+        }
+    }
+
+    /// Get the retry strategy for put operations
+    #[getter]
+    fn get_put_retry(&self) -> PyRetryStrategy {
+        PyRetryStrategy {
+            inner: self.inner.put_retry,
+        }
+    }
+
+    /// Get the quorum for verification operations
+    #[getter]
+    fn get_verification_quorum(&self) -> PyQuorum {
+        PyQuorum {
+            inner: self.inner.verification_quorum,
+        }
+    }
+
+    /// Get the quorum for get operations
+    #[getter]
+    fn get_get_quorum(&self) -> PyQuorum {
+        PyQuorum {
+            inner: self.inner.get_quorum,
+        }
+    }
+
+    /// Get the retry strategy for get operations
+    #[getter]
+    fn get_get_retry(&self) -> PyRetryStrategy {
+        PyRetryStrategy {
+            inner: self.inner.get_retry,
+        }
+    }
+
+    /// Return a string representation of the strategy
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    /// Get a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(name = "TransactionConfig")]
+#[derive(Clone, Debug)]
+pub struct PyTransactionConfig {
+    inner: TransactionConfig,
+}
+
+#[pymethods]
+impl PyTransactionConfig {
+    /// Creates a new TransactionConfig with the specified maximum fee per gas
+    #[new]
+    fn new(max_fee_per_gas: u128) -> Self {
+        Self {
+            inner: TransactionConfig::new(max_fee_per_gas),
+        }
+    }
+
+    /// Creates a new TransactionConfig with default settings
+    #[staticmethod]
+    fn default() -> Self {
+        Self {
+            inner: TransactionConfig::default(),
+        }
+    }
+
+    /// Get the maximum fee per gas
+    #[getter]
+    fn get_max_fee_per_gas(&self) -> u128 {
+        self.inner.max_fee_per_gas
+    }
+
+    /// Set the maximum fee per gas
+    #[setter]
+    fn set_max_fee_per_gas(&mut self, value: u128) {
+        self.inner.max_fee_per_gas = value;
+    }
+
+    /// Return a string representation of the transaction config
+    fn __str__(&self) -> String {
+        format!(
+            "TransactionConfig(max_fee_per_gas={})",
+            self.inner.max_fee_per_gas
+        )
+    }
+
+    /// Return a representation for debugging
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
 #[pyclass(name = "UploadSummary")]
 #[derive(Debug, Clone)]
 pub struct PyUploadSummary {
@@ -1974,6 +2897,18 @@ impl PyPublicKey {
     /// Returns the hex string representation of the public key.
     fn hex(&self) -> String {
         self.inner.to_hex()
+    }
+}
+
+#[pyclass(name = "QuoteForAddress")]
+pub struct PyQuoteForAddress {
+    inner: QuoteForAddress,
+}
+
+#[pymethods]
+impl PyQuoteForAddress {
+    pub fn price(&self) -> String {
+        self.inner.price().to_string()
     }
 }
 
@@ -2308,6 +3243,90 @@ impl PyPaymentQuote {
     }
 }
 
+#[pyclass(name = "PeerId")]
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PyPeerId {
+    inner: PeerId,
+}
+
+#[pymethods]
+impl PyPeerId {
+    // /// Builds a `PeerId` from a public key.
+    // #[staticmethod]
+    // fn from_public_key(key: &PyPublicKey) -> Self {
+    //     Self {
+    //         inner: PeerId::from_public_key(&key.inner),
+    //     }
+    // }
+
+    /// Parses a `PeerId` from bytes.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        PeerId::from_bytes(data)
+            .map(|peer_id| Self { inner: peer_id })
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse PeerId from bytes: {e}")))
+    }
+
+    /// Generates a random peer ID from a cryptographically secure PRNG.
+    #[staticmethod]
+    fn random() -> Self {
+        Self {
+            inner: PeerId::random(),
+        }
+    }
+
+    /// Returns a raw bytes representation of this `PeerId`.
+    fn to_bytes(&self) -> Vec<u8> {
+        self.inner.to_bytes()
+    }
+
+    /// Returns a base-58 encoded string of this `PeerId`.
+    fn to_base58(&self) -> String {
+        self.inner.to_base58()
+    }
+
+    /// Returns a string representation of this `PeerId` (base-58 encoded).
+    fn __str__(&self) -> String {
+        self.inner.to_base58()
+    }
+
+    /// Returns a debug representation of this `PeerId`.
+    fn __repr__(&self) -> String {
+        format!("PeerId('{}')", self.inner.to_base58())
+    }
+
+    /// Compare two PeerIds
+    fn __richcmp__(&self, other: &PyPeerId, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Eq => Ok(self.inner == other.inner),
+            CompareOp::Ne => Ok(self.inner != other.inner),
+            _ => Err(PyValueError::new_err(
+                "PeerId only supports equality comparisons",
+            )),
+        }
+    }
+
+    /// Returns a hash of this `PeerId`.
+    fn __hash__(&self) -> isize {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.inner.hash(&mut hasher);
+        hasher.finish() as isize
+    }
+}
+
+impl From<PeerId> for PyPeerId {
+    fn from(peer_id: PeerId) -> Self {
+        Self { inner: peer_id }
+    }
+}
+
+impl From<PyPeerId> for PeerId {
+    fn from(py_peer_id: PyPeerId) -> Self {
+        py_peer_id.inner
+    }
+}
+
 /// Contains the proof of payments for each XorName and the amount paid
 #[pyclass(name = "Receipt")]
 #[derive(Clone)]
@@ -2336,41 +3355,64 @@ impl PyReceipt {
     }
 }
 
-#[pyclass(name = "StoreQuote")]
-pub struct PyStoreQuote {
-    inner: StoreQuote,
+#[pyclass(name = "RegisterAddress")]
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug)]
+pub struct PyRegisterAddress {
+    inner: RegisterAddress,
 }
 
 #[pymethods]
-impl PyStoreQuote {
-    /// Returns the total price of all quotes
-    pub fn price(&self) -> String {
-        self.inner.price().to_string()
+impl PyRegisterAddress {
+    /// Create a new register address from a PublicKey
+    #[new]
+    fn new(owner: PyPublicKey) -> Self {
+        Self {
+            inner: RegisterAddress::new(owner.inner),
+        }
     }
 
-    /// Returns the number of quotes
-    pub fn len(&self) -> usize {
-        self.inner.len()
+    /// Get the owner of the register
+    fn owner(&self) -> PyPublicKey {
+        PyPublicKey {
+            inner: self.inner.owner(),
+        }
     }
 
-    /// Returns true if there are no quotes
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+    /// Convert to underlying graph representation
+    fn as_underlying_graph_root(&self) -> PyGraphEntryAddress {
+        PyGraphEntryAddress {
+            inner: self.inner.to_underlying_graph_root(),
+        }
     }
 
-    /// Returns a list of payment details (hash, rewards_address, price)
-    pub fn payments(&self) -> Vec<(String, String, String)> {
-        self.inner
-            .payments()
-            .into_iter()
-            .map(|(hash, rewards_address, price)| {
-                (
-                    format!("0x{}", hex::encode(hash.0)),
-                    format!("0x{}", hex::encode(rewards_address.0)),
-                    price.to_string(),
-                )
-            })
-            .collect()
+    /// Convert to underlying head pointer
+    fn as_underlying_head_pointer(&self) -> PyPointerAddress {
+        PyPointerAddress {
+            inner: self.inner.to_underlying_head_pointer(),
+        }
+    }
+
+    /// Convert a register address to a hex string
+    fn as_hex(&self) -> String {
+        self.inner.to_hex()
+    }
+
+    /// Convert a hex string to a register address
+    #[staticmethod]
+    fn from_hex(hex: &str) -> PyResult<Self> {
+        RegisterAddress::from_hex(hex)
+            .map(|addr| Self { inner: addr })
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse hex: {e}")))
+    }
+
+    /// String representation (returns hex format)
+    fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+
+    /// Representation for debugging
+    fn __repr__(&self) -> String {
+        format!("RegisterAddress('{}')", self.inner.to_hex())
     }
 }
 
@@ -2489,8 +3531,153 @@ fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
     Ok((data_map_bytes, chunks_bytes))
 }
 
+#[pyclass(name = "DerivationIndex")]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+pub struct PyDerivationIndex {
+    inner: DerivationIndex,
+}
+
+#[pymethods]
+impl PyDerivationIndex {
+    /// Generates a random derivation index
+    #[staticmethod]
+    fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        Self {
+            inner: DerivationIndex::random(&mut rng),
+        }
+    }
+
+    /// Returns the inner bytes representation
+    fn as_bytes(&self) -> [u8; 32] {
+        *self.inner.as_bytes()
+    }
+
+    /// Returns the inner bytes
+    fn bytes_owned(&self) -> [u8; 32] {
+        self.inner.into_bytes()
+    }
+
+    /// Creates a new DerivationIndex from a bytes array
+    #[staticmethod]
+    fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self {
+            inner: DerivationIndex::from_bytes(bytes),
+        }
+    }
+
+    /// Returns a string representation of the derivation index
+    fn __str__(&self) -> String {
+        format!(
+            "{:02x}{:02x}{:02x}..",
+            self.inner.as_bytes()[0],
+            self.inner.as_bytes()[1],
+            self.inner.as_bytes()[2]
+        )
+    }
+
+    /// Returns a debug representation of the derivation index
+    fn __repr__(&self) -> String {
+        format!(
+            "DerivationIndex({:02x}{:02x}{:02x}..)",
+            self.inner.as_bytes()[0],
+            self.inner.as_bytes()[1],
+            self.inner.as_bytes()[2]
+        )
+    }
+}
+
+#[pyclass(name = "DerivedPubkey")]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct PyDerivedPubkey {
+    inner: DerivedPubkey,
+}
+
+#[pymethods]
+impl PyDerivedPubkey {
+    /// Create a new DerivedPubkey from a PublicKey
+    #[new]
+    fn new(public_key: PyPublicKey) -> Self {
+        Self {
+            inner: DerivedPubkey::new(public_key.inner),
+        }
+    }
+
+    /// Convert to bytes representation
+    fn as_bytes(&self) -> [u8; bls::PK_SIZE] {
+        self.inner.to_bytes()
+    }
+
+    /// Verify a signature against a message
+    fn verify(&self, sig: &PySignature, msg: &[u8]) -> bool {
+        self.inner.verify(&sig.inner, msg)
+    }
+
+    /// Convert to hex string representation
+    fn as_hex(&self) -> String {
+        self.inner.to_hex()
+    }
+
+    /// Create a DerivedPubkey from a hex string
+    #[staticmethod]
+    fn from_hex(hex_str: &str) -> PyResult<Self> {
+        DerivedPubkey::from_hex(hex_str)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse hex: {e}")))
+    }
+
+    /// Return string representation (hex format)
+    fn __str__(&self) -> String {
+        self.inner.to_hex()
+    }
+
+    /// Return representation for debugging
+    fn __repr__(&self) -> String {
+        format!("DerivedPubkey('{}')", self.inner.to_hex())
+    }
+}
+
+#[pyclass(name = "DerivedSecretKey")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PyDerivedSecretKey {
+    inner: DerivedSecretKey,
+}
+
+#[pymethods]
+impl PyDerivedSecretKey {
+    /// Create a new DerivedSecretKey from a SecretKey
+    #[new]
+    fn new(secret_key: PySecretKey) -> Self {
+        Self {
+            inner: DerivedSecretKey::new(secret_key.inner),
+        }
+    }
+
+    /// Get the corresponding DerivedPubkey
+    fn public_key(&self) -> PyDerivedPubkey {
+        PyDerivedPubkey {
+            inner: self.inner.public_key(),
+        }
+    }
+
+    /// Sign a message with the secret key
+    fn sign(&self, msg: &[u8]) -> PySignature {
+        PySignature {
+            inner: self.inner.sign(msg),
+        }
+    }
+
+    /// Return string representation for debugging
+    fn __repr__(&self) -> String {
+        format!(
+            "DerivedSecretKey(public_key={})",
+            self.public_key().as_hex()
+        )
+    }
+}
+
 #[pyclass(name = "EVMNetwork", eq)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PyEVMNetwork {
     inner: EVMNetwork,
 }
@@ -2505,6 +3692,29 @@ impl PyEVMNetwork {
         let inner =
             EVMNetwork::new(local).map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(Self { inner })
+    }
+
+    #[staticmethod]
+    fn new_custom(rpc_url: &str, payment_token_addr: &str, data_payments_addr: &str) -> Self {
+        Self {
+            inner: EVMNetwork::new_custom(rpc_url, payment_token_addr, data_payments_addr),
+        }
+    }
+
+    fn identifier(&self) -> &str {
+        self.inner.identifier()
+    }
+
+    fn rpc_url(&self) -> String {
+        self.inner.rpc_url().as_str().to_string()
+    }
+
+    fn payment_token_address(&self) -> String {
+        self.inner.payment_token_address().to_string()
+    }
+
+    fn data_payments_address(&self) -> String {
+        self.inner.data_payments_address().to_string()
     }
 }
 
@@ -2886,11 +4096,113 @@ impl PyClientConfig {
     // fn strategy() { }
 }
 
-/// A handle to a XorName.
 #[pyclass(name = "XorName")]
-#[derive(Debug, Clone)]
+#[derive(Eq, Copy, Clone, Default, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PyXorName {
-    inner: XorName,
+    pub(crate) inner: XorName,
+}
+
+#[pymethods]
+impl PyXorName {
+    /// Generate a XorName for the given content
+    #[staticmethod]
+    fn from_content(content: &[u8]) -> Self {
+        Self {
+            inner: XorName::from_content(content),
+        }
+    }
+
+    /// Generate a XorName from multiple content parts
+    #[staticmethod]
+    fn from_content_parts(content_parts: Vec<Vec<u8>>) -> Self {
+        let refs: Vec<&[u8]> = content_parts.iter().map(|v| v.as_slice()).collect();
+        Self {
+            inner: XorName::from_content_parts(&refs),
+        }
+    }
+
+    /// Generate a random XorName
+    #[staticmethod]
+    fn random() -> Self {
+        Self {
+            inner: XorName::random(&mut rand::thread_rng()),
+        }
+    }
+
+    /// Returns `true` if the `i`-th bit is `1`
+    fn bit(&self, i: u8) -> bool {
+        self.inner.bit(i)
+    }
+
+    /// Compares the distance of the arguments to `self`
+    /// Returns -1 if `lhs` is closer, 1 if `rhs` is closer, and 0 if equal
+    fn cmp_distance(&self, lhs: &PyXorName, rhs: &PyXorName) -> i32 {
+        match self.inner.cmp_distance(&lhs.inner, &rhs.inner) {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        }
+    }
+
+    /// Returns a copy of `self`, with the `i`-th bit set to `bit`
+    fn with_bit(&self, i: u8, bit: bool) -> Self {
+        Self {
+            inner: self.inner.with_bit(i, bit),
+        }
+    }
+
+    /// Convert the XorName to a hex string
+    fn as_hex(&self) -> String {
+        hex::encode(self.inner.0)
+    }
+
+    /// Create a XorName from a hex string
+    #[staticmethod]
+    fn from_hex(hex_str: &str) -> PyResult<Self> {
+        if hex_str.len() != XOR_NAME_LEN * 2 {
+            return Err(PyValueError::new_err(format!(
+                "Hex string must be exactly {} characters",
+                XOR_NAME_LEN * 2
+            )));
+        }
+
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex string: {e}")))?;
+
+        let mut array = [0u8; XOR_NAME_LEN];
+        array.copy_from_slice(&bytes);
+
+        Ok(Self {
+            inner: XorName(array),
+        })
+    }
+
+    /// Return string representation (short form with first bytes)
+    fn __str__(&self) -> String {
+        format!("{}", self.inner)
+    }
+
+    /// Return debug representation
+    fn __repr__(&self) -> String {
+        format!("XorName({})", hex::encode(&self.inner.0[..3]))
+    }
+
+    fn __richcmp__(&self, other: &PyXorName, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.inner < other.inner,
+            CompareOp::Le => self.inner <= other.inner,
+            CompareOp::Eq => self.inner == other.inner,
+            CompareOp::Ne => self.inner != other.inner,
+            CompareOp::Gt => self.inner > other.inner,
+            CompareOp::Ge => self.inner >= other.inner,
+        }
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&self.inner, &mut hasher);
+        std::hash::Hasher::finish(&hasher) as isize
+    }
 }
 
 /// Generate a random XorName.
@@ -2904,42 +4216,61 @@ fn random_xor() -> PyXorName {
 #[pymodule]
 #[pyo3(name = "autonomi_client")]
 fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // m.add_class::<PyANTNetwork>()?;
+    m.add_class::<PyArchiveAddress>()?;
+    m.add_class::<PyAttoTokens>()?;
+    m.add_class::<PyBackoff>()?;
+    m.add_class::<PyBootstrapCacheConfig>()?;
+    m.add_class::<PyChunk>()?;
+    m.add_class::<PyChunkAddress>()?;
     m.add_class::<PyClient>()?;
+    m.add_class::<PyClientConfig>()?;
     m.add_class::<PyClientEvent>()?;
     m.add_class::<PyClientEventReceiver>()?;
-    m.add_class::<PyDataTypes>()?;
-    m.add_class::<PyChunk>()?;
-    m.add_class::<PyUploadSummary>()?;
-    m.add_class::<PyQuotingMetrics>()?;
-    m.add_class::<PyPaymentQuote>()?;
-    m.add_class::<PyReceipt>()?;
-    m.add_class::<PyStoreQuote>()?;
-    m.add_class::<PyWallet>()?;
-    m.add_class::<PyPaymentOption>()?;
-    m.add_class::<PyVaultSecretKey>()?;
-    m.add_class::<PyUserData>()?;
-    m.add_class::<PyDataMapChunk>()?;
-    m.add_class::<PyPointer>()?;
+    m.add_class::<PyClientOperatingStrategy>()?;
     m.add_class::<PyDataAddress>()?;
-    m.add_class::<PyChunkAddress>()?;
+    m.add_class::<PyDataMapChunk>()?;
+    m.add_class::<PyDataTypes>()?;
+    m.add_class::<PyDerivationIndex>()?;
+    m.add_class::<PyDerivedPubkey>()?;
+    m.add_class::<PyDerivedSecretKey>()?;
+    m.add_class::<PyEVMNetwork>()?;
+    m.add_class::<PyGraphEntry>()?;
     m.add_class::<PyGraphEntryAddress>()?;
+    m.add_class::<PyInitialPeersConfig>()?;
+    m.add_class::<PyMainPubkey>()?;
+    m.add_class::<PyMainSecretKey>()?;
+    m.add_class::<PyMetadata>()?;
+    m.add_class::<PyPaymentOption>()?;
+    m.add_class::<PyPaymentQuote>()?;
+    m.add_class::<PyPeerId>()?;
+    m.add_class::<PyPointer>()?;
     m.add_class::<PyPointerAddress>()?;
     m.add_class::<PyPointerTarget>()?;
-    m.add_class::<PyScratchpadAddress>()?;
-    m.add_class::<PyArchiveAddress>()?;
-    m.add_class::<PyPrivateArchiveDataMap>()?;
-    m.add_class::<PyXorName>()?;
-    m.add_class::<PySecretKey>()?;
-    m.add_class::<PyPublicKey>()?;
-    m.add_class::<PyEVMNetwork>()?;
-    m.add_class::<PyMetadata>()?;
-    m.add_class::<PyPublicArchive>()?;
     m.add_class::<PyPrivateArchive>()?;
-    m.add_class::<PyGraphEntry>()?;
-    m.add_class::<PyScratchpad>()?;
+    m.add_class::<PyPrivateArchiveDataMap>()?;
+    m.add_class::<PyPublicArchive>()?;
+    m.add_class::<PyPublicKey>()?;
+    m.add_class::<PyQuorum>()?;
+    m.add_class::<PyQuoteForAddress>()?;
+    m.add_class::<PyQuotingMetrics>()?;
+    m.add_class::<PyReceipt>()?;
+    m.add_class::<PyRegisterAddress>()?;
     m.add_class::<PyRegisterHistory>()?;
-    m.add_class::<PyClientConfig>()?;
+    m.add_class::<PyRetryStrategy>()?;
+    m.add_class::<PyScratchpad>()?;
+    m.add_class::<PyScratchpadAddress>()?;
+    m.add_class::<PySecretKey>()?;
+    m.add_class::<PySignature>()?;
+    m.add_class::<PyStoreQuote>()?;
+    m.add_class::<PyStrategy>()?;
+    m.add_class::<PyTransactionConfig>()?;
+    m.add_class::<PyUploadSummary>()?;
+    m.add_class::<PyUserData>()?;
+    m.add_class::<PyVaultSecretKey>()?;
+    m.add_class::<PyWallet>()?;
+    m.add_class::<PyXorName>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
-    m.add_function(wrap_pyfunction!(random_xor, m)?)?;
+    m.add_function(wrap_pyfunction!(random_xor, m)?)?; //to be removed (from tests too)
     Ok(())
 }

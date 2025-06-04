@@ -97,6 +97,11 @@ pub enum NetworkError {
     SplitRecord(HashMap<PeerId, Record>),
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
+    #[error("Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}")]
+    GetRecordQuorumFailed {
+        got_holders: usize,
+        expected_holders: usize,
+    },
 
     /// Invalid retry strategy
     #[error("Invalid retry strategy, check your config or use the default")]

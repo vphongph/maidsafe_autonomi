@@ -12,7 +12,7 @@ mod task_handler;
 
 use std::{num::NonZeroUsize, time::Duration};
 
-use crate::networking::interface::NetworkTask;
+use crate::networking::interface::{Command, NetworkTask};
 use crate::networking::NetworkError;
 use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
 use ant_protocol::PrettyPrintRecordKey;
@@ -71,6 +71,8 @@ pub(crate) struct NetworkDriver {
     swarm: Swarm<AutonomiClientBehaviour>,
     /// can receive tasks from the [`crate::Network`]
     task_receiver: mpsc::Receiver<NetworkTask>,
+    /// can receive commands from the [`crate::driver::task_handler::TaskHandler`]
+    cmd_receiver: mpsc::Receiver<Command>,
     /// pending tasks currently awaiting swarm events to progress
     /// this is an opaque struct that can only be mutated by the module were [`crate::driver::task_handler::TaskHandler`] is defined
     pending_tasks: TaskHandler,
@@ -155,10 +157,15 @@ impl NetworkDriver {
         let swarm_config = libp2p::swarm::Config::with_tokio_executor();
         let swarm = Swarm::new(transport, behaviour, peer_id, swarm_config);
 
+        let (cmd_sender, cmd_receiver) = mpsc::channel(1);
+
+        let task_handler = TaskHandler::new(cmd_sender);
+
         Self {
             swarm,
             task_receiver,
-            pending_tasks: Default::default(),
+            cmd_receiver,
+            pending_tasks: task_handler,
         }
     }
 
@@ -175,10 +182,19 @@ impl NetworkDriver {
                             break;
                         }
                     }
-                }
+                },
+                cmd = self.cmd_receiver.recv() => {
+                    match cmd {
+                        Some(cmd) => self.process_cmd(cmd),
+                        None => {
+                            info!("Command receiver closed, exiting");
+                            break;
+                        }
+                    }
+                },
                 // swarm events
                 swarm_event = self.swarm.select_next_some() => {
-                    if let Err(e) = self.process_swarm_event(swarm_event) {
+                    if let Err(e) = self.process_swarm_event(swarm_event).await {
                         error!("Error processing swarm event: {e}");
                     }
                 }
@@ -298,6 +314,17 @@ impl NetworkDriver {
                         resp,
                     },
                 );
+            }
+        }
+    }
+
+    /// Process commands.
+    fn process_cmd(&mut self, cmd: Command) {
+        match cmd {
+            Command::TerminateQuery(query_id) => {
+                if let Some(mut query) = self.kad().query_mut(&query_id) {
+                    query.finish();
+                }
             }
         }
     }

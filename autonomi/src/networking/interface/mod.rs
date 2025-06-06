@@ -9,6 +9,7 @@
 use crate::networking::OneShotTaskResult;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
+use libp2p::kad::QueryId;
 use libp2p::{
     kad::{PeerInfo, Quorum, Record},
     PeerId,
@@ -59,4 +60,11 @@ pub(super) enum NetworkTask {
         #[debug(skip)]
         resp: OneShotTaskResult<Option<(PeerInfo, PaymentQuote)>>,
     },
+}
+
+/// Commands that can be sent to the network driver to control ongoing operations.
+#[derive(Debug)]
+pub(super) enum Command {
+    /// Terminate an ongoing query.
+    TerminateQuery(QueryId),
 }

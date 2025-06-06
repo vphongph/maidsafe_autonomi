@@ -25,7 +25,7 @@ use super::{AutonomiClientBehaviourEvent, NetworkDriver};
 
 impl NetworkDriver {
     /// Process a swarm event, ultimately handing over the event to the correct handler in [`crate::driver::task_handler::TaskHandler`]
-    pub(crate) fn process_swarm_event(
+    pub(crate) async fn process_swarm_event(
         &mut self,
         swarm_event: SwarmEvent<AutonomiClientBehaviourEvent>,
     ) -> Result<(), NetworkDriverError> {
@@ -56,7 +56,10 @@ impl NetworkDriver {
                     stats,
                     step,
                 },
-            )) => self.handle_kad_progress_event(id, result, &stats, &step),
+            )) => {
+                self.handle_kad_progress_event(id, result, &stats, &step)
+                    .await
+            }
             _other_event => {
                 // trace!("Other event: {:?}", _other_event);
                 Ok(())
@@ -64,7 +67,7 @@ impl NetworkDriver {
         }
     }
 
-    fn handle_kad_progress_event(
+    async fn handle_kad_progress_event(
         &mut self,
         id: QueryId,
         result: QueryResult,
@@ -90,7 +93,7 @@ impl NetworkDriver {
             QueryResult::GetRecord(res) => {
                 // The result here is not logged because it can produce megabytes of text.
                 trace!("GetRecord event occurred");
-                self.pending_tasks.update_get_record(id, res)?;
+                self.pending_tasks.update_get_record(id, res).await?;
             }
             QueryResult::PutRecord(res) => {
                 trace!("PutRecord: {:?}", res);

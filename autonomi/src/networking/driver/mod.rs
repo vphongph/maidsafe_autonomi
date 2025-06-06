@@ -194,7 +194,7 @@ impl NetworkDriver {
                 },
                 // swarm events
                 swarm_event = self.swarm.select_next_some() => {
-                    if let Err(e) = self.process_swarm_event(swarm_event).await {
+                    if let Err(e) = self.process_swarm_event(swarm_event) {
                         error!("Error processing swarm event: {e}");
                     }
                 }

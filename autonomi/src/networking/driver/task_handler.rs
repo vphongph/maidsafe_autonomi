@@ -133,7 +133,7 @@ impl TaskHandler {
         Ok(())
     }
 
-    pub async fn update_get_record(
+    pub fn update_get_record(
         &mut self,
         id: QueryId,
         res: Result<kad::GetRecordOk, kad::GetRecordError>,
@@ -156,13 +156,13 @@ impl TaskHandler {
 
                     if holders.len() >= expected_holders {
                         info!("QueryId({id}): got enough holders, finishing task");
-                        self.finish_get_record(id).await?;
+                        self.finish_get_record(id)?;
                     }
                 }
             }
             Ok(kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. }) => {
                 trace!("QueryId({id}): GetRecordOk::FinishedWithNoAdditionalRecord");
-                self.finish_get_record(id).await?;
+                self.finish_get_record(id)?;
             }
             Err(kad::GetRecordError::NotFound { key, closest_peers }) => {
                 trace!(
@@ -211,10 +211,10 @@ impl TaskHandler {
         Ok(())
     }
 
-    pub async fn finish_get_record(&mut self, id: QueryId) -> Result<(), TaskHandlerError> {
+    pub fn finish_get_record(&mut self, id: QueryId) -> Result<(), TaskHandlerError> {
         let ((responder, quorum), holders) = self.consume_get_record_task_and_holders(id)?;
 
-        self.finish_kad_query(id).await;
+        self.finish_kad_query(id);
 
         let expected_holders = get_quorum_amount(&quorum);
 
@@ -370,11 +370,14 @@ impl TaskHandler {
     }
 
     /// Forcefully finish a kad query.
-    pub async fn finish_kad_query(&mut self, query_id: QueryId) {
-        self.network_driver_cmd_sender
-            .send(Command::TerminateQuery(query_id))
-            .await
-            .expect("Failed to send network driver command");
+    pub fn finish_kad_query(&mut self, query_id: QueryId) {
+        let network_driver_cmd_sender = self.network_driver_cmd_sender.clone();
+        tokio::spawn(async move {
+            network_driver_cmd_sender
+                .send(Command::TerminateQuery(query_id))
+                .await
+                .expect("Failed to send network driver command");
+        });
     }
 }
 

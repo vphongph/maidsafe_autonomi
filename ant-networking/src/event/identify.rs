@@ -140,7 +140,7 @@ impl SwarmDriver {
 
             debug!("Received identify for {peer_id:?} that is already part of the RT. Checking if the addresses {addrs:?} are new.");
             self.update_pre_existing_peer(peer_id, &addrs, is_relayed_peer);
-        } else if !self.is_client && !self.local && !has_dialed {
+        } else if !self.local && !has_dialed {
             // When received an identify from un-dialed peer, try to dial it
             // The dial shall trigger the same identify to be sent again and confirm
             // peer is external accessible, hence safe to be added into RT.

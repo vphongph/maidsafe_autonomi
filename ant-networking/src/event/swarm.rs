@@ -170,14 +170,14 @@ impl SwarmDriver {
 
                 // Trigger server mode if we're not a client and we should not add our own address if we're behind
                 // home network (is_relay_client).
-                if !self.is_client && !self.is_relay_client {
+                if !self.is_relay_client {
                     // Others won't read our advertised external address, as we now use the addr from connection info.
                     // this is needed for Kad Mode::Server
                     self.swarm.add_external_address(address.clone());
                 }
 
                 // If we are a local node, add our own address(es) to cache
-                if !self.is_client && self.local {
+                if self.local {
                     if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
                         info!("Adding listen address to bootstrap cache (local): {address:?}");
                         bootstrap_cache.add_addr(address.clone());

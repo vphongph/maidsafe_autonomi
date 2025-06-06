@@ -85,16 +85,16 @@ test('scratchpad put and get', async (t) => {
   const { cost: putCost, addr } = await client.scratchpadPut(scratchpad, PaymentOption.fromWallet(wallet));
   t.true(typeof putCost === 'string');
   t.true(addr instanceof ScratchpadAddress);
-  
-  // Check existence
-  const exists = await client.scratchpadCheckExistance(addr);
-  t.true(exists);
-  
+
   // Get the scratchpad
   const retrievedScratchpad = await client.scratchpadGet(addr);
   t.true(retrievedScratchpad instanceof Scratchpad);
   t.true(retrievedScratchpad.verifySignature());
-  
+
+  // Check existence
+  const exists = await client.scratchpadCheckExistance(addr);
+  t.true(exists);
+
   // Verify content matches
   const retrievedData = retrievedScratchpad.decryptData(owner);
   t.deepEqual(retrievedData, data);
@@ -128,7 +128,10 @@ test('scratchpad create and update', async (t) => {
   // Update the scratchpad
   const updatedData = Buffer.from("42");
   await client.scratchpadUpdate(owner, dataEncoding, updatedData);
-  
+
+  // Wait for 1 second
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
   // Get the updated scratchpad
   const scratchpad2 = await client.scratchpadGet(addr);
   t.is(scratchpad2.dataEncoding(), dataEncoding);

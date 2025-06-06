@@ -128,7 +128,10 @@ test('scratchpad create and update', async (t) => {
   // Update the scratchpad
   const updatedData = Buffer.from("42");
   await client.scratchpadUpdate(owner, dataEncoding, updatedData);
-  
+
+  // Wait for 1 second
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
   // Get the updated scratchpad
   const scratchpad2 = await client.scratchpadGet(addr);
   t.is(scratchpad2.dataEncoding(), dataEncoding);

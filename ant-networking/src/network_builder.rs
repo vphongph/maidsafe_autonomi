@@ -12,6 +12,7 @@ use crate::{
     driver::NodeBehaviour,
     error::{NetworkError, Result},
     event::NetworkEvent,
+    external_address::ExternalAddressManager,
     network_discovery::NetworkDiscovery,
     record_store::{NodeRecordStore, NodeRecordStoreConfig},
     relay_manager::RelayManager,
@@ -466,6 +467,13 @@ impl NetworkBuilder {
             info!("Relay manager is disabled for this node.");
             None
         };
+        // Enable external address manager for public nodes and not behind nat
+        let external_address_manager = if !self.local && !self.relay_client {
+            Some(ExternalAddressManager::new(peer_id))
+        } else {
+            info!("External address manager is disabled for this node.");
+            None
+        };
 
         let is_upnp_enabled = swarm.behaviour().upnp.is_enabled();
         let swarm_driver = SwarmDriver {
@@ -479,9 +487,9 @@ impl NetworkBuilder {
             initial_bootstrap: InitialBootstrap::new(self.initial_contacts),
             initial_bootstrap_trigger: InitialBootstrapTrigger::new(is_upnp_enabled),
             bootstrap_cache: self.bootstrap_cache,
-            dial_queue: Default::default(),
             relay_manager,
             connected_relay_clients: Default::default(),
+            external_address_manager,
             replication_fetcher,
             #[cfg(feature = "open-metrics")]
             metrics_recorder,

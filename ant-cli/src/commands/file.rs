@@ -8,7 +8,8 @@
 
 use crate::access::cached_payments;
 use crate::actions::NetworkContext;
-use crate::exit_code::{upload_exit_code, ExitCodeError, IO_ERROR};
+use crate::args::max_fee_per_gas::{get_max_fee_per_gas_from_opt_param, MaxFeePerGasParam};
+use crate::exit_code::{upload_exit_code, ExitCodeError, FEES_ERROR, IO_ERROR};
 use crate::utils::collect_upload_summary;
 use crate::wallet::load_wallet;
 use autonomi::client::analyze::Analysis;
@@ -46,7 +47,7 @@ pub async fn upload(
     public: bool,
     no_archive: bool,
     network_context: NetworkContext,
-    max_fee_per_gas: Option<u128>,
+    max_fee_per_gas_param: Option<MaxFeePerGasParam>,
 ) -> Result<(), ExitCodeError> {
     let config = ClientOperatingStrategy::new();
 
@@ -55,9 +56,10 @@ pub async fn upload(
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;
 
-    if let Some(max_fee_per_gas) = max_fee_per_gas {
-        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
-    }
+    let max_fee_per_gas =
+        get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())
+            .map_err(|err| (err, FEES_ERROR))?;
+    wallet.set_transaction_config(TransactionConfig { max_fee_per_gas });
 
     let payment = if let Ok(Some(receipt)) = cached_payments::load_payment_for_file(file) {
         println!("Using cached payment: no need to re-pay");

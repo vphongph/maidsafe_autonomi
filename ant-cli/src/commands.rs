@@ -13,9 +13,10 @@ mod vault;
 mod wallet;
 
 use crate::actions::NetworkContext;
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 use crate::opt::{NetworkId, Opt};
 use autonomi::networking::Quorum;
-use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
+use clap::{error::ErrorKind, Args, CommandFactory as _, Subcommand};
 use color_eyre::Result;
 use std::num::NonZeroUsize;
 
@@ -77,8 +78,8 @@ pub enum FileCmd {
         #[arg(long)]
         no_archive: bool,
         /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Download a file from the given address.
@@ -128,9 +129,8 @@ pub enum RegisterCmd {
         /// Treat the value as a hex string and convert it to binary before storing
         #[arg(long)]
         hex: bool,
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Edit an existing register.
@@ -148,9 +148,8 @@ pub enum RegisterCmd {
         /// Treat the value as a hex string and convert it to binary before storing
         #[arg(long)]
         hex: bool,
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Get the value of a register.
@@ -197,9 +196,8 @@ pub enum VaultCmd {
     /// Create a vault at a deterministic address based on your `SECRET_KEY`.
     /// Pushing an encrypted backup of your local user data to the network
     Create {
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Load an existing vault from the network.
@@ -249,6 +247,20 @@ pub enum WalletCmd {
     Balance,
 }
 
+#[derive(Args, Debug)]
+pub(crate) struct TransactionOpt {
+    /// Max fee per gas / gas price bid.
+    /// Options:
+    /// - `low`: Use the average max gas price bid.
+    /// - `market`: Use the current max gas price bid, with a max of 4 * the average gas price bid. (default)
+    /// - `auto`: Use the current max gas price bid. WARNING: Can result in high gas fees! (default: when using custom EVM network)
+    /// - `limited-auto:<WEI AMOUNT>`: Use the current max gas price bid, with a specified upper limit.
+    /// - `unlimited`: Do not use a limit for the gas price bid. WARNING: Can result in high gas fees!
+    /// - `<WEI AMOUNT>`: Set a custom max gas price bid.
+    #[clap(long, verbatim_doc_comment)]
+    pub max_fee_per_gas: Option<MaxFeePerGasParam>,
+}
+
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
@@ -265,10 +277,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 file,
                 public,
                 no_archive,
-                max_fee_per_gas,
+                transaction_opt,
             } => {
-                if let Err((err, exit_code)) =
-                    file::upload(&file, public, no_archive, network_context, max_fee_per_gas).await
+                if let Err((err, exit_code)) = file::upload(
+                    &file,
+                    public,
+                    no_archive,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);
@@ -306,15 +324,34 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 name,
                 value,
                 hex,
-                max_fee_per_gas,
-            } => register::create(&name, &value, hex, network_context, max_fee_per_gas).await,
+                transaction_opt,
+            } => {
+                register::create(
+                    &name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
                 hex,
-                max_fee_per_gas,
-            } => register::edit(address, name, &value, hex, network_context, max_fee_per_gas).await,
+                transaction_opt,
+            } => {
+                register::edit(
+                    address,
+                    name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Get { address, name, hex } => {
                 register::get(address, name, hex, network_context).await
             }
@@ -327,8 +364,8 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             VaultCmd::Cost { expected_max_size } => {
                 vault::cost(network_context, expected_max_size).await
             }
-            VaultCmd::Create { max_fee_per_gas } => {
-                vault::create(network_context, max_fee_per_gas).await
+            VaultCmd::Create { transaction_opt } => {
+                vault::create(network_context, transaction_opt.max_fee_per_gas).await
             }
             VaultCmd::Load => vault::load(network_context).await,
             VaultCmd::Sync { force } => vault::sync(force, network_context).await,

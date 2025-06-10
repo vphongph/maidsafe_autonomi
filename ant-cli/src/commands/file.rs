@@ -82,6 +82,7 @@ pub async fn upload(
         .unwrap_or(file.to_string());
 
     // upload dir
+    let not_single_file = !dir_path.is_file();
     let (archive_addr, local_addr) =
         match upload_dir(&client, dir_path, public, no_archive, payment).await {
             Ok((a, l)) => (a, l),
@@ -131,7 +132,7 @@ pub async fn upload(
     info!("Summary for upload of file {file} at {local_addr:?}: {summary:?}");
 
     // save archive to local user data
-    if !no_archive {
+    if !no_archive && not_single_file {
         let writer = if public {
             crate::user_data::write_local_public_file_archive(archive_addr, &name)
         } else {
@@ -168,7 +169,7 @@ async fn upload_dir(
             addrs.push(addr.to_hex());
         }
 
-        if no_archive || !is_single_file {
+        if no_archive || is_single_file {
             if addrs.len() > MAX_ADDRESSES_TO_PRINT {
                 Ok(("no-archive".to_string(), "multiple addresses".to_string()))
             } else {
@@ -191,7 +192,7 @@ async fn upload_dir(
             addrs.push(private_datamap.to_hex());
         }
 
-        if no_archive || !is_single_file {
+        if no_archive || is_single_file {
             if addrs.len() > MAX_ADDRESSES_TO_PRINT {
                 Ok(("no-archive".to_string(), "multiple addresses".to_string()))
             } else {

@@ -1451,6 +1451,67 @@ impl Wallet {
 
         Ok(balance.to_string())
     }
+
+    /// Sets the transaction configuration for the wallet.
+    #[napi]
+    pub fn set_transaction_config(&mut self, config: &TransactionConfig) {
+        self.0.set_transaction_config(config.0.clone())
+    }
+}
+
+/// Transaction configuration for wallets
+#[napi]
+pub struct TransactionConfig(autonomi::TransactionConfig);
+
+#[napi]
+impl TransactionConfig {
+    /// Use the current market price for fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[napi(factory)]
+    pub fn auto() -> Self {
+        Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Auto,
+        })
+    }
+
+    /// Use the current market price for fee per gas, but with an upper limit.
+    #[napi(factory)]
+    pub fn limited_auto(limit: BigInt) -> Result<Self> {
+        let (_signed, value, lossless) = limit.get_u128();
+        if !lossless {
+            return Err(napi::Error::new(
+                Status::InvalidArg,
+                "expected limit to fit in a u128",
+            ));
+        }
+
+        Ok(Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::LimitedAuto(value),
+        }))
+    }
+
+    /// Use no max fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[napi(factory)]
+    pub fn unlimited() -> Self {
+        Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Unlimited,
+        })
+    }
+
+    /// Use a custom max fee per gas in WEI.
+    #[napi(factory)]
+    pub fn custom(fee: BigInt) -> Result<Self> {
+        let (_signed, value, lossless) = fee.get_u128();
+        if !lossless {
+            return Err(napi::Error::new(
+                Status::InvalidArg,
+                "expected fee to fit in a u128",
+            ));
+        }
+
+        Ok(Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Custom(value),
+        }))
+    }
 }
 
 /// Options for making payments on the network

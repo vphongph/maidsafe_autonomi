@@ -12,13 +12,13 @@ mod register;
 mod vault;
 mod wallet;
 
-use std::num::NonZeroUsize;
 use crate::actions::NetworkContext;
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 use crate::opt::{NetworkId, Opt};
 use autonomi::networking::Quorum;
 use clap::{error::ErrorKind, Args, CommandFactory as _, Subcommand};
 use color_eyre::Result;
-use crate::args::max_fee_per_gas::MaxFeePerGasParam;
+use std::num::NonZeroUsize;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -271,8 +271,13 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 public,
                 transaction_opt,
             } => {
-                if let Err((err, exit_code)) =
-                    file::upload(&file, public, network_context, transaction_opt.max_fee_per_gas).await
+                if let Err((err, exit_code)) = file::upload(
+                    &file,
+                    public,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);

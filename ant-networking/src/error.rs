@@ -18,6 +18,9 @@ use libp2p::{
 use std::{collections::HashMap, fmt::Debug, io, path::PathBuf};
 use thiserror::Error;
 use tokio::sync::oneshot;
+use tracing::Level;
+
+const TRACING_ERROR_LEVEL: Level = Level::ERROR;
 
 pub(super) type Result<T, E = NetworkError> = std::result::Result<T, E>;
 
@@ -119,71 +122,98 @@ pub enum NetworkError {
 }
 
 /// Return a list of error strings for the DialError type
-pub fn dial_error_to_str(err: &DialError) -> Vec<String> {
+pub fn dial_error_to_str(err: &DialError) -> Vec<(String, Level)> {
     match err {
-        DialError::LocalPeerId { .. } => vec!["DialError::LocalPeerId".to_string()],
-        DialError::NoAddresses => vec!["DialError::NoAddresses".to_string()],
+        DialError::LocalPeerId { .. } => {
+            vec![("DialError::LocalPeerId".to_string(), TRACING_ERROR_LEVEL)]
+        }
+        DialError::NoAddresses => vec![("DialError::NoAddresses".to_string(), TRACING_ERROR_LEVEL)],
         DialError::DialPeerConditionFalse(peer_condition) => {
-            vec![format!(
-                "DialError::DialPeerConditionFalse::{peer_condition:?}"
+            vec![(
+                format!("DialError::DialPeerConditionFalse::{peer_condition:?}"),
+                TRACING_ERROR_LEVEL,
             )]
         }
-        DialError::Aborted => vec!["DialError::Aborted".to_string()],
-        DialError::WrongPeerId { .. } => vec!["DialError::WrongPeerId".to_string()],
-        DialError::Denied { .. } => vec!["DialError::Denied".to_string()],
+        DialError::Aborted => vec![("DialError::Aborted".to_string(), TRACING_ERROR_LEVEL)],
+        DialError::WrongPeerId { .. } => {
+            vec![("DialError::WrongPeerId".to_string(), TRACING_ERROR_LEVEL)]
+        }
+        DialError::Denied { .. } => vec![("DialError::Denied".to_string(), TRACING_ERROR_LEVEL)],
         DialError::Transport(items) => items
             .iter()
-            .map(|(_, error)| format!("DialError::{}", transport_err_to_str(error)))
+            .map(|(_, error)| {
+                let (error_str, level) = transport_err_to_str(error);
+                (format!("DialError::{error_str}"), level)
+            })
             .collect(),
     }
 }
 
 /// Return a string for the ListenError type
-pub fn listen_error_to_str(err: &ListenError) -> String {
+pub fn listen_error_to_str(err: &ListenError) -> (String, Level) {
     match err {
-        ListenError::Aborted => "ListenError::Aborted".to_string(),
-        ListenError::WrongPeerId { .. } => "ListenError::WrongPeerId".to_string(),
-        ListenError::LocalPeerId { .. } => "ListenError::LocalPeerId".to_string(),
-        ListenError::Denied { .. } => "ListenError::Denied".to_string(),
+        ListenError::Aborted => ("ListenError::Aborted".to_string(), TRACING_ERROR_LEVEL),
+
+        ListenError::WrongPeerId { .. } => {
+            ("ListenError::WrongPeerId".to_string(), TRACING_ERROR_LEVEL)
+        }
+        ListenError::LocalPeerId { .. } => {
+            ("ListenError::LocalPeerId".to_string(), TRACING_ERROR_LEVEL)
+        }
+        ListenError::Denied { .. } => ("ListenError::Denied".to_string(), TRACING_ERROR_LEVEL),
         ListenError::Transport(transport_error) => {
-            format!("ListenError::{}", transport_err_to_str(transport_error))
+            let (error_str, level) = transport_err_to_str(transport_error);
+            (format!("ListenError::{error_str}"), level)
         }
     }
 }
 
 /// Return a string for the TransportError type
-pub fn transport_err_to_str(err: &TransportError<std::io::Error>) -> String {
+fn transport_err_to_str(err: &TransportError<std::io::Error>) -> (String, Level) {
     match err {
-        TransportError::MultiaddrNotSupported { .. } => {
-            "TransportError::MultiaddrNotSupported".to_string()
-        }
+        TransportError::MultiaddrNotSupported { .. } => (
+            "TransportError::MultiaddrNotSupported".to_string(),
+            Level::ERROR,
+        ),
         TransportError::Other(err) => {
             let some_known_errors = HashMap::from([
-                ("ConnectionRefused", "ConnectionRefused"),
-                ("HostUnreachable", "HostUnreachable"),
-                ("HandshakeTimedOut", "HandshakeTimedOut"),
-                ("TimedOut", "TimedOut"),
+                (
+                    "ConnectionRefused",
+                    ("ConnectionRefused", TRACING_ERROR_LEVEL),
+                ),
+                ("HostUnreachable", ("HostUnreachable", TRACING_ERROR_LEVEL)),
+                (
+                    "HandshakeTimedOut",
+                    ("HandshakeTimedOut", TRACING_ERROR_LEVEL),
+                ),
+                ("TimedOut", ("TimedOut", TRACING_ERROR_LEVEL)),
                 (
                     "ResponseFromBehaviourCanceled",
-                    "ResponseFromBehaviourCanceled",
+                    ("ResponseFromBehaviourCanceled", TRACING_ERROR_LEVEL),
                 ),
-                ("ConnectionLost", "ConnectionLost"),
-                ("ConnectionClosed", "ConnectionClosed"),
-                ("ConnectionFailed", "ConnectionFailed"),
-                ("MALFORMED_MESSAGE", "MalformedMessage"),
-                ("UnexpectedEof", "UnexpectedEof"),
-                ("Select(Failed)", "Failed"),
+                ("ConnectionLost", ("ConnectionLost", TRACING_ERROR_LEVEL)),
+                ("ConnectionClosed", ("ConnectionClosed", Level::DEBUG)),
+                (
+                    "ConnectionFailed",
+                    ("ConnectionFailed", TRACING_ERROR_LEVEL),
+                ),
+                (
+                    "MALFORMED_MESSAGE",
+                    ("MalformedMessage", TRACING_ERROR_LEVEL),
+                ),
+                ("UnexpectedEof", ("UnexpectedEof", TRACING_ERROR_LEVEL)),
+                ("Select(Failed)", ("Failed", TRACING_ERROR_LEVEL)),
             ]);
 
             let mut err_str = None;
-            for (err_substr, err_display) in some_known_errors.iter() {
+            for (err_substr, (err_display, tracing_level)) in some_known_errors.iter() {
                 if format!("{err:?}").contains(err_substr) {
-                    err_str = Some(format!("TransportError::{err_display}"));
+                    err_str = Some((format!("TransportError::{err_display}"), *tracing_level));
                     break;
                 }
             }
 
-            err_str.unwrap_or_else(|| "TransportError::Other".to_string())
+            err_str.unwrap_or_else(|| ("TransportError::Other".to_string(), TRACING_ERROR_LEVEL))
         }
     }
 }

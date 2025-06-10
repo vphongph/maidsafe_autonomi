@@ -150,7 +150,7 @@ jobs:
         if: always()
 
       - name: File Download
-        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources
+        run: ./target/release/ant --log-output-dest=data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_file
         env:
           ANT_LOG: "v"
         timeout-minutes: 2

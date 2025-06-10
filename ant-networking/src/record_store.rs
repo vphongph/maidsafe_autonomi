@@ -1131,6 +1131,7 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    //TODO: Remove [serial] when data race is fixed - @Roland
     async fn can_store_after_restart() -> eyre::Result<()> {
         let tmp_dir = TempDir::new()?;
         let current_test_dir = tmp_dir.child("can_store_after_restart");

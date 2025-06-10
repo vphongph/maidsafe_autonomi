@@ -83,7 +83,7 @@ pub use ant_protocol::CLOSE_GROUP_SIZE;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Client {
     /// The Autonomi Network to use for the client.
     pub(crate) network: Network,

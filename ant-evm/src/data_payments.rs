@@ -16,9 +16,6 @@ use serde::{Deserialize, Serialize};
 pub use std::time::SystemTime;
 use xor_name::XorName;
 
-/// The time in seconds that a quote is valid for
-pub const QUOTE_EXPIRATION_SECS: u64 = 3600;
-
 /// The margin allowed for live_time
 const LIVE_TIME_MARGIN: u64 = 10;
 
@@ -242,20 +239,6 @@ impl PaymentQuote {
         }
 
         true
-    }
-
-    /// Returns true if the quote has expired
-    pub fn has_expired(&self) -> bool {
-        let now = SystemTime::now();
-
-        let dur_s = match now.duration_since(self.timestamp) {
-            Ok(dur) => dur.as_secs(),
-            Err(err) => {
-                error!("Can't deduce elapsed time of {self:?} with error {err:?}");
-                return true;
-            }
-        };
-        dur_s > QUOTE_EXPIRATION_SECS
     }
 
     /// test utility to create a dummy quote

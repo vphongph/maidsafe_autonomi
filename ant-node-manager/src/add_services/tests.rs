@@ -4929,7 +4929,7 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
 }
 
 #[tokio::test]
-async fn add_node_should_return_an_error_if_nat_status_is_none_but_auto_set_nat_flags_is_enabled(
+async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_set_nat_flags_is_enabled(
 ) -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
@@ -4961,8 +4961,49 @@ async fn add_node_should_return_an_error_if_nat_status_is_none_but_auto_set_nat_
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    let install_ctx = InstallNodeServiceCtxBuilder {
+        alpha: false,
+        autostart: false,
+        data_dir_path: node_data_dir.to_path_buf().join("antnode1"),
+        env_variables: None,
+        evm_network: EvmNetwork::Custom(CustomNetwork {
+            rpc_url_http: "http://localhost:8545".parse()?,
+            payment_token_address: RewardsAddress::from_str(
+                "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            )?,
+            data_payments_address: RewardsAddress::from_str(
+                "0x8464135c8F25Da09e49BC8782676a84730C318bC",
+            )?,
+        }),
+        relay: true,
+        log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
+        log_format: None,
+        max_archived_log_files: None,
+        max_log_files: None,
+        metrics_port: None,
+        network_id: None,
+        name: "antnode1".to_string(),
+        node_ip: None,
+        node_port: None,
+        init_peers_config: InitialPeersConfig::default(),
+        rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
+        rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
+        antnode_path: node_data_dir
+            .to_path_buf()
+            .join("antnode1")
+            .join(ANTNODE_FILE_NAME),
+        service_user: Some(get_username()),
+        no_upnp: true,
+    }
+    .build()?;
+    mock_service_control
+        .expect_install()
+        .times(1)
+        .with(eq(install_ctx), eq(false))
+        .returning(|_, _| Ok(()))
+        .in_sequence(&mut seq);
 
-    let result = add_node(
+    let _ = add_node(
         AddNodeServiceOptions {
             alpha: false,
             auto_restart: false,
@@ -5009,15 +5050,8 @@ async fn add_node_should_return_an_error_if_nat_status_is_none_but_auto_set_nat_
     )
     .await;
 
-    match result {
-        Ok(_) => panic!("This test should result in an error"),
-        Err(e) => {
-            assert_eq!(
-                format!("NAT status has not been set. Run 'nat-detection' first"),
-                e.to_string()
-            )
-        }
-    }
+    assert!(node_registry.nodes[0].no_upnp);
+    assert!(node_registry.nodes[0].relay);
 
     Ok(())
 }

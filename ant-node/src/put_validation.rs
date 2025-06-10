@@ -21,7 +21,7 @@ use ant_protocol::{
     },
     NetworkAddress, PrettyPrintRecordKey,
 };
-use libp2p::kad::{Record, RecordKey, K_VALUE};
+use libp2p::kad::{Record, RecordKey};
 use xor_name::XorName;
 
 // We retry the payment verification once after waiting this many seconds to rule out the possibility of an EVM node state desync
@@ -652,18 +652,8 @@ impl Node {
             )));
         }
 
-        // verify quote expiration.
-        // Note there could be error when try to deduce elapsed time from other OS clock,
-        // hence here only verify the expiration of own quotes.
-        let own_quotes: Vec<_> = payment.quotes_by_peer(&self_peer_id);
-        if own_quotes.iter().any(|quote| quote.has_expired()) {
-            warn!("Payment quote has expired for record {pretty_key}");
-            return Err(Error::InvalidRequest(format!(
-                "Payment quote has expired for record {pretty_key}"
-            )));
-        }
-
         // verify data type matches
+        let own_quotes: Vec<_> = payment.quotes_by_peer(&self_peer_id);
         if !payment.verify_data_type(data_type.get_index()) {
             warn!("Payment quote has wrong data type for record {pretty_key}");
             return Err(Error::InvalidRequest(format!(
@@ -672,12 +662,11 @@ impl Node {
         }
 
         // verify the claimed payees are all known to us within the certain range.
-        let mut closest_k_peers = self
+        // note: self is already included in the returned list
+        let closest_k_peers = self
             .network()
-            .get_close_peers_to_the_target(address.clone(), K_VALUE.get())
+            .get_k_closest_local_peers_to_the_target(Some(address.clone()))
             .await?;
-        // push self in as the returned list doesn't contain self
-        closest_k_peers.push((self_peer_id, Default::default()));
         let mut payees = payment.payees();
         payees.retain(|peer_id| !closest_k_peers.iter().any(|(p, _)| p == peer_id));
         if !payees.is_empty() {

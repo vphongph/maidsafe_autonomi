@@ -12,12 +12,13 @@ mod register;
 mod vault;
 mod wallet;
 
+use std::num::NonZeroUsize;
 use crate::actions::NetworkContext;
-use crate::args::max_fee_per_gas::MaxFeePerGasParam;
-use crate::opt::Opt;
-use autonomi::ResponseQuorum;
+use crate::opt::{NetworkId, Opt};
+use autonomi::networking::Quorum;
 use clap::{error::ErrorKind, Args, CommandFactory as _, Subcommand};
 use color_eyre::Result;
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -70,11 +71,6 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
-        /// Experimental: Optionally specify the quorum for the verification of the upload.
-        ///
-        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
-        #[arg(short, long)]
-        quorum: Option<ResponseQuorum>,
         #[command(flatten)]
         transaction_opt: TransactionOpt,
     },
@@ -85,15 +81,19 @@ pub enum FileCmd {
         addr: String,
         /// The destination file path.
         dest_file: String,
-        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunks).
+        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunk).
         ///
         /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
-        #[arg(short, long)]
-        quorum: Option<ResponseQuorum>,
+        #[arg(short, long, value_parser = parse_quorum)]
+        quorum: Option<Quorum>,
     },
 
     /// List previous uploads
-    List,
+    List {
+        /// List files in archives. Requires network connection.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -257,12 +257,10 @@ pub(crate) struct TransactionOpt {
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
-    let network_context = if let Some(network_id) = opt.network_id {
-        NetworkContext::new(opt.peers, network_id)
-    } else if opt.alpha {
-        NetworkContext::new(opt.peers, 2)
+    let network_context = if opt.alpha {
+        NetworkContext::new(opt.peers, NetworkId::alpha())
     } else {
-        NetworkContext::new(opt.peers, 1)
+        NetworkContext::new(opt.peers, opt.network_id)
     };
 
     match cmd {
@@ -271,17 +269,10 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             FileCmd::Upload {
                 file,
                 public,
-                quorum,
                 transaction_opt,
             } => {
-                if let Err((err, exit_code)) = file::upload(
-                    &file,
-                    public,
-                    network_context,
-                    quorum,
-                    transaction_opt.max_fee_per_gas,
-                )
-                .await
+                if let Err((err, exit_code)) =
+                    file::upload(&file, public, network_context, transaction_opt.max_fee_per_gas).await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);
@@ -303,7 +294,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     Ok(())
                 }
             }
-            FileCmd::List => file::list(),
+            FileCmd::List { verbose } => {
+                if let Err((err, exit_code)) = file::list(network_context, verbose).await {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
@@ -379,6 +377,18 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             Opt::command()
                 .error(ErrorKind::MissingSubcommand, "Please provide a subcommand")
                 .exit();
+        }
+    }
+}
+
+fn parse_quorum(str: &str) -> Result<Quorum, String> {
+    match str {
+        "one" => Ok(Quorum::One),
+        "majority" => Ok(Quorum::Majority),
+        "all" => Ok(Quorum::All),
+        _ => {
+            let n: NonZeroUsize = str.parse().map_err(|_| "Invalid quorum value")?;
+            Ok(Quorum::N(n))
         }
     }
 }

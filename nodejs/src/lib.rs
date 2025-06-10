@@ -151,12 +151,6 @@ impl Client {
         Ok(cost.to_string())
     }
 
-    // /// Upload chunks and retry failed uploads up to RETRY_ATTEMPTS times.
-    // #[napi]
-    // pub async fn upload_chunks_with_retries(&self, chunks: Vec<Chunk>, receipt: &Receipt) -> Vec<(Chunk, PutError)> {
-    //     todo!()
-    // }
-
     // Graph entries
 
     /// Fetches a GraphEntry from the network.
@@ -176,7 +170,7 @@ impl Client {
     pub async fn graph_entry_check_existance(&self, address: &GraphEntryAddress) -> Result<bool> {
         let exists = self
             .0
-            .graph_entry_check_existance(&address.0)
+            .graph_entry_check_existence(&address.0)
             .await
             .map_err(map_error)?;
 
@@ -225,7 +219,7 @@ impl Client {
     #[napi]
     pub async fn pointer_check_existance(&self, address: &PointerAddress) -> Result<bool> {
         self.0
-            .pointer_check_existance(&address.0)
+            .pointer_check_existence(&address.0)
             .await
             .map_err(map_error)
     }
@@ -322,7 +316,7 @@ impl Client {
     #[napi]
     pub async fn scratchpad_check_existance(&self, address: &ScratchpadAddress) -> Result<bool> {
         self.0
-            .scratchpad_check_existance(&address.0)
+            .scratchpad_check_existence(&address.0)
             .await
             .map_err(map_error)
     }
@@ -1710,8 +1704,13 @@ impl Pointer {
     /// This pointer would be stored on the network at the provided key's public key.
     /// There can only be one pointer at a time at the same address (one per key).
     #[napi(constructor)]
-    pub fn new(owner: &SecretKey, counter: u32, target: &PointerTarget) -> Self {
-        Pointer(autonomi::Pointer::new(&owner.0, counter, target.0.clone()))
+    pub fn new(owner: &SecretKey, counter: BigInt, target: &PointerTarget) -> Result<Self> {
+        let counter = big_int_to_u64(counter, "counter")?;
+        Ok(Pointer(autonomi::Pointer::new(
+            &owner.0,
+            counter,
+            target.0.clone(),
+        )))
     }
 
     /// Get the address of the pointer
@@ -1747,7 +1746,7 @@ impl Pointer {
     /// Get the counter of the pointer, the higher the counter, the more recent the pointer is
     /// Similarly to counter CRDTs only the latest version (highest counter) of the pointer is kept on the network
     #[napi]
-    pub fn counter(&self) -> u32 {
+    pub fn counter(&self) -> u64 {
         self.0.counter()
     }
 

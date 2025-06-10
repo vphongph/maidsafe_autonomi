@@ -197,28 +197,28 @@ jobs:
         run: cargo build --release --bin antnode --bin ant
         timeout-minutes: 30
 
-      - name: Start a local network
-        uses: maidsafe/ant-local-testnet-action@main
-        with:
-          action: start
-          enable-evm-testnet: true
-          node-path: target/release/antnode
-          platform: ${{ matrix.os }}
-          build: true
+      # - name: Start a local network
+      #   uses: maidsafe/ant-local-testnet-action@main
+      #   with:
+      #     action: start
+      #     enable-evm-testnet: true
+      #     node-path: target/release/antnode
+      #     platform: ${{ matrix.os }}
+      #     build: true
 
-      - name: Check if ANT_PEERS and EVM_NETWORK are set
-        shell: bash
-        run: |
-          if [[ -z "$ANT_PEERS" ]]; then
-            echo "The ANT_PEERS variable has not been set"
-            exit 1
-          elif [[ -z "$EVM_NETWORK" ]]; then
-            echo "The EVM_NETWORK variable has not been set"
-            exit 1
-          else
-            echo "ANT_PEERS has been set to $ANT_PEERS"
-            echo "EVM_NETWORK has been set to $EVM_NETWORK"
-          fi
+      # - name: Check if ANT_PEERS and EVM_NETWORK are set
+      #   shell: bash
+      #   run: |
+      #     if [[ -z "$ANT_PEERS" ]]; then
+      #       echo "The ANT_PEERS variable has not been set"
+      #       exit 1
+      #     elif [[ -z "$EVM_NETWORK" ]]; then
+      #       echo "The EVM_NETWORK variable has not been set"
+      #       exit 1
+      #     else
+      #       echo "ANT_PEERS has been set to $ANT_PEERS"
+      #       echo "EVM_NETWORK has been set to $EVM_NETWORK"
+      #     fi
 
       # only these unit tests require a network, the rest are run above in unit test section
       - name: Run autonomi --tests

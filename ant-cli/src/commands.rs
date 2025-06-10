@@ -71,6 +71,13 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
+        /// Skip creating an archive after uploading a directory.
+        /// When uploading a directory, files are normally grouped into an archive for easier management.
+        /// This flag uploads the files individually without creating the archive metadata.
+        /// Note: This option only affects directory uploads - single file uploads never create archives.
+        #[arg(long)]
+        no_archive: bool,
+        /// Optional: Specify the maximum fee per gas in u128.
         #[command(flatten)]
         transaction_opt: TransactionOpt,
     },
@@ -269,11 +276,13 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             FileCmd::Upload {
                 file,
                 public,
+                no_archive,
                 transaction_opt,
             } => {
                 if let Err((err, exit_code)) = file::upload(
                     &file,
                     public,
+                    no_archive,
                     network_context,
                     transaction_opt.max_fee_per_gas,
                 )

@@ -56,8 +56,7 @@ impl SwarmDriver {
                     metrics_recorder.record(&(*event));
                 }
                 event_string = "relay_client_event";
-
-                info!(?event, "relay client event");
+                debug!("relay client event: {event:?}");
 
                 if let libp2p::relay::client::Event::ReservationReqAccepted {
                     relay_peer_id,
@@ -296,13 +295,21 @@ impl SwarmDriver {
                 error,
             } => {
                 event_string = "OutgoingConnErrWithoutPeerId";
-                warn!("OutgoingConnectionError on {connection_id:?} - {error:?}");
+
+                debug!("OutgoingConnectionError on {connection_id:?} - {error:?}");
+
                 let remote_peer = "";
-                for error_str in dial_error_to_str(&error) {
-                    error!(
-                        "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
-                        self.self_peer_id,
-                    );
+                for (error_str, level) in dial_error_to_str(&error) {
+                    match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
                 }
 
                 self.record_connection_metrics();
@@ -319,12 +326,19 @@ impl SwarmDriver {
                 connection_id,
             } => {
                 event_string = "OutgoingConnErr";
-                warn!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
-                for error_str in dial_error_to_str(&error) {
-                    error!(
-                        "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
-                        self.self_peer_id,
-                    );
+                debug!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
+
+                for (error_str, level) in dial_error_to_str(&error) {
+                    match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
                 }
 
                 let connection_details = self.live_connected_peers.remove(&connection_id);
@@ -337,14 +351,14 @@ impl SwarmDriver {
                 );
 
                 // we need to decide if this was a critical error and if we should report it to the Issue tracker
-                let is_critical_error = match error {
+                let is_critical_error = match &error {
                     DialError::Transport(errors) => {
                         // as it's an outgoing error, if it's transport based we can assume it is _our_ fault
                         //
                         // (eg, could not get a port for a tcp connection)
                         // so we default to it not being a real issue
                         // unless there are _specific_ errors (connection refused eg)
-                        error!("Dial errors len : {:?}", errors.len());
+                        debug!("Dial errors len : {:?} on {connection_id:?}", errors.len());
                         let mut there_is_a_serious_issue = false;
                         // Libp2p throws errors for all the listen addr (including private) of the remote peer even
                         // though we try to dial just the global/public addr. This would mean that we get
@@ -356,15 +370,15 @@ impl SwarmDriver {
                         for (_addr, err) in errors {
                             match err {
                                 TransportError::MultiaddrNotSupported(addr) => {
-                                    warn!("OutgoingConnectionError: Transport::MultiaddrNotSupported {addr:?}. This can be ignored if the peer has atleast one global address.");
+                                    debug!("OutgoingConnectionError: Transport::MultiaddrNotSupported {addr:?}. This can be ignored if the peer has atleast one global address.");
                                     #[cfg(feature = "loud")]
                                     {
-                                        warn!("OutgoingConnectionError: Transport::MultiaddrNotSupported {addr:?}. This can be ignored if the peer has atleast one global address.");
+                                        debug!("OutgoingConnectionError: Transport::MultiaddrNotSupported {addr:?}. This can be ignored if the peer has atleast one global address.");
                                         println!("If this was your bootstrap peer, restart your node with a supported multiaddr");
                                     }
                                 }
                                 TransportError::Other(err) => {
-                                    error!("OutgoingConnectionError: Transport::Other {err:?}");
+                                    debug!("OutgoingConnectionError: Transport::Other {err:?}");
 
                                     all_multiaddr_not_supported = false;
                                     let problematic_errors = [
@@ -376,7 +390,7 @@ impl SwarmDriver {
                                     if self.initial_bootstrap.is_bootstrap_peer(&failed_peer_id)
                                         && !self.initial_bootstrap.has_terminated()
                                     {
-                                        warn!("OutgoingConnectionError: On bootstrap peer {failed_peer_id:?}, while still in bootstrap mode, ignoring");
+                                        debug!("OutgoingConnectionError: On bootstrap peer {failed_peer_id:?}, while still in bootstrap mode, ignoring");
                                         there_is_a_serious_issue = false;
                                     } else {
                                         // It is really difficult to match this error, due to being eg:
@@ -387,7 +401,7 @@ impl SwarmDriver {
                                             .iter()
                                             .any(|err| error_msg.contains(err))
                                         {
-                                            warn!("Problematic error encountered: {error_msg}");
+                                            debug!("Problematic error encountered: {error_msg}");
                                             there_is_a_serious_issue = true;
                                         }
                                     }
@@ -395,7 +409,7 @@ impl SwarmDriver {
                             }
                         }
                         if all_multiaddr_not_supported {
-                            warn!("All multiaddrs had MultiaddrNotSupported error for {failed_peer_id:?}. Marking it as a serious issue.");
+                            debug!("All multiaddrs had MultiaddrNotSupported error for {failed_peer_id:?}. Marking it as a serious issue.");
                             there_is_a_serious_issue = true;
                         }
                         there_is_a_serious_issue
@@ -403,43 +417,43 @@ impl SwarmDriver {
                     DialError::NoAddresses => {
                         // We provided no address, and while we can't really blame the peer
                         // we also can't connect, so we opt to cleanup...
-                        warn!("OutgoingConnectionError: No address provided");
+                        debug!("OutgoingConnectionError: No address provided");
                         true
                     }
                     DialError::Aborted => {
                         // not their fault
-                        warn!("OutgoingConnectionError: Aborted");
+                        debug!("OutgoingConnectionError: Aborted");
                         false
                     }
                     DialError::DialPeerConditionFalse(_) => {
                         // we could not dial due to an internal condition, so not their issue
-                        warn!("OutgoingConnectionError: DialPeerConditionFalse");
+                        debug!("OutgoingConnectionError: DialPeerConditionFalse");
                         false
                     }
                     DialError::LocalPeerId { endpoint, .. } => {
                         // This is actually _us_ So we should remove this from the RT
-                        error!(
+                        debug!(
                             "OutgoingConnectionError: LocalPeerId: {}",
-                            endpoint_str(&endpoint)
+                            endpoint_str(endpoint)
                         );
                         true
                     }
                     DialError::WrongPeerId { obtained, endpoint } => {
                         // The peer id we attempted to dial was not the one we expected
                         // cleanup
-                        error!("OutgoingConnectionError: WrongPeerId: obtained: {obtained:?}, endpoint: {endpoint:?}");
+                        debug!("OutgoingConnectionError: WrongPeerId: obtained: {obtained:?}, endpoint: {endpoint:?}");
                         true
                     }
                     DialError::Denied { cause } => {
                         // The peer denied our connection
                         // cleanup
-                        error!("OutgoingConnectionError: Denied: {cause:?}");
+                        debug!("OutgoingConnectionError: Denied: {cause:?}");
                         true
                     }
                 };
 
                 if is_critical_error {
-                    warn!("Outgoing Connection error to {failed_peer_id:?} is considered as critical. Marking it as an issue.");
+                    warn!("Outgoing Connection error to {failed_peer_id:?} is considered as critical. Marking it as an issue. Error: {error:?}");
                     self.record_node_issue(failed_peer_id, NodeIssue::ConnectionIssue);
 
                     if let (Some((_, failed_addr, _)), Some(bootstrap_cache)) =
@@ -468,20 +482,22 @@ impl SwarmDriver {
                 // And since we don't do anything critical with this event, the order and time of processing is
                 // not critical.
 
-                if self.is_incoming_connection_error_valid(connection_id, &send_back_addr) {
-                    let remote_peer_id = match multiaddr_get_peer_id(&send_back_addr) {
-                        Some(peer_id) => format!("{peer_id:?}"),
-                        None => String::new(),
-                    };
-                    error!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
-                    error!(
-                        "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {:?}",
-                        self.self_peer_id,
-                        listen_error_to_str(&error)
-                    );
-                } else {
-                    debug!("IncomingConnectionError InValid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
-                }
+                let remote_peer_id = match multiaddr_get_peer_id(&send_back_addr) {
+                    Some(peer_id) => format!("{peer_id:?}"),
+                    None => String::new(),
+                };
+                debug!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
+                let (error_str, level) = listen_error_to_str(&error);
+                match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
 
                 #[cfg(feature = "open-metrics")]
                 if let Some(relay_manager) = self.relay_manager.as_mut() {
@@ -500,7 +516,7 @@ impl SwarmDriver {
             }
             SwarmEvent::NewExternalAddrCandidate { address } => {
                 event_string = "NewExternalAddrCandidate";
-                info!(?address, "new external address candidate");
+                debug!(?address, "new external address candidate");
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 event_string = "ExternalAddrConfirmed";
@@ -648,6 +664,7 @@ impl SwarmDriver {
     // Do not log IncomingConnectionError if the the send_back_addr is the same on the adjacent established connections.
     //
     // We either check by IP address or by `/p2p/<peer_id>` for relayed nodes.
+    #[allow(dead_code)]
     fn is_incoming_connection_error_valid(&self, id: ConnectionId, addr: &Multiaddr) -> bool {
         let Ok(id) = format!("{id}").parse::<usize>() else {
             return true;

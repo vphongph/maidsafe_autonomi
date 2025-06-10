@@ -296,13 +296,21 @@ impl SwarmDriver {
                 error,
             } => {
                 event_string = "OutgoingConnErrWithoutPeerId";
+
                 warn!("OutgoingConnectionError on {connection_id:?} - {error:?}");
+
                 let remote_peer = "";
-                for error_str in dial_error_to_str(&error) {
-                    error!(
-                        "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
-                        self.self_peer_id,
-                    );
+                for (error_str, level) in dial_error_to_str(&error) {
+                    match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {remote_peer:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
                 }
 
                 self.record_connection_metrics();
@@ -320,11 +328,18 @@ impl SwarmDriver {
             } => {
                 event_string = "OutgoingConnErr";
                 warn!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
-                for error_str in dial_error_to_str(&error) {
-                    error!(
-                        "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
-                        self.self_peer_id,
-                    );
+
+                for (error_str, level) in dial_error_to_str(&error) {
+                    match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {failed_peer_id:?} - Outgoing Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
                 }
 
                 let connection_details = self.live_connected_peers.remove(&connection_id);
@@ -474,11 +489,17 @@ impl SwarmDriver {
                         None => String::new(),
                     };
                     error!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
-                    error!(
-                        "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {:?}",
-                        self.self_peer_id,
-                        listen_error_to_str(&error)
-                    );
+                    let (error_str, level) = listen_error_to_str(&error);
+                    match level {
+                        tracing::Level::ERROR => error!(
+                            "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                        _ => debug!(
+                            "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {error_str:?}",
+                            self.self_peer_id,
+                        ),
+                    }
                 } else {
                     debug!("IncomingConnectionError InValid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
                 }

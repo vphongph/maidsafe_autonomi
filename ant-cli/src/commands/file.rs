@@ -148,7 +148,10 @@ pub async fn upload(
     Ok(())
 }
 
-/// Uploads a directory to the network and prints the content and addresses. Returns the archive address and the address to access the data.
+/// Uploads a file or directory to the network and prints the content and addresses.
+/// Single files are uploaded without an archive, directories are uploaded with an archive.
+/// The no_archive argument can be used to skip the archive upload.
+/// Returns the archive address if any and the address to access the data.
 async fn upload_dir(
     client: &Client,
     dir_path: PathBuf,

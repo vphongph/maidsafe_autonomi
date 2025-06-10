@@ -97,6 +97,11 @@ pub enum NetworkError {
     SplitRecord(HashMap<PeerId, Record>),
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
+    #[error("Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}")]
+    GetRecordQuorumFailed {
+        got_holders: usize,
+        expected_holders: usize,
+    },
 
     /// Invalid retry strategy
     #[error("Invalid retry strategy, check your config or use the default")]
@@ -189,6 +194,7 @@ impl Network {
         quorum: Quorum,
     ) -> Result<(), NetworkError> {
         let (tx, rx) = oneshot::channel();
+        let network_address = NetworkAddress::from(&record.key);
         let task = NetworkTask::PutRecord {
             record,
             to,
@@ -199,7 +205,19 @@ impl Network {
             .send(task)
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
-        rx.await?
+
+        let res = rx.await?;
+
+        // In poor network conditions PutRecordQuorumFailed is unreliable.
+        // To eliminate false positives, we do a manual record existence check after the put.
+        if let Err(NetworkError::PutRecordQuorumFailed(_, _)) = res {
+            match self.get_record_and_holders(network_address, quorum).await {
+                Ok((Some(_), _)) => return Ok(()),
+                _ => return res,
+            }
+        }
+
+        res
     }
 
     /// Get the closest peers to an address on the Network

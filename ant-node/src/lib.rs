@@ -17,6 +17,8 @@
 )]
 // Turn on some additional warnings to encourage good style.
 #![warn(missing_docs, unreachable_pub, unused_results, clippy::unwrap_used)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::result_large_err)]
 
 #[macro_use]
 extern crate tracing;

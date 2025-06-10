@@ -147,6 +147,12 @@ impl Client {
 
         let total_cost = self.pay_and_upload(payment_option, combined_chunks).await?;
 
+        for (file_path, data_addr, _meta) in public_archive.iter() {
+            info!("Uploaded file: {file_path:?} to: {data_addr}");
+            #[cfg(feature = "loud")]
+            println!("Uploaded file: {file_path:?} to: {data_addr}");
+        }
+
         Ok((total_cost, public_archive))
     }
 

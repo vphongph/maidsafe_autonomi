@@ -189,17 +189,15 @@ impl Client {
         let total_cost = *price;
 
         let net_addr = NetworkAddress::from(*address);
-        let (record, payees) = if let Some(proof) = proof {
-            let payees = Some(
-                proof
-                    .payees()
-                    .iter()
-                    .map(|(peer_id, addrs)| PeerInfo {
-                        peer_id: *peer_id,
-                        addrs: addrs.clone(),
-                    })
-                    .collect(),
-            );
+        let (record, target_nodes) = if let Some(proof) = proof {
+            let payees = proof
+                .payees()
+                .iter()
+                .map(|(peer_id, addrs)| PeerInfo {
+                    peer_id: *peer_id,
+                    addrs: addrs.clone(),
+                })
+                .collect();
             let record = Record {
                 key: net_addr.to_record_key(),
                 value: try_serialize_record(
@@ -224,13 +222,22 @@ impl Client {
                 publisher: None,
                 expires: None,
             };
-            (record, None)
+            let target_nodes = self
+                .network
+                .get_closest_peers_with_retries(net_addr.clone())
+                .await
+                .map_err(|e| PutError::Network {
+                    address: Box::new(net_addr),
+                    network_error: e,
+                    payment: None,
+                })?;
+            (record, target_nodes)
         };
 
         // store the scratchpad on the network
-        debug!("Storing scratchpad at address {address:?} to the network");
-
-        let target_nodes = payees.unwrap_or_default();
+        debug!(
+            "Storing scratchpad at address {address:?} to the network on nodes {target_nodes:?}"
+        );
 
         self.network
             .put_record_with_retries(record, target_nodes, &self.config.scratchpad)
@@ -311,8 +318,9 @@ impl Client {
         Self::scratchpad_verify(&scratchpad)?;
 
         // prepare the record to be stored
+        let net_addr = NetworkAddress::from(address);
         let record = Record {
-            key: NetworkAddress::from(address).to_record_key(),
+            key: net_addr.to_record_key(),
             value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))
                 .map_err(|_| ScratchpadError::Serialization)?
                 .to_vec(),
@@ -321,9 +329,21 @@ impl Client {
         };
 
         // store the scratchpad on the network
-        debug!("Updating scratchpad at address {address:?} to the network");
+        let target_nodes = self
+            .network
+            .get_closest_peers_with_retries(net_addr.clone())
+            .await
+            .map_err(|e| PutError::Network {
+                address: Box::new(net_addr),
+                network_error: e,
+                payment: None,
+            })?;
+        debug!(
+            "Updating scratchpad at address {address:?} to the network on nodes {target_nodes:?}"
+        );
+
         self.network
-            .put_record_with_retries(record, Default::default(), &self.config.scratchpad)
+            .put_record_with_retries(record, target_nodes, &self.config.scratchpad)
             .await
             .inspect_err(|err| {
                 error!("Failed to update scratchpad at address {address:?} to the network: {err}")

@@ -13,4 +13,5 @@ pub mod port_range;
 pub mod remove_node;
 pub mod reset_nodes;
 pub mod rewards_address;
+pub mod upgrade_launchpad;
 pub mod upgrade_nodes;

@@ -15,7 +15,7 @@ mod vault;
 mod wallet;
 
 use crate::actions::NetworkContext;
-use crate::opt::Opt;
+use crate::opt::{NetworkId, Opt};
 use autonomi::networking::Quorum;
 use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
 use color_eyre::Result;
@@ -105,7 +105,11 @@ pub enum FileCmd {
     },
 
     /// List previous uploads
-    List,
+    List {
+        /// List files in archives. Requires network connection.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -389,7 +393,11 @@ pub enum WalletCmd {
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
-    let network_context = NetworkContext::new(opt.peers, opt.network_id);
+    let network_context = if opt.alpha {
+        NetworkContext::new(opt.peers, NetworkId::alpha())
+    } else {
+        NetworkContext::new(opt.peers, opt.network_id)
+    };
 
     match cmd {
         Some(SubCmd::File { command }) => match command {
@@ -422,7 +430,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     Ok(())
                 }
             }
-            FileCmd::List => file::list(),
+            FileCmd::List { verbose } => {
+                if let Err((err, exit_code)) = file::list(network_context, verbose).await {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
@@ -520,9 +535,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 password,
             } => wallet::import(private_key, no_password, password),
             WalletCmd::Export => wallet::export(),
-            WalletCmd::Balance => {
-                wallet::balance(network_context.peers.local, network_context.network_id).await
-            }
+            WalletCmd::Balance => wallet::balance(network_context).await,
         },
         Some(SubCmd::Analyze { addr, verbose }) => {
             analyze::analyze(&addr, verbose, network_context).await

@@ -7,9 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_protocol::messages::{QueryResponse, Response};
+use libp2p::autonat::OutboundFailure;
 use libp2p::kad::{Event as KadEvent, ProgressStep, QueryId, QueryResult, QueryStats};
 use libp2p::request_response::{Event as ReqEvent, Message, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
+use libp2p::PeerId;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -39,6 +41,14 @@ impl NetworkDriver {
                     connection_id: _,
                 },
             )) => self.handle_request_resp_event(request_id, response),
+            SwarmEvent::Behaviour(AutonomiClientBehaviourEvent::RequestResponse(
+                ReqEvent::OutboundFailure {
+                    peer,
+                    request_id,
+                    error,
+                    connection_id: _,
+                },
+            )) => self.handle_request_resp_outbound_failure(peer, request_id, error),
             SwarmEvent::Behaviour(AutonomiClientBehaviourEvent::Kademlia(
                 KadEvent::OutboundQueryProgressed {
                     id,
@@ -48,7 +58,7 @@ impl NetworkDriver {
                 },
             )) => self.handle_kad_progress_event(id, result, &stats, &step),
             _other_event => {
-                // trace!("Other event: {:?}", _other_event);
+                trace!("Other event: {:?}", _other_event);
                 Ok(())
             }
         }
@@ -78,7 +88,8 @@ impl NetworkDriver {
                 self.pending_tasks.update_closest_peers(id, res)?;
             }
             QueryResult::GetRecord(res) => {
-                trace!("GetRecord: {:?}", res);
+                // The result here is not logged because it can produce megabytes of text.
+                trace!("GetRecord event occurred");
                 self.pending_tasks.update_get_record(id, res)?;
             }
             QueryResult::PutRecord(res) => {
@@ -118,6 +129,26 @@ impl NetworkDriver {
             self.pending_tasks
                 .update_get_quote(request_id, quote, peer_address)?;
         }
+
+        Ok(())
+    }
+
+    fn handle_request_resp_outbound_failure(
+        &mut self,
+        peer: PeerId,
+        request_id: OutboundRequestId,
+        error: OutboundFailure,
+    ) -> Result<(), NetworkDriverError> {
+        trace!("Request response outbound failure: {:?}", error);
+
+        // skip unknown or completed queries
+        if !self.pending_tasks.contains_query(&request_id) {
+            trace!("Ignore result for unknown query (possibly already completed): {request_id:?}");
+            return Ok(());
+        }
+
+        self.pending_tasks
+            .terminate_get_quote(request_id, peer, error)?;
 
         Ok(())
     }

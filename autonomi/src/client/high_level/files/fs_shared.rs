@@ -158,16 +158,20 @@ impl Client {
             batch_chunks.push(chunk);
         }
 
-        for (file_name, data_addr, i, total) in file_infos.iter() {
-            info!(
-                "Processing chunk ({}/{total}) of {file_name:?} at {data_addr:?}",
-                i + 1
-            );
+        for (file_name, file_addr, i, total) in file_infos.iter() {
+            // File won't have address info if uploaded as private,
+            // hence using different output messaging to avoid confusion.
+            let output_str = if let Some(addr) = file_addr {
+                format!(
+                    "Processing chunk ({}/{total}) of {file_name:?} at {addr:?}",
+                    i + 1
+                )
+            } else {
+                format!("Processing chunk ({}/{total}) of {file_name:?}", i + 1)
+            };
+            info!("{output_str}");
             #[cfg(feature = "loud")]
-            println!(
-                "Processing chunk ({}/{total}) of {file_name:?} at {data_addr:?}",
-                i + 1
-            );
+            println!("{output_str}");
         }
 
         // Process payment for this batch

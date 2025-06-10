@@ -16,10 +16,12 @@ use autonomi::client::payment::PaymentOption;
 use autonomi::client::PutError;
 use autonomi::files::UploadError;
 use autonomi::networking::{Quorum, RetryStrategy};
-use autonomi::{ClientOperatingStrategy, TransactionConfig};
+use autonomi::{Client, ClientOperatingStrategy, TransactionConfig};
 use color_eyre::eyre::{eyre, Context, Result};
 use color_eyre::Section;
 use std::path::PathBuf;
+
+const MAX_ADDRESSES_TO_PRINT: usize = 3;
 
 pub async fn cost(file: &str, network_context: NetworkContext) -> Result<()> {
     let client = crate::actions::connect_to_network(network_context)
@@ -42,6 +44,7 @@ pub async fn cost(file: &str, network_context: NetworkContext) -> Result<()> {
 pub async fn upload(
     file: &str,
     public: bool,
+    no_archive: bool,
     network_context: NetworkContext,
     max_fee_per_gas: Option<u128>,
 ) -> Result<(), ExitCodeError> {
@@ -79,14 +82,10 @@ pub async fn upload(
         .unwrap_or(file.to_string());
 
     // upload dir
-    let local_addr;
-    let archive = if public {
-        let result = client.dir_upload_public(dir_path, payment.clone()).await;
-        match result {
-            Ok((_cost, xor_name)) => {
-                local_addr = xor_name.to_hex();
-                local_addr.clone()
-            }
+    let not_single_file = !dir_path.is_file();
+    let (archive_addr, local_addr) =
+        match upload_dir(&client, dir_path, public, no_archive, payment).await {
+            Ok((a, l)) => (a, l),
             Err(UploadError::PutError(PutError::Batch(upload_state))) => {
                 let res = cached_payments::save_payment(file, &upload_state);
                 println!("Cached payment to local disk for {file}: {res:?}");
@@ -105,34 +104,7 @@ pub async fn upload(
                     exit_code,
                 ));
             }
-        }
-    } else {
-        let result = client.dir_upload(dir_path, payment).await;
-        match result {
-            Ok((_cost, private_data_access)) => {
-                local_addr = private_data_access.address();
-                private_data_access.to_hex()
-            }
-            Err(UploadError::PutError(PutError::Batch(upload_state))) => {
-                let res = crate::access::cached_payments::save_payment(file, &upload_state);
-                println!("Cached payment to local disk for {file}: {res:?}");
-                let exit_code =
-                    upload_exit_code(&UploadError::PutError(PutError::Batch(Default::default())));
-                return Err((
-                    eyre!(UploadError::PutError(PutError::Batch(upload_state)))
-                        .wrap_err("Failed to upload file".to_string()),
-                    exit_code,
-                ));
-            }
-            Err(err) => {
-                let exit_code = upload_exit_code(&err);
-                return Err((
-                    eyre!(err).wrap_err("Failed to upload file".to_string()),
-                    exit_code,
-                ));
-            }
-        }
-    };
+        };
 
     // wait for upload to complete
     if let Err(e) = upload_completed_tx.send(()) {
@@ -159,20 +131,83 @@ pub async fn upload(
     }
     info!("Summary for upload of file {file} at {local_addr:?}: {summary:?}");
 
-    // save to local user data
-    let writer = if public {
-        crate::user_data::write_local_public_file_archive(archive, &name)
-    } else {
-        crate::user_data::write_local_private_file_archive(archive, local_addr, &name)
-    };
-    writer
-        .wrap_err("Failed to save file to local user data")
-        .with_suggestion(|| "Local user data saves the file address above to disk, without it you need to keep track of the address yourself")
-        .map_err(|err| (err, IO_ERROR))?;
-
-    info!("Saved file to local user data");
+    // save archive to local user data
+    if !no_archive && not_single_file {
+        let writer = if public {
+            crate::user_data::write_local_public_file_archive(archive_addr, &name)
+        } else {
+            crate::user_data::write_local_private_file_archive(archive_addr, local_addr, &name)
+        };
+        writer
+            .wrap_err("Failed to save file to local user data")
+            .with_suggestion(|| "Local user data saves the file address above to disk, without it you need to keep track of the address yourself")
+            .map_err(|err| (err, IO_ERROR))?;
+        info!("Saved file to local user data");
+    }
 
     Ok(())
+}
+
+/// Uploads a file or directory to the network and prints the content and addresses.
+/// Single files are uploaded without an archive, directories are uploaded with an archive.
+/// The no_archive argument can be used to skip the archive upload.
+/// Returns the archive address if any and the address to access the data.
+async fn upload_dir(
+    client: &Client,
+    dir_path: PathBuf,
+    public: bool,
+    no_archive: bool,
+    payment_option: PaymentOption,
+) -> Result<(String, String), UploadError> {
+    let is_single_file = dir_path.is_file();
+
+    if public {
+        let (_, public_archive) = client
+            .dir_content_upload_public(dir_path, payment_option.clone())
+            .await?;
+
+        let mut addrs = vec![];
+        for (file_path, addr, _meta) in public_archive.iter() {
+            println!("  - {file_path:?}: {:?}", addr.to_hex());
+            addrs.push(addr.to_hex());
+        }
+
+        if no_archive || is_single_file {
+            if addrs.len() > MAX_ADDRESSES_TO_PRINT {
+                Ok(("no-archive".to_string(), "multiple addresses".to_string()))
+            } else {
+                Ok(("no-archive".to_string(), addrs.join(", ")))
+            }
+        } else {
+            let (_, addr) = client
+                .archive_put_public(&public_archive, payment_option.clone())
+                .await?;
+            Ok((addr.to_hex(), addr.to_hex()))
+        }
+    } else {
+        let (_, private_archive) = client
+            .dir_content_upload(dir_path, payment_option.clone())
+            .await?;
+
+        let mut addrs = vec![];
+        for (file_path, private_datamap, _meta) in private_archive.iter() {
+            println!("  - {file_path:?}: {:?}", private_datamap.to_hex());
+            addrs.push(private_datamap.to_hex());
+        }
+
+        if no_archive || is_single_file {
+            if addrs.len() > MAX_ADDRESSES_TO_PRINT {
+                Ok(("no-archive".to_string(), "multiple addresses".to_string()))
+            } else {
+                Ok(("no-archive".to_string(), addrs.join(", ")))
+            }
+        } else {
+            let (_, private_datamap) = client
+                .archive_put(&private_archive, payment_option.clone())
+                .await?;
+            Ok((private_datamap.to_hex(), private_datamap.address()))
+        }
+    }
 }
 
 pub async fn download(

@@ -227,7 +227,7 @@ impl Client {
                 .get_closest_peers_with_retries(net_addr.clone())
                 .await
                 .map_err(|e| PutError::Network {
-                    address: net_addr,
+                    address: Box::new(net_addr),
                     network_error: e,
                     payment: None,
                 })?;
@@ -247,7 +247,7 @@ impl Client {
             })
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
-                    address: NetworkAddress::from(*address),
+                    address: Box::new(NetworkAddress::from(*address)),
                     network_error: err.clone(),
                     payment: Some(payment_proofs),
                 })
@@ -334,7 +334,7 @@ impl Client {
             .get_closest_peers_with_retries(net_addr.clone())
             .await
             .map_err(|e| PutError::Network {
-                address: net_addr,
+                address: Box::new(net_addr),
                 network_error: e,
                 payment: None,
             })?;
@@ -350,7 +350,7 @@ impl Client {
             })
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
-                    address: NetworkAddress::from(address),
+                    address: Box::new(NetworkAddress::from(address)),
                     network_error: err,
                     payment: None,
                 })

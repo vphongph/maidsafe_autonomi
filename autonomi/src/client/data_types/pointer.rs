@@ -19,7 +19,7 @@ use ant_protocol::{
     storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
 };
-use bls::{PublicKey, SecretKey};
+pub use bls::{PublicKey, SecretKey};
 use tracing::{debug, error, trace};
 
 use crate::networking::NetworkError;
@@ -178,7 +178,7 @@ impl Client {
                 .get_closest_peers_with_retries(net_addr.clone())
                 .await
                 .map_err(|e| PutError::Network {
-                    address: net_addr,
+                    address: Box::new(net_addr),
                     network_error: e,
                     payment: None,
                 })?;
@@ -196,7 +196,7 @@ impl Client {
             })
             .map_err(|err| {
                 PointerError::PutError(PutError::Network {
-                    address: NetworkAddress::from(address),
+                    address: Box::new(NetworkAddress::from(address)),
                     network_error: err,
                     payment: Some(payment_proofs),
                 })
@@ -275,7 +275,7 @@ impl Client {
             .get_closest_peers_with_retries(net_addr.clone())
             .await
             .map_err(|e| PutError::Network {
-                address: net_addr,
+                address: Box::new(net_addr),
                 network_error: e,
                 payment: None,
             })?;
@@ -289,7 +289,7 @@ impl Client {
             })
             .map_err(|err| {
                 PointerError::PutError(PutError::Network {
-                    address: NetworkAddress::from(address),
+                    address: Box::new(NetworkAddress::from(address)),
                     network_error: err,
                     payment: None,
                 })

@@ -7,6 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
+use crate::args::max_fee_per_gas::get_max_fee_per_gas_from_opt_param;
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 use crate::wallet::load_wallet;
 use autonomi::client::scratchpad::SecretKey as ScratchpadSecretKey;
 use autonomi::Bytes;
@@ -72,7 +74,7 @@ pub async fn create(
     context: NetworkContext,
     name: String,
     data: String,
-    max_fee_per_gas: Option<u128>,
+    max_fee_per_gas_param: Option<MaxFeePerGasParam>,
 ) -> Result<()> {
     let scratchpad_key = crate::keys::get_scratchpad_signing_key(&name)
         .wrap_err("The scratchpad key is required to perform this action")?;
@@ -82,9 +84,9 @@ pub async fn create(
 
     let mut wallet = load_wallet(client.evm_network())?;
 
-    if let Some(max_fee_per_gas) = max_fee_per_gas {
-        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
-    }
+    let max_fee_per_gas =
+        get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())?;
+    wallet.set_transaction_config(TransactionConfig { max_fee_per_gas });
 
     println!("Creating scratchpad with name: {name}");
     info!("Creating scratchpad with name: {name}");

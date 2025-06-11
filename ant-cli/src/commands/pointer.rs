@@ -7,6 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
+use crate::args::max_fee_per_gas::get_max_fee_per_gas_from_opt_param;
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 use crate::wallet::load_wallet;
 use autonomi::client::pointer::PointerTarget;
 use autonomi::client::pointer::SecretKey as PointerSecretKey;
@@ -102,7 +104,7 @@ pub async fn create(
     name: String,
     target: String,
     target_data_type: TargetDataType,
-    max_fee_per_gas: Option<u128>,
+    max_fee_per_gas_param: Option<MaxFeePerGasParam>,
 ) -> Result<()> {
     let pointer_key = crate::keys::get_pointer_signing_key(&name)
         .wrap_err("The pointer key is required to perform this action")?;
@@ -113,9 +115,9 @@ pub async fn create(
     let target = pointer_target_from_hex(&target, target_data_type, &client).await?;
     let mut wallet = load_wallet(client.evm_network())?;
 
-    if let Some(max_fee_per_gas) = max_fee_per_gas {
-        wallet.set_transaction_config(TransactionConfig::new(max_fee_per_gas))
-    }
+    let max_fee_per_gas =
+        get_max_fee_per_gas_from_opt_param(max_fee_per_gas_param, client.evm_network())?;
+    wallet.set_transaction_config(TransactionConfig { max_fee_per_gas });
 
     println!("Creating pointer with name: {name}");
     info!("Creating pointer with name: {name}");

@@ -93,7 +93,6 @@ pub enum FileCmd {
         /// Note: This option only affects directory uploads - single file uploads never create archives.
         #[arg(long)]
         no_archive: bool,
-        /// Optional: Specify the maximum fee per gas in u128.
         #[command(flatten)]
         transaction_opt: TransactionOpt,
     },
@@ -250,13 +249,12 @@ pub enum ScratchpadCmd {
 
     /// Create a new scratchpad.
     Create {
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
         /// The name of the scratchpad.
         name: String,
         /// The data to store in the scratchpad (Up to 4MB)
         data: String,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Share a scratchpad secret key with someone else.
@@ -321,9 +319,8 @@ pub enum PointerCmd {
         /// If not specified (or 'auto'), the type will be automatically detected by fetching the data from the network
         #[arg(value_parser = parse_target_data_type, default_value = "auto", long, short)]
         target_data_type: TargetDataType,
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Share a pointer secret key with someone else.
@@ -521,10 +518,13 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             ScratchpadCmd::GenerateKey { overwrite } => scratchpad::generate_key(overwrite),
             ScratchpadCmd::Cost { name } => scratchpad::cost(name, network_context).await,
             ScratchpadCmd::Create {
-                max_fee_per_gas,
                 name,
                 data,
-            } => scratchpad::create(network_context, name, data, max_fee_per_gas).await,
+                transaction_opt,
+            } => {
+                scratchpad::create(network_context, name, data, transaction_opt.max_fee_per_gas)
+                    .await
+            }
             ScratchpadCmd::Share { name } => scratchpad::share(name),
             ScratchpadCmd::Get {
                 name,
@@ -545,14 +545,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 name,
                 target,
                 target_data_type,
-                max_fee_per_gas,
+                transaction_opt,
             } => {
                 pointer::create(
                     network_context,
                     name,
                     target,
                     target_data_type,
-                    max_fee_per_gas,
+                    transaction_opt.max_fee_per_gas,
                 )
                 .await
             }

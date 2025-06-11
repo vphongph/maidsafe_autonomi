@@ -7,7 +7,6 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_logging::LogBuilder;
-use autonomi::get_evm_network;
 use autonomi::Wallet;
 use autonomi::{Amount, RewardsAddress};
 use const_hex::traits::FromHex;
@@ -16,8 +15,13 @@ use test_utils::local_network_spawner::{spawn_local_network, DEFAULT_LOCAL_NETWO
 #[tokio::test]
 async fn from_private_key() {
     let private_key = "0xdb1049e76a813c94be0df47ec3e20533ca676b1b9fef2ddbce9daa117e4da4aa";
-    let network =
-        get_evm_network(true, None).expect("Could not get EVM network from environment variables");
+    
+    // Spawn local network
+    let spawned_local_network = spawn_local_network(DEFAULT_LOCAL_NETWORK_SIZE)
+        .await
+        .unwrap();
+    let network = spawned_local_network.evm_network;
+
     let wallet = Wallet::new_from_private_key(network, private_key).unwrap();
 
     assert_eq!(

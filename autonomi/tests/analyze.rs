@@ -35,7 +35,7 @@ async fn test_analyze_chunk() -> Result<()> {
     println!("Chunk: {chunk_addr}");
 
     // sleep to ensure data is replicated
-    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     let analysis = client.analyze_address(&chunk_addr, true).await?;
     assert_eq!(analysis, Analysis::Chunk(chunk));

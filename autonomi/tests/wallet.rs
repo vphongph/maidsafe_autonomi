@@ -15,7 +15,7 @@ use test_utils::local_network_spawner::{spawn_local_network, DEFAULT_LOCAL_NETWO
 #[tokio::test]
 async fn from_private_key() {
     let private_key = "0xdb1049e76a813c94be0df47ec3e20533ca676b1b9fef2ddbce9daa117e4da4aa";
-    
+
     // Spawn local network
     let spawned_local_network = spawn_local_network(DEFAULT_LOCAL_NETWORK_SIZE)
         .await

@@ -553,6 +553,21 @@ jobs:
           log_file_prefix: safe_test_logs_e2e
           platform: ${{ matrix.os }}
 
+      - name: Kill testnet processes on Linux/macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          killall evm-testnet anvil antnode || true
+
+      - name: Kill testnet processes on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $processes = @('evm-testnet', 'anvil', 'antnode')
+          foreach ($name in $processes) {
+            Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
       - uses: actions/checkout@v4
 
       - name: install foundry

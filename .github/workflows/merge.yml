@@ -194,7 +194,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build binaries
-        run: cargo build --release --bin antnode --bin ant
+        run: cargo build --release --bin antnode --bin ant --bin antctl
         timeout-minutes: 30
       
       - name: Checkout repository

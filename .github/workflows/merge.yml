@@ -221,14 +221,6 @@ jobs:
           fi
 
       # only these unit tests require a network, the rest are run above in unit test section
-      - name: Run autonomi --tests
-        run: cargo test --package autonomi --tests -- --nocapture
-        env:
-          ANT_LOG: "v"
-          # only set the target dir for windows to bypass the linker issue.
-          # happens if we build the node manager via testnet action
-          CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-        timeout-minutes: 20
 
       # FIXME: do this in a generic way for localtestnets
       - name: export default secret key
@@ -560,6 +552,15 @@ jobs:
           action: stop
           log_file_prefix: safe_test_logs_e2e
           platform: ${{ matrix.os }}
+      
+      - name: Run autonomi --tests
+        run: cargo test --package autonomi --tests -- --nocapture
+        env:
+          ANT_LOG: "v"
+          # only set the target dir for windows to bypass the linker issue.
+          # happens if we build the node manager via testnet action
+          CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
+        timeout-minutes: 20
 
   # token_distribution_test:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"

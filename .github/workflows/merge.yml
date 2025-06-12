@@ -252,6 +252,55 @@ jobs:
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
         timeout-minutes: 20
 
+      - name: Upload log files (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          ROOT_DIR: "/home/runner/.local/share/autonomi"
+        uses: actions/upload-artifact@main
+        with:
+          name: safe_test_logs_e2e_${{ matrix.os }}
+          path: |
+            ~/.local/share/autonomi/**/*.log*
+
+      - name: Upload log files (macOs)
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@main
+        with:
+          name: safe_test_logs_e2e_${{ matrix.os }}
+          path: |
+            /Users/runner/Library/Application Support/autonomi/**/*.log*
+      
+      - name: Upload log files (Windows)
+        if: matrix.os ==  'windows-latest'
+        uses: actions/upload-artifact@main
+        with:
+          name: safe_test_logs_e2e_${{ matrix.os }}
+          path: |
+            C:\Users\runneradmin\AppData\Roaming\autonomi\**\*.log*
+
+      - name: Start a local network
+        uses: maidsafe/ant-local-testnet-action@main
+        with:
+          action: start
+          enable-evm-testnet: true
+          node-path: target/release/antnode
+          platform: ${{ matrix.os }}
+          build: true
+
+      - name: Check if ANT_PEERS and EVM_NETWORK are set
+        shell: bash
+        run: |
+          if [[ -z "$ANT_PEERS" ]]; then
+            echo "The ANT_PEERS variable has not been set"
+            exit 1
+          elif [[ -z "$EVM_NETWORK" ]]; then
+            echo "The EVM_NETWORK variable has not been set"
+            exit 1
+          else
+            echo "ANT_PEERS has been set to $ANT_PEERS"
+            echo "EVM_NETWORK has been set to $EVM_NETWORK"
+          fi
+
       # FIXME: do this in a generic way for localtestnets
       - name: export default secret key
         if: matrix.os != 'windows-latest'
@@ -574,32 +623,14 @@ jobs:
         env:
           ANT_LOG: "v"
         timeout-minutes: 15
-      
-      - name: Upload log files (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          ROOT_DIR: "/home/runner/.local/share/autonomi"
-        uses: actions/upload-artifact@main
-        with:
-          name: safe_test_logs_e2e_${{ matrix.os }}
-          path: |
-            ~/.local/share/autonomi/**/*.log*
 
-      - name: Upload log files (macOs)
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@main
+      - name: Stop the local network and upload logs
+        if: always()
+        uses: maidsafe/ant-local-testnet-action@main
         with:
-          name: safe_test_logs_e2e_${{ matrix.os }}
-          path: |
-            /Users/runner/Library/Application Support/autonomi/**/*.log*
-      
-      - name: Upload log files (Windows)
-        if: matrix.os ==  'windows-latest'
-        uses: actions/upload-artifact@main
-        with:
-          name: safe_test_logs_e2e_${{ matrix.os }}
-          path: |
-            C:\Users\runneradmin\AppData\Roaming\autonomi\**\*.log*
+          action: stop
+          log_file_prefix: safe_test_logs_e2e
+          platform: ${{ matrix.os }}
 
   # token_distribution_test:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"

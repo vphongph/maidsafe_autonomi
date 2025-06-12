@@ -595,6 +595,14 @@ jobs:
           log_file_prefix: safe_test_logs_e2e
           platform: ${{ matrix.os }}
       
+      - name: Clean network generated files
+        shell: bash
+        run: |
+          rm -rf ${{ matrix.ant_path }}/bootstrap_cache
+          rm -rf ${{ matrix.ant_path }}/evm_testnet_data.csv
+          rm -rf ${{ matrix.ant_path }}/local_node_registry.json
+          rm -rf ${{ matrix.ant_path }}/node
+
       - name: Run autonomi --tests
         run: cargo test --package autonomi --tests -- --nocapture
         env:

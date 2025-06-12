@@ -197,6 +197,48 @@ jobs:
         run: cargo build --release --bin antnode --bin ant
         timeout-minutes: 30
 
+      - name: install foundry
+        shell: bash
+        run: curl -L https://foundry.paradigm.xyz | bash
+
+      - name: move foundry bins to path (linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo mv /home/runner/.config/.foundry/bin/* /usr/local/bin
+
+      - name: move foundry bins to path (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: sudo mv /Users/runner/.foundry/bin/* /usr/local/bin
+
+      - name: move foundry bins to path (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item -Path C:\Users\runneradmin\.foundry\bin\* -Destination C:\Users\runneradmin\AppData\Local\Microsoft\WindowsApps
+
+      - name: run foundry
+        shell: bash
+        run: foundryup
+
+      - name: move anvil and other bins to path (linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo mv /home/runner/.config/.foundry/bin/* /usr/local/bin
+
+      - name: move anvil and other bins to path (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: sudo mv /Users/runner/.foundry/bin/* /usr/local/bin
+
+      - name: move anvil and other bins to path (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item -Path C:\Users\runneradmin\.foundry\bin\* -Destination C:\Users\runneradmin\AppData\Local\Microsoft\WindowsApps
+
+      - name: Verify Anvil installation
+        run: |
+          anvil --version
+
       - name: Start a local network
         uses: maidsafe/ant-local-testnet-action@main
         with:
@@ -654,6 +696,48 @@ jobs:
       - name: Build binaries
         run: cargo build --release --bin antnode
         timeout-minutes: 30
+
+      - name: install foundry
+        shell: bash
+        run: curl -L https://foundry.paradigm.xyz | bash
+
+      - name: move foundry bins to path (linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo mv /home/runner/.config/.foundry/bin/* /usr/local/bin
+
+      - name: move foundry bins to path (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: sudo mv /Users/runner/.foundry/bin/* /usr/local/bin
+
+      - name: move foundry bins to path (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item -Path C:\Users\runneradmin\.foundry\bin\* -Destination C:\Users\runneradmin\AppData\Local\Microsoft\WindowsApps
+
+      - name: run foundry
+        shell: bash
+        run: foundryup
+
+      - name: move anvil and other bins to path (linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: sudo mv /home/runner/.config/.foundry/bin/* /usr/local/bin
+
+      - name: move anvil and other bins to path (macos)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: sudo mv /Users/runner/.foundry/bin/* /usr/local/bin
+
+      - name: move anvil and other bins to path (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item -Path C:\Users\runneradmin\.foundry\bin\* -Destination C:\Users\runneradmin\AppData\Local\Microsoft\WindowsApps
+
+      - name: Verify Anvil installation
+        run: |
+          anvil --version
 
       - name: Build churn tests
         run: cargo test --release -p ant-node --test data_with_churn --no-run

@@ -10,8 +10,9 @@
 use crate::networking::cmd::LocalSwarmCmd;
 use crate::networking::network_builder::MAX_PACKET_SIZE;
 use crate::networking::send_local_swarm_cmd;
-use crate::networking::time::{spawn, Instant};
 use crate::networking::{event::NetworkEvent, log_markers::Marker};
+use std::time::Instant;
+use tokio::spawn;
 use aes_gcm_siv::{
     aead::{Aead, KeyInit},
     Aes256GcmSiv, Key as AesKey, Nonce,
@@ -147,7 +148,7 @@ impl RecordCache {
 }
 
 /// A `RecordStore` that stores records on disk.
-pub struct NodeRecordStore {
+pub(crate) struct NodeRecordStore {
     /// The address of the peer owning the store
     local_address: NetworkAddress,
     /// The configuration of the store.

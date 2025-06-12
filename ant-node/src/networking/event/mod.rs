@@ -124,7 +124,7 @@ impl From<void::Void> for NodeEvent {
 #[allow(clippy::type_complexity)]
 #[derive(CustomDebug)]
 /// Channel to send the `Response` through.
-pub enum MsgResponder {
+pub(crate) enum MsgResponder {
     /// Respond to a request from `self` through a simple one-shot channel.
     FromSelf(Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>),
     /// Respond to a request from a peer in the network.
@@ -132,7 +132,7 @@ pub enum MsgResponder {
 }
 
 /// Events forwarded by the underlying Network; to be used by the upper layers
-pub enum NetworkEvent {
+pub(crate) enum NetworkEvent {
     /// Incoming `Query` from a peer
     QueryRequestReceived {
         /// Query

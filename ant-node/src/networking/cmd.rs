@@ -6,7 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::networking::time::Instant;
 use crate::networking::{
     driver::{PendingGetClosestType, SwarmDriver},
     error::{NetworkError, Result},
@@ -36,6 +35,7 @@ use std::{
 };
 use tokio::sync::oneshot;
 use xor_name::XorName;
+use std::time::Instant;
 
 const MAX_CONTINUOUS_HDD_WRITE_ERROR: usize = 5;
 

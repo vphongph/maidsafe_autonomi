@@ -15,7 +15,7 @@ use crate::networking::Addresses;
 #[cfg(feature = "open-metrics")]
 use crate::networking::MetricsRegistries;
 use crate::networking::{
-    Instant, Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
+    Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
 };
 use crate::RunningNode;
 use ant_bootstrap::BootstrapCacheStore;
@@ -43,7 +43,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::watch;
 use tokio::{

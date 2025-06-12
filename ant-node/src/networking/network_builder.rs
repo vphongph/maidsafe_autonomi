@@ -17,7 +17,6 @@ use crate::networking::{
     record_store::{NodeRecordStore, NodeRecordStoreConfig},
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    time::Instant,
     transport, Network, SwarmDriver, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
@@ -57,6 +56,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
+use std::time::Instant;
 
 // Timeout for requests sent/received through the request_response behaviour.
 const REQUEST_TIMEOUT_DEFAULT_S: Duration = Duration::from_secs(30);

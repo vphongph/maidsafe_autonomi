@@ -87,7 +87,7 @@ impl ReservationStat {
     fn record_value(&mut self, value: bool) {
         self.stat.push_back(value);
         if self.stat.len() > RESERVATION_SCORE_ROLLING_WINDOW {
-            self.stat.pop_front();
+            let _ =self.stat.pop_front();
         }
     }
 
@@ -162,7 +162,7 @@ impl RelayManager {
     // todo: how do we know if a reservation has been revoked / if the peer has gone offline?
     /// Try connecting to candidate relays if we are below the threshold connections.
     /// This is run periodically on a loop.
-    pub(crate) fn try_connecting_to_relay(
+    pub(in crate::networking) fn try_connecting_to_relay(
         &mut self,
         swarm: &mut Swarm<NodeBehaviour>,
         bad_nodes: &BadNodes,
@@ -208,8 +208,8 @@ impl RelayManager {
                 match swarm.listen_on(relay_addr.clone()) {
                     Ok(id) => {
                         info!("Sending reservation to relay {peer_id:?} on {relay_addr:?}");
-                        self.waiting_for_reservation.insert(peer_id, relay_addr);
-                        self.relayed_listener_id_map.insert(id, peer_id);
+                        let _ = self.waiting_for_reservation.insert(peer_id, relay_addr);
+                        let _ = self.relayed_listener_id_map.insert(id, peer_id);
                         n_reservations += 1;
                     }
                     Err(err) => {
@@ -224,7 +224,7 @@ impl RelayManager {
     }
 
     /// Update client state after we've successfully made reservation with a relay.
-    pub(crate) fn on_successful_reservation_by_client(
+    pub(in crate::networking) fn on_successful_reservation_by_client(
         &mut self,
         peer_id: &PeerId,
         swarm: &mut Swarm<NodeBehaviour>,
@@ -234,7 +234,7 @@ impl RelayManager {
             Some(addr) => {
                 info!("Successfully made reservation with {peer_id:?} on {addr:?}. Adding the addr to external address.");
                 swarm.add_external_address(addr.clone());
-                self.connected_relay_servers.insert(*peer_id, addr);
+                let _ = self.connected_relay_servers.insert(*peer_id, addr);
             }
             None => {
                 debug!("Made a reservation with a peer that we had not requested to");

@@ -20,7 +20,6 @@ use crate::networking::{
     network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL},
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    time::{interval, spawn, Instant, Interval},
     Addresses, NodeIssue, NodeRecordStore, CLOSE_GROUP_SIZE,
 };
 use ant_bootstrap::BootstrapCacheStore;
@@ -47,7 +46,10 @@ use std::{
     net::IpAddr,
 };
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::Duration;
+use tokio::time::{Duration, Interval, interval};
+use tokio::spawn;
+use std::time::Instant;
+
 use tracing::warn;
 
 /// 10 is the max number of issues per node we track to avoid mem leaks

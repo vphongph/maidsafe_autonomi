@@ -12,7 +12,6 @@
 mod bootstrap;
 mod circular_vec;
 mod cmd;
-mod config;
 mod driver;
 mod error;
 mod event;
@@ -25,26 +24,23 @@ mod network_discovery;
 mod record_store;
 mod relay_manager;
 mod replication_fetcher;
-pub mod time;
 mod transport;
 
-pub use ant_protocol::CLOSE_GROUP_SIZE;
+pub(crate) use ant_protocol::CLOSE_GROUP_SIZE;
 
 use cmd::LocalSwarmCmd;
 
 // re-export arch dependent deps for use in the crate, or above
-pub use self::{
+pub(crate) use self::{
     cmd::{NodeIssue, SwarmLocalState},
-    config::ResponseQuorum,
     driver::SwarmDriver,
     error::NetworkError,
-    event::{MsgResponder, NetworkEvent},
-    network_builder::{NetworkBuilder, MAX_PACKET_SIZE},
+    network_builder::NetworkBuilder,
     record_store::NodeRecordStore,
 };
+pub(crate) use event::{MsgResponder, NetworkEvent};
 #[cfg(feature = "open-metrics")]
-pub use metrics::service::MetricsRegistries;
-pub use time::{interval, sleep, spawn, Instant, Interval};
+pub(crate) use metrics::service::MetricsRegistries;
 
 use self::{cmd::NetworkSwarmCmd, error::Result};
 use ant_evm::{PaymentQuote, QuotingMetrics};
@@ -689,7 +685,7 @@ pub(crate) fn send_local_swarm_cmd(swarm_cmd_sender: Sender<LocalSwarmCmd>, cmd:
     }
 
     // Spawn a task to send the SwarmCmd and keep this fn sync
-    let _handle = spawn(async move {
+    let _handle = tokio::spawn(async move {
         if let Err(error) = swarm_cmd_sender.send(cmd).await {
             error!("Failed to send SwarmCmd: {}", error);
         }
@@ -710,7 +706,7 @@ pub(crate) fn send_network_swarm_cmd(
     }
 
     // Spawn a task to send the SwarmCmd and keep this fn sync
-    let _handle = spawn(async move {
+    let _handle = tokio::spawn(async move {
         if let Err(error) = swarm_cmd_sender.send(cmd).await {
             error!("Failed to send SwarmCmd: {}", error);
         }

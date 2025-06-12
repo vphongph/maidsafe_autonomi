@@ -10,7 +10,6 @@ use crate::networking::{
     error::{dial_error_to_str, listen_error_to_str},
     event::NodeEvent,
     multiaddr_get_ip,
-    time::Instant,
     NetworkEvent, NodeIssue, Result, SwarmDriver,
 };
 use ant_bootstrap::{multiaddr_get_peer_id, BootstrapCacheStore};
@@ -24,6 +23,7 @@ use libp2p::{
     Multiaddr, TransportError,
 };
 use tokio::time::Duration;
+use std::time::Instant;
 
 impl SwarmDriver {
     /// Handle `SwarmEvents`
@@ -189,7 +189,7 @@ impl SwarmDriver {
                                 old_cache.add_addr(address.clone());
 
                                 // Save cache to disk.
-                                crate::networking::time::spawn(async move {
+                                tokio::spawn(async move {
                                     if let Err(err) = old_cache.sync_and_flush_to_disk() {
                                         error!("Failed to save bootstrap cache: {err}");
                                     }

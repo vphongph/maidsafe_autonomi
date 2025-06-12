@@ -13,7 +13,7 @@ pub mod service;
 mod upnp;
 
 use crate::networking::MetricsRegistries;
-use crate::networking::{log_markers::Marker, time::sleep};
+use crate::networking::log_markers::Marker;
 use bad_node::{BadNodeMetrics, BadNodeMetricsMsg, TimeFrame};
 use libp2p::{
     metrics::{Metrics as Libp2pMetrics, Recorder},
@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use sysinfo::{Pid, ProcessRefreshKind, System};
 use tokio::time::Duration;
+use tokio::time::sleep;
 
 const UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 const TO_MB: u64 = 1_000_000;
@@ -332,7 +333,7 @@ impl NetworkMetricsRecorder {
                 let _ = self.shunned_count.inc();
                 let bad_nodes_notifier = self.bad_nodes_notifier.clone();
                 let flagged_by = *flagged_by;
-                crate::networking::time::spawn(async move {
+                tokio::spawn(async move {
                     if let Err(err) = bad_nodes_notifier
                         .send(BadNodeMetricsMsg::ShunnedByPeer(flagged_by))
                         .await
@@ -363,7 +364,7 @@ impl NetworkMetricsRecorder {
 
     pub(crate) fn record_change_in_close_group(&self, new_close_group: Vec<PeerId>) {
         let bad_nodes_notifier = self.bad_nodes_notifier.clone();
-        crate::networking::time::spawn(async move {
+        tokio::spawn(async move {
             if let Err(err) = bad_nodes_notifier
                 .send(BadNodeMetricsMsg::CloseGroupUpdated(new_close_group))
                 .await

@@ -8,7 +8,6 @@
 
 use crate::networking::{
     driver::PendingGetClosestType,
-    time::{interval, Instant, Interval},
     Addresses, NetworkEvent, SwarmDriver,
 };
 use ant_protocol::NetworkAddress;
@@ -19,7 +18,8 @@ use libp2p::{
 use rand::{rngs::OsRng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{btree_map::Entry, BTreeMap};
-use tokio::time::Duration;
+use std::time::Instant;
+use tokio::time::{Duration, interval, Interval};
 
 // The number of PeerId to generate when starting an instance of NetworkDiscoveryCandidate.
 const INITIAL_GENERATION_ATTEMPTS: usize = 10_000;

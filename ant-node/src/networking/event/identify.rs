@@ -54,7 +54,7 @@ impl SwarmDriver {
                 their_protocol: info.protocol_version,
             });
             // Block the peer from any further communication.
-            self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
+            let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
             if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
                 error!("Clearing out a protocol mismatch peer from RT. The peer pushed an incorrect identify info after being added: {peer_id:?}");
                 self.update_on_peer_removal(*dead_peer.node.key.preimage());

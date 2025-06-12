@@ -8,11 +8,14 @@
 
 mod common;
 
-use crate::common::{
-    client::{get_spawned_network_node_count, transfer_to_new_wallet_with_evm_network},
-    NodeRestart,
+use crate::common::client::{
+    get_spawned_network_node_count, transfer_to_new_wallet_with_evm_network,
 };
 use ant_logging::LogBuilder;
+use ant_node::{
+    spawn::{network_spawner::RunningNetwork, node_spawner::NodeSpawner},
+    RunningNode,
+};
 use ant_protocol::{
     storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget, ScratchpadAddress},
     NetworkAddress,
@@ -20,13 +23,16 @@ use ant_protocol::{
 use autonomi::{data::DataAddress, Client, Wallet};
 use bls::{PublicKey, SecretKey};
 use bytes::Bytes;
+use evmlib::Network;
 use eyre::{bail, ErrReport, Result};
+use libp2p::Multiaddr;
 use rand::Rng;
 use self_encryption::MAX_CHUNK_SIZE;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     fmt,
     fs::create_dir_all,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
@@ -215,7 +221,20 @@ async fn data_availability_during_churn() -> Result<()> {
     };
 
     // Spawn a task to churn nodes
-    churn_nodes_task(Arc::clone(&churn_count), test_duration, churn_period);
+    tokio::spawn(async move {
+        let _ = data_churn_with_network_restart(
+            spawned_local_network.ant_network,
+            &spawned_local_network.evm_network,
+            &main_wallet,
+            true,
+            churn_period,
+            test_duration,
+        )
+        .await;
+
+        info!("data churn with network restart task completed");
+        println!("data churn with network restart task completed");
+    });
 
     // Shared bucket where we keep track of the content which erred when creating/storing/fetching.
     // We remove them from this bucket if we are then able to query/fetch them successfully.
@@ -794,35 +813,77 @@ fn query_content_task(
     });
 }
 
-// Spawns a task which periodically picks up a node, and restarts it to cause churn in the network.
-fn churn_nodes_task(
-    churn_count: Arc<RwLock<usize>>,
-    test_duration: Duration,
+async fn data_churn_with_network_restart(
+    running_network: RunningNetwork,
+    evm_network: &Network,
+    funded_wallet: &Wallet,
+    local: bool,
     churn_period: Duration,
-) {
+    total_period: Duration,
+) -> Result<()> {
+    println!("data churning for the network spawner initiated");
     let start = Instant::now();
-    let _handle: JoinHandle<Result<()>> = tokio::spawn(async move {
-        let mut node_restart = NodeRestart::new(true, false)?;
+    let mut churn_count = 1;
 
-        loop {
-            sleep(churn_period).await;
-
-            // break out if we've run the duration of churn
-            if start.elapsed() > test_duration {
-                debug!("Test duration reached, stopping churn nodes task");
-                break;
+    let mut running_nodes = running_network.running_nodes().clone();
+    'outer: loop {
+        let mut restarted_nodes: Vec<RunningNode> = Vec::new();
+        let mut initial_peers: Vec<Multiaddr> = vec![];
+        for peer in running_nodes.iter() {
+            if let Ok(listen_addrs_with_peer_id) = peer.get_listen_addrs_with_peer_id().await {
+                initial_peers.extend(listen_addrs_with_peer_id);
             }
-
-            if let Err(err) = node_restart.restart_next(true, true).await {
-                println!("Failed to restart node {err}");
-                info!("Failed to restart node {err}");
-                continue;
-            }
-
-            *churn_count.write().await += 1;
         }
-        Ok(())
-    });
+        for nodes in running_nodes.clone() {
+            sleep(churn_period).await;
+            if start.elapsed() > total_period {
+                println!("Total period elapsed. Stopping the churn.");
+                info!("Total period elapsed. Stopping the churn.");
+                break 'outer;
+            }
+            println!(
+                "Churn #{churn_count} Churning a node with peer_id {:?}",
+                nodes.peer_id()
+            );
+            nodes.clone().shutdown();
+            println!("Restarting the node with peer_id {:?}", nodes.peer_id());
+
+            churn_count += 1;
+            let mut temp_peer = initial_peers.clone();
+            if let Ok(listen_addrs_with_peer_id) = nodes.get_listen_addrs_with_peer_id().await {
+                for exclude_addr in listen_addrs_with_peer_id {
+                    initial_peers = temp_peer
+                        .iter() // Use iter() to borrow, not move
+                        .filter(|addr| *addr != &exclude_addr) // Deref to compare values
+                        .cloned() // Clone to collect into a new Vec
+                        .collect();
+                    temp_peer = initial_peers.clone();
+                }
+            }
+
+            let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+            let node = NodeSpawner::new()
+                .with_socket_addr(socket_addr)
+                .with_evm_network(evm_network.clone())
+                .with_rewards_address(funded_wallet.address())
+                .with_initial_peers(initial_peers.clone())
+                .with_local(local)
+                .with_root_dir(None)
+                .spawn()
+                .await?;
+            sleep(Duration::from_secs(2)).await;
+            if let Ok(listen_addrs_with_peer_id) = node.get_listen_addrs_with_peer_id().await {
+                initial_peers.extend(listen_addrs_with_peer_id);
+            }
+            println!(
+                "A new Node joined the network with peer_id {:?}",
+                node.peer_id()
+            );
+            restarted_nodes.push(node);
+        }
+        running_nodes = restarted_nodes;
+    }
+    Ok(())
 }
 
 // Checks (periodically) for any content that an error was reported either at the moment of its creation or

@@ -102,7 +102,8 @@ impl SwarmDriver {
                         .network_discovery
                         .handle_get_closest_query(current_closest),
                     PendingGetClosestType::FunctionCall(sender) => {
-                        tokio::spawn(async move {
+                        #[allow(clippy::let_underscore_future)]
+                        let _ = tokio::spawn(async move {
                             let _ = sender.send(vec![]);
                         });
                     }

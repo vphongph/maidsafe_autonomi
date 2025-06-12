@@ -6,7 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use std::time::Instant;
 #[cfg(feature = "open-metrics")]
 use crate::networking::MetricsRegistries;
 use crate::Marker;
@@ -21,6 +20,7 @@ use prometheus_client::{
         info::Info,
     },
 };
+use std::time::Instant;
 
 #[derive(Clone)]
 /// The shared recorders that are used to record metrics.

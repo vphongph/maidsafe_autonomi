@@ -9,8 +9,7 @@
 use crate::networking::{
     error::{dial_error_to_str, listen_error_to_str},
     event::NodeEvent,
-    multiaddr_get_ip,
-    NetworkEvent, NodeIssue, Result, SwarmDriver,
+    multiaddr_get_ip, NetworkEvent, NodeIssue, Result, SwarmDriver,
 };
 use ant_bootstrap::{multiaddr_get_peer_id, BootstrapCacheStore};
 use itertools::Itertools;
@@ -22,12 +21,15 @@ use libp2p::{
     swarm::{ConnectionId, DialError, SwarmEvent},
     Multiaddr, TransportError,
 };
-use tokio::time::Duration;
 use std::time::Instant;
+use tokio::time::Duration;
 
 impl SwarmDriver {
     /// Handle `SwarmEvents`
-    pub(crate) fn handle_swarm_events(&mut self, event: SwarmEvent<NodeEvent>) -> Result<()> {
+    pub(in crate::networking) fn handle_swarm_events(
+        &mut self,
+        event: SwarmEvent<NodeEvent>,
+    ) -> Result<()> {
         // This does not record all the events. `SwarmEvent::Behaviour(_)` are skipped. Hence `.record()` has to be
         // called individually on each behaviour.
         #[cfg(feature = "open-metrics")]
@@ -122,23 +124,23 @@ impl SwarmDriver {
                         src_peer_id,
                         renewed: _,
                     } => {
-                        self.connected_relay_clients.insert(src_peer_id);
+                        let _ = self.connected_relay_clients.insert(src_peer_id);
                         info!("Relay reservation accepted from {src_peer_id:?}. Relay client count: {}", self.connected_relay_clients.len());
 
                         #[cfg(feature = "open-metrics")]
                         if let Some(metrics_recorder) = &self.metrics_recorder {
-                            metrics_recorder
+                            let _ = metrics_recorder
                                 .connected_relay_clients
                                 .set(self.connected_relay_clients.len() as i64);
                         }
                     }
                     libp2p::relay::Event::ReservationTimedOut { src_peer_id } => {
-                        self.connected_relay_clients.remove(&src_peer_id);
+                        let _ = self.connected_relay_clients.remove(&src_peer_id);
                         info!("Relay reservation timed out from {src_peer_id:?}. Relay client count: {}", self.connected_relay_clients.len());
 
                         #[cfg(feature = "open-metrics")]
                         if let Some(metrics_recorder) = &self.metrics_recorder {
-                            metrics_recorder
+                            let _ = metrics_recorder
                                 .connected_relay_clients
                                 .set(self.connected_relay_clients.len() as i64);
                         }
@@ -189,7 +191,8 @@ impl SwarmDriver {
                                 old_cache.add_addr(address.clone());
 
                                 // Save cache to disk.
-                                tokio::spawn(async move {
+                                #[allow(clippy::let_underscore_future)]
+                                let _ = tokio::spawn(async move {
                                     if let Err(err) = old_cache.sync_and_flush_to_disk() {
                                         error!("Failed to save bootstrap cache: {err}");
                                     }
@@ -667,14 +670,14 @@ impl SwarmDriver {
     fn record_connection_metrics(&self) {
         #[cfg(feature = "open-metrics")]
         if let Some(metrics_recorder) = &self.metrics_recorder {
-            metrics_recorder
+            let _ = metrics_recorder
                 .open_connections
                 .set(self.live_connected_peers.len() as i64);
-            metrics_recorder
+            let _ = metrics_recorder
                 .connected_peers
                 .set(self.swarm.connected_peers().count() as i64);
 
-            metrics_recorder
+            let _ = metrics_recorder
                 .connected_relay_clients
                 .set(self.connected_relay_clients.len() as i64);
         }
@@ -704,7 +707,7 @@ impl SwarmDriver {
                 break;
             };
 
-            self.latest_established_connection_ids.remove(&oldest_key);
+            let _ = self.latest_established_connection_ids.remove(&oldest_key);
         }
     }
 

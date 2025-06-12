@@ -165,6 +165,7 @@ pub(crate) enum NetworkEvent {
     /// List of peer nodes that failed to fetch replication copy from.
     FailedToFetchHolders(BTreeMap<PeerId, RecordKey>),
     /// Quotes to be verified
+    #[allow(dead_code)]
     QuoteVerification { quotes: Vec<(PeerId, PaymentQuote)> },
     /// Fresh replicate to fetch
     FreshReplicateToFetch {
@@ -182,7 +183,7 @@ pub(crate) enum NetworkEvent {
 
 /// Terminate node for the following reason
 #[derive(Debug, Clone)]
-pub enum TerminateNodeReason {
+pub(crate) enum TerminateNodeReason {
     HardDiskWriteError,
     UpnpGatewayNotFound,
 }
@@ -421,7 +422,7 @@ impl SwarmDriver {
         self.peers_in_rt = status.total_peers;
         #[cfg(feature = "open-metrics")]
         if let Some(metrics_recorder) = &self.metrics_recorder {
-            metrics_recorder
+            let _ = metrics_recorder
                 .peers_in_routing_table
                 .set(status.total_peers as i64);
 

@@ -87,7 +87,7 @@ impl ReservationStat {
     fn record_value(&mut self, value: bool) {
         self.stat.push_back(value);
         if self.stat.len() > RESERVATION_SCORE_ROLLING_WINDOW {
-            let _ =self.stat.pop_front();
+            let _ = self.stat.pop_front();
         }
     }
 
@@ -255,7 +255,7 @@ impl RelayManager {
     }
 
     /// Update client state if the reservation has been cancelled or if the relay has closed.
-    pub(crate) fn on_listener_closed(
+    pub(in crate::networking) fn on_listener_closed(
         &mut self,
         listener_id: &ListenerId,
         swarm: &mut Swarm<NodeBehaviour>,
@@ -413,7 +413,7 @@ impl RelayReservationHealth {
                     .push((relay_server, *connection_id, SystemTime::now(), None));
             }
             Entry::Vacant(entry) => {
-                entry.insert(vec![(
+                let _ = entry.insert(vec![(
                     relay_server,
                     *connection_id,
                     SystemTime::now(),
@@ -506,7 +506,7 @@ impl RelayReservationHealth {
                     Entry::Vacant(entry) => {
                         let mut stat = ReservationStat::default();
                         stat.record_value(true);
-                        entry.insert(stat);
+                        let _ = entry.insert(stat);
                     }
                 }
             }
@@ -527,7 +527,7 @@ impl RelayReservationHealth {
                         Entry::Vacant(entry) => {
                             let mut stat = ReservationStat::default();
                             stat.record_value(false);
-                            entry.insert(stat);
+                            let _ = entry.insert(stat);
                         }
                     }
                 }
@@ -537,7 +537,8 @@ impl RelayReservationHealth {
         }
 
         for from_peer in to_remove {
-            self.incoming_connections_from_remote_peer
+            let _ = self
+                .incoming_connections_from_remote_peer
                 .remove(&from_peer);
         }
 
@@ -549,7 +550,7 @@ impl RelayReservationHealth {
             .map(|stat| stat.success_rate())
             .sum::<f64>()
             / self.reservation_score.len() as f64;
-        self.relay_reservation_health_metric.set(avg_health);
+        let _ = self.relay_reservation_health_metric.set(avg_health);
 
         self.log_reservation_score();
     }

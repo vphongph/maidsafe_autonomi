@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
+use crate::networking::{
     error::{dial_error_to_str, listen_error_to_str},
     event::NodeEvent,
     multiaddr_get_ip,
@@ -89,7 +89,8 @@ impl SwarmDriver {
                     libp2p::upnp::Event::GatewayNotFound => {
                         warn!("UPnP is not enabled/supported on the gateway. Please rerun with the `--no-upnp` flag");
                         self.send_event(NetworkEvent::TerminateNode {
-                            reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
+                            reason:
+                                crate::networking::event::TerminateNodeReason::UpnpGatewayNotFound,
                         });
                     }
                     libp2p::upnp::Event::NewExternalAddr(addr) => {
@@ -188,7 +189,7 @@ impl SwarmDriver {
                                 old_cache.add_addr(address.clone());
 
                                 // Save cache to disk.
-                                crate::time::spawn(async move {
+                                crate::networking::time::spawn(async move {
                                     if let Err(err) = old_cache.sync_and_flush_to_disk() {
                                         error!("Failed to save bootstrap cache: {err}");
                                     }

@@ -7,8 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 #[cfg(feature = "open-metrics")]
-use crate::metrics::NetworkMetricsRecorder;
-use crate::{
+use crate::networking::metrics::NetworkMetricsRecorder;
+use crate::networking::{
     bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
@@ -591,7 +591,8 @@ mod tests {
         let variance = 10;
         let expected_variance = Duration::from_secs(15); // 10% of 150
         for _ in 0..10000 {
-            let new_duration = crate::SwarmDriver::duration_with_variance(duration, variance);
+            let new_duration =
+                crate::networking::SwarmDriver::duration_with_variance(duration, variance);
             println!("new_duration: {new_duration:?}");
             if new_duration < duration - expected_variance
                 || new_duration > duration + expected_variance

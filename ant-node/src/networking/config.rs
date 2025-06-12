@@ -10,7 +10,7 @@ use ant_protocol::CLOSE_GROUP_SIZE;
 use core::fmt::Debug;
 use std::num::NonZeroUsize;
 
-use crate::close_group_majority;
+use crate::networking::close_group_majority;
 
 /// Specifies the minimum number of distinct nodes that must be successfully contacted in order for a query to succeed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

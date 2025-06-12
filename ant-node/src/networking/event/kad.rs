@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
+use crate::networking::{
     driver::PendingGetClosestType, time::Instant, Addresses, NetworkError, Result, SwarmDriver,
     CLOSE_GROUP_SIZE,
 };

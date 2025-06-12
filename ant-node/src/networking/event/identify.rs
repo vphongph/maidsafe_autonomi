@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::relay_manager::is_a_relayed_peer;
-use crate::{multiaddr_is_global, multiaddr_strip_p2p, NetworkEvent, SwarmDriver};
+use crate::networking::relay_manager::is_a_relayed_peer;
+use crate::networking::{multiaddr_is_global, multiaddr_strip_p2p, NetworkEvent, SwarmDriver};
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use libp2p::identify::Info;
 use libp2p::kad::K_VALUE;

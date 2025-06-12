@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
+use crate::networking::{
     bootstrap::{InitialBootstrap, InitialBootstrapTrigger},
     circular_vec::CircularVec,
     driver::NodeBehaviour,
@@ -21,7 +21,7 @@ use crate::{
     transport, Network, SwarmDriver, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
-use crate::{
+use crate::networking::{
     metrics::service::run_metrics_server, metrics::NetworkMetricsRecorder, MetricsRegistries,
 };
 use ant_bootstrap::BootstrapCacheStore;

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{NetworkError, Result};
+use crate::networking::{NetworkError, Result};
 use futures::Future;
 use hyper::{service::Service, Body, Method, Request, Response, Server, StatusCode};
 use prometheus_client::{encoding::text::encode, registry::Registry};

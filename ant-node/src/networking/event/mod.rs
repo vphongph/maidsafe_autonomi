@@ -11,7 +11,9 @@ mod kad;
 mod request_response;
 mod swarm;
 
-use crate::{driver::SwarmDriver, error::Result, relay_manager::is_a_relayed_peer, Addresses};
+use crate::networking::{
+    driver::SwarmDriver, error::Result, relay_manager::is_a_relayed_peer, Addresses,
+};
 use core::fmt;
 use custom_debug::Debug as CustomDebug;
 use libp2p::{

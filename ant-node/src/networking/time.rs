@@ -5,8 +5,8 @@
 /// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 /// KIND, either express or implied. Please review the Licences for the specific language governing
 /// permissions and limitations relating to use of the SAFE Network Software.
-pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+pub use std::time::Instant;
 pub use tokio::{
     spawn,
-    time::{interval, sleep, timeout, Interval},
+    time::{interval, sleep, Interval},
 };

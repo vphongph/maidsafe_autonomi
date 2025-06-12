@@ -12,8 +12,8 @@ mod relay_client;
 pub mod service;
 mod upnp;
 
-use crate::MetricsRegistries;
-use crate::{log_markers::Marker, time::sleep};
+use crate::networking::MetricsRegistries;
+use crate::networking::{log_markers::Marker, time::sleep};
 use bad_node::{BadNodeMetrics, BadNodeMetricsMsg, TimeFrame};
 use libp2p::{
     metrics::{Metrics as Libp2pMetrics, Recorder},
@@ -332,7 +332,7 @@ impl NetworkMetricsRecorder {
                 let _ = self.shunned_count.inc();
                 let bad_nodes_notifier = self.bad_nodes_notifier.clone();
                 let flagged_by = *flagged_by;
-                crate::time::spawn(async move {
+                crate::networking::time::spawn(async move {
                     if let Err(err) = bad_nodes_notifier
                         .send(BadNodeMetricsMsg::ShunnedByPeer(flagged_by))
                         .await
@@ -363,7 +363,7 @@ impl NetworkMetricsRecorder {
 
     pub(crate) fn record_change_in_close_group(&self, new_close_group: Vec<PeerId>) {
         let bad_nodes_notifier = self.bad_nodes_notifier.clone();
-        crate::time::spawn(async move {
+        crate::networking::time::spawn(async move {
             if let Err(err) = bad_nodes_notifier
                 .send(BadNodeMetricsMsg::CloseGroupUpdated(new_close_group))
                 .await

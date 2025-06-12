@@ -9,9 +9,6 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::result_large_err)]
 
-#[macro_use]
-extern crate tracing;
-
 mod bootstrap;
 mod circular_vec;
 mod cmd;
@@ -30,6 +27,8 @@ mod relay_manager;
 mod replication_fetcher;
 pub mod time;
 mod transport;
+
+pub use ant_protocol::CLOSE_GROUP_SIZE;
 
 use cmd::LocalSwarmCmd;
 
@@ -52,7 +51,7 @@ use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
     messages::{ConnectionInfo, Request, Response},
     storage::ValidationType,
-    NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
+    NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey,
 };
 use futures::future::select_all;
 use libp2p::{

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{driver::NodeBehaviour, multiaddr_get_p2p, multiaddr_pop_p2p};
+use crate::networking::{driver::NodeBehaviour, multiaddr_get_p2p, multiaddr_pop_p2p};
 use libp2p::{
     core::ConnectedPoint,
     swarm::{

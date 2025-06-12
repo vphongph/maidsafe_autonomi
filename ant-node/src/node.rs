@@ -11,16 +11,16 @@ use super::{
 };
 #[cfg(feature = "open-metrics")]
 use crate::metrics::NodeMetricsRecorder;
+use crate::networking::Addresses;
+#[cfg(feature = "open-metrics")]
+use crate::networking::MetricsRegistries;
+use crate::networking::{
+    Instant, Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
+};
 use crate::RunningNode;
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::EvmNetwork;
 use ant_evm::RewardsAddress;
-use ant_networking::Addresses;
-#[cfg(feature = "open-metrics")]
-use ant_networking::MetricsRegistries;
-use ant_networking::{
-    Instant, Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
-};
 use ant_protocol::{
     error::Error as ProtocolError,
     messages::{ChunkProof, CmdResponse, Nonce, Query, QueryResponse, Request, Response},

@@ -591,11 +591,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      
-      # TODO: Check if antnode and ant are needed
-      - name: Build binaries
-        run: cargo build --release --bin antnode --bin ant
-        timeout-minutes: 30
 
       - name: install foundry
         shell: bash
@@ -764,11 +759,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # TODO: Check if antnode and ant are needed
-      - name: Build binaries
-        run: cargo build --release --bin antnode
-        timeout-minutes: 30
-
       - name: install foundry
         shell: bash
         run: curl -L https://foundry.paradigm.xyz | bash
@@ -881,11 +871,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-
-      # TODO: Check if antnode and ant are needed
-      - name: Build binaries
-        run: cargo build --release --bin antnode
-        timeout-minutes: 30
 
       - name: install foundary
         shell: bash

@@ -641,7 +641,7 @@ jobs:
           # only set the target dir for windows to bypass the linker issue.
           # happens if we build the node manager via testnet action
           CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && './test-target' || '.' }}
-        timeout-minutes: 30
+        timeout-minutes: 40
 
       - name: Upload log files (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -669,6 +669,23 @@ jobs:
           name: safe_test_logs_e2e_from_code_${{ matrix.os }}
           path: |
             C:\Users\runneradmin\AppData\Roaming\autonomi\**\*.log*
+      
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          killall anvil || true
+
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $processes = @('anvil')
+          foreach ($name in $processes) {
+            Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
 
   # token_distribution_test:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
@@ -849,6 +866,23 @@ jobs:
           path: |
             C:\Users\runneradmin\AppData\Roaming\autonomi\**\*.log*
 
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          killall anvil || true
+
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $processes = @('anvil')
+          foreach ($name in $processes) {
+            Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
   verify_data_location_routing_table:
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     name: Verify data location and Routing Table
@@ -952,6 +986,7 @@ jobs:
           name: safe_test_logs_data_location_${{ matrix.os }}
           path: |
             ~/.local/share/autonomi/**/*.log*
+      
       - name: Upload log files (macOs)
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@main
@@ -960,6 +995,7 @@ jobs:
           name: safe_test_logs_data_location_${{ matrix.os }}
           path: |
             /Users/runner/Library/Application Support/autonomi/**/*.log*
+      
       - name: Upload log files (Windows)
         if: matrix.os ==  'windows-latest'
         uses: actions/upload-artifact@main
@@ -968,6 +1004,23 @@ jobs:
           name: safe_test_logs_data_location_${{ matrix.os }}
           path: |
             C:\Users\runneradmin\AppData\Roaming\autonomi\**\*.log*
+
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          killall anvil || true
+
+      # Safety measure, Anvil should be killed once the network is dropped by Rust
+      - name: Kill testnet processes (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $processes = @('anvil')
+          foreach ($name in $processes) {
+            Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
 
   # faucet_test:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
@@ -1287,6 +1340,25 @@ jobs:
           platform: ubuntu-latest
           log_file_prefix: safe_test_logs_large_file_upload_no_ws
           build: true
+
+      # TODO: To be integrated in the local network stop action
+      # evm-testnet and antnode are killed but not anvil
+      - name: Kill testnet processes (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          killall evm-testnet anvil antnode || true
+
+      # TODO: To be integrated in the local network stop action
+      # evm-testnet and antnode are killed but not anvil
+      - name: Kill testnet processes (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $processes = @('evm-testnet', 'anvil', 'antnode')
+          foreach ($name in $processes) {
+            Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
 
   # replication_bench_with_heavy_upload:
   #   if: "!startsWith(github.event.head_commit.message, 'chore(release):')"

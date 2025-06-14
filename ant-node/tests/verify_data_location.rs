@@ -11,17 +11,13 @@ mod common;
 use ant_logging::LogBuilder;
 use ant_networking::{sleep, sort_peers_by_key};
 use ant_node::{
-    spawn::{
-        network_spawner::{NetworkSpawner, RunningNetwork},
-        node_spawner::NodeSpawner,
-    },
+    spawn::{network_spawner::RunningNetwork, node_spawner::NodeSpawner},
     RunningNode,
 };
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey, CLOSE_GROUP_SIZE};
-use autonomi::{Client, ClientConfig, InitialPeersConfig};
+use autonomi::Client;
 use bytes::Bytes;
 use common::get_all_peer_ids;
-use evmlib::wallet::Wallet;
 use eyre::{eyre, Result};
 use itertools::Itertools;
 use libp2p::{
@@ -34,6 +30,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::{Duration, Instant},
 };
+use test_utils::local_network_spawner::{spawn_local_network, DEFAULT_LOCAL_NETWORK_SIZE};
 use tracing::{debug, error, info};
 
 const CHUNK_SIZE: usize = 1024;
@@ -88,43 +85,20 @@ async fn verify_data_location() -> Result<()> {
         VERIFICATION_DELAY*churn_count as u32
     );
 
-    // initiate a testnet, and spawn a network
-    let evm_testnet = evmlib::testnet::Testnet::new().await;
-    let evm_network = evm_testnet.to_network();
-    let evm_sk = evm_testnet.default_wallet_private_key();
-    let funded_wallet =
-        Wallet::new_from_private_key(evm_network.clone(), &evm_sk).expect("Invalid private key");
-    let mut network = NetworkSpawner::new()
-        .with_evm_network(evm_network.clone())
-        .with_rewards_address(funded_wallet.address())
-        .with_local(true)
-        .with_size(20)
-        .spawn()
-        .await
-        .unwrap();
-    let peer = network.bootstrap_peer().await;
-    let config = ClientConfig {
-        init_peers_config: InitialPeersConfig {
-            first: false,
-            local: true,
-            addrs: vec![peer],
-            bootstrap_cache_dir: None,
-            ignore_cache: false,
-            network_contacts_url: vec![],
-        },
-        evm_network: evm_network.clone(),
-        strategy: autonomi::ClientOperatingStrategy::default(),
-        network_id: None,
-    };
-    let client = Client::init_with_config(config).await.unwrap();
+    // Spawn local network
+    let spawned_local_network = spawn_local_network(DEFAULT_LOCAL_NETWORK_SIZE).await?;
+    let client = spawned_local_network.client;
+    let wallet = spawned_local_network.wallet;
+    let mut ant_network = spawned_local_network.ant_network;
+    let evm_network = spawned_local_network.evm_network;
 
     // let node_rpc_address = get_all_rpc_addresses(true)?;
-    let mut all_peers = get_all_peer_ids(&network)?;
+    let mut all_peers = get_all_peer_ids(&ant_network)?;
 
-    store_chunks(&client, chunk_count, &funded_wallet).await?;
+    store_chunks(&client, chunk_count, &wallet).await?;
     println!("verifying data location initially before churning");
     // Verify data location initially
-    verify_location(&all_peers, &network).await?;
+    verify_location(&all_peers, &ant_network).await?;
     println!("Initial verification done");
 
     // Churn nodes and verify the location of the data after VERIFICATION_DELAY
@@ -132,7 +106,7 @@ async fn verify_data_location() -> Result<()> {
 
     let mut node_index = 0;
 
-    let mut running_nodes = network.running_nodes().clone();
+    let mut running_nodes = ant_network.running_nodes().clone();
     'main: loop {
         let mut restarted_nodes: Vec<RunningNode> = Vec::new();
 
@@ -154,7 +128,7 @@ async fn verify_data_location() -> Result<()> {
             nodes.clone().shutdown();
             sleep(Duration::from_secs(1)).await;
 
-            for peer in network.running_nodes() {
+            for peer in ant_network.running_nodes() {
                 if let Ok(listen_addrs_with_peer_id) = peer.get_listen_addrs_with_peer_id().await {
                     initial_peers.extend(listen_addrs_with_peer_id);
                 }
@@ -164,7 +138,7 @@ async fn verify_data_location() -> Result<()> {
             let node = NodeSpawner::new()
                 .with_socket_addr(socket_addr)
                 .with_evm_network(evm_network.clone())
-                .with_rewards_address(funded_wallet.address())
+                .with_rewards_address(wallet.address())
                 .with_initial_peers(initial_peers)
                 .with_local(true)
                 .with_root_dir(None)
@@ -174,12 +148,12 @@ async fn verify_data_location() -> Result<()> {
             let new_peer_id = node.peer_id();
             println!("A new Node joined the network with peer_id {new_peer_id:?}");
             restarted_nodes.push(node.clone());
-            network.update_peer(node_index, node);
+            ant_network.update_peer(node_index, node);
             all_peers[node_index] = new_peer_id;
             node_index += 1;
 
             print_node_close_groups(&all_peers);
-            verify_location(&all_peers, &network).await?;
+            verify_location(&all_peers, &ant_network).await?;
         }
         running_nodes = restarted_nodes;
     }

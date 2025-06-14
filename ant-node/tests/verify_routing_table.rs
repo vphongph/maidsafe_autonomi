@@ -11,9 +11,7 @@ mod common;
 
 use crate::common::get_all_peer_ids;
 use ant_logging::LogBuilder;
-use ant_node::spawn::network_spawner::NetworkSpawner;
 use ant_protocol::antnode_proto::k_buckets_response;
-use autonomi::Wallet;
 use color_eyre::Result;
 use libp2p::{
     kad::{KBucketKey, K_VALUE},
@@ -23,16 +21,21 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     time::Duration,
 };
+use test_utils::local_network_spawner::spawn_local_network;
 use tracing::{error, info, trace};
 
-/// Sleep for sometime for the nodes for discover each other before verification
+/// Sleep for some time for the nodes to discover each other before verification.
 /// Also can be set through the env variable of the same name.
-const SLEEP_BEFORE_VERIFICATION: Duration = Duration::from_secs(5);
+const SLEEP_BEFORE_VERIFICATION: Duration = Duration::from_secs(10);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn verify_routing_table() -> Result<()> {
     let _log_appender_guard =
         LogBuilder::init_multi_threaded_tokio_test("verify_routing_table", false);
+
+    // Spawn local network
+    let spawned_local_network = spawn_local_network(20).await?;
+    let ant_network = spawned_local_network.ant_network;
 
     let sleep_duration = std::env::var("SLEEP_BEFORE_VERIFICATION")
         .map(|value| {
@@ -45,28 +48,12 @@ async fn verify_routing_table() -> Result<()> {
     info!("Sleeping for {sleep_duration:?} before verification");
     tokio::time::sleep(sleep_duration).await;
 
-    // initiate a testnet, and spawn a network
-    let evm_testnet = evmlib::testnet::Testnet::new().await;
-    let evm_network = evm_testnet.to_network();
-    let evm_sk = evm_testnet.default_wallet_private_key();
-    let funded_wallet =
-        Wallet::new_from_private_key(evm_network.clone(), &evm_sk).expect("Invalid private key");
-    let network = NetworkSpawner::new()
-        .with_evm_network(evm_network.clone())
-        .with_rewards_address(funded_wallet.address())
-        .with_local(true)
-        .with_size(20)
-        .spawn()
-        .await
-        .unwrap();
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    // let node_rpc_address = get_all_rpc_addresses(true)?;
-    let all_peers = get_all_peer_ids(&network)?;
+    let all_peers = get_all_peer_ids(&ant_network)?;
 
     trace!("All peers: {all_peers:?}");
     let mut all_failed_list = BTreeMap::new();
 
-    for (node_index, running_node) in network.running_nodes().iter().enumerate() {
+    for (node_index, running_node) in ant_network.running_nodes().iter().enumerate() {
         let k_buckets: HashMap<u32, k_buckets_response::Peers> = running_node
             .get_kbuckets()
             .await

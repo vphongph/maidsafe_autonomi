@@ -606,19 +606,23 @@ impl Client {
             .dir_upload(dir_path, payment_option.0.clone())
             .await
             .map_err(map_error)?;
-        
+
         // Upload the archive and get the cost
         let (archive_cost, data_map) = self
             .0
             .archive_put(&archive, payment_option.0.clone())
             .await
             .map_err(map_error)?;
-        
+
         // Total cost is chunk upload cost + archive upload cost
-        let total_cost = chunk_upload_cost.checked_add(archive_cost)
+        let total_cost = chunk_upload_cost
+            .checked_add(archive_cost)
             .ok_or_else(|| napi::Error::new(napi::Status::GenericFailure, "Cost overflow"))?;
-        
-        Ok(tuple_result::DirUpload { cost: total_cost, data_map })
+
+        Ok(tuple_result::DirUpload {
+            cost: total_cost,
+            data_map,
+        })
     }
 
     /// Upload the content of a private file to the network. Reads file, splits into
@@ -704,21 +708,22 @@ impl Client {
             .dir_upload_public(dir_path, payment_option.0.clone())
             .await
             .map_err(map_error)?;
-        
+
         // Upload the archive and get the cost
         let (archive_cost, addr) = self
             .0
             .archive_put_public(&archive, payment_option.0.clone())
             .await
             .map_err(map_error)?;
-        
+
         // Total cost is chunk upload cost + archive upload cost
-        let total_cost = chunk_upload_cost.checked_add(archive_cost)
+        let total_cost = chunk_upload_cost
+            .checked_add(archive_cost)
             .ok_or_else(|| napi::Error::new(napi::Status::GenericFailure, "Cost overflow"))?;
-        
-        Ok(tuple_result::DirUploadPublic { 
-            cost: total_cost, 
-            addr: autonomi::files::archive_public::ArchiveAddress::from(addr) 
+
+        Ok(tuple_result::DirUploadPublic {
+            cost: total_cost,
+            addr: autonomi::files::archive_public::ArchiveAddress::from(addr),
         })
     }
 

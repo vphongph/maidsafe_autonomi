@@ -17,11 +17,11 @@ use crate::client::{high_level::data::DataAddress, utils::process_tasks_with_max
 use crate::self_encryption::encrypt;
 use crate::AttoTokens;
 use bytes::Bytes;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time;
-use std::time::{Duration, SystemTime};
-use std::collections::HashMap;
 use std::time::Instant;
+use std::time::{Duration, SystemTime};
 
 impl Client {
     /// Download file from network to local file system

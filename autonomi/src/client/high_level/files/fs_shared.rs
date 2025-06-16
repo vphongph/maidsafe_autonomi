@@ -74,7 +74,8 @@ impl Client {
         payment_option: PaymentOption,
         combined_chunks: CombinedChunks,
     ) -> Result<AttoTokens, UploadError> {
-        self.pay_and_upload_internal(payment_option, combined_chunks, self.retry_failed).await
+        self.pay_and_upload_internal(payment_option, combined_chunks, self.retry_failed)
+            .await
     }
 
     /// Internal method that handles the actual upload logic with optional retry
@@ -113,28 +114,29 @@ impl Client {
 
         // Process all chunks for this file in batches
         while !aggregated_chunks.is_empty() {
-            let batch_result = self.process_chunk_batch(
-                &mut aggregated_chunks,
-                &mut receipts,
-                &mut free_chunks_counts,
-                payment_option.clone(),
-                retry_on_failure,
-            )
-            .await;
+            let batch_result = self
+                .process_chunk_batch(
+                    &mut aggregated_chunks,
+                    &mut receipts,
+                    &mut free_chunks_counts,
+                    payment_option.clone(),
+                    retry_on_failure,
+                )
+                .await;
 
             match batch_result {
                 Ok(()) => continue,
                 Err(err) if retry_on_failure => {
                     // Format error message for user
                     let error_msg = format_upload_error(&err);
-                    
+
                     println!("⚠️  {}. Retrying after 1 minute pause...", error_msg);
                     info!("Upload error: {}. Retrying in 1 minute...", err);
-                    
+
                     // Wait 1 minute before retry
                     sleep(Duration::from_secs(60)).await;
                     println!("🔄 Retrying upload...");
-                    
+
                     // Continue the loop to retry with the same chunks
                     continue;
                 }
@@ -170,19 +172,14 @@ impl Client {
     ) -> Result<(), UploadError> {
         // Take next batch of chunks (up to UPLOAD_FLOW_BATCH_SIZE)
         let batch_size = std::cmp::min(aggregated_chunks.len(), *UPLOAD_FLOW_BATCH_SIZE);
-        
+
         // Important: Don't drain chunks yet - we might need to retry them
         let batch: Vec<_> = if retry_on_failure {
             // For retry mode, clone the chunks so we can retry if needed
-            aggregated_chunks[..batch_size]
-                .iter()
-                .cloned()
-                .collect()
+            aggregated_chunks[..batch_size].iter().cloned().collect()
         } else {
             // For non-retry mode, drain as before
-            aggregated_chunks
-                .drain(..batch_size)
-                .collect()
+            aggregated_chunks.drain(..batch_size).collect()
         };
 
         // Prepare payment info for batch

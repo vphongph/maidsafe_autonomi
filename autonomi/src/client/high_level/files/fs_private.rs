@@ -23,9 +23,9 @@ use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_m
 use crate::self_encryption::encrypt;
 use crate::{AttoTokens, Client};
 use bytes::Bytes;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::collections::HashMap;
 
 impl Client {
     /// Download a private file from network to local file system
@@ -57,7 +57,6 @@ impl Client {
         debug!("Downloaded directory to {to_dest:?}");
         Ok(())
     }
-
 
     /// Uploads a directory of files to the network as private data.
     ///

@@ -54,7 +54,7 @@ pub async fn upload(
 
     let mut client =
         crate::actions::connect_to_network_with_config(network_context, config).await?;
-    
+
     // Configure client with retry_failed setting
     if retry_failed {
         client = client.with_retry_failed(true);
@@ -195,9 +195,8 @@ async fn upload_dir(
             Ok((addr.to_hex(), addr.to_hex()))
         }
     } else {
-        let (_, private_archive, _cost) = client
-            .dir_upload(dir_path, payment_option.clone())
-            .await?;
+        let (_, private_archive, _cost) =
+            client.dir_upload(dir_path, payment_option.clone()).await?;
 
         let mut addrs = vec![];
         for (file_path, private_datamap, _meta) in private_archive.iter() {

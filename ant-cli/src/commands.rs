@@ -96,7 +96,8 @@ pub enum FileCmd {
         /// Retry failed uploads automatically after 1 minute pause.
         /// This will persistently retry any failed chunks until all data is successfully uploaded.
         #[arg(long)]
-        retry_failed: bool,
+        #[clap(default_value = "0")]
+        retry_failed: u64,
         #[command(flatten)]
         transaction_opt: TransactionOpt,
     },

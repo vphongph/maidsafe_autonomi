@@ -7,7 +7,6 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::client::PutError;
-use crate::files::UploadError;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::future::Future;
 
@@ -78,21 +77,20 @@ pub(crate) fn extract_gas_values(err_str: &str) -> Option<(String, String)> {
 ///
 /// # Returns
 /// A formatted error message string with emojis and helpful suggestions
-pub(crate) fn format_upload_error(err: &UploadError) -> String {
+pub(crate) fn format_upload_error(err: &PutError) -> String {
     let err_str = format!("{err:?}");
 
     if err_str.contains("max fee per gas less than block base fee") {
         if let Some((max_fee, base_fee)) = extract_gas_values(&err_str) {
             format!(
-                "❌ Gas fee too low!\n💰 Your max fee per gas: {} wei\n📈 Network base fee: {} wei\n💡 Increase your --max-fee-per-gas if you want the upload to be executed faster",
-                max_fee, base_fee
+                "❌ Gas fee too low!\n💰 Your max fee per gas: {max_fee} wei\n📈 Network base fee: {base_fee} wei\n💡 Increase your --max-fee-per-gas if you want the upload to be executed faster",
             )
         } else {
             "💸 Gas fee too low - current base fee exceeds your setting".to_string()
         }
     } else if err_str.contains("insufficient funds") {
         "💰 Insufficient funds for transaction".to_string()
-    } else if let UploadError::PutError(PutError::Batch(ref upload_state)) = err {
+    } else if let PutError::Batch(ref upload_state) = err {
         format!(
             "❌ Upload batch failed: {} chunks failed",
             upload_state.failed.len()
@@ -151,13 +149,13 @@ mod tests {
         batch_state
             .failed
             .push((chunk_addr2, "test error 2".to_string()));
-        let batch_err = UploadError::PutError(PutError::Batch(batch_state));
+        let batch_err = PutError::Batch(batch_state);
         let err_msg = format_upload_error(&batch_err);
         assert_eq!(err_msg, "❌ Upload batch failed: 2 chunks failed");
 
         // Test generic error (we can't easily construct the exact Network error)
         // So we'll test with a simpler error case
-        let generic_err = UploadError::PutError(PutError::Batch(ChunkBatchUploadState::default()));
+        let generic_err = PutError::Batch(ChunkBatchUploadState::default());
         let err_msg = format_upload_error(&generic_err);
         assert_eq!(err_msg, "❌ Upload batch failed: 0 chunks failed");
     }

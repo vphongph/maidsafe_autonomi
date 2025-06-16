@@ -69,21 +69,12 @@ impl Client {
     }
 
     /// Processes file uploads with payment in batches
+    /// Will try to carry out retry if `retry_failed` configured
+    /// Returns total cost of uploads or error, once completed or cann't recover from failures
     pub(crate) async fn pay_and_upload(
         &self,
         payment_option: PaymentOption,
         combined_chunks: CombinedChunks,
-    ) -> Result<AttoTokens, UploadError> {
-        self.pay_and_upload_internal(payment_option, combined_chunks, self.retry_failed)
-            .await
-    }
-
-    /// Internal method that handles the actual upload logic with optional retry
-    async fn pay_and_upload_internal(
-        &self,
-        payment_option: PaymentOption,
-        combined_chunks: CombinedChunks,
-        retry_on_failure: bool,
     ) -> Result<AttoTokens, UploadError> {
         let start = tokio::time::Instant::now();
         let total_files = combined_chunks.len();
@@ -112,8 +103,13 @@ impl Client {
 
         let total_chunks = aggregated_chunks.len();
 
+        let mut processed_chunks = 0;
+        let mut retry_on_failure = self.retry_failed != 0;
+
         // Process all chunks for this file in batches
         while !aggregated_chunks.is_empty() {
+            let candidate_chunks = aggregated_chunks.len();
+
             let batch_result = self
                 .process_chunk_batch(
                     &mut aggregated_chunks,
@@ -124,21 +120,28 @@ impl Client {
                 )
                 .await;
 
-            match batch_result {
-                Ok(()) => continue,
-                Err(err) if retry_on_failure => {
-                    // Format error message for user
-                    let error_msg = format_upload_error(&err);
+            // If retry_failed, tracking the processed_chunks.
+            // Flip the flag once max_allownce hit to terminate the flow.
+            if retry_on_failure {
+                processed_chunks += std::cmp::min(candidate_chunks, *UPLOAD_FLOW_BATCH_SIZE);
 
-                    println!("⚠️  {}. Retrying after 1 minute pause...", error_msg);
-                    info!("Upload error: {}. Retrying in 1 minute...", err);
+                if processed_chunks >= total_chunks * self.retry_failed as usize {
+                    retry_on_failure = false;
+                }
+            }
+
+            match batch_result {
+                Ok(false) => continue,
+                Ok(true) => {
+                    // there was upload failure happens, in that case, carry out a short sleep
+                    // to allow the glitch calm down.
+                    println!("⚠️  Encountered upload failure, retrying after 1 minute pause...");
+                    info!("Encountered upload failure, retrying in 1 minute...");
 
                     // Wait 1 minute before retry
                     sleep(Duration::from_secs(60)).await;
                     println!("🔄 Retrying upload...");
-
-                    // Continue the loop to retry with the same chunks
-                    continue;
+                    info!("🔄 Retrying upload...");
                 }
                 Err(err) => return Err(err),
             }
@@ -160,27 +163,21 @@ impl Client {
     }
 
     /// Processes a single batch of chunks (quote -> pay -> upload)
-    /// Returns error if any chunk in batch fails to upload
+    /// Returns a boolean flag of whether encountered an upload_failure and retry scheduled.
+    /// Returns error if any chunk in batch fails to upload, and retry_on_failure not enabled.
     #[allow(clippy::too_many_arguments)]
     async fn process_chunk_batch(
         &self,
-        aggregated_chunks: &mut AggregatedChunks,
+        remaining_chunks: &mut AggregatedChunks,
         receipts: &mut Vec<Receipt>,
         free_chunks_counts: &mut Vec<usize>,
         payment_option: PaymentOption,
         retry_on_failure: bool,
-    ) -> Result<(), UploadError> {
+    ) -> Result<bool, UploadError> {
         // Take next batch of chunks (up to UPLOAD_FLOW_BATCH_SIZE)
-        let batch_size = std::cmp::min(aggregated_chunks.len(), *UPLOAD_FLOW_BATCH_SIZE);
-
-        // Important: Don't drain chunks yet - we might need to retry them
-        let batch: Vec<_> = if retry_on_failure {
-            // For retry mode, clone the chunks so we can retry if needed
-            aggregated_chunks[..batch_size].iter().cloned().collect()
-        } else {
-            // For non-retry mode, drain as before
-            aggregated_chunks.drain(..batch_size).collect()
-        };
+        let mut batch: Vec<_> = remaining_chunks
+            .drain(..std::cmp::min(remaining_chunks.len(), *UPLOAD_FLOW_BATCH_SIZE))
+            .collect();
 
         // Prepare payment info for batch
         let payment_info: Vec<_> = batch
@@ -195,7 +192,7 @@ impl Client {
         let mut file_infos = vec![];
         let mut batch_chunks = vec![];
 
-        for (chunk_info, chunk) in batch {
+        for (chunk_info, chunk) in batch.clone() {
             file_infos.push(chunk_info);
             batch_chunks.push(chunk);
         }
@@ -236,17 +233,39 @@ impl Client {
         }
 
         // Upload all chunks in batch with retries
-        self.chunk_batch_upload(batch_chunks.iter().collect(), &receipt)
-            .await?;
+        let batch_upload_result = self
+            .chunk_batch_upload(batch_chunks.iter().collect(), &receipt)
+            .await;
 
         receipts.push(receipt);
         free_chunks_counts.push(free_chunks);
 
-        // Only remove chunks from aggregated_chunks if retry mode and upload was successful
-        if retry_on_failure {
-            aggregated_chunks.drain(..batch_size);
-        }
+        match batch_upload_result {
+            // No upload failure encountered
+            Ok(()) => Ok(false),
+            Err(err) if retry_on_failure => {
+                // Format error message for user
+                let error_msg = format_upload_error(&err);
+                println!("⚠️  {error_msg}. Retrying scheduled");
+                info!("Upload error: {err}. Retrying scheduled");
 
-        Ok(())
+                let failed_chunks: Vec<_> = if let PutError::Batch(ref upload_state) = err {
+                    upload_state.failed.iter().map(|(addr, _)| *addr).collect()
+                } else {
+                    // Encounterred Un-recoverable upload errors
+                    // Return immediately to terminate the entire upload flow
+                    return Err(UploadError::PutError(err));
+                };
+
+                // Filter out failed entries
+                batch.retain(|(_, chunk)| failed_chunks.contains(chunk.address()));
+                // Push back failed entries
+                remaining_chunks.extend(batch);
+
+                // Upload failure encountered
+                Ok(true)
+            }
+            Err(err) => Err(UploadError::PutError(err)),
+        }
     }
 }

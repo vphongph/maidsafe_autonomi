@@ -48,7 +48,7 @@ pub async fn upload(
     no_archive: bool,
     network_context: NetworkContext,
     max_fee_per_gas_param: Option<MaxFeePerGasParam>,
-    retry_failed: bool,
+    retry_failed: u64,
 ) -> Result<(), ExitCodeError> {
     let config = ClientOperatingStrategy::new();
 
@@ -56,8 +56,8 @@ pub async fn upload(
         crate::actions::connect_to_network_with_config(network_context, config).await?;
 
     // Configure client with retry_failed setting
-    if retry_failed {
-        client = client.with_retry_failed(true);
+    if retry_failed != 0 {
+        client = client.with_retry_failed(retry_failed);
         println!("🔄 Retry mode enabled - will persistently retry failed chunks until successful");
     }
 
@@ -90,31 +90,30 @@ pub async fn upload(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or(file.to_string());
 
-    // upload dir - now using the unified methods
+    // upload dir
     let not_single_file = !dir_path.is_file();
-    let result = upload_dir(&client, dir_path, public, no_archive, payment).await;
-
-    let (archive_addr, local_addr) = match result {
-        Ok((a, l)) => (a, l),
-        Err(UploadError::PutError(PutError::Batch(upload_state))) => {
-            let res = cached_payments::save_payment(file, &upload_state);
-            println!("Cached payment to local disk for {file}: {res:?}");
-            let exit_code =
-                upload_exit_code(&UploadError::PutError(PutError::Batch(Default::default())));
-            return Err((
-                eyre!(UploadError::PutError(PutError::Batch(upload_state)))
-                    .wrap_err("Failed to upload file".to_string()),
-                exit_code,
-            ));
-        }
-        Err(err) => {
-            let exit_code = upload_exit_code(&err);
-            return Err((
-                eyre!(err).wrap_err("Failed to upload file".to_string()),
-                exit_code,
-            ));
-        }
-    };
+    let (archive_addr, local_addr) =
+        match upload_dir(&client, dir_path, public, no_archive, payment).await {
+            Ok((a, l)) => (a, l),
+            Err(UploadError::PutError(PutError::Batch(upload_state))) => {
+                let res = cached_payments::save_payment(file, &upload_state);
+                println!("Cached payment to local disk for {file}: {res:?}");
+                let exit_code =
+                    upload_exit_code(&UploadError::PutError(PutError::Batch(Default::default())));
+                return Err((
+                    eyre!(UploadError::PutError(PutError::Batch(upload_state)))
+                        .wrap_err("Failed to upload file".to_string()),
+                    exit_code,
+                ));
+            }
+            Err(err) => {
+                let exit_code = upload_exit_code(&err);
+                return Err((
+                    eyre!(err).wrap_err("Failed to upload file".to_string()),
+                    exit_code,
+                ));
+            }
+        };
 
     // wait for upload to complete
     if let Err(e) = upload_completed_tx.send(()) {
@@ -172,8 +171,8 @@ async fn upload_dir(
     let is_single_file = dir_path.is_file();
 
     if public {
-        let (_, public_archive, _cost) = client
-            .dir_upload_public(dir_path, payment_option.clone())
+        let (_, public_archive) = client
+            .dir_content_upload_public(dir_path, payment_option.clone())
             .await?;
 
         let mut addrs = vec![];
@@ -195,8 +194,9 @@ async fn upload_dir(
             Ok((addr.to_hex(), addr.to_hex()))
         }
     } else {
-        let (_, private_archive, _cost) =
-            client.dir_upload(dir_path, payment_option.clone()).await?;
+        let (_, private_archive) = client
+            .dir_content_upload(dir_path, payment_option.clone())
+            .await?;
 
         let mut addrs = vec![];
         for (file_path, private_datamap, _meta) in private_archive.iter() {

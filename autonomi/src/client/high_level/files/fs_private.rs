@@ -23,7 +23,6 @@ use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_m
 use crate::self_encryption::encrypt;
 use crate::{AttoTokens, Client};
 use bytes::Bytes;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -58,62 +57,16 @@ impl Client {
         Ok(())
     }
 
-    /// Uploads a directory of files to the network as private data.
+    /// Upload the content of all files in a directory to the network.
+    /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// # Arguments
-    /// * `dir_path` - Path to the directory to upload
-    /// * `payment_option` - Payment option for the upload
-    ///
-    /// # Returns
-    /// * `Result<(HashMap<PathBuf, DataMapChunk>, PrivateArchive, AttoTokens), UploadError>` - The private data addresses, private archive, and total cost
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use autonomi::{Client, PaymentOption};
-    /// # use std::path::PathBuf;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Client::init().await?;
-    /// let dir_path = PathBuf::from("/path/to/directory");
-    /// let payment = PaymentOption::default();
-    /// let (addresses, archive, cost) = client.dir_upload(dir_path, payment).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn dir_upload(
+    /// The data maps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
+    pub async fn dir_content_upload(
         &self,
         dir_path: PathBuf,
         payment_option: PaymentOption,
-    ) -> Result<(HashMap<PathBuf, DataMapChunk>, PrivateArchive, AttoTokens), UploadError> {
-        info!("Uploading directory as private data: {dir_path:?}");
-        let start = Instant::now();
-
-        // Generate chunks from directory
-        let (chunks, private_archive) = self.dir_to_private_archive(dir_path.clone()).await?;
-
-        // Upload chunks
-        let tokens_spent = self.pay_and_upload(payment_option, chunks).await?;
-
-        // Create data addresses map
-        let mut data_addrs = HashMap::new();
-        for (path, addr, _meta) in private_archive.iter() {
-            data_addrs.insert(path.clone(), addr.clone());
-        }
-
-        debug!(
-            "Uploaded directory in {:?}: {} files, {} tokens spent",
-            start.elapsed(),
-            data_addrs.len(),
-            tokens_spent
-        );
-        Ok((data_addrs, private_archive, tokens_spent))
-    }
-
-    /// Convert a directory to chunks and create a private archive
-    async fn dir_to_private_archive(
-        &self,
-        dir_path: PathBuf,
-    ) -> Result<(CombinedChunks, PrivateArchive), UploadError> {
+    ) -> Result<(AttoTokens, PrivateArchive), UploadError> {
+        info!("Uploading directory as private: {dir_path:?}");
         let mut encryption_tasks = vec![];
 
         for entry in walkdir::WalkDir::new(&dir_path) {
@@ -185,7 +138,28 @@ impl Client {
             }
         }
 
-        Ok((combined_chunks, private_archive))
+        let total_cost = self.pay_and_upload(payment_option, combined_chunks).await?;
+
+        Ok((total_cost, private_archive))
+    }
+
+    /// Same as [`Client::dir_content_upload`] but also uploads the archive (privately) to the network.
+    ///
+    /// Returns the [`PrivateArchiveDataMap`] allowing the private archive to be downloaded from the network.
+    pub async fn dir_upload(
+        &self,
+        dir_path: PathBuf,
+        payment_option: PaymentOption,
+    ) -> Result<(AttoTokens, PrivateArchiveDataMap), UploadError> {
+        let (cost1, archive) = self
+            .dir_content_upload(dir_path, payment_option.clone())
+            .await?;
+        let (cost2, archive_addr) = self.archive_put(&archive, payment_option).await?;
+        let total_cost = cost1.checked_add(cost2).unwrap_or_else(|| {
+            error!("Total cost overflowed: {cost1:?} + {cost2:?}");
+            cost1
+        });
+        Ok((total_cost, archive_addr))
     }
 
     /// Upload the content of a private file to the network.

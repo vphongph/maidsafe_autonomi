@@ -130,8 +130,7 @@ async fn test_data_addresses_use() -> Result<()> {
     // put private dir
     let payment_option = PaymentOption::from(&wallet);
     let path = "tests/file/test_dir/".into();
-    let (_, archive, _) = client.dir_upload(path, payment_option.clone()).await?;
-    let (_, archive_datamap) = client.archive_put(&archive, payment_option.clone()).await?;
+    let (_cost, archive_datamap) = client.dir_upload(path, payment_option.clone()).await?;
     let archive_datamap_addr = archive_datamap.to_hex();
     println!("Private Archive (DataMap): {archive_datamap_addr}");
 
@@ -140,11 +139,8 @@ async fn test_data_addresses_use() -> Result<()> {
 
     // put public dir
     let path = "tests/file/test_dir/".into();
-    let (_, archive, _) = client
+    let (_cost, archive_addr) = client
         .dir_upload_public(path, payment_option.clone())
-        .await?;
-    let (_, archive_addr) = client
-        .archive_put_public(&archive, payment_option.clone())
         .await?;
     let archive_addr_str = archive_addr.to_hex();
     println!("Public Archive (XorName): {archive_addr_str}");

@@ -17,10 +17,8 @@ use crate::client::{high_level::data::DataAddress, utils::process_tasks_with_max
 use crate::self_encryption::encrypt;
 use crate::AttoTokens;
 use bytes::Bytes;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time;
-use std::time::Instant;
 use std::time::{Duration, SystemTime};
 
 impl Client {
@@ -59,62 +57,19 @@ impl Client {
         Ok(())
     }
 
-    /// Uploads a directory of files to the network as public data.
+    /// Upload the content of all files in a directory to the network.
+    /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// # Arguments
-    /// * `dir_path` - Path to the directory to upload
-    /// * `payment_option` - Payment option for the upload
+    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// # Returns
-    /// * `Result<(HashMap<PathBuf, DataAddress>, PublicArchive, AttoTokens), UploadError>` - The public data addresses, public archive, and total cost
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use autonomi::{Client, PaymentOption};
-    /// # use std::path::PathBuf;
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Client::init().await?;
-    /// let dir_path = PathBuf::from("/path/to/directory");
-    /// let payment = PaymentOption::default();
-    /// let (addresses, archive, cost) = client.dir_upload_public(dir_path, payment).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn dir_upload_public(
+    /// This returns, but does not upload (!),the [`PublicArchive`] containing the data maps of the uploaded files.
+    pub async fn dir_content_upload_public(
         &self,
         dir_path: PathBuf,
         payment_option: PaymentOption,
-    ) -> Result<(HashMap<PathBuf, DataAddress>, PublicArchive, AttoTokens), UploadError> {
-        info!("Uploading directory as public data: {dir_path:?}");
-        let start = Instant::now();
+    ) -> Result<(AttoTokens, PublicArchive), UploadError> {
+        info!("Uploading directory: {dir_path:?}");
 
-        // Generate chunks from directory
-        let (chunks, public_archive) = self.dir_to_public_archive(dir_path.clone()).await?;
-
-        // Upload chunks
-        let tokens_spent = self.pay_and_upload(payment_option, chunks).await?;
-
-        // Create data addresses map
-        let mut data_addrs = HashMap::new();
-        for (path, addr, _meta) in public_archive.iter() {
-            data_addrs.insert(path.clone(), *addr);
-        }
-
-        debug!(
-            "Uploaded directory in {:?}: {} files, {} tokens spent",
-            start.elapsed(),
-            data_addrs.len(),
-            tokens_spent
-        );
-        Ok((data_addrs, public_archive, tokens_spent))
-    }
-
-    /// Convert a directory to chunks and create a public archive
-    async fn dir_to_public_archive(
-        &self,
-        dir_path: PathBuf,
-    ) -> Result<(CombinedChunks, PublicArchive), UploadError> {
         let mut encryption_tasks = vec![];
 
         for entry in walkdir::WalkDir::new(&dir_path) {
@@ -190,7 +145,34 @@ impl Client {
             }
         }
 
-        Ok((combined_chunks, public_archive))
+        let total_cost = self.pay_and_upload(payment_option, combined_chunks).await?;
+
+        for (file_path, data_addr, _meta) in public_archive.iter() {
+            info!("Uploaded file: {file_path:?} to: {data_addr}");
+            #[cfg(feature = "loud")]
+            println!("Uploaded file: {file_path:?} to: {data_addr}");
+        }
+
+        Ok((total_cost, public_archive))
+    }
+
+    /// Same as [`Client::dir_content_upload_public`] but also uploads the archive to the network.
+    ///
+    /// Returns the [`ArchiveAddress`] of the uploaded archive.
+    pub async fn dir_upload_public(
+        &self,
+        dir_path: PathBuf,
+        payment_option: PaymentOption,
+    ) -> Result<(AttoTokens, ArchiveAddress), UploadError> {
+        let (cost1, archive) = self
+            .dir_content_upload_public(dir_path, payment_option.clone())
+            .await?;
+        let (cost2, archive_addr) = self.archive_put_public(&archive, payment_option).await?;
+        let total_cost = cost1.checked_add(cost2).unwrap_or_else(|| {
+            error!("Total cost overflowed: {cost1:?} + {cost2:?}");
+            cost1
+        });
+        Ok((total_cost, archive_addr))
     }
 
     /// Upload the content of a file to the network.

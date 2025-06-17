@@ -81,11 +81,7 @@ impl NodeRegistryManager {
 
     /// Converts the current state of the `NodeRegistryManager` to a `NodeRegistry`.
     async fn to_registry(&self) -> NodeRegistry {
-        let mut nodes = Vec::new();
-        for node in self.nodes.read().await.iter() {
-            let node_data = node.read().await.clone();
-            nodes.push(node_data);
-        }
+        let nodes = self.get_node_service_data().await;
         let mut daemon = None;
         {
             if let Some(d) = self.daemon.read().await.as_ref() {
@@ -119,6 +115,15 @@ impl NodeRegistryManager {
     pub async fn insert_daemon(&self, daemon: DaemonServiceData) {
         let mut daemon_lock = self.daemon.write().await;
         *daemon_lock = Some(Arc::new(RwLock::new(daemon)));
+    }
+
+    pub async fn get_node_service_data(&self) -> Vec<NodeServiceData> {
+        let mut node_services = Vec::new();
+        for node in self.nodes.read().await.iter() {
+            let node = node.read().await;
+            node_services.push(node.clone());
+        }
+        node_services
     }
 }
 

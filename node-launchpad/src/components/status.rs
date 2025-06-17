@@ -82,7 +82,6 @@ pub struct Status<'a> {
     error_while_running_nat_detection: usize,
     // Track if NAT detection is currently running
     nat_detection_in_progress: bool,
-    node_registry: NodeRegistryManager,
     // Device Stats Section
     node_stats: NodeStats,
     node_stats_last_update: Instant,
@@ -142,7 +141,6 @@ impl Status<'_> {
             error_while_running_nat_detection: 0,
             nat_detection_in_progress: false,
             network_id: config.network_id,
-            node_registry: node_registry.clone(),
             node_stats: NodeStats::default(),
             node_stats_last_update: Instant::now(),
             node_services: Default::default(),
@@ -174,7 +172,10 @@ impl Status<'_> {
         .await?;
         node_registry.save().await?;
         debug!("Node registry states refreshed in {:?}", now.elapsed());
-        status.update_state_from_registry()?;
+        status.update_node_state(
+            node_registry.get_node_service_data().await,
+            node_registry.nat_status.read().await.is_some(),
+        )?;
 
         Ok(status)
     }
@@ -353,21 +354,20 @@ impl Status<'_> {
             .ok_or_eyre("Action sender not registered")
     }
 
-    /// Blocks until the lock for node registry is acquired. Thus we gotta make sure that we call this only IF
-    /// any node_mgmt action is completed.
-    fn update_state_from_registry(&mut self) -> Result<()> {
-        self.is_nat_status_determined = self.node_registry.nat_status.blocking_read().is_some();
-        let mut nodes = Vec::new();
-        for node in self.node_registry.nodes.blocking_read().iter() {
-            let node = node.blocking_read();
-            if node.status != ServiceStatus::Running {
-                nodes.push(node.clone());
-            }
-        }
-        self.node_services = nodes;
+    fn update_node_state(
+        &mut self,
+        all_nodes_data: Vec<NodeServiceData>,
+        is_nat_status_determined: bool,
+    ) -> Result<()> {
+        self.is_nat_status_determined = is_nat_status_determined;
+
+        self.node_services = all_nodes_data
+            .into_iter()
+            .filter(|node| node.status != ServiceStatus::Removed)
+            .collect();
 
         info!(
-            "Loaded node registry. Maintaining {:?} nodes.",
+            "Updated state from the data passed from NodeRegistryManager. Maintaining {:?} nodes.",
             self.node_services.len()
         );
 
@@ -529,7 +529,11 @@ impl Component for Status<'_> {
                 StatusActions::NodesStatsObtained(stats) => {
                     self.node_stats = stats;
                 }
-                StatusActions::StartNodesCompleted { service_name } => {
+                StatusActions::StartNodesCompleted {
+                    service_name,
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     if service_name == *NODES_ALL {
                         if let Some(items) = &self.items {
                             let items_clone = items.clone();
@@ -542,14 +546,21 @@ impl Component for Status<'_> {
                         self.unlock_service(service_name.as_str());
                         self.update_item(service_name, NodeStatus::Running)?;
                     }
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
                 }
-                StatusActions::StopNodesCompleted { service_name } => {
+                StatusActions::StopNodesCompleted {
+                    service_name,
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name, NodeStatus::Stopped)?;
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
                 }
-                StatusActions::UpdateNodesCompleted => {
+                StatusActions::UpdateNodesCompleted {
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     if let Some(items) = &self.items {
                         let items_clone = items.clone();
                         for item in &items_clone.items {
@@ -557,18 +568,24 @@ impl Component for Status<'_> {
                         }
                     }
                     self.clear_node_items();
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
+
                     let _ = self.update_node_items(None);
                     debug!("Update nodes completed");
                 }
-                StatusActions::ResetNodesCompleted { trigger_start_node } => {
+                StatusActions::ResetNodesCompleted {
+                    trigger_start_node,
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     if let Some(items) = &self.items {
                         let items_clone = items.clone();
                         for item in &items_clone.items {
                             self.unlock_service(item.name.as_str());
                         }
                     }
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
+
                     self.clear_node_items();
 
                     if trigger_start_node {
@@ -577,16 +594,27 @@ impl Component for Status<'_> {
                     }
                     debug!("Reset nodes completed");
                 }
-                StatusActions::AddNodesCompleted { service_name } => {
+                StatusActions::AddNodesCompleted {
+                    service_name,
+
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name.clone(), NodeStatus::Stopped)?;
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
+
                     debug!("Adding {:?} completed", service_name.clone());
                 }
-                StatusActions::RemoveNodesCompleted { service_name } => {
+                StatusActions::RemoveNodesCompleted {
+                    service_name,
+                    all_nodes_data,
+                    is_nat_status_determined,
+                } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name, NodeStatus::Removed)?;
-                    self.update_state_from_registry()?;
+                    self.update_node_state(all_nodes_data, is_nat_status_determined)?;
+
                     let _ = self.update_node_items(None);
                     debug!("Removing nodes completed");
                 }
@@ -1039,7 +1067,6 @@ impl Component for Status<'_> {
             },
             Action::OptionsActions(OptionsActions::UpdateNodes) => {
                 debug!("Got action to Update Nodes");
-                self.update_state_from_registry()?;
                 let action_sender = self.get_actions_sender()?;
                 info!("Got action to update nodes");
                 let _ = self.update_node_items(Some(NodeStatus::Updating));

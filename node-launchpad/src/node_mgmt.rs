@@ -147,7 +147,7 @@ async fn stop_nodes(
 ) {
     if let Err(err) = ant_node_manager::cmd::node::stop(
         None,
-        node_registry,
+        node_registry.clone(),
         vec![],
         services.clone(),
         VerbosityLevel::Minimal,
@@ -169,6 +169,8 @@ async fn stop_nodes(
                 action_sender.clone(),
                 Action::StatusActions(StatusActions::StopNodesCompleted {
                     service_name: service,
+                    all_nodes_data: node_registry.get_node_service_data().await,
+                    is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
                 }),
             );
         }
@@ -207,7 +209,7 @@ async fn maintain_n_running_nodes(args: MaintainNodesArgs, node_registry: NodeRe
 
     if nodes_to_add <= 0 {
         debug!("Scaling down nodes to {}", nodes_to_add);
-        scale_down_nodes(&config, args.count, node_registry).await;
+        scale_down_nodes(&config, args.count, node_registry.clone()).await;
     } else {
         debug!("Scaling up nodes to {}", nodes_to_add);
         add_nodes(
@@ -217,7 +219,7 @@ async fn maintain_n_running_nodes(args: MaintainNodesArgs, node_registry: NodeRe
             &mut used_ports,
             &mut current_port,
             max_port,
-            node_registry,
+            node_registry.clone(),
         )
         .await;
     }
@@ -227,6 +229,8 @@ async fn maintain_n_running_nodes(args: MaintainNodesArgs, node_registry: NodeRe
         args.action_sender,
         Action::StatusActions(StatusActions::StartNodesCompleted {
             service_name: NODES_ALL.to_string(),
+            all_nodes_data: node_registry.get_node_service_data().await,
+            is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
         }),
     );
 }
@@ -238,7 +242,8 @@ async fn reset_nodes(
     start_nodes_after_reset: bool,
 ) {
     if let Err(err) =
-        ant_node_manager::cmd::node::reset(true, node_registry, VerbosityLevel::Minimal).await
+        ant_node_manager::cmd::node::reset(true, node_registry.clone(), VerbosityLevel::Minimal)
+            .await
     {
         error!("Error while resetting services {err:?}");
         send_action(
@@ -253,6 +258,8 @@ async fn reset_nodes(
             action_sender,
             Action::StatusActions(StatusActions::ResetNodesCompleted {
                 trigger_start_node: start_nodes_after_reset,
+                all_nodes_data: node_registry.get_node_service_data().await,
+                is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
             }),
         );
     }
@@ -299,7 +306,7 @@ async fn upgrade_nodes(args: UpgradeNodesArgs, node_registry: NodeRegistryManage
         args.custom_bin_path,
         args.force,
         Some(FIXED_INTERVAL),
-        node_registry,
+        node_registry.clone(),
         args.peer_ids,
         args.provided_env_variables,
         args.service_names,
@@ -320,7 +327,10 @@ async fn upgrade_nodes(args: UpgradeNodesArgs, node_registry: NodeRegistryManage
         info!("Successfully updated services");
         send_action(
             args.action_sender,
-            Action::StatusActions(StatusActions::UpdateNodesCompleted),
+            Action::StatusActions(StatusActions::UpdateNodesCompleted {
+                all_nodes_data: node_registry.get_node_service_data().await,
+                is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
+            }),
         );
     }
 }
@@ -353,7 +363,7 @@ async fn remove_nodes(
     if let Err(err) = ant_node_manager::cmd::node::remove(
         false,
         vec![],
-        node_registry,
+        node_registry.clone(),
         services.clone(),
         VerbosityLevel::Minimal,
     )
@@ -374,6 +384,8 @@ async fn remove_nodes(
                 action_sender.clone(),
                 Action::StatusActions(StatusActions::RemoveNodesCompleted {
                     service_name: service,
+                    all_nodes_data: node_registry.get_node_service_data().await,
+                    is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
                 }),
             );
         }
@@ -427,7 +439,7 @@ async fn add_node(args: MaintainNodesArgs, node_registry: NodeRegistryManager) {
         None,       // network_id
         None,       // node_ip,
         port_range, // node_port
-        node_registry,
+        node_registry.clone(),
         config.init_peers_config.clone(),
         config.relay, // relay,
         RewardsAddress::from_str(config.rewards_address.as_str()).unwrap(),
@@ -458,6 +470,8 @@ async fn add_node(args: MaintainNodesArgs, node_registry: NodeRegistryManager) {
                     args.action_sender.clone(),
                     Action::StatusActions(StatusActions::AddNodesCompleted {
                         service_name: service,
+                        all_nodes_data: node_registry.get_node_service_data().await,
+                        is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
                     }),
                 );
             }
@@ -474,7 +488,7 @@ async fn start_nodes(
     if let Err(err) = ant_node_manager::cmd::node::start(
         CONNECTION_TIMEOUT_START,
         None,
-        node_registry,
+        node_registry.clone(),
         vec![],
         services.clone(),
         VerbosityLevel::Minimal,
@@ -496,6 +510,8 @@ async fn start_nodes(
                 action_sender.clone(),
                 Action::StatusActions(StatusActions::StartNodesCompleted {
                     service_name: service,
+                    all_nodes_data: node_registry.get_node_service_data().await,
+                    is_nat_status_determined: node_registry.nat_status.read().await.is_some(),
                 }),
             );
         }

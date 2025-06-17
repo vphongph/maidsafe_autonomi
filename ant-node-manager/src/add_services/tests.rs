@@ -19,7 +19,9 @@ use ant_bootstrap::InitialPeersConfig;
 use ant_evm::{AttoTokens, CustomNetwork, EvmNetwork, RewardsAddress};
 use ant_service_management::{control::ServiceControl, node::NODE_SERVICE_DATA_SCHEMA_LATEST};
 use ant_service_management::{error::Result as ServiceControlResult, NatDetectionStatus};
-use ant_service_management::{DaemonServiceData, NodeRegistry, NodeServiceData, ServiceStatus};
+use ant_service_management::{
+    DaemonServiceData, NodeRegistryManager, NodeServiceData, ServiceStatus,
+};
 use assert_fs::prelude::*;
 use assert_matches::assert_matches;
 use color_eyre::Result;

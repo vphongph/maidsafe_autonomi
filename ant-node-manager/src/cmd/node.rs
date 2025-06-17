@@ -25,13 +25,17 @@ use ant_releases::{AntReleaseRepoActions, ReleaseType};
 use ant_service_management::{
     control::{ServiceControl, ServiceController},
     rpc::RpcClient,
-    NodeRegistry, NodeService, ServiceStateActions, ServiceStatus, UpgradeOptions, UpgradeResult,
+    NodeRegistryManager, NodeService, NodeServiceData, ServiceStateActions, ServiceStatus,
+    UpgradeOptions, UpgradeResult,
 };
 use color_eyre::{eyre::eyre, Help, Result};
 use colored::Colorize;
 use libp2p_identity::PeerId;
 use semver::Version;
-use std::{cmp::Ordering, io::Write, net::Ipv4Addr, path::PathBuf, str::FromStr, time::Duration};
+use std::{
+    cmp::Ordering, io::Write, net::Ipv4Addr, path::PathBuf, str::FromStr, sync::Arc, time::Duration,
+};
+use tokio::sync::RwLock;
 use tracing::debug;
 
 /// Returns the added service names
@@ -90,7 +94,7 @@ pub async fn add(
         None
     };
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
 
     let (antnode_src_path, version) = if let Some(path) = src_path.clone() {
@@ -147,9 +151,9 @@ pub async fn add(
     };
     info!("Adding node service(s)");
     let added_services_names =
-        add_node(options, &mut node_registry, &service_manager, verbosity).await?;
+        add_node(options, node_registry.clone(), &service_manager, verbosity).await?;
 
-    node_registry.save()?;
+    node_registry.save().await?;
     debug!("Node registry saved");
 
     Ok(added_services_names)
@@ -164,30 +168,28 @@ pub async fn balance(
         print_banner("Reward Balances");
     }
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
-        &mut node_registry,
+        node_registry.clone(),
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
     )
     .await?;
 
-    let service_indices = get_services_for_ops(&node_registry, peer_ids, service_names)?;
-    if service_indices.is_empty() {
-        info!("Service indices is empty, cannot obtain the balance");
+    let services_for_ops = get_services_for_ops(&node_registry, peer_ids, service_names).await?;
+    if services_for_ops.is_empty() {
+        info!("Services for ops is empty, cannot obtain the balance");
         // This could be the case if all services are at `Removed` status.
         println!("No balances to display");
         return Ok(());
     }
-    debug!("Obtaining balances for {} services", service_indices.len());
+    debug!("Obtaining balances for {} services", services_for_ops.len());
 
-    for &index in &service_indices {
-        let node = &mut node_registry.nodes[index];
-        let rpc_client = RpcClient::from_socket_addr(node.rpc_socket_addr);
-        let service = NodeService::new(node, Box::new(rpc_client));
+    for node in services_for_ops {
+        let node = node.read().await;
         // TODO: remove this as we have no way to know the reward balance of nodes since EVM payments!
-        println!("{}: {}", service.service_data.service_name, 0,);
+        println!("{}: {}", node.service_name, 0,);
     }
     Ok(())
 }
@@ -203,18 +205,18 @@ pub async fn remove(
     }
     info!("Removing antnode services with keep_dirs=({keep_directories}) for: {peer_ids:?}, {service_names:?}");
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
-        &mut node_registry,
+        node_registry.clone(),
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
     )
     .await?;
 
-    let service_indices = get_services_for_ops(&node_registry, peer_ids, service_names)?;
-    if service_indices.is_empty() {
-        info!("Service indices is empty, no services were eligible for removal");
+    let services_for_ops = get_services_for_ops(&node_registry, peer_ids, service_names).await?;
+    if services_for_ops.is_empty() {
+        info!("Services for ops is empty, no services were eligible for removal");
         // This could be the case if all services are at `Removed` status.
         if verbosity != VerbosityLevel::Minimal {
             println!("No services were eligible for removal");
@@ -223,20 +225,20 @@ pub async fn remove(
     }
 
     let mut failed_services = Vec::new();
-    for &index in &service_indices {
-        let node = &mut node_registry.nodes[index];
-        let rpc_client = RpcClient::from_socket_addr(node.rpc_socket_addr);
-        let service = NodeService::new(node, Box::new(rpc_client));
+    for node in &services_for_ops {
+        let service_name = node.read().await.service_name.clone();
+        let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
+        let service = NodeService::new(node.clone(), Box::new(rpc_client));
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
         match service_manager.remove(keep_directories).await {
             Ok(()) => {
-                debug!("Removed service {}", node.service_name);
-                node_registry.save()?;
+                debug!("Removed service {service_name}");
+                node_registry.save().await?;
             }
             Err(err) => {
-                error!("Failed to remove service {}: {err}", node.service_name);
-                failed_services.push((node.service_name.clone(), err.to_string()))
+                error!("Failed to remove service {service_name}: {err}");
+                failed_services.push((service_name.clone(), err.to_string()))
             }
         }
     }
@@ -289,17 +291,17 @@ pub async fn start(
     }
     info!("Starting antnode services for: {peer_ids:?}, {service_names:?}");
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
-        &mut node_registry,
+        node_registry.clone(),
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
     )
     .await?;
 
-    let service_indices = get_services_for_ops(&node_registry, peer_ids, service_names)?;
-    if service_indices.is_empty() {
+    let services_for_ops = get_services_for_ops(&node_registry, peer_ids, service_names).await?;
+    if services_for_ops.is_empty() {
         info!("No services are eligible to be started");
         // This could be the case if all services are at `Removed` status.
         if verbosity != VerbosityLevel::Minimal {
@@ -309,11 +311,11 @@ pub async fn start(
     }
 
     let mut failed_services = Vec::new();
-    for &index in &service_indices {
-        let node = &mut node_registry.nodes[index];
-        let rpc_client = RpcClient::from_socket_addr(node.rpc_socket_addr);
+    for node in &services_for_ops {
+        let service_name = node.read().await.service_name.clone();
 
-        let service = NodeService::new(node, Box::new(rpc_client));
+        let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
+        let service = NodeService::new(node.clone(), Box::new(rpc_client));
 
         // set dynamic startup delay if fixed_interval is not set
         let service = if fixed_interval.is_none() {
@@ -324,7 +326,7 @@ pub async fn start(
 
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
-        if service_manager.service.status() != ServiceStatus::Running {
+        if service_manager.service.status().await != ServiceStatus::Running {
             // It would be possible here to check if the service *is* running and then just
             // continue without applying the delay. The reason for not doing so is because when
             // `start` is called below, the user will get a message to say the service was already
@@ -336,16 +338,13 @@ pub async fn start(
         }
         match service_manager.start().await {
             Ok(start_duration) => {
-                debug!(
-                    "Started service {} in {start_duration:?}",
-                    node.service_name
-                );
+                debug!("Started service {service_name} in {start_duration:?}",);
 
-                node_registry.save()?;
+                node_registry.save().await?;
             }
             Err(err) => {
-                error!("Failed to start service {}: {err}", node.service_name);
-                failed_services.push((node.service_name.clone(), err.to_string()))
+                error!("Failed to start service {service_name}: {err}");
+                failed_services.push((service_name.clone(), err.to_string()))
             }
         }
     }
@@ -354,13 +353,13 @@ pub async fn start(
 }
 
 pub async fn status(details: bool, fail: bool, json: bool) -> Result<()> {
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
-    if !node_registry.nodes.is_empty() {
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
+    if !node_registry.nodes.read().await.is_empty() {
         if !json && !details {
             print_banner("Antnode Services");
         }
         status_report(
-            &mut node_registry,
+            &node_registry,
             &ServiceController {},
             details,
             json,
@@ -368,7 +367,7 @@ pub async fn status(details: bool, fail: bool, json: bool) -> Result<()> {
             false,
         )
         .await?;
-        node_registry.save()?;
+        node_registry.save().await?;
     }
     Ok(())
 }
@@ -384,18 +383,18 @@ pub async fn stop(
     }
     info!("Stopping antnode services for: {peer_ids:?}, {service_names:?}");
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
-        &mut node_registry,
+        node_registry.clone(),
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
     )
     .await?;
 
-    let service_indices = get_services_for_ops(&node_registry, peer_ids, service_names)?;
-    if service_indices.is_empty() {
-        info!("Service indices is empty, no services were eligible to be stopped");
+    let services_for_ops = get_services_for_ops(&node_registry, peer_ids, service_names).await?;
+    if services_for_ops.is_empty() {
+        info!("No services are eligible to be stopped");
         // This could be the case if all services are at `Removed` status.
         if verbosity != VerbosityLevel::Minimal {
             println!("No services were eligible to be stopped");
@@ -404,14 +403,14 @@ pub async fn stop(
     }
 
     let mut failed_services = Vec::new();
-    for &index in &service_indices {
-        let node = &mut node_registry.nodes[index];
-        let rpc_client = RpcClient::from_socket_addr(node.rpc_socket_addr);
-        let service = NodeService::new(node, Box::new(rpc_client));
+    for node in services_for_ops.iter() {
+        let service_name = node.read().await.service_name.clone();
+        let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
+        let service = NodeService::new(node.clone(), Box::new(rpc_client));
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
 
-        if service_manager.service.status() == ServiceStatus::Running {
+        if service_manager.service.status().await == ServiceStatus::Running {
             if let Some(interval) = interval {
                 debug!("Sleeping for {} milliseconds", interval);
                 std::thread::sleep(std::time::Duration::from_millis(interval));
@@ -419,12 +418,12 @@ pub async fn stop(
         }
         match service_manager.stop().await {
             Ok(()) => {
-                debug!("Stopped service {}", node.service_name);
-                node_registry.save()?;
+                debug!("Stopped service {service_name}");
+                node_registry.save().await?;
             }
             Err(err) => {
-                error!("Failed to stop service {}: {err}", node.service_name);
-                failed_services.push((node.service_name.clone(), err.to_string()))
+                error!("Failed to stop service {service_name}: {err}");
+                failed_services.push((service_name.clone(), err.to_string()))
             }
         }
     }
@@ -466,27 +465,32 @@ pub async fn upgrade(
     )
     .await?;
 
-    let mut node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
-        &mut node_registry,
+        node_registry.clone(),
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
     )
     .await?;
 
-    if let Some(node) = node_registry.nodes.first() {
+    if let Some(node) = node_registry.nodes.read().await.first() {
+        let node = node.read().await;
         debug!("listen addresses for nodes[0]: {:?}", node.listen_addr);
     } else {
         debug!("There are no nodes currently added or active");
     }
 
     if !use_force {
-        let node_versions = node_registry
-            .nodes
-            .iter()
-            .map(|n| Version::parse(&n.version).map_err(|_| eyre!("Failed to parse Version")))
-            .collect::<Result<Vec<Version>>>()?;
+        let mut node_versions = Vec::new();
+
+        for node in node_registry.nodes.read().await.iter() {
+            let node = node.read().await;
+            let version = Version::parse(&node.version)
+                .map_err(|_| eyre!("Failed to parse Version for node {}", node.service_name))?;
+            node_versions.push(version);
+        }
+
         let any_nodes_need_upgraded = node_versions
             .iter()
             .any(|current_version| current_version < &target_version);
@@ -499,16 +503,15 @@ pub async fn upgrade(
         }
     }
 
-    let service_indices = get_services_for_ops(&node_registry, peer_ids, service_names)?;
-    trace!("service_indices len: {}", service_indices.len());
+    let services_for_ops = get_services_for_ops(&node_registry, peer_ids, service_names).await?;
+    trace!("services_for_ops len: {}", services_for_ops.len());
     let mut upgrade_summary = Vec::new();
 
-    for &index in &service_indices {
-        let node = &mut node_registry.nodes[index];
+    for node in &services_for_ops {
         let env_variables = if provided_env_variables.is_some() {
-            &provided_env_variables
+            provided_env_variables.clone()
         } else {
-            &node_registry.environment_variables
+            node_registry.environment_variables.read().await.clone()
         };
         let options = UpgradeOptions {
             auto_restart: false,
@@ -518,10 +521,10 @@ pub async fn upgrade(
             target_bin_path: upgrade_bin_path.clone(),
             target_version: target_version.clone(),
         };
-        let service_name = node.service_name.clone();
+        let service_name = node.read().await.service_name.clone();
 
-        let rpc_client = RpcClient::from_socket_addr(node.rpc_socket_addr);
-        let service = NodeService::new(node, Box::new(rpc_client));
+        let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
+        let service = NodeService::new(node.clone(), Box::new(rpc_client));
         // set dynamic startup delay if fixed_interval is not set
         let service = if fixed_interval.is_none() {
             service.with_connection_timeout(Duration::from_secs(connection_timeout_s))
@@ -543,19 +546,16 @@ pub async fn upgrade(
                         std::thread::sleep(std::time::Duration::from_millis(interval));
                     }
                 }
-                upgrade_summary.push((
-                    service_manager.service.service_data.service_name.clone(),
-                    upgrade_result,
-                ));
-                node_registry.save()?;
+                upgrade_summary.push((service_name.clone(), upgrade_result));
+                node_registry.save().await?;
             }
             Err(err) => {
                 error!("Error upgrading service {service_name}: {err}");
                 upgrade_summary.push((
-                    node.service_name.clone(),
+                    service_name.clone(),
                     UpgradeResult::Error(format!("Error: {err}")),
                 ));
-                node_registry.save()?;
+                node_registry.save().await?;
             }
         }
     }
@@ -610,13 +610,15 @@ pub async fn maintain_n_running_nodes(
     verbosity: VerbosityLevel,
     start_node_interval: Option<u64>,
 ) -> Result<()> {
-    let node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
-    let running_nodes = node_registry
-        .nodes
-        .iter()
-        .filter(|node| node.status == ServiceStatus::Running)
-        .map(|node| node.service_name.clone())
-        .collect::<Vec<_>>();
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
+    let mut running_nodes = Vec::new();
+
+    for node in node_registry.nodes.read().await.iter() {
+        let node = node.read().await;
+        if node.status == ServiceStatus::Running {
+            running_nodes.push(node.service_name.clone());
+        }
+    }
 
     let running_count = running_nodes.len();
     let target_count = max_nodes_to_run as usize;
@@ -643,14 +645,13 @@ pub async fn maintain_n_running_nodes(
         }
         Ordering::Less => {
             let to_start_count = target_count - running_count;
-            let inactive_nodes = node_registry
-                .nodes
-                .iter()
-                .filter(|node| {
-                    node.status == ServiceStatus::Stopped || node.status == ServiceStatus::Added
-                })
-                .map(|node| node.service_name.clone())
-                .collect::<Vec<_>>();
+            let mut inactive_nodes = Vec::new();
+            for node in node_registry.nodes.read().await.iter() {
+                let node = node.read().await;
+                if node.status == ServiceStatus::Stopped || node.status == ServiceStatus::Added {
+                    inactive_nodes.push(node.service_name.clone());
+                }
+            }
 
             info!("Inactive nodes available: {}", inactive_nodes.len());
 
@@ -749,72 +750,79 @@ pub async fn maintain_n_running_nodes(
     }
 
     // Verify final state
-    let final_node_registry = NodeRegistry::load(&config::get_node_registry_path()?)?;
-    let final_running_count = final_node_registry
-        .nodes
-        .iter()
-        .filter(|node| node.status == ServiceStatus::Running)
-        .count();
+    let final_node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
+    let mut final_running_count = 0;
+    for node in final_node_registry.nodes.read().await.iter() {
+        let node_read = node.read().await;
+        if node_read.status == ServiceStatus::Running {
+            final_running_count += 1;
+        }
+    }
 
-    info!("Final running node count: {}", final_running_count);
     if final_running_count != target_count {
-        warn!(
-            "Failed to reach target node count. Expected {}, but got {}",
-            target_count, final_running_count
-        );
+        warn!("Failed to reach target node count. Expected {target_count}, but got {final_running_count}");
     }
 
     Ok(())
 }
 
-fn get_services_for_ops(
-    node_registry: &NodeRegistry,
+async fn get_services_for_ops(
+    node_registry: &NodeRegistryManager,
     peer_ids: Vec<String>,
     service_names: Vec<String>,
-) -> Result<Vec<usize>> {
-    let mut service_indices = Vec::new();
+) -> Result<Vec<Arc<RwLock<NodeServiceData>>>> {
+    let mut services = Vec::new();
 
     if service_names.is_empty() && peer_ids.is_empty() {
-        for node in node_registry.nodes.iter() {
-            if let Some(index) = node_registry.nodes.iter().position(|x| {
-                x.service_name == node.service_name && x.status != ServiceStatus::Removed
-            }) {
-                service_indices.push(index);
+        for node in node_registry.nodes.read().await.iter() {
+            if node.read().await.status != ServiceStatus::Removed {
+                services.push(node.clone());
             }
         }
     } else {
         for name in &service_names {
-            if let Some(index) = node_registry
-                .nodes
-                .iter()
-                .position(|x| x.service_name == *name && x.status != ServiceStatus::Removed)
-            {
-                service_indices.push(index);
-            } else {
+            let mut found_service_with_name = false;
+            for node in node_registry.nodes.read().await.iter() {
+                let node_read = node.read().await;
+                if node_read.service_name == *name && node_read.status != ServiceStatus::Removed {
+                    {
+                        services.push(node.clone());
+                        found_service_with_name = true;
+                        break;
+                    }
+                }
+            }
+
+            if !found_service_with_name {
                 error!("No service named '{name}'");
                 return Err(eyre!(format!("No service named '{name}'")));
             }
         }
 
         for peer_id_str in &peer_ids {
-            let peer_id = PeerId::from_str(peer_id_str)
-                .inspect_err(|err| error!("Error parsing PeerId: {err:?}"))?;
-            if let Some(index) = node_registry
-                .nodes
-                .iter()
-                .position(|x| x.peer_id == Some(peer_id) && x.status != ServiceStatus::Removed)
-            {
-                service_indices.push(index);
-            } else {
-                error!("Could not find node with peer id: '{peer_id:?}'");
+            let mut found_service_with_peer_id = false;
+            let given_peer_id = PeerId::from_str(peer_id_str)
+                .map_err(|_| eyre!(format!("Error parsing PeerId: '{peer_id_str}'")))?;
+            for node in node_registry.nodes.read().await.iter() {
+                let node_read = node.read().await;
+                if let Some(peer_id) = node_read.peer_id {
+                    if peer_id == given_peer_id && node_read.status != ServiceStatus::Removed {
+                        services.push(node.clone());
+                        found_service_with_peer_id = true;
+                        break;
+                    }
+                }
+            }
+            if !found_service_with_peer_id {
+                error!("Could not find node with peer id: '{given_peer_id:?}'");
                 return Err(eyre!(format!(
-                    "Could not find node with peer ID '{peer_id}'",
+                    "Could not find node with peer ID '{given_peer_id}'",
                 )));
             }
         }
     }
 
-    Ok(service_indices)
+    Ok(services)
 }
 
 fn summarise_any_failed_ops(

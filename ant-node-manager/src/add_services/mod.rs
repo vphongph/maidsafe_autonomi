@@ -17,7 +17,7 @@ use crate::{
 };
 use ant_service_management::{
     control::ServiceControl, node::NODE_SERVICE_DATA_SCHEMA_LATEST, DaemonServiceData,
-    NatDetectionStatus, NodeRegistry, NodeServiceData, ServiceStatus,
+    NatDetectionStatus, NodeRegistryManager, NodeServiceData, ServiceStatus,
 };
 use color_eyre::{eyre::eyre, Help, Result};
 use colored::Colorize;
@@ -37,7 +37,7 @@ use std::{
 /// Returns the service names of the added services.
 pub async fn add_node(
     mut options: AddNodeServiceOptions,
-    node_registry: &mut NodeRegistry,
+    node_registry: NodeRegistryManager,
     service_control: &dyn ServiceControl,
     verbosity: VerbosityLevel,
 ) -> Result<Vec<String>> {
@@ -49,11 +49,15 @@ pub async fn add_node(
             }
         }
 
-        let genesis_node = node_registry
-            .nodes
-            .iter()
-            .find(|n| n.initial_peers_config.first);
-        if genesis_node.is_some() {
+        let mut genesis_node_exists = false;
+        for node in node_registry.nodes.read().await.iter() {
+            if node.read().await.initial_peers_config.first {
+                genesis_node_exists = true;
+                break;
+            }
+        }
+
+        if genesis_node_exists {
             error!("A genesis node already exists");
             return Err(eyre!("A genesis node already exists"));
         }
@@ -61,17 +65,17 @@ pub async fn add_node(
 
     if let Some(port_option) = &options.node_port {
         port_option.validate(options.count.unwrap_or(1))?;
-        check_port_availability(port_option, &node_registry.nodes)?;
+        check_port_availability(port_option, &node_registry.nodes).await?;
     }
 
     if let Some(port_option) = &options.metrics_port {
         port_option.validate(options.count.unwrap_or(1))?;
-        check_port_availability(port_option, &node_registry.nodes)?;
+        check_port_availability(port_option, &node_registry.nodes).await?;
     }
 
     if let Some(port_option) = &options.rpc_port {
         port_option.validate(options.count.unwrap_or(1))?;
-        check_port_availability(port_option, &node_registry.nodes)?;
+        check_port_availability(port_option, &node_registry.nodes).await?;
     }
 
     let antnode_file_name = options
@@ -85,16 +89,14 @@ pub async fn add_node(
         .to_string();
 
     if options.env_variables.is_some() {
-        node_registry
-            .environment_variables
-            .clone_from(&options.env_variables);
-        node_registry.save()?;
+        *node_registry.environment_variables.write().await = options.env_variables.clone();
+        node_registry.save().await?;
     }
 
     let mut added_service_data = vec![];
     let mut failed_service_data = vec![];
 
-    let current_node_count = node_registry.nodes.len() as u16;
+    let current_node_count = node_registry.nodes.read().await.len() as u16;
     let target_node_count = current_node_count + options.count.unwrap_or(1);
 
     let mut node_number = current_node_count + 1;
@@ -159,9 +161,9 @@ pub async fn add_node(
         )?;
 
         if options.auto_set_nat_flags {
-            let nat_status = node_registry.nat_status.clone();
+            let nat_status = node_registry.nat_status.read().await;
 
-            match nat_status {
+            match nat_status.as_ref() {
                 Some(NatDetectionStatus::Public) => {
                     options.no_upnp = true; // UPnP not needed
                     options.relay = false;
@@ -224,41 +226,43 @@ pub async fn add_node(
                     rpc_socket_addr,
                 ));
 
-                node_registry.nodes.push(NodeServiceData {
-                    alpha: options.alpha,
-                    antnode_path: service_antnode_path,
-                    auto_restart: options.auto_restart,
-                    connected_peers: None,
-                    data_dir_path: service_data_dir_path.clone(),
-                    evm_network: options.evm_network.clone(),
-                    relay: options.relay,
-                    initial_peers_config: options.init_peers_config.clone(),
-                    listen_addr: None,
-                    log_dir_path: service_log_dir_path.clone(),
-                    log_format: options.log_format,
-                    max_archived_log_files: options.max_archived_log_files,
-                    max_log_files: options.max_log_files,
-                    metrics_port: metrics_free_port,
-                    network_id: options.network_id,
-                    node_ip: options.node_ip,
-                    node_port,
-                    number: node_number,
-                    rewards_address: options.rewards_address,
-                    reward_balance: None,
-                    rpc_socket_addr,
-                    peer_id: None,
-                    pid: None,
-                    schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
-                    service_name,
-                    status: ServiceStatus::Added,
-                    no_upnp: options.no_upnp,
-                    user: options.user.clone(),
-                    user_mode: options.user_mode,
-                    version: options.version.clone(),
-                });
+                node_registry
+                    .push_node(NodeServiceData {
+                        alpha: options.alpha,
+                        antnode_path: service_antnode_path,
+                        auto_restart: options.auto_restart,
+                        connected_peers: None,
+                        data_dir_path: service_data_dir_path.clone(),
+                        evm_network: options.evm_network.clone(),
+                        relay: options.relay,
+                        initial_peers_config: options.init_peers_config.clone(),
+                        listen_addr: None,
+                        log_dir_path: service_log_dir_path.clone(),
+                        log_format: options.log_format,
+                        max_archived_log_files: options.max_archived_log_files,
+                        max_log_files: options.max_log_files,
+                        metrics_port: metrics_free_port,
+                        network_id: options.network_id,
+                        node_ip: options.node_ip,
+                        node_port,
+                        number: node_number,
+                        rewards_address: options.rewards_address,
+                        reward_balance: None,
+                        rpc_socket_addr,
+                        peer_id: None,
+                        pid: None,
+                        schema_version: NODE_SERVICE_DATA_SCHEMA_LATEST,
+                        service_name,
+                        status: ServiceStatus::Added,
+                        no_upnp: options.no_upnp,
+                        user: options.user.clone(),
+                        user_mode: options.user_mode,
+                        version: options.version.clone(),
+                    })
+                    .await;
                 // We save the node registry for each service because it's possible any number of
                 // services could fail to be added.
-                node_registry.save()?;
+                node_registry.save().await?;
             }
             Err(e) => {
                 error!("Failed to add service {service_name}: {e}");
@@ -317,12 +321,12 @@ pub async fn add_node(
 /// Install the daemon as a service.
 ///
 /// This only defines the service; it does not start it.
-pub fn add_daemon(
+pub async fn add_daemon(
     options: AddDaemonServiceOptions,
-    node_registry: &mut NodeRegistry,
+    node_registry: NodeRegistryManager,
     service_control: &dyn ServiceControl,
 ) -> Result<()> {
-    if node_registry.daemon.is_some() {
+    if node_registry.daemon.read().await.is_some() {
         error!("A antctld service has already been created");
         return Err(eyre!("A antctld service has already been created"));
     }
@@ -363,11 +367,12 @@ pub fn add_daemon(
                 status: ServiceStatus::Added,
                 version: options.version,
             };
-            node_registry.daemon = Some(daemon);
+
+            node_registry.insert_daemon(daemon).await;
             info!("Daemon service has been added successfully");
             println!("Daemon service added {}", "✓".green());
             println!("[!] Note: the service has not been started");
-            node_registry.save()?;
+            node_registry.save().await?;
             std::fs::remove_file(options.daemon_src_bin_path)?;
             Ok(())
         }

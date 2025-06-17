@@ -936,7 +936,9 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
-            LocalSubCmd::Kill { keep_directories } => cmd::local::kill(keep_directories, verbosity),
+            LocalSubCmd::Kill { keep_directories } => {
+                cmd::local::kill(keep_directories, verbosity).await
+            }
             LocalSubCmd::Run {
                 build,
                 clean,

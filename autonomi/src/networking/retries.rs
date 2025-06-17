@@ -15,6 +15,8 @@ use tokio::time::sleep;
 
 impl Network {
     /// Put a record to the network with retries
+    ///
+    /// Will carry out network get after put success, to verify the existence of the record.
     pub async fn put_record_with_retries(
         &self,
         record: Record,
@@ -27,7 +29,15 @@ impl Network {
         for duration in strategy.put_retry.backoff() {
             match self.put_record(record.clone(), to.clone(), quorum).await {
                 // return success
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    let network_address = NetworkAddress::from(&record.key);
+                    if let Ok(Some(_)) = self
+                        .get_record_with_retries(network_address, strategy)
+                        .await
+                    {
+                        return Ok(());
+                    }
+                }
                 // return fatal errors
                 Err(err) if err.is_fatal() => {
                     return Err(err);

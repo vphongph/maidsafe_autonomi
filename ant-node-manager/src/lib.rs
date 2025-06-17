@@ -662,8 +662,10 @@ mod tests {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::{Path, PathBuf},
         str::FromStr,
+        sync::Arc,
         time::Duration,
     };
+    use tokio::sync::RwLock;
 
     mock! {
         pub RpcClient {}
@@ -738,7 +740,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -780,7 +782,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -790,23 +793,21 @@ mod tests {
 
         service_manager.start().await?;
 
+        let service_data = service_data.read().await;
         assert_eq!(
-            service_manager.service.service_data.connected_peers,
+            service_data.connected_peers,
             Some(vec![PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?,])
         );
-        assert_eq!(service_manager.service.service_data.pid, Some(1000));
+        assert_eq!(service_data.pid, Some(1000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR"
             )?)
         );
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Running
-        );
+        assert_matches!(service_data.status, ServiceStatus::Running);
 
         Ok(())
     }
@@ -853,7 +854,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -897,7 +898,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -907,17 +909,15 @@ mod tests {
 
         service_manager.start().await?;
 
-        assert_eq!(service_manager.service.service_data.pid, Some(1000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(1000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR"
             )?)
         );
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Running
-        );
+        assert_matches!(service_data.status, ServiceStatus::Running);
 
         Ok(())
     }
@@ -933,7 +933,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(100));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -977,7 +977,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -987,17 +988,15 @@ mod tests {
 
         service_manager.start().await?;
 
-        assert_eq!(service_manager.service.service_data.pid, Some(1000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(1000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR"
             )?)
         );
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Running
-        );
+        assert_matches!(service_data.status, ServiceStatus::Running);
 
         Ok(())
     }
@@ -1053,7 +1052,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1097,7 +1096,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -1107,17 +1107,15 @@ mod tests {
 
         service_manager.start().await?;
 
-        assert_eq!(service_manager.service.service_data.pid, Some(1000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(1000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR"
             )?)
         );
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Running
-        );
+        assert_matches!(service_data.status, ServiceStatus::Running);
 
         Ok(())
     }
@@ -1146,7 +1144,7 @@ mod tests {
                 ))
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1188,7 +1186,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1249,7 +1248,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1291,7 +1290,8 @@ mod tests {
             user_mode: true,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -1351,7 +1351,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1393,7 +1393,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client))
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client))
             .with_connection_timeout(Duration::from_secs(
                 DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
             ));
@@ -1423,7 +1424,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(100));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1467,7 +1468,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1476,18 +1478,16 @@ mod tests {
 
         service_manager.stop().await?;
 
-        assert_eq!(service_manager.service.service_data.pid, None);
-        assert_eq!(service_manager.service.service_data.connected_peers, None);
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Stopped
-        );
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, None);
+        assert_eq!(service_data.connected_peers, None);
+        assert_matches!(service_data.status, ServiceStatus::Stopped);
         Ok(())
     }
 
     #[tokio::test]
     async fn stop_should_not_return_error_for_attempt_to_stop_installed_service() -> Result<()> {
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1529,7 +1529,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1549,7 +1550,7 @@ mod tests {
     #[tokio::test]
     async fn stop_should_return_ok_when_attempting_to_stop_service_that_was_already_stopped(
     ) -> Result<()> {
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1593,7 +1594,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1614,7 +1616,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_should_return_ok_when_attempting_to_stop_a_removed_service() -> Result<()> {
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1656,7 +1658,8 @@ mod tests {
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1690,7 +1693,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(100));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1734,7 +1737,8 @@ mod tests {
             user_mode: true,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1743,12 +1747,10 @@ mod tests {
 
         service_manager.stop().await?;
 
-        assert_eq!(service_manager.service.service_data.pid, None);
-        assert_eq!(service_manager.service.service_data.connected_peers, None);
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Stopped
-        );
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, None);
+        assert_eq!(service_data.connected_peers, None);
+        assert_matches!(service_data.status, ServiceStatus::Stopped);
         Ok(())
     }
 
@@ -1831,7 +1833,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1875,7 +1877,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1904,14 +1907,15 @@ mod tests {
             ),
         }
 
-        assert_eq!(service_manager.service.service_data.pid, Some(2000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(2000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?)
         );
-        assert_eq!(service_manager.service.service_data.version, target_version);
+        assert_eq!(service_data.version, target_version);
 
         Ok(())
     }
@@ -1933,7 +1937,7 @@ mod tests {
         let mock_service_control = MockServiceControl::new();
         let mock_rpc_client = MockRpcClient::new();
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -1977,7 +1981,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2080,7 +2085,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2124,7 +2129,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2154,14 +2160,15 @@ mod tests {
             ),
         }
 
-        assert_eq!(service_manager.service.service_data.pid, Some(2000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(2000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?)
         );
-        assert_eq!(service_manager.service.service_data.version, target_version);
+        assert_eq!(service_data.version, target_version);
 
         Ok(())
     }
@@ -2239,7 +2246,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2283,7 +2290,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2313,18 +2321,16 @@ mod tests {
             ),
         }
 
-        assert_eq!(service_manager.service.service_data.pid, None);
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, None);
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?)
         );
-        assert_eq!(service_manager.service.service_data.version, target_version);
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Stopped
-        );
+        assert_eq!(service_data.version, target_version);
+        assert_matches!(service_data.status, ServiceStatus::Stopped);
 
         Ok(())
     }
@@ -2393,7 +2399,7 @@ mod tests {
                 ))
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2437,7 +2443,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -2548,7 +2555,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2592,7 +2599,8 @@ mod tests {
             user_mode: true,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2622,14 +2630,15 @@ mod tests {
             ),
         }
 
-        assert_eq!(service_manager.service.service_data.pid, Some(2000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.pid, Some(2000));
         assert_eq!(
-            service_manager.service.service_data.peer_id,
+            service_data.peer_id,
             Some(PeerId::from_str(
                 "12D3KooWS2tpXGGTmg2AHFiDh57yPQnat49YHnyqoggzXZWpqkCR",
             )?)
         );
-        assert_eq!(service_manager.service.service_data.version, target_version);
+        assert_eq!(service_data.version, target_version);
 
         Ok(())
     }
@@ -2737,7 +2746,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2780,7 +2789,8 @@ mod tests {
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2799,13 +2809,8 @@ mod tests {
             })
             .await?;
 
-        assert!(
-            service_manager
-                .service
-                .service_data
-                .initial_peers_config
-                .first
-        );
+        let service_data = service_data.read().await;
+        assert!(service_data.initial_peers_config.first);
 
         Ok(())
     }
@@ -2916,7 +2921,7 @@ mod tests {
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2961,7 +2966,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2980,12 +2986,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(!service_manager
-            .service
-            .service_data
-            .initial_peers_config
-            .addrs
-            .is_empty());
+        let service_data = service_data.read().await;
+        assert!(!service_data.initial_peers_config.addrs.is_empty());
 
         Ok(())
     }
@@ -3094,7 +3096,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3130,7 +3132,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3149,7 +3152,8 @@ network_id: None,
             })
             .await?;
 
-        assert_eq!(service_manager.service.service_data.network_id, Some(5));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.network_id, Some(5));
 
         Ok(())
     }
@@ -3257,7 +3261,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3300,7 +3304,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3319,13 +3324,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(
-            service_manager
-                .service
-                .service_data
-                .initial_peers_config
-                .local
-        );
+        let service_data = service_data.read().await;
+        assert!(service_data.initial_peers_config.local);
 
         Ok(())
     }
@@ -3434,7 +3434,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3480,7 +3480,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3499,13 +3500,9 @@ network_id: None,
             })
             .await?;
 
+        let service_data = service_data.read().await;
         assert_eq!(
-            service_manager
-                .service
-                .service_data
-                .initial_peers_config
-                .network_contacts_url
-                .len(),
+            service_data.initial_peers_config.network_contacts_url.len(),
             2
         );
 
@@ -3615,7 +3612,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3658,7 +3655,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3677,13 +3675,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(
-            service_manager
-                .service
-                .service_data
-                .initial_peers_config
-                .ignore_cache
-        );
+        let service_data = service_data.read().await;
+        assert!(service_data.initial_peers_config.ignore_cache);
 
         Ok(())
     }
@@ -3792,7 +3785,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3837,7 +3830,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3856,12 +3850,9 @@ network_id: None,
             })
             .await?;
 
+        let service_data = service_data.read().await;
         assert_eq!(
-            service_manager
-                .service
-                .service_data
-                .initial_peers_config
-                .bootstrap_cache_dir,
+            service_data.initial_peers_config.bootstrap_cache_dir,
             Some(PathBuf::from(
                 "/var/antctl/services/antnode1/bootstrap_cache"
             ))
@@ -3973,7 +3964,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4009,7 +4000,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4028,7 +4020,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.no_upnp);
+        let service_data = service_data.read().await;
+        assert!(service_data.no_upnp);
 
         Ok(())
     }
@@ -4137,7 +4130,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4173,7 +4166,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4192,11 +4186,9 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.log_format.is_some());
-        assert_eq!(
-            service_manager.service.service_data.log_format,
-            Some(LogFormat::Json)
-        );
+        let service_data = service_data.read().await;
+        assert!(service_data.log_format.is_some());
+        assert_eq!(service_data.log_format, Some(LogFormat::Json));
 
         Ok(())
     }
@@ -4304,7 +4296,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4340,7 +4332,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4359,7 +4352,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.relay);
+        let service_data = service_data.read().await;
+        assert!(service_data.relay);
 
         Ok(())
     }
@@ -4468,7 +4462,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4504,7 +4498,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4523,10 +4518,8 @@ network_id: None,
             })
             .await?;
 
-        assert_eq!(
-            service_manager.service.service_data.node_ip,
-            Some(Ipv4Addr::new(192, 168, 1, 1))
-        );
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.node_ip, Some(Ipv4Addr::new(192, 168, 1, 1)));
 
         Ok(())
     }
@@ -4635,7 +4628,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4671,7 +4664,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4690,7 +4684,8 @@ network_id: None,
             })
             .await?;
 
-        assert_eq!(service_manager.service.service_data.node_port, Some(12000));
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.node_port, Some(12000));
 
         Ok(())
     }
@@ -4799,7 +4794,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4835,7 +4830,8 @@ network_id: None,
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4854,10 +4850,8 @@ network_id: None,
             })
             .await?;
 
-        assert_matches!(
-            service_manager.service.service_data.max_archived_log_files,
-            Some(20)
-        );
+        let service_data = service_data.read().await;
+        assert_matches!(service_data.max_archived_log_files, Some(20));
 
         Ok(())
     }
@@ -4966,7 +4960,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -5002,7 +4996,8 @@ network_id: None,
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5021,7 +5016,8 @@ network_id: None,
             })
             .await?;
 
-        assert_matches!(service_manager.service.service_data.max_log_files, Some(20));
+        let service_data = service_data.read().await;
+        assert_matches!(service_data.max_log_files, Some(20));
 
         Ok(())
     }
@@ -5130,7 +5126,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -5166,7 +5162,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5185,10 +5182,8 @@ network_id: None,
             })
             .await?;
 
-        assert_eq!(
-            service_manager.service.service_data.metrics_port,
-            Some(12000)
-        );
+        let service_data = service_data.read().await;
+        assert_eq!(service_data.metrics_port, Some(12000));
 
         Ok(())
     }
@@ -5297,7 +5292,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -5333,7 +5328,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5352,8 +5348,9 @@ network_id: None,
             })
             .await?;
 
+        let service_data = service_data.read().await;
         assert_eq!(
-            service_manager.service.service_data.rpc_socket_addr,
+            service_data.rpc_socket_addr,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081)
         );
 
@@ -5462,7 +5459,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: true,
             connected_peers: None,
@@ -5498,7 +5495,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5517,7 +5515,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.auto_restart,);
+        let service_data = service_data.read().await;
+        assert!(service_data.auto_restart,);
 
         Ok(())
     }
@@ -5630,7 +5629,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: true,
             connected_peers: None,
@@ -5675,7 +5674,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5694,7 +5694,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.auto_restart,);
+        let service_data = service_data.read().await;
+        assert!(service_data.auto_restart,);
 
         Ok(())
     }
@@ -5807,7 +5808,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: true,
             connected_peers: None,
@@ -5852,7 +5853,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5871,7 +5873,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.auto_restart,);
+        let service_data = service_data.read().await;
+        assert!(service_data.auto_restart,);
 
         Ok(())
     }
@@ -5981,7 +5984,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6017,7 +6020,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client))
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client))
             .with_connection_timeout(Duration::from_secs(
                 DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
             ));
@@ -6059,7 +6063,7 @@ network_id: None,
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6101,7 +6105,8 @@ network_id: None,
             user: Some("ant".to_string()),
             user_mode: false,
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6110,10 +6115,8 @@ network_id: None,
 
         service_manager.remove(false).await?;
 
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Removed
-        );
+        let service_data = service_data.read().await;
+        assert_matches!(service_data.status, ServiceStatus::Removed);
         log_dir.assert(predicate::path::missing());
         data_dir.assert(predicate::path::missing());
 
@@ -6129,7 +6132,7 @@ network_id: None,
             .times(1)
             .returning(|_| Ok(1000));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6173,7 +6176,8 @@ network_id: None,
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6214,7 +6218,7 @@ network_id: None,
                 ))
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6258,7 +6262,8 @@ network_id: None,
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6294,7 +6299,7 @@ network_id: None,
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6336,7 +6341,8 @@ network_id: None,
             user_mode: false,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6345,10 +6351,8 @@ network_id: None,
 
         service_manager.remove(true).await?;
 
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Removed
-        );
+        let service_data = service_data.read().await;
+        assert_matches!(service_data.status, ServiceStatus::Removed);
         log_dir.assert(predicate::path::is_dir());
         data_dir.assert(predicate::path::is_dir());
 
@@ -6372,7 +6376,7 @@ network_id: None,
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -6414,7 +6418,8 @@ network_id: None,
             user_mode: true,
             version: "0.98.1".to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(MockRpcClient::new()));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6423,10 +6428,8 @@ network_id: None,
 
         service_manager.remove(false).await?;
 
-        assert_matches!(
-            service_manager.service.service_data.status,
-            ServiceStatus::Removed
-        );
+        let service_data = service_data.read().await;
+        assert_matches!(service_data.status, ServiceStatus::Removed);
         log_dir.assert(predicate::path::missing());
         data_dir.assert(predicate::path::missing());
 
@@ -6536,7 +6539,7 @@ network_id: None,
                 })
             });
 
-        let mut service_data = NodeServiceData {
+        let service_data = NodeServiceData {
             alpha: true,
             auto_restart: false,
             connected_peers: None,
@@ -6579,7 +6582,8 @@ network_id: None,
             user_mode: false,
             version: current_version.to_string(),
         };
-        let service = NodeService::new(&mut service_data, Box::new(mock_rpc_client));
+        let service_data = Arc::new(RwLock::new(service_data));
+        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -6598,7 +6602,8 @@ network_id: None,
             })
             .await?;
 
-        assert!(service_manager.service.service_data.alpha);
+        let service_data = service_data.read().await;
+        assert!(service_data.alpha);
 
         Ok(())
     }

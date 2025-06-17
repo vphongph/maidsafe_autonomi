@@ -82,13 +82,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
     let antnode_download_path = temp_dir.child(ANTNODE_FILE_NAME);
     antnode_download_path.write_binary(b"fake antnode bin")?;
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let mut mock_service_control = MockServiceControl::new();
     let mut seq = Sequence::new();
@@ -190,7 +184,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -201,27 +195,29 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
     node_logs_dir.assert(predicate::path::is_dir());
 
     node_reg_path.assert(predicates::path::is_file());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert!(node_registry.nodes[0].initial_peers_config.first);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(node_registry.nodes[0].service_name, "antnode1");
-    assert_eq!(node_registry.nodes[0].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[0].number, 1);
+    let len = node_registry.nodes.read().await.len();
+    assert_eq!(len, 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.initial_peers_config.first);
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.service_name, "antnode1");
+    assert_eq!(node0.user, Some(get_username()));
+    assert_eq!(node0.number, 1);
     assert_eq!(
-        node_registry.nodes[0].rpc_socket_addr,
+        node0.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081)
     );
     assert_eq!(
-        node_registry.nodes[0].log_dir_path,
+        node0.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode1")
     );
     assert_eq!(
-        node_registry.nodes[0].data_dir_path,
+        node0.data_dir_path,
         node_data_dir.to_path_buf().join("antnode1")
     );
-    assert_matches!(node_registry.nodes[0].status, ServiceStatus::Added);
+    assert_matches!(node0.status, ServiceStatus::Added);
     assert_eq!(
-        node_registry.nodes[0].evm_network,
+        node0.evm_network,
         EvmNetwork::Custom(CustomNetwork {
             rpc_url_http: "http://localhost:8545".parse()?,
             payment_token_address: RewardsAddress::from_str(
@@ -233,7 +229,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
         })
     );
     assert_eq!(
-        node_registry.nodes[0].rewards_address,
+        node0.rewards_address,
         RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?
     );
 
@@ -258,10 +254,9 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
         ignore_cache: false,
         bootstrap_cache_dir: None,
     };
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -302,10 +297,8 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
             user: Some("ant".to_string()),
             user_mode: false,
             version: latest_version.to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
 
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("antnode1");
@@ -358,7 +351,7 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -376,16 +369,10 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
 async fn add_genesis_node_should_return_an_error_if_count_is_greater_than_1() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
-
     let mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+
     let init_peers_config = InitialPeersConfig {
         first: true,
         addrs: vec![],
@@ -445,7 +432,7 @@ async fn add_genesis_node_should_return_an_error_if_count_is_greater_than_1() ->
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -465,14 +452,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
     let mut mock_service_control = MockServiceControl::new();
-
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -674,64 +654,69 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_eq!(node_registry.nodes.len(), 3);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(node_registry.nodes[0].service_name, "antnode1");
-    assert_eq!(node_registry.nodes[0].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[0].number, 1);
+    let nodes_len = node_registry.nodes.read().await.len();
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    let node1 = node_registry.nodes.read().await[1].read().await.clone();
+    let node2 = node_registry.nodes.read().await[2].read().await.clone();
+
+    assert_eq!(nodes_len, 3);
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.service_name, "antnode1");
+    assert_eq!(node0.user, Some(get_username()));
+    assert_eq!(node0.number, 1);
     assert_eq!(
-        node_registry.nodes[0].rpc_socket_addr,
+        node0.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081)
     );
     assert_eq!(
-        node_registry.nodes[0].log_dir_path,
+        node0.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode1")
     );
     assert_eq!(
-        node_registry.nodes[0].data_dir_path,
+        node0.data_dir_path,
         node_data_dir.to_path_buf().join("antnode1")
     );
-    assert_matches!(node_registry.nodes[0].status, ServiceStatus::Added);
-    assert_eq!(node_registry.nodes[1].version, latest_version);
-    assert_eq!(node_registry.nodes[1].service_name, "antnode2");
-    assert_eq!(node_registry.nodes[1].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[1].number, 2);
+    assert_matches!(node0.status, ServiceStatus::Added);
+    assert_eq!(node1.version, latest_version);
+    assert_eq!(node1.service_name, "antnode2");
+    assert_eq!(node1.user, Some(get_username()));
+    assert_eq!(node1.number, 2);
     assert_eq!(
-        node_registry.nodes[1].rpc_socket_addr,
+        node1.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8083)
     );
     assert_eq!(
-        node_registry.nodes[1].log_dir_path,
+        node1.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode2")
     );
     assert_eq!(
-        node_registry.nodes[1].data_dir_path,
+        node1.data_dir_path,
         node_data_dir.to_path_buf().join("antnode2")
     );
-    assert_matches!(node_registry.nodes[1].status, ServiceStatus::Added);
-    assert_eq!(node_registry.nodes[2].version, latest_version);
-    assert_eq!(node_registry.nodes[2].service_name, "antnode3");
-    assert_eq!(node_registry.nodes[2].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[2].number, 3);
+    assert_matches!(node1.status, ServiceStatus::Added);
+    assert_eq!(node2.version, latest_version);
+    assert_eq!(node2.service_name, "antnode3");
+    assert_eq!(node2.user, Some(get_username()));
+    assert_eq!(node2.number, 3);
     assert_eq!(
-        node_registry.nodes[2].rpc_socket_addr,
+        node2.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8085)
     );
     assert_eq!(
-        node_registry.nodes[2].log_dir_path,
+        node2.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode3")
     );
     assert_eq!(
-        node_registry.nodes[2].data_dir_path,
+        node2.data_dir_path,
         node_data_dir.to_path_buf().join("antnode3")
     );
-    assert_matches!(node_registry.nodes[2].status, ServiceStatus::Added);
+    assert_matches!(node2.status, ServiceStatus::Added);
 
     Ok(())
 }
@@ -748,13 +733,8 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
         ("RUST_LOG".to_owned(), "libp2p=debug".to_owned()),
     ]);
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -854,7 +834,7 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -864,26 +844,30 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
 
-    assert_eq!(node_registry.environment_variables, env_variables);
-
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(node_registry.nodes[0].service_name, "antnode1");
-    assert_eq!(node_registry.nodes[0].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[0].number, 1);
     assert_eq!(
-        node_registry.nodes[0].rpc_socket_addr,
+        *node_registry.environment_variables.read().await,
+        env_variables
+    );
+
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.service_name, "antnode1");
+    assert_eq!(node0.user, Some(get_username()));
+    assert_eq!(node0.number, 1);
+    assert_eq!(
+        node0.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001)
     );
     assert_eq!(
-        node_registry.nodes[0].log_dir_path,
+        node0.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode1")
     );
     assert_eq!(
-        node_registry.nodes[0].data_dir_path,
+        node0.data_dir_path,
         node_data_dir.to_path_buf().join("antnode1")
     );
-    assert_matches!(node_registry.nodes[0].status, ServiceStatus::Added);
+    assert_matches!(node0.status, ServiceStatus::Added);
 
     Ok(())
 }
@@ -896,10 +880,9 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
     let mut mock_service_control = MockServiceControl::new();
 
     let latest_version = "0.96.4";
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -940,10 +923,8 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
             user: Some("ant".to_string()),
             user_mode: false,
             version: latest_version.to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("antnode1");
     node_data_dir.create_dir_all()?;
@@ -1042,31 +1023,33 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_eq!(node_registry.nodes.len(), 2);
-    assert_eq!(node_registry.nodes[1].version, latest_version);
-    assert_eq!(node_registry.nodes[1].service_name, "antnode2");
-    assert_eq!(node_registry.nodes[1].user, Some(get_username()));
-    assert_eq!(node_registry.nodes[1].number, 2);
+    assert_eq!(node_registry.nodes.read().await.len(), 2);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    let node1 = node_registry.nodes.read().await[1].read().await.clone();
+    assert_eq!(node1.version, latest_version);
+    assert_eq!(node1.service_name, "antnode2");
+    assert_eq!(node1.user, Some(get_username()));
+    assert_eq!(node1.number, 2);
     assert_eq!(
-        node_registry.nodes[1].rpc_socket_addr,
+        node1.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8083)
     );
     assert_eq!(
-        node_registry.nodes[1].log_dir_path,
+        node1.log_dir_path,
         node_logs_dir.to_path_buf().join("antnode2")
     );
     assert_eq!(
-        node_registry.nodes[1].data_dir_path,
+        node1.data_dir_path,
         node_data_dir.to_path_buf().join("antnode2")
     );
-    assert_matches!(node_registry.nodes[0].status, ServiceStatus::Added);
-    assert!(!node_registry.nodes[0].auto_restart);
+    assert_matches!(node0.status, ServiceStatus::Added);
+    assert!(!node0.auto_restart);
 
     Ok(())
 }
@@ -1078,13 +1061,7 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1204,7 +1181,7 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1213,13 +1190,11 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        init_peers_config
-    );
-    assert!(node_registry.nodes[0].initial_peers_config.first);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, init_peers_config);
+    assert!(node0.initial_peers_config.first);
 
     Ok(())
 }
@@ -1231,13 +1206,7 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1362,7 +1331,7 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1371,13 +1340,11 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        initial_peers_config
-    );
-    assert_eq!(node_registry.nodes[0].initial_peers_config.addrs.len(), 1);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, initial_peers_config);
+    assert_eq!(node0.initial_peers_config.addrs.len(), 1);
 
     Ok(())
 }
@@ -1389,13 +1356,7 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1515,7 +1476,7 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1524,13 +1485,11 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        init_peers_config
-    );
-    assert!(node_registry.nodes[0].initial_peers_config.local);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, init_peers_config);
+    assert!(node0.initial_peers_config.local);
 
     Ok(())
 }
@@ -1542,13 +1501,7 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1672,7 +1625,7 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1681,19 +1634,11 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        init_peers_config
-    );
-    assert_eq!(
-        node_registry.nodes[0]
-            .initial_peers_config
-            .network_contacts_url
-            .len(),
-        2
-    );
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, init_peers_config);
+    assert_eq!(node0.initial_peers_config.network_contacts_url.len(), 2);
 
     Ok(())
 }
@@ -1705,13 +1650,7 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1831,7 +1770,7 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1840,13 +1779,11 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        init_peers_config
-    );
-    assert!(node_registry.nodes[0].initial_peers_config.ignore_cache);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, init_peers_config);
+    assert!(node0.initial_peers_config.ignore_cache);
 
     Ok(())
 }
@@ -1858,13 +1795,7 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -1985,7 +1916,7 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -1994,16 +1925,12 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, initial_peers_config);
     assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        initial_peers_config
-    );
-    assert_eq!(
-        node_registry.nodes[0]
-            .initial_peers_config
-            .bootstrap_cache_dir,
+        node0.initial_peers_config.bootstrap_cache_dir,
         Some(PathBuf::from("/path/to/bootstrap/cache"))
     );
 
@@ -2017,13 +1944,7 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2135,7 +2056,7 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -2144,9 +2065,10 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(node_registry.nodes[0].network_id, Some(5));
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.network_id, Some(5));
 
     Ok(())
 }
@@ -2158,13 +2080,7 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2278,7 +2194,7 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -2288,8 +2204,9 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
 
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].node_ip, Some(custom_ip));
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.node_ip, Some(custom_ip));
 
     Ok(())
 }
@@ -2301,13 +2218,7 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2410,7 +2321,7 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -2420,8 +2331,9 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
 
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].node_port, Some(custom_port));
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.node_port, Some(custom_port));
 
     Ok(())
 }
@@ -2433,13 +2345,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2669,7 +2575,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -2678,10 +2584,13 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 3);
-    assert_eq!(node_registry.nodes[0].node_port, Some(12000));
-    assert_eq!(node_registry.nodes[1].node_port, Some(12001));
-    assert_eq!(node_registry.nodes[2].node_port, Some(12002));
+    assert_eq!(node_registry.nodes.read().await.len(), 3);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    let node1 = node_registry.nodes.read().await[1].read().await.clone();
+    let node2 = node_registry.nodes.read().await[2].read().await.clone();
+    assert_eq!(node0.node_port, Some(12000));
+    assert_eq!(node1.node_port, Some(12001));
+    assert_eq!(node2.node_port, Some(12002));
 
     Ok(())
 }
@@ -2691,10 +2600,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2735,10 +2643,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2789,7 +2695,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -2809,10 +2715,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -2853,10 +2758,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2907,7 +2810,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry,
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -2927,13 +2830,7 @@ async fn add_node_should_return_an_error_if_port_and_node_count_do_not_match() -
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -2984,7 +2881,7 @@ async fn add_node_should_return_an_error_if_port_and_node_count_do_not_match() -
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -3009,13 +2906,7 @@ async fn add_node_should_return_an_error_if_multiple_services_are_specified_with
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3066,7 +2957,7 @@ async fn add_node_should_return_an_error_if_multiple_services_are_specified_with
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry,
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -3092,13 +2983,7 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3211,13 +3096,14 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_eq!(node_registry.nodes[0].metrics_port, Some(15001));
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.metrics_port, Some(15001));
     Ok(())
 }
 
@@ -3228,14 +3114,7 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
-
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3348,13 +3227,14 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_matches!(node_registry.nodes[0].max_archived_log_files, Some(20));
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_matches!(node0.max_archived_log_files, Some(20));
 
     Ok(())
 }
@@ -3365,14 +3245,7 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
     let mut mock_service_control = MockServiceControl::new();
-
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -3486,13 +3359,14 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_matches!(node_registry.nodes[0].max_log_files, Some(20));
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_matches!(node0.max_log_files, Some(20));
 
     Ok(())
 }
@@ -3504,13 +3378,7 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3740,16 +3608,20 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_eq!(node_registry.nodes.len(), 3);
-    assert_eq!(node_registry.nodes[0].metrics_port, Some(12000));
-    assert_eq!(node_registry.nodes[1].metrics_port, Some(12001));
-    assert_eq!(node_registry.nodes[2].metrics_port, Some(12002));
+    assert_eq!(node_registry.nodes.read().await.len(), 3);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    let node1 = node_registry.nodes.read().await[1].read().await.clone();
+    let node2 = node_registry.nodes.read().await[2].read().await.clone();
+
+    assert_eq!(node0.metrics_port, Some(12000));
+    assert_eq!(node1.metrics_port, Some(12001));
+    assert_eq!(node2.metrics_port, Some(12002));
 
     Ok(())
 }
@@ -3759,10 +3631,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3803,10 +3674,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3857,7 +3726,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry,
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -3878,10 +3747,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -3922,10 +3790,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -3976,7 +3842,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry,
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -3998,13 +3864,8 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4213,7 +4074,7 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -4222,17 +4083,20 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 3);
+    assert_eq!(node_registry.nodes.read().await.len(), 3);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    let node1 = node_registry.nodes.read().await[1].read().await.clone();
+    let node2 = node_registry.nodes.read().await[2].read().await.clone();
     assert_eq!(
-        node_registry.nodes[0].rpc_socket_addr,
+        node0.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 20000)
     );
     assert_eq!(
-        node_registry.nodes[1].rpc_socket_addr,
+        node1.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 20001)
     );
     assert_eq!(
-        node_registry.nodes[2].rpc_socket_addr,
+        node2.rpc_socket_addr,
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 20002)
     );
     Ok(())
@@ -4243,10 +4107,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4287,10 +4150,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4341,7 +4202,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry,
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -4362,10 +4223,9 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![NodeServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .push_node(NodeServiceData {
             alpha: false,
             auto_restart: false,
             connected_peers: None,
@@ -4406,10 +4266,8 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
             user: Some("ant".to_string()),
             user_mode: false,
             version: "0.98.1".to_string(),
-        }],
-        environment_variables: None,
-        daemon: None,
-    };
+        })
+        .await;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4460,7 +4318,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &MockServiceControl::new(),
         VerbosityLevel::Normal,
     )
@@ -4482,13 +4340,8 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: Some(NatDetectionStatus::Public),
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    *node_registry.nat_status.write().await = Some(NatDetectionStatus::Public);
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4589,14 +4442,15 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert!(node_registry.nodes[0].no_upnp);
-    assert!(!node_registry.nodes[0].relay);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.no_upnp);
+    assert!(!node0.relay);
 
     Ok(())
 }
@@ -4608,13 +4462,8 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: Some(NatDetectionStatus::UPnP),
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    *node_registry.nat_status.write().await = Some(NatDetectionStatus::UPnP);
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4715,14 +4564,15 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert!(!node_registry.nodes[0].no_upnp);
-    assert!(!node_registry.nodes[0].relay);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(!node0.no_upnp);
+    assert!(!node0.relay);
 
     Ok(())
 }
@@ -4734,13 +4584,7 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: Some(NatDetectionStatus::Private),
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4841,14 +4685,15 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert!(node_registry.nodes[0].no_upnp);
-    assert!(node_registry.nodes[0].relay);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.no_upnp);
+    assert!(node0.relay);
 
     Ok(())
 }
@@ -4861,13 +4706,8 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    *node_registry.nat_status.write().await = None;
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -4967,14 +4807,15 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await;
 
-    assert!(node_registry.nodes[0].no_upnp);
-    assert!(node_registry.nodes[0].relay);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.no_upnp);
+    assert!(node0.relay);
 
     Ok(())
 }
@@ -4992,14 +4833,7 @@ async fn add_daemon_should_add_a_daemon_service() -> Result<()> {
     let daemon_download_path = temp_dir.child(DAEMON_FILE_NAME);
     daemon_download_path.write_binary(b"fake daemon bin")?;
 
-    let mut node_registry = NodeRegistry {
-        daemon: None,
-
-        environment_variables: None,
-        nat_status: None,
-        nodes: vec![],
-        save_path: node_reg_path.to_path_buf(),
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let mut mock_service_control = MockServiceControl::new();
 
@@ -5037,16 +4871,25 @@ async fn add_daemon_should_add_a_daemon_service() -> Result<()> {
             user: get_username(),
             version: latest_version.to_string(),
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
-    )?;
+    )
+    .await?;
 
     daemon_download_path.assert(predicate::path::missing());
     daemon_install_path.assert(predicate::path::is_file());
 
     node_reg_path.assert(predicates::path::is_file());
 
-    let saved_daemon = node_registry.daemon.unwrap();
+    let saved_daemon = node_registry
+        .daemon
+        .read()
+        .await
+        .as_ref()
+        .unwrap()
+        .read()
+        .await
+        .clone();
     assert_eq!(saved_daemon.daemon_path, daemon_install_path.to_path_buf());
     assert!(saved_daemon.pid.is_none());
     assert_eq!(saved_daemon.service_name, "antctld");
@@ -5069,8 +4912,9 @@ async fn add_daemon_should_return_an_error_if_a_daemon_service_was_already_creat
     let daemon_download_path = temp_dir.child(DAEMON_FILE_NAME);
     daemon_download_path.write_binary(b"fake daemon bin")?;
 
-    let mut node_registry = NodeRegistry {
-        daemon: Some(DaemonServiceData {
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
+    node_registry
+        .insert_daemon(DaemonServiceData {
             daemon_path: PathBuf::from("/usr/local/bin/antctld"),
             endpoint: Some(SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -5080,13 +4924,8 @@ async fn add_daemon_should_return_an_error_if_a_daemon_service_was_already_creat
             service_name: "antctld".to_string(),
             status: ServiceStatus::Running,
             version: latest_version.to_string(),
-        }),
-
-        environment_variables: None,
-        nat_status: None,
-        nodes: vec![],
-        save_path: node_reg_path.to_path_buf(),
-    };
+        })
+        .await;
 
     let result = add_daemon(
         AddDaemonServiceOptions {
@@ -5098,9 +4937,10 @@ async fn add_daemon_should_return_an_error_if_a_daemon_service_was_already_creat
             user: get_username(),
             version: latest_version.to_string(),
         },
-        &mut node_registry,
+        node_registry.clone(),
         &MockServiceControl::new(),
-    );
+    )
+    .await;
 
     match result {
         Ok(_) => panic!("This test should result in an error"),
@@ -5122,13 +4962,7 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -5232,7 +5066,7 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -5250,13 +5084,7 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -5360,13 +5188,14 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert!(node_registry.nodes[0].relay);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.relay);
 
     Ok(())
 }
@@ -5378,13 +5207,7 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -5488,7 +5311,7 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -5504,13 +5327,7 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -5613,14 +5430,15 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert!(node_registry.nodes[0].no_upnp);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    assert!(node0.no_upnp);
 
     Ok(())
 }
@@ -5639,13 +5457,7 @@ async fn add_node_should_auto_restart() -> Result<()> {
     let antnode_download_path = temp_dir.child(ANTNODE_FILE_NAME);
     antnode_download_path.write_binary(b"fake antnode bin")?;
 
-    let mut node_registry = NodeRegistry {
-        daemon: None,
-        environment_variables: None,
-        nat_status: None,
-        nodes: vec![],
-        save_path: node_reg_path.to_path_buf(),
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let mut mock_service_control = MockServiceControl::new();
     let mut seq = Sequence::new();
@@ -5747,13 +5559,14 @@ async fn add_node_should_auto_restart() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
     .await?;
 
-    assert!(node_registry.nodes[0].auto_restart);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert!(node0.auto_restart);
 
     Ok(())
 }
@@ -5765,13 +5578,7 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
-    let mut node_registry = NodeRegistry {
-        save_path: node_reg_path.to_path_buf(),
-        nat_status: None,
-        nodes: vec![],
-        environment_variables: None,
-        daemon: None,
-    };
+    let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -5891,7 +5698,7 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
         },
-        &mut node_registry,
+        node_registry.clone(),
         &mock_service_control,
         VerbosityLevel::Normal,
     )
@@ -5900,13 +5707,11 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
     antnode_download_path.assert(predicate::path::missing());
     node_data_dir.assert(predicate::path::is_dir());
     node_logs_dir.assert(predicate::path::is_dir());
-    assert_eq!(node_registry.nodes.len(), 1);
-    assert_eq!(node_registry.nodes[0].version, latest_version);
-    assert_eq!(
-        node_registry.nodes[0].initial_peers_config,
-        init_peers_config
-    );
-    assert!(node_registry.nodes[0].alpha);
+    assert_eq!(node_registry.nodes.read().await.len(), 1);
+    let node0 = node_registry.nodes.read().await[0].read().await.clone();
+    assert_eq!(node0.version, latest_version);
+    assert_eq!(node0.initial_peers_config, init_peers_config);
+    assert!(node0.alpha);
 
     Ok(())
 }

@@ -134,28 +134,6 @@ pub fn kill_network(node_registry: &NodeRegistry, keep_directories: bool) -> Res
     let mut system = System::new_all();
     system.refresh_all();
 
-    // It's possible that the faucet was not spun up because the network failed the validation
-    // process. If it wasn't running, we obviously don't need to do anything.
-    if let Some(faucet) = &node_registry.faucet {
-        // If we're here, the faucet was spun up. However, it's possible for the process to have
-        // died since then. In that case, we don't need to do anything.
-        // I think the use of `unwrap` is justified here, because for a local network, if the
-        // faucet is not `None`, the pid also must have a value.
-        if let Some(process) = system.process(Pid::from(faucet.pid.unwrap() as usize)) {
-            process.kill();
-            debug!("Faucet has been killed");
-            println!("{} Killed faucet", "✓".green());
-        }
-    }
-
-    let faucet_data_path = dirs_next::data_dir()
-        .ok_or_else(|| eyre!("Could not obtain user's data directory"))?
-        .join("autonomi")
-        .join("test_faucet");
-    if faucet_data_path.is_dir() {
-        std::fs::remove_dir_all(faucet_data_path)?;
-        debug!("Removed faucet data directory");
-    }
     let genesis_data_path = dirs_next::data_dir()
         .ok_or_else(|| eyre!("Could not obtain user's data directory"))?
         .join("autonomi")

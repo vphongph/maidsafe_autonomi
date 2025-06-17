@@ -155,7 +155,7 @@ impl RunningNode {
         &self.rewards_address
     }
 
-    /// Shutdown the SwarmDriver loop and the node (NetworkEvents) loop.
+    /// Shutdown the network driver loop and the node (NetworkEvents) loop.
     pub fn shutdown(self) {
         // Send the shutdown signal to the swarm driver and node loop
         let _ = self.shutdown_sender.send(true);

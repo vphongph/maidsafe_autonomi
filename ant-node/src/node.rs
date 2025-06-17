@@ -154,7 +154,7 @@ impl NodeBuilder {
     ///
     /// # Errors
     ///
-    /// Returns an error if there is a problem initializing the `SwarmDriver`.
+    /// Returns an error if there is a problem initializing the Network.
     pub fn build_and_run(self) -> Result<RunningNode> {
         let mut network_builder =
             NetworkBuilder::new(self.identity_keypair, self.local, self.initial_peers);
@@ -264,7 +264,7 @@ impl Node {
         &self.inner.evm_network
     }
 
-    /// Runs a task for the provided `SwarmDriver` and spawns a task to process for `NetworkEvents`.
+    /// Spawns a task to process for `NetworkEvents`.
     /// Returns both tasks as JoinHandle<()>.
     fn run(
         self,

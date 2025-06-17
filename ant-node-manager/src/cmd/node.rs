@@ -56,6 +56,7 @@ pub async fn add(
     network_id: Option<u8>,
     node_ip: Option<Ipv4Addr>,
     node_port: Option<PortRange>,
+    node_registry: NodeRegistryManager,
     mut init_peers_config: InitialPeersConfig,
     relay: bool,
     rewards_address: RewardsAddress,
@@ -94,7 +95,6 @@ pub async fn add(
         None
     };
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
 
     let (antnode_src_path, version) = if let Some(path) = src_path.clone() {
@@ -161,6 +161,7 @@ pub async fn add(
 
 pub async fn balance(
     peer_ids: Vec<String>,
+    node_registry: NodeRegistryManager,
     service_names: Vec<String>,
     verbosity: VerbosityLevel,
 ) -> Result<()> {
@@ -168,7 +169,6 @@ pub async fn balance(
         print_banner("Reward Balances");
     }
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
         node_registry.clone(),
         &ServiceController {},
@@ -197,6 +197,7 @@ pub async fn balance(
 pub async fn remove(
     keep_directories: bool,
     peer_ids: Vec<String>,
+    node_registry: NodeRegistryManager,
     service_names: Vec<String>,
     verbosity: VerbosityLevel,
 ) -> Result<()> {
@@ -205,7 +206,6 @@ pub async fn remove(
     }
     info!("Removing antnode services with keep_dirs=({keep_directories}) for: {peer_ids:?}, {service_names:?}");
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
         node_registry.clone(),
         &ServiceController {},
@@ -246,7 +246,11 @@ pub async fn remove(
     summarise_any_failed_ops(failed_services, "remove", verbosity)
 }
 
-pub async fn reset(force: bool, verbosity: VerbosityLevel) -> Result<()> {
+pub async fn reset(
+    force: bool,
+    node_registry: NodeRegistryManager,
+    verbosity: VerbosityLevel,
+) -> Result<()> {
     if verbosity != VerbosityLevel::Minimal {
         print_banner("Reset Antnode Services");
     }
@@ -264,8 +268,8 @@ pub async fn reset(force: bool, verbosity: VerbosityLevel) -> Result<()> {
         }
     }
 
-    stop(None, vec![], vec![], verbosity).await?;
-    remove(false, vec![], vec![], verbosity).await?;
+    stop(None, node_registry.clone(), vec![], vec![], verbosity).await?;
+    remove(false, vec![], node_registry, vec![], verbosity).await?;
 
     // Due the possibility of repeated runs of the `reset` command, we need to check for the
     // existence of this file before attempting to delete it, since `remove_file` will return an
@@ -282,6 +286,7 @@ pub async fn reset(force: bool, verbosity: VerbosityLevel) -> Result<()> {
 pub async fn start(
     connection_timeout_s: u64,
     fixed_interval: Option<u64>,
+    node_registry: NodeRegistryManager,
     peer_ids: Vec<String>,
     service_names: Vec<String>,
     verbosity: VerbosityLevel,
@@ -291,7 +296,6 @@ pub async fn start(
     }
     info!("Starting antnode services for: {peer_ids:?}, {service_names:?}");
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
         node_registry.clone(),
         &ServiceController {},
@@ -352,8 +356,12 @@ pub async fn start(
     summarise_any_failed_ops(failed_services, "start", verbosity)
 }
 
-pub async fn status(details: bool, fail: bool, json: bool) -> Result<()> {
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
+pub async fn status(
+    details: bool,
+    fail: bool,
+    json: bool,
+    node_registry: NodeRegistryManager,
+) -> Result<()> {
     if !node_registry.nodes.read().await.is_empty() {
         if !json && !details {
             print_banner("Antnode Services");
@@ -374,6 +382,7 @@ pub async fn status(details: bool, fail: bool, json: bool) -> Result<()> {
 
 pub async fn stop(
     interval: Option<u64>,
+    node_registry: NodeRegistryManager,
     peer_ids: Vec<String>,
     service_names: Vec<String>,
     verbosity: VerbosityLevel,
@@ -383,7 +392,6 @@ pub async fn stop(
     }
     info!("Stopping antnode services for: {peer_ids:?}, {service_names:?}");
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
         node_registry.clone(),
         &ServiceController {},
@@ -437,6 +445,7 @@ pub async fn upgrade(
     custom_bin_path: Option<PathBuf>,
     force: bool,
     fixed_interval: Option<u64>,
+    node_registry: NodeRegistryManager,
     peer_ids: Vec<String>,
     provided_env_variables: Option<Vec<(String, String)>>,
     service_names: Vec<String>,
@@ -465,7 +474,6 @@ pub async fn upgrade(
     )
     .await?;
 
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     refresh_node_registry(
         node_registry.clone(),
         &ServiceController {},
@@ -597,6 +605,7 @@ pub async fn maintain_n_running_nodes(
     network_id: Option<u8>,
     node_ip: Option<Ipv4Addr>,
     node_port: Option<PortRange>,
+    node_registry: NodeRegistryManager,
     peers_args: InitialPeersConfig,
     relay: bool,
     rewards_address: RewardsAddress,
@@ -610,7 +619,6 @@ pub async fn maintain_n_running_nodes(
     verbosity: VerbosityLevel,
     start_node_interval: Option<u64>,
 ) -> Result<()> {
-    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     let mut running_nodes = Vec::new();
 
     for node in node_registry.nodes.read().await.iter() {
@@ -641,7 +649,14 @@ pub async fn maintain_n_running_nodes(
                 "Stopping {} excess nodes: {:?}",
                 to_stop_count, services_to_stop
             );
-            stop(None, vec![], services_to_stop, verbosity).await?;
+            stop(
+                None,
+                node_registry.clone(),
+                vec![],
+                services_to_stop,
+                verbosity,
+            )
+            .await?;
         }
         Ordering::Less => {
             let to_start_count = target_count - running_count;
@@ -664,6 +679,7 @@ pub async fn maintain_n_running_nodes(
                 start(
                     connection_timeout_s,
                     start_node_interval,
+                    node_registry.clone(),
                     vec![],
                     nodes_to_start,
                     verbosity,
@@ -703,6 +719,7 @@ pub async fn maintain_n_running_nodes(
                         network_id,
                         node_ip,
                         Some(PortRange::Single(port)),
+                        node_registry.clone(),
                         peers_args.clone(),
                         relay,
                         rewards_address,
@@ -721,6 +738,7 @@ pub async fn maintain_n_running_nodes(
                         start(
                             connection_timeout_s,
                             start_node_interval,
+                            node_registry.clone(),
                             vec![],
                             added_service,
                             verbosity,
@@ -733,6 +751,7 @@ pub async fn maintain_n_running_nodes(
                     start(
                         connection_timeout_s,
                         start_node_interval,
+                        node_registry.clone(),
                         vec![],
                         inactive_nodes,
                         verbosity,
@@ -750,9 +769,8 @@ pub async fn maintain_n_running_nodes(
     }
 
     // Verify final state
-    let final_node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     let mut final_running_count = 0;
-    for node in final_node_registry.nodes.read().await.iter() {
+    for node in node_registry.nodes.read().await.iter() {
         let node_read = node.read().await;
         if node_read.status == ServiceStatus::Running {
             final_running_count += 1;

@@ -38,7 +38,7 @@ use ant_bootstrap::InitialPeersConfig;
 use ant_node_manager::add_services::config::PortRange;
 use ant_node_manager::config::get_node_registry_path;
 use ant_service_management::{
-    control::ServiceController, NodeRegistry, NodeServiceData, ServiceStatus,
+    control::ServiceController, NodeRegistryManager, NodeServiceData, ServiceStatus,
 };
 use color_eyre::eyre::{Ok, OptionExt, Result};
 use crossterm::event::KeyEvent;
@@ -82,6 +82,7 @@ pub struct Status<'a> {
     error_while_running_nat_detection: usize,
     // Track if NAT detection is currently running
     nat_detection_in_progress: bool,
+    node_registry: NodeRegistryManager,
     // Device Stats Section
     node_stats: NodeStats,
     node_stats_last_update: Instant,
@@ -131,6 +132,7 @@ pub struct StatusConfig {
 
 impl Status<'_> {
     pub async fn new(config: StatusConfig) -> Result<Self> {
+        let node_registry = NodeRegistryManager::load(&get_node_registry_path()?).await?;
         let mut status = Self {
             init_peers_config: config.init_peers_config,
             action_sender: Default::default(),
@@ -140,10 +142,11 @@ impl Status<'_> {
             error_while_running_nat_detection: 0,
             nat_detection_in_progress: false,
             network_id: config.network_id,
+            node_registry: node_registry.clone(),
             node_stats: NodeStats::default(),
             node_stats_last_update: Instant::now(),
             node_services: Default::default(),
-            node_management: NodeManagement::new()?,
+            node_management: NodeManagement::new(node_registry.clone())?,
             items: None,
             nodes_to_start: config.allocated_disk_space,
             rewards_address: config.rewards_address,
@@ -161,17 +164,17 @@ impl Status<'_> {
         // Nodes registry
         let now = Instant::now();
         debug!("Refreshing node registry states on startup");
-        let mut node_registry = NodeRegistry::load(&get_node_registry_path()?)?;
+
         ant_node_manager::refresh_node_registry(
-            &mut node_registry,
+            node_registry.clone(),
             &ServiceController {},
             false,
             true,
         )
         .await?;
-        node_registry.save()?;
+        node_registry.save().await?;
         debug!("Node registry states refreshed in {:?}", now.elapsed());
-        status.load_node_registry_and_update_states()?;
+        status.update_state_from_registry()?;
 
         Ok(status)
     }
@@ -350,14 +353,19 @@ impl Status<'_> {
             .ok_or_eyre("Action sender not registered")
     }
 
-    fn load_node_registry_and_update_states(&mut self) -> Result<()> {
-        let node_registry = NodeRegistry::load(&get_node_registry_path()?)?;
-        self.is_nat_status_determined = node_registry.nat_status.is_some();
-        self.node_services = node_registry
-            .nodes
-            .into_iter()
-            .filter(|node| node.status != ServiceStatus::Removed)
-            .collect();
+    /// Blocks until the lock for node registry is acquired. Thus we gotta make sure that we call this only IF
+    /// any node_mgmt action is completed.
+    fn update_state_from_registry(&mut self) -> Result<()> {
+        self.is_nat_status_determined = self.node_registry.nat_status.blocking_read().is_some();
+        let mut nodes = Vec::new();
+        for node in self.node_registry.nodes.blocking_read().iter() {
+            let node = node.blocking_read();
+            if node.status != ServiceStatus::Running {
+                nodes.push(node.clone());
+            }
+        }
+        self.node_services = nodes;
+
         info!(
             "Loaded node registry. Maintaining {:?} nodes.",
             self.node_services.len()
@@ -534,12 +542,12 @@ impl Component for Status<'_> {
                         self.unlock_service(service_name.as_str());
                         self.update_item(service_name, NodeStatus::Running)?;
                     }
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                 }
                 StatusActions::StopNodesCompleted { service_name } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name, NodeStatus::Stopped)?;
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                 }
                 StatusActions::UpdateNodesCompleted => {
                     if let Some(items) = &self.items {
@@ -549,7 +557,7 @@ impl Component for Status<'_> {
                         }
                     }
                     self.clear_node_items();
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                     let _ = self.update_node_items(None);
                     debug!("Update nodes completed");
                 }
@@ -560,7 +568,7 @@ impl Component for Status<'_> {
                             self.unlock_service(item.name.as_str());
                         }
                     }
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                     self.clear_node_items();
 
                     if trigger_start_node {
@@ -572,13 +580,13 @@ impl Component for Status<'_> {
                 StatusActions::AddNodesCompleted { service_name } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name.clone(), NodeStatus::Stopped)?;
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                     debug!("Adding {:?} completed", service_name.clone());
                 }
                 StatusActions::RemoveNodesCompleted { service_name } => {
                     self.unlock_service(service_name.as_str());
                     self.update_item(service_name, NodeStatus::Removed)?;
-                    self.load_node_registry_and_update_states()?;
+                    self.update_state_from_registry()?;
                     let _ = self.update_node_items(None);
                     debug!("Removing nodes completed");
                 }
@@ -1031,7 +1039,7 @@ impl Component for Status<'_> {
             },
             Action::OptionsActions(OptionsActions::UpdateNodes) => {
                 debug!("Got action to Update Nodes");
-                self.load_node_registry_and_update_states()?;
+                self.update_state_from_registry()?;
                 let action_sender = self.get_actions_sender()?;
                 info!("Got action to update nodes");
                 let _ = self.update_node_items(Some(NodeStatus::Updating));

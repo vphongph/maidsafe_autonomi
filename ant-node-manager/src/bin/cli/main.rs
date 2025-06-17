@@ -15,8 +15,9 @@ use ant_logging::{LogBuilder, LogFormat};
 use ant_node_manager::{
     add_services::config::PortRange,
     cmd::{self},
-    VerbosityLevel, DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
+    config, VerbosityLevel, DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
 };
+use ant_service_management::NodeRegistryManager;
 use clap::{Parser, Subcommand};
 use color_eyre::{eyre::eyre, Result};
 use libp2p::Multiaddr;
@@ -820,6 +821,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("Executing cmd: {:?}", args.cmd);
 
+    let node_registry = NodeRegistryManager::load(&config::get_node_registry_path()?).await?;
     match args.cmd {
         Some(SubCmd::Add {
             alpha,
@@ -866,6 +868,7 @@ async fn main() -> Result<()> {
                 network_id,
                 node_ip,
                 node_port,
+                node_registry,
                 peers,
                 relay,
                 rewards_address,
@@ -884,7 +887,7 @@ async fn main() -> Result<()> {
         Some(SubCmd::Balance {
             peer_id: peer_ids,
             service_name: service_names,
-        }) => cmd::node::balance(peer_ids, service_names, verbosity).await,
+        }) => cmd::node::balance(peer_ids, node_registry, service_names, verbosity).await,
         Some(SubCmd::Daemon(DaemonSubCmd::Add {
             address,
             env_variables,
@@ -998,8 +1001,17 @@ async fn main() -> Result<()> {
             keep_directories,
             peer_id: peer_ids,
             service_name: service_names,
-        }) => cmd::node::remove(keep_directories, peer_ids, service_names, verbosity).await,
-        Some(SubCmd::Reset { force }) => cmd::node::reset(force, verbosity).await,
+        }) => {
+            cmd::node::remove(
+                keep_directories,
+                peer_ids,
+                node_registry,
+                service_names,
+                verbosity,
+            )
+            .await
+        }
+        Some(SubCmd::Reset { force }) => cmd::node::reset(force, node_registry, verbosity).await,
         Some(SubCmd::Start {
             connection_timeout,
             interval,
@@ -1009,6 +1021,7 @@ async fn main() -> Result<()> {
             cmd::node::start(
                 connection_timeout,
                 interval,
+                node_registry,
                 peer_ids,
                 service_names,
                 verbosity,
@@ -1019,12 +1032,12 @@ async fn main() -> Result<()> {
             details,
             fail,
             json,
-        }) => cmd::node::status(details, fail, json).await,
+        }) => cmd::node::status(details, fail, json, node_registry).await,
         Some(SubCmd::Stop {
             interval,
             peer_id: peer_ids,
             service_name: service_names,
-        }) => cmd::node::stop(interval, peer_ids, service_names, verbosity).await,
+        }) => cmd::node::stop(interval, node_registry, peer_ids, service_names, verbosity).await,
         Some(SubCmd::Upgrade {
             connection_timeout,
             do_not_start,
@@ -1043,6 +1056,7 @@ async fn main() -> Result<()> {
                 path,
                 force,
                 interval,
+                node_registry,
                 peer_ids,
                 provided_env_variable,
                 service_names,

@@ -11,12 +11,10 @@ use super::{
 };
 #[cfg(feature = "open-metrics")]
 use crate::metrics::NodeMetricsRecorder;
-use crate::networking::Addresses;
 #[cfg(feature = "open-metrics")]
 use crate::networking::MetricsRegistries;
-use crate::networking::{
-    Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
-};
+use crate::networking::{Addresses, NetworkBuilder};
+use crate::networking::{Network, NetworkError, NetworkEvent, NodeIssue};
 use crate::RunningNode;
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::EvmNetwork;
@@ -184,8 +182,11 @@ impl NodeBuilder {
 
         network_builder.no_upnp(self.no_upnp);
 
-        let (network, network_event_receiver, swarm_driver) =
-            network_builder.build_node(self.root_dir.clone())?;
+        // Create a shutdown signal channel
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let (network, network_event_receiver) =
+            network_builder.build_node(self.root_dir.clone(), shutdown_rx.clone())?;
 
         let node_events_channel = NodeEventsChannel::default();
 
@@ -202,11 +203,8 @@ impl NodeBuilder {
             inner: Arc::new(node),
         };
 
-        // Create a shutdown signal channel
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
         // Run the node
-        node.run(swarm_driver, network_event_receiver, shutdown_rx);
+        node.run(network_event_receiver, shutdown_rx);
 
         let running_node = RunningNode {
             shutdown_sender: shutdown_tx,
@@ -270,7 +268,6 @@ impl Node {
     /// Returns both tasks as JoinHandle<()>.
     fn run(
         self,
-        swarm_driver: SwarmDriver,
         mut network_event_receiver: Receiver<NetworkEvent>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) {
@@ -278,7 +275,6 @@ impl Node {
 
         let peers_connected = Arc::new(AtomicUsize::new(0));
 
-        let _swarm_driver_task = spawn(swarm_driver.run(shutdown_rx.clone()));
         let _node_task = spawn(async move {
             // use a random inactivity timeout to ensure that the nodes do not sync when messages
             // are being transmitted.

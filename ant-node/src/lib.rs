@@ -49,7 +49,8 @@ pub use self::{
 
 use crate::error::{Error, Result};
 
-use crate::networking::{Network, SwarmLocalState};
+use crate::networking::Network;
+use crate::networking::SwarmLocalState;
 use ant_evm::RewardsAddress;
 use ant_protocol::{get_port_from_multiaddr, NetworkAddress};
 use libp2p::{Multiaddr, PeerId};

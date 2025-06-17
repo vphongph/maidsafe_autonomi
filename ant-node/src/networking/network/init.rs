@@ -1,4 +1,4 @@
-// Copyright 2024 MaidSafe.net limited.
+// Copyright 2025 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
 // Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
@@ -6,18 +6,18 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use ant_protocol::constants::{KAD_STREAM_PROTOCOL_ID, MAX_PACKET_SIZE, REPLICATION_FACTOR};
+
 use crate::networking::{
     bootstrap::{InitialBootstrap, InitialBootstrapTrigger},
     circular_vec::CircularVec,
-    driver::NodeBehaviour,
+    driver::{network_discovery::NetworkDiscovery, NodeBehaviour, SwarmDriver},
     error::{NetworkError, Result},
-    event::NetworkEvent,
     external_address::ExternalAddressManager,
-    network_discovery::NetworkDiscovery,
     record_store::{NodeRecordStore, NodeRecordStoreConfig},
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    transport, Network, SwarmDriver, CLOSE_GROUP_SIZE,
+    transport, NetworkEvent, CLOSE_GROUP_SIZE,
 };
 #[cfg(feature = "open-metrics")]
 use crate::networking::{
@@ -52,11 +52,12 @@ use std::{
     fs,
     io::{Read, Write},
     net::SocketAddr,
-    num::NonZeroUsize,
     path::PathBuf,
     time::Duration,
 };
 use tokio::sync::mpsc;
+
+use super::Network;
 
 // Timeout for requests sent/received through the request_response behaviour.
 const REQUEST_TIMEOUT_DEFAULT_S: Duration = Duration::from_secs(30);
@@ -70,19 +71,6 @@ const NETWORKING_CHANNEL_SIZE: usize = 10_000;
 
 /// Time before a Kad query times out if no response is received
 const KAD_QUERY_TIMEOUT_S: Duration = Duration::from_secs(10);
-
-// Init during compilation, instead of runtime error that should never happen
-// Option<T>::expect will be stabilised as const in the future (https://github.com/rust-lang/rust/issues/67441)
-const REPLICATION_FACTOR: NonZeroUsize = match NonZeroUsize::new(CLOSE_GROUP_SIZE + 2) {
-    Some(v) => v,
-    None => panic!("CLOSE_GROUP_SIZE should not be zero"),
-};
-
-const KAD_STREAM_PROTOCOL_ID: StreamProtocol = StreamProtocol::new("/autonomi/kad/1.0.0");
-
-/// What is the largest packet to send over the network.
-/// Records larger than this will be rejected.
-pub(super) const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5; // the chunk size is 1mb, so should be higher than that to prevent failures
 
 /// Interval to trigger native libp2p::kad bootstrap.
 /// This is the max time it should take. Minimum interval at any node will be half this
@@ -179,12 +167,13 @@ impl NetworkBuilder {
     pub(crate) fn build_node(
         self,
         root_dir: PathBuf,
-    ) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<(Network, mpsc::Receiver<NetworkEvent>)> {
         let bootstrap_interval = rand::thread_rng().gen_range(
             PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S / 2..PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S,
         );
 
-        let mut kad_cfg = kad::Config::new(KAD_STREAM_PROTOCOL_ID);
+        let mut kad_cfg = kad::Config::new(StreamProtocol::new(KAD_STREAM_PROTOCOL_ID));
         let _ = kad_cfg
             .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
             // how often a node will replicate records that it has stored, aka copying the key-value pair to other nodes
@@ -263,7 +252,10 @@ impl NetworkBuilder {
             .listen_on(addr_quic)
             .expect("Multiaddr should be supported by our configured transports");
 
-        Ok((network, events_receiver, swarm_driver))
+        // Run the swarm driver as a background task
+        let _swarm_driver_task = tokio::spawn(swarm_driver.run(shutdown_rx.clone()));
+
+        Ok((network, events_receiver))
     }
 
     /// Private helper to create the network components with the provided config and req/res behaviour

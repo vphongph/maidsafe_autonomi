@@ -167,6 +167,7 @@ impl Status<'_> {
             &ServiceController {},
             false,
             true,
+            ant_node_manager::VerbosityLevel::Minimal,
         )
         .await?;
         node_registry.save()?;

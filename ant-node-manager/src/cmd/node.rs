@@ -170,6 +170,7 @@ pub async fn balance(
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
+        verbosity,
     )
     .await?;
 
@@ -209,6 +210,7 @@ pub async fn remove(
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
+        verbosity,
     )
     .await?;
 
@@ -295,6 +297,7 @@ pub async fn start(
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
+        verbosity,
     )
     .await?;
 
@@ -390,6 +393,7 @@ pub async fn stop(
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
+        verbosity,
     )
     .await?;
 
@@ -472,6 +476,7 @@ pub async fn upgrade(
         &ServiceController {},
         verbosity != VerbosityLevel::Minimal,
         false,
+        verbosity,
     )
     .await?;
 

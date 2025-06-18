@@ -151,7 +151,6 @@ jobs:
           action: start
           enable-evm-testnet: true
           node-path: target/release/antnode
-          platform: ${{ matrix.settings.host }}
           build: true
       - name: Download artifacts
         uses: actions/download-artifact@v4

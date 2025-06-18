@@ -54,6 +54,7 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{interval, Duration, Interval};
 use tracing::warn;
+use tracing::Instrument;
 
 use super::interface::{LocalSwarmCmd, NetworkEvent, NetworkSwarmCmd};
 
@@ -413,10 +414,8 @@ impl SwarmDriver {
                     event
                 );
             }
-            if let Err(error) = event_sender.send(event).await {
-                error!("SwarmDriver failed to send event: {}", error);
-            }
-        });
+            .instrument(tracing::Span::current()),
+        );
     }
 
     /// Sends an event after pushing it off thread so as to be non-blocking
@@ -433,10 +432,8 @@ impl SwarmDriver {
                     event
                 );
             }
-            if let Err(error) = event_sender.send(event).await {
-                error!("SwarmDriver failed to send event: {}", error);
-            }
-        });
+            .instrument(tracing::Span::current()),
+        );
     }
 
     /// Get K closest peers to self, from our local RoutingTable.

@@ -9,7 +9,7 @@
 use ant_evm::PaymentQuote;
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 
-use super::{Network, RetryStrategy};
+use super::{Network, Quorum, RetryStrategy};
 use super::{NetworkError, PeerInfo, Record, Strategy};
 use tokio::time::sleep;
 
@@ -32,7 +32,11 @@ impl Network {
                 Ok(()) => {
                     let network_address = NetworkAddress::from(&record.key);
                     if let Ok(Some(_)) = self
-                        .get_record_with_retries(network_address, strategy)
+                        .get_record_with_retries(
+                            network_address,
+                            strategy,
+                            strategy.verification_quorum,
+                        )
                         .await
                     {
                         return Ok(());
@@ -61,9 +65,9 @@ impl Network {
         &self,
         addr: NetworkAddress,
         strategy: &Strategy,
+        quorum: Quorum,
     ) -> Result<Option<Record>, NetworkError> {
         let mut errors = vec![];
-        let quorum = strategy.get_quorum;
         for duration in strategy.get_retry.backoff() {
             match self.get_record(addr.clone(), quorum).await {
                 // return success

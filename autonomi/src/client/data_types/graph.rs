@@ -63,7 +63,11 @@ impl Client {
 
         let record = self
             .network
-            .get_record_with_retries(key.clone(), &self.config.graph_entry)
+            .get_record_with_retries(
+                key.clone(),
+                &self.config.graph_entry,
+                self.config.graph_entry.get_quorum,
+            )
             .await
             .map_err(|err| GraphError::GetError(GetError::Network(err)))?
             .ok_or(GetError::RecordNotFound)?;

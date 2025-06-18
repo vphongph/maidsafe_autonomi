@@ -102,6 +102,8 @@ pub enum NetworkError {
         got_holders: usize,
         expected_holders: usize,
     },
+    #[error("Failed to get record: {0}")]
+    GetRecordError(String),
 
     /// Invalid retry strategy
     #[error("Invalid retry strategy, check your config or use the default")]

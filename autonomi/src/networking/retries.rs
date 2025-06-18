@@ -57,7 +57,9 @@ impl Network {
                 }
             }
         }
-        Err(NetworkError::InvalidRetryStrategy)
+        Err(NetworkError::PutRecordError(
+            "Put record {addr} failed after retries".to_string(),
+        ))
     }
 
     /// Get a record from the network with retries
@@ -99,7 +101,9 @@ impl Network {
                 }
             }
         }
-        Err(NetworkError::InvalidRetryStrategy)
+        Err(NetworkError::GetRecordError(
+            "Get record {addr} failed after retries".to_string(),
+        ))
     }
 
     /// Get quotes from the network with retries

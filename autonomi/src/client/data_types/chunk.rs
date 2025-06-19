@@ -116,7 +116,7 @@ impl Client {
 
         let record = self
             .network
-            .get_record_with_retries(key, &self.config.chunks, self.config.chunks.get_quorum)
+            .get_record_with_retries(key, &self.config.chunks)
             .await
             .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?
             .ok_or(GetError::RecordNotFound)?;

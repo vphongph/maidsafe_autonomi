@@ -9,7 +9,7 @@
 use ant_evm::PaymentQuote;
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 
-use super::{Network, Quorum, RetryStrategy};
+use super::{Network, RetryStrategy};
 use super::{NetworkError, PeerInfo, Record, Strategy};
 use tokio::time::sleep;
 
@@ -24,22 +24,34 @@ impl Network {
         strategy: &Strategy,
     ) -> Result<(), NetworkError> {
         let addr = PrettyPrintRecordKey::from(&record.key).into_owned();
-        let quorum = strategy.put_quorum;
+        let verification_strategy = Strategy {
+            get_quorum: strategy.verification_quorum,
+            ..*strategy
+        };
         let mut errors = vec![];
         for duration in strategy.put_retry.backoff() {
-            match self.put_record(record.clone(), to.clone(), quorum).await {
-                // return success
+            match self
+                .put_record(record.clone(), to.clone(), strategy.put_quorum)
+                .await
+            {
+                // return success if verification succeeds
                 Ok(()) => {
                     let network_address = NetworkAddress::from(&record.key);
-                    if let Ok(Some(_)) = self
-                        .get_record_with_retries(
-                            network_address,
-                            strategy,
-                            strategy.verification_quorum,
-                        )
+                    let error = match self
+                        .get_record_with_retries(network_address, &verification_strategy)
                         .await
                     {
-                        return Ok(());
+                        Ok(Some(_)) => return Ok(()),
+                        Ok(None) => NetworkError::PutRecordVerification("Not found".to_string()),
+                        Err(err) => NetworkError::PutRecordVerification(err.to_string()),
+                    };
+
+                    // retry on verification errors
+                    warn!("Put record failed at {addr}: {error:?}, retrying in {duration:?}");
+                    errors.push(error.clone());
+                    match duration {
+                        Some(retry_delay) => sleep(retry_delay).await,
+                        None => return Err(error),
                     }
                 }
                 // return fatal errors
@@ -57,9 +69,7 @@ impl Network {
                 }
             }
         }
-        Err(NetworkError::PutRecordError(
-            "Put record {addr} failed after retries".to_string(),
-        ))
+        Err(NetworkError::InvalidRetryStrategy)
     }
 
     /// Get a record from the network with retries
@@ -67,9 +77,9 @@ impl Network {
         &self,
         addr: NetworkAddress,
         strategy: &Strategy,
-        quorum: Quorum,
     ) -> Result<Option<Record>, NetworkError> {
         let mut errors = vec![];
+        let quorum = strategy.get_quorum;
         for duration in strategy.get_retry.backoff() {
             match self.get_record(addr.clone(), quorum).await {
                 // return success
@@ -101,9 +111,7 @@ impl Network {
                 }
             }
         }
-        Err(NetworkError::GetRecordError(
-            "Get record {addr} failed after retries".to_string(),
-        ))
+        Err(NetworkError::InvalidRetryStrategy)
     }
 
     /// Get quotes from the network with retries

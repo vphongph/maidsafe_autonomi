@@ -58,11 +58,7 @@ impl Client {
 
         let pointer = match self
             .network
-            .get_record_with_retries(
-                key.clone(),
-                &self.config.pointer,
-                self.config.pointer.get_quorum,
-            )
+            .get_record_with_retries(key.clone(), &self.config.pointer)
             .await
         {
             Ok(Some(r)) => pointer_from_record(r)?,

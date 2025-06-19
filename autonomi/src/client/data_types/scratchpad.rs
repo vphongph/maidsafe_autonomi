@@ -69,11 +69,7 @@ impl Client {
 
         let pad = match self
             .network
-            .get_record_with_retries(
-                network_address.clone(),
-                &self.config.scratchpad,
-                self.config.scratchpad.get_quorum,
-            )
+            .get_record_with_retries(network_address.clone(), &self.config.scratchpad)
             .await
         {
             Ok(maybe_record) => {

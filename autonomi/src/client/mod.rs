@@ -93,6 +93,9 @@ pub struct Client {
     evm_network: EvmNetwork,
     /// The configuration for operations on the client.
     config: ClientOperatingStrategy,
+    /// Max times of total chunks to carry out retry on upload failure.
+    /// Default to be `0` to indicate not carry out retry.
+    retry_failed: u64,
 }
 
 /// Error returned by [`Client::init`].
@@ -269,12 +272,19 @@ impl Client {
             client_event_sender: None,
             evm_network: config.evm_network,
             config: config.strategy,
+            retry_failed: 0,
         })
     }
 
     /// Set the `ClientOperatingStrategy` for the client.
     pub fn with_strategy(mut self, strategy: ClientOperatingStrategy) -> Self {
         self.config = strategy;
+        self
+    }
+
+    /// Set whether to retry failed uploads automatically.
+    pub fn with_retry_failed(mut self, retry_failed: u64) -> Self {
+        self.retry_failed = retry_failed;
         self
     }
 
@@ -288,12 +298,13 @@ impl Client {
         client_event_receiver
     }
 
+    /// Get the evm network.
     pub fn evm_network(&self) -> &EvmNetwork {
         &self.evm_network
     }
 }
 
-/// Events that can be broadcasted by the client.
+/// Events that can be sent by the client.
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
     UploadComplete(UploadSummary),

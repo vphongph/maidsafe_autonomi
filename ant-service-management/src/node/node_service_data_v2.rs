@@ -24,7 +24,7 @@ fn schema_v2_value() -> u32 {
     NODE_SERVICE_DATA_SCHEMA_V2
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct NodeServiceDataV2 {
     /// New field in V2: indicates if the node is running in alpha mode
     #[serde(default)]

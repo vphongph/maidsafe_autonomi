@@ -1042,7 +1042,7 @@ impl Component for Status<'_> {
                     action_sender,
                     connection_timeout_s: 5,
                     do_not_start: true,
-                    custom_bin_path: None,
+                    custom_bin_path: self.antnode_path.clone(),
                     force: false,
                     fixed_interval: Some(FIXED_INTERVAL),
                     peer_ids,

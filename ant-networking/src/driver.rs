@@ -88,6 +88,7 @@ impl From<std::convert::Infallible> for NodeEvent {
 pub(super) struct NodeBehaviour {
     pub(super) blocklist:
         libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
+    pub(super) do_not_disturb: crate::behaviour::do_not_disturb::Behaviour,
     pub(super) identify: libp2p::identify::Behaviour,
     pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,

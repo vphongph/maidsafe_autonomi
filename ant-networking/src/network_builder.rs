@@ -434,6 +434,7 @@ impl NetworkBuilder {
 
         let behaviour = NodeBehaviour {
             blocklist: libp2p::allow_block_list::Behaviour::default(),
+            do_not_disturb: crate::behaviour::do_not_disturb::Behaviour::default(),
             // `Relay client Behaviour` is enabled for all nodes. This is required for normal nodes to connect to relay
             // clients.
             relay_client: relay_behaviour,

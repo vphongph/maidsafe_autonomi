@@ -586,6 +586,9 @@ impl Node {
             Response::Cmd(CmdResponse::FreshReplicate(Ok(()))) => {
                 // No need to handle
             }
+            Response::Cmd(CmdResponse::DoNotDisturb(Ok(()))) => {
+                debug!("DoNotDisturb command executed successfully.");
+            }
             other => {
                 warn!("handle_response not implemented for {other:?}");
             }

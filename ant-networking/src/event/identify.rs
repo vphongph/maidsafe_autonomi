@@ -6,11 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::cmd::NetworkSwarmCmd;
 use crate::relay_manager::{is_a_relayed_peer, RelayManager};
 use crate::{
     craft_valid_multiaddr_without_p2p, multiaddr_strip_p2p, Addresses, NetworkEvent, SwarmDriver,
 };
+use ant_protocol::messages::{Cmd, Request};
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
+use ant_protocol::NetworkAddress;
 use itertools::Itertools;
 use libp2p::identify::Info;
 use libp2p::kad::K_VALUE;
@@ -167,7 +170,17 @@ impl SwarmDriver {
 
                     if *resets > 3 {
                         warn!("Peer {peer_id:?} has been re-added to the dial queue {resets} times. Asking it to DND for a while.");
-
+                        // request
+                        let request = Request::Cmd(Cmd::DoNotDisturb {
+                            peer: NetworkAddress::from(self.self_peer_id),
+                            duration: DIAL_BACK_DELAY.as_secs() + 20,
+                        });
+                        self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
+                            req: request,
+                            addrs: None,
+                            peer: peer_id,
+                            sender: None,
+                        });
                         return;
                     }
 

@@ -867,9 +867,12 @@ impl SwarmDriver {
                     self.update_on_peer_removal(*dead_peer.node.key.preimage());
                 }
             }
-            LocalSwarmCmd::DoNotDisturb { .. } => {
+            LocalSwarmCmd::DoNotDisturb { peer, duration } => {
                 cmd_string = "DoNotDisturb";
-                // self.swarm.behaviour_mut().dnd.add(peer, duration);
+                self.swarm
+                    .behaviour_mut()
+                    .do_not_disturb
+                    .block_peer(peer, duration);
             }
         }
 

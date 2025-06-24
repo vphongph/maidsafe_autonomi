@@ -7,7 +7,7 @@ Add the `@withautonomi/ant-node` package to your project. For example, using `np
 $ npm install @withautonomi/ant-node
 ```
 
-Using a modern version of Node.js we can use `import` and `async` easily when we use the `.mjs` extension. Import `encrypt` or `decrypt` and you're ready to start self encrypting!
+Using a modern version of Node.js we can use `import` and `async` easily when we use the `.mjs` extension.
 
 ```js
 // main.mjs

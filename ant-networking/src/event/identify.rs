@@ -162,26 +162,16 @@ impl SwarmDriver {
             }
 
             info!("received identify info from undialed peer {peer_id:?} for not full kbucket {ilog2:?}, dialing back after {DIAL_BACK_DELAY:?}. Addrs: {addrs:?}");
+            let mut send_dnd = false;
             match self.dial_queue.entry(peer_id) {
                 hash_map::Entry::Occupied(mut entry) => {
                     let (old_addrs, time, resets) = entry.get_mut();
 
                     *resets += 1;
 
-                    if *resets > 3 {
+                    if *resets >= 3 {
                         warn!("Peer {peer_id:?} has been re-added to the dial queue {resets} times. Asking it to DND for a while.");
-                        // request
-                        let request = Request::Cmd(Cmd::DoNotDisturb {
-                            peer: NetworkAddress::from(self.self_peer_id),
-                            duration: DIAL_BACK_DELAY.as_secs() + 20,
-                        });
-                        self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
-                            req: request,
-                            addrs: None,
-                            peer: peer_id,
-                            sender: None,
-                        });
-                        return;
+                        send_dnd = true;
                     }
 
                     debug!("Resetting dial time for {peer_id:?}");
@@ -215,6 +205,20 @@ impl SwarmDriver {
                     debug!("Adding new addr {addrs:?} to dial queue for {peer_id:?}");
                     entry.insert((Addresses(addrs), Instant::now() + DIAL_BACK_DELAY, 1));
                 }
+            }
+
+            if send_dnd {
+                // request
+                let request = Request::Cmd(Cmd::DoNotDisturb {
+                    peer: NetworkAddress::from(self.self_peer_id),
+                    duration: DIAL_BACK_DELAY.as_secs() + 20,
+                });
+                self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
+                    req: request,
+                    addrs: None,
+                    peer: peer_id,
+                    sender: None,
+                });
             }
         } else {
             // We care only for peers that we dialed and thus are reachable.

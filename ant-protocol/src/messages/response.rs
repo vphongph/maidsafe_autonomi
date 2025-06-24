@@ -150,4 +150,6 @@ pub enum CmdResponse {
     //
     /// Response to the considered as bad notification
     PeerConsideredAsBad(Result<()>),
+    /// Response to the DoNotDisturb cmd
+    DoNotDisturb(Result<()>),
 }

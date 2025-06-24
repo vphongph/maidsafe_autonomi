@@ -133,7 +133,7 @@ pub struct SwarmDriver {
     >,
     /// A list of the most recent peers we have dialed ourselves. Old dialed peers are evicted once the vec fills up.
     pub(crate) dialed_peers: CircularVec<PeerId>,
-    pub(crate) dial_queue: HashMap<PeerId, (Addresses, Instant)>,
+    pub(crate) dial_queue: HashMap<PeerId, (Addresses, Instant, usize)>,
     // Peers that having live connection to. Any peer got contacted during kad network query
     // will have live connection established. And they may not appear in the RT.
     pub(crate) live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr, Instant)>,
@@ -262,7 +262,7 @@ impl SwarmDriver {
                     let mut to_remove = vec![];
                     // check if we can dial any peer in the dial queue
                     // if we have no peers in the dial queue, skip this check
-                    for (peer_id, (addrs, wait_time)) in self.dial_queue.iter() {
+                    for (peer_id, (addrs, wait_time, _resets)) in self.dial_queue.iter() {
                         if now > *wait_time {
                             info!("Dialing peer {peer_id:?} from dial queue with addresses {addrs:?}");
                             to_remove.push(*peer_id);

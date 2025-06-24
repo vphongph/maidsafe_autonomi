@@ -102,7 +102,11 @@ impl SwarmDriver {
             debug!("Peer {peer_id:?} is requesting for a reachability check. Adding it to the dial queue. Not adding to RT.");
             self.dial_queue.insert(
                 peer_id,
-                (Addresses(addrs.clone()), Instant::now() + DIAL_BACK_DELAY),
+                (
+                    Addresses(addrs.clone()),
+                    Instant::now() + DIAL_BACK_DELAY,
+                    1,
+                ),
             );
             return;
         } else if info.agent_version.contains("client") {
@@ -157,7 +161,15 @@ impl SwarmDriver {
             info!("received identify info from undialed peer {peer_id:?} for not full kbucket {ilog2:?}, dialing back after {DIAL_BACK_DELAY:?}. Addrs: {addrs:?}");
             match self.dial_queue.entry(peer_id) {
                 hash_map::Entry::Occupied(mut entry) => {
-                    let (old_addrs, time) = entry.get_mut();
+                    let (old_addrs, time, resets) = entry.get_mut();
+
+                    *resets += 1;
+
+                    if *resets > 3 {
+                        warn!("Peer {peer_id:?} has been re-added to the dial queue {resets} times. Asking it to DND for a while.");
+
+                        return;
+                    }
 
                     debug!("Resetting dial time for {peer_id:?}");
                     *time = Instant::now() + DIAL_BACK_DELAY;
@@ -188,7 +200,7 @@ impl SwarmDriver {
                 }
                 hash_map::Entry::Vacant(entry) => {
                     debug!("Adding new addr {addrs:?} to dial queue for {peer_id:?}");
-                    entry.insert((Addresses(addrs), Instant::now() + DIAL_BACK_DELAY));
+                    entry.insert((Addresses(addrs), Instant::now() + DIAL_BACK_DELAY, 1));
                 }
             }
         } else {

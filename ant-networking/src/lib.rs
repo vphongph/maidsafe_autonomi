@@ -12,6 +12,7 @@
 #[macro_use]
 extern crate tracing;
 
+mod behaviour;
 mod bootstrap;
 mod circular_vec;
 mod cmd;

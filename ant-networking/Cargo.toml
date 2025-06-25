@@ -54,6 +54,7 @@ prometheus-client = { version = "0.22", optional = true }
 rand = { version = "~0.8.5", features = ["small_rng"] }
 rayon = "1.8.0"
 rmp-serde = "1.1.1"
+semver = "1.0.26"
 serde = { version = "1.0.133", features = ["derive", "rc"] }
 sha2 = "0.10"
 strum = { version = "0.26.2", features = ["derive"] }

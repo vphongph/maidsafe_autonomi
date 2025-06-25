@@ -964,6 +964,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "rmp-serde",
+ "semver 1.0.26",
  "serde",
  "sha2",
  "strum 0.26.3",

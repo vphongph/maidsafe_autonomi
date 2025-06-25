@@ -76,6 +76,7 @@ pub(super) enum NodeEvent {
     Identify(Box<libp2p::identify::Event>),
     RelayClient(Box<libp2p::relay::client::Event>),
     RelayServer(Box<libp2p::relay::Event>),
+    DoNotDisturb(crate::behaviour::do_not_disturb::DoNotDisturbEvent),
     Void(void::Void),
 }
 
@@ -110,6 +111,12 @@ impl From<libp2p::relay::client::Event> for NodeEvent {
 impl From<libp2p::relay::Event> for NodeEvent {
     fn from(event: libp2p::relay::Event) -> Self {
         NodeEvent::RelayServer(Box::new(event))
+    }
+}
+
+impl From<crate::behaviour::do_not_disturb::DoNotDisturbEvent> for NodeEvent {
+    fn from(event: crate::behaviour::do_not_disturb::DoNotDisturbEvent) -> Self {
+        NodeEvent::DoNotDisturb(event)
     }
 }
 

@@ -170,7 +170,7 @@ impl SwarmDriver {
                 info!("received identify info from undialed peer {peer_id:?} for not full kbucket {ilog2:?}, dialing back after {DIAL_BACK_DELAY:?}. Addrs: {addrs:?}");
                 DIAL_BACK_DELAY
             } else {
-                info!("received identify info from undialed peer {peer_id:?} for not full kbucket {ilog2:?}, dialing back immediately because peer does not support DoNotDisturb cmd. Addrs: {addrs:?}");
+                info!("received identify info from undialed peer {peer_id:?} for not full kbucket {ilog2:?}, dialing back immediately because peer does not support DoNotDisturb protocol. Addrs: {addrs:?}");
                 Duration::from_secs(0)
             };
 
@@ -312,48 +312,11 @@ impl SwarmDriver {
     }
 }
 
-/// Read the agent version from the identify info.
-/// The agent version is expected to be in the format: `ant/peer_name/{ant_protocol_version}/{peer_version}/{network_id}`
-fn read_agent_version(info: &Info) -> Option<semver::Version> {
-    let mut parts = info.agent_version.split('/');
-
-    if let Ok(version) = semver::Version::parse(parts.nth(3).unwrap_or("")) {
-        debug!("Parsed agent version: {version}");
-        Some(version)
-    } else {
-        debug!(
-            "Failed to parse agent version from identify info: {:?}",
-            info.agent_version
-        );
-        None
-    }
-}
-
-/// The 180s delayed dial back was introduced with node version 0.4.1. This also added in the DoNotDisturb cmd to prevent
-/// a node from being stuck in the dial queue for too long (because of the remote resetting the timer).
-///
-/// This function checks if the peer supports the DoNotDisturb cmd by checking the nodes version. Any node that does
-/// not support the DoNotDisturb cmd will fallback to immediate dialing, as we had before the 0.4.1 release.
-///
-/// This version also updated the agent version format to include the node's actual version.
-/// format: `ant/peer_name/{ant_protocol_version}/{peer_version}/{network_id}`
-///
-/// Thus any peer without the peer_version is also considered as not supporting the DoNotDisturb cmd.
 fn does_the_peer_support_dnd(info: &Info) -> bool {
-    let peer_version = read_agent_version(info);
-    if let Some(version) = peer_version {
-        // If the node's version is less than 0.4.1, it does not support the DoNotDisturb cmd.
-        if version < semver::Version::new(0, 4, 1) {
-            debug!("Peer {info:?} does not support DoNotDisturb cmd.");
-            false
-        } else {
-            debug!("Peer {info:?} supports DoNotDisturb cmd.");
-            true
+    for protocol in &info.protocols {
+        if protocol.to_string().contains("autonomi/dnd") {
+            return true;
         }
-    } else {
-        debug!(
-            "Peer {info:?} has no agent version. We will assume that it does not support DoNotDisturb cmd."
-        );
-        false
     }
+    false
 }

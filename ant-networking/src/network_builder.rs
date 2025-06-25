@@ -26,10 +26,7 @@ use crate::{
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::{
-    version::{
-        get_network_id_str, IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR,
-        REQ_RESPONSE_VERSION_STR,
-    },
+    version::{get_network_id_str, IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR},
     NetworkAddress, PrettyPrintKBucketKey,
 };
 use futures::future::Either;
@@ -392,13 +389,11 @@ impl NetworkBuilder {
             kad::Behaviour::with_config(peer_id, store, kad_cfg)
         };
 
-        let agent_version = IDENTIFY_NODE_VERSION_STR
-            .read()
-            .expect("Failed to obtain read lock for IDENTIFY_NODE_VERSION_STR")
-            .clone();
+        let agent_version =
+            ant_protocol::version::construct_node_user_agent(env!("CARGO_PKG_VERSION").to_string());
 
         // Identify Behaviour
-        info!("Building Identify with identify_protocol_str: {identify_protocol_str:?} and identify_protocol_str: {identify_protocol_str:?}");
+        info!("Building Identify with identify_protocol_str: {identify_protocol_str:?} and agent_version: {agent_version:?}");
         let identify = {
             let cfg = libp2p::identify::Config::new(identify_protocol_str, self.keypair.public())
                 .with_agent_version(agent_version)
@@ -434,6 +429,7 @@ impl NetworkBuilder {
 
         let behaviour = NodeBehaviour {
             blocklist: libp2p::allow_block_list::Behaviour::default(),
+            do_not_disturb: crate::behaviour::do_not_disturb::Behaviour::default(),
             // `Relay client Behaviour` is enabled for all nodes. This is required for normal nodes to connect to relay
             // clients.
             relay_client: relay_behaviour,
@@ -467,7 +463,10 @@ impl NetworkBuilder {
             info!("Relay manager is disabled for this node.");
             None
         };
-        // Enable external address manager for public nodes and not behind nat
+
+        // Enable external address manager for public nodes and not behind nat.
+        // We don't get a peer's address from external address list anymore. But we should still
+        // advertise our external addresses, as the older nodes still rely on the old mechanism.
         let external_address_manager = if !self.local && !self.relay_client {
             Some(ExternalAddressManager::new(peer_id))
         } else {
@@ -487,6 +486,7 @@ impl NetworkBuilder {
             initial_bootstrap: InitialBootstrap::new(self.initial_contacts),
             initial_bootstrap_trigger: InitialBootstrapTrigger::new(is_upnp_enabled),
             bootstrap_cache: self.bootstrap_cache,
+            dial_queue: Default::default(),
             relay_manager,
             connected_relay_clients: Default::default(),
             external_address_manager,

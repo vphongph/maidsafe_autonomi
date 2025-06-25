@@ -14,7 +14,7 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::{Command, NetworkTask};
 use crate::networking::NetworkError;
-use ant_protocol::version::{IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_PROTOCOL_STR};
+use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use ant_protocol::PrettyPrintRecordKey;
 use ant_protocol::{
     messages::{Query, Request, Response},
@@ -125,10 +125,10 @@ impl NetworkDriver {
                 .read()
                 .expect("Could not get IDENTIFY_PROTOCOL_STR")
                 .clone();
-            let agent_version = IDENTIFY_CLIENT_VERSION_STR
-                .read()
-                .expect("Could not get IDENTIFY_CLIENT_VERSION_STR")
-                .clone();
+            let agent_version = ant_protocol::version::construct_client_user_agent(
+                env!("CARGO_PKG_VERSION").to_string(),
+            );
+            info!("Client user agent: {agent_version}");
             let cfg = libp2p::identify::Config::new(identify_protocol_str, keypair.public())
                 .with_agent_version(agent_version)
                 .with_interval(RESEND_IDENTIFY_INVERVAL) // todo: find a way to disable this. Clients shouldn't need to

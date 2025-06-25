@@ -307,8 +307,8 @@ impl SwarmDriver {
 
         let distance =
             NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
-        info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
-        self.peers_in_rt, distance.ilog2());
+        info!("Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.", 
+        self.self_peer_id, distance.ilog2());
 
         #[cfg(feature = "loud")]
         println!(

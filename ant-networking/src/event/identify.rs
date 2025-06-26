@@ -168,16 +168,24 @@ impl SwarmDriver {
 
                     *resets += 1;
 
-                    if *resets >= 3 {
-                        warn!("Peer {peer_id:?} has been re-added to the dial queue {resets} times. Maybe ask it to DND for a while.");
-                        send_dnd = true;
-                    }
+                    // if the peer supports DND, reset the time always.
+                    // if the peer does not support DND, do not reset the time if resets >= 3.
 
-                    if support_dnd {
-                        *time = Instant::now() + DIAL_BACK_DELAY;
-                        debug!("Resetting dial time for {peer_id:?}");
+                    *time = Instant::now() + DIAL_BACK_DELAY;
+
+                    if *resets >= 3 {
+                        send_dnd = true;
+
+                        if support_dnd {
+                            debug!("Peer {peer_id:?} has been reset 3 times. Will now send a DoNotDisturb request.");
+                        } else {
+                            *time = Instant::now();
+                            warn!("Peer {peer_id:?} has been reset 3 times. It does not support DoNotDisturb. Dialing it back immediately.");
+                        }
                     } else {
-                        debug!("Peer {peer_id:?} does not support DoNotDisturb. Not resetting dial time (immediate dial) and not sending DoNotDisturb request.");
+                        debug!(
+                            "Peer {peer_id:?} has been re-added to the dial queue; Reset the dial back time to {DIAL_BACK_DELAY:?} (resets: {resets})",
+                        );
                     }
 
                     for addr in addrs.iter() {
@@ -210,20 +218,16 @@ impl SwarmDriver {
                 }
             }
 
-            if send_dnd {
-                // If the peer does not support DoNotDisturb cmd, we dial it back immediately. Else there is a possibility
-                // of this peer getting stuck in our dial queue forever.
-                //
-                // This is a backward compatibility change and can be removed once we are sure that all nodes
-                // support the DoNotDisturb cmd.
-                if support_dnd {
-                    debug!("Peer {peer_id:?} supports DoNotDisturb. Sending DoNotDisturb request.");
-                    // request
-                    self.swarm
-                        .behaviour_mut()
-                        .do_not_disturb
-                        .send_do_not_disturb_request(peer_id, DIAL_BACK_DELAY.as_secs() + 20);
-                }
+            // If the peer does not support DoNotDisturb cmd, we dial it back immediately. Else there is a possibility
+            // of this peer getting stuck in our dial queue forever.
+            //
+            // This is a backward compatibility change and can be removed once we are sure that all nodes
+            // support the DoNotDisturb cmd.
+            if send_dnd && support_dnd {
+                self.swarm
+                    .behaviour_mut()
+                    .do_not_disturb
+                    .send_do_not_disturb_request(peer_id, DIAL_BACK_DELAY.as_secs() + 20);
             }
         } else {
             // We care only for peers that we dialed and thus are reachable.

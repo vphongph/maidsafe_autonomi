@@ -671,7 +671,7 @@ impl NetworkBehaviour for Behaviour {
                 addresses_count = addresses.len()
             );
         }
-        Ok(vec![])
+        Ok(addresses.to_vec())
     }
 
     fn handle_established_inbound_connection(
@@ -766,13 +766,15 @@ impl NetworkBehaviour for Behaviour {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
     use libp2p::swarm::{
         dial_opts::{DialOpts, PeerCondition},
-        DialError, Swarm,
+        DialError, Swarm, SwarmEvent,
     };
     use libp2p_swarm_test::SwarmExt;
     use std::time::Duration;
     use tokio::time;
+    use tokio::time::timeout;
 
     #[test]
     fn test_block_and_unblock_peer() {
@@ -1020,17 +1022,18 @@ mod tests {
     #[test]
     fn test_handle_pending_outbound_connection_none_peer() {
         let mut behaviour = Behaviour::default();
+        let test_addr: Multiaddr = "/memory/1234".parse().unwrap();
 
         // Test with None peer (should always allow)
         let result = behaviour.handle_pending_outbound_connection(
             ConnectionId::new_unchecked(1),
             None, // No specific peer
-            &[],
+            &[test_addr.clone()],
             Endpoint::Dialer,
         );
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), vec![]);
+        assert_eq!(result.unwrap(), vec![test_addr]);
     }
 
     #[test]
@@ -1868,5 +1871,115 @@ mod tests {
 
         // Verify cleanup worked
         assert!(!behaviour.blocked_peers.contains_key(&peer_id));
+    }
+
+    #[tokio::test]
+    async fn test_dialing_unblocked_peer_succeeds() {
+        println!("🔬 Testing that dialing an unblocked peer succeeds while another is blocked.");
+
+        // 1. Setup three swarms
+        let mut dialer_swarm = Swarm::new_ephemeral_tokio(|_| Behaviour::default());
+        let mut unblocked_listener = Swarm::new_ephemeral_tokio(|_| Behaviour::default());
+        let mut blocked_listener = Swarm::new_ephemeral_tokio(|_| Behaviour::default());
+
+        let dialer_peer_id = *dialer_swarm.local_peer_id();
+        let unblocked_peer_id = *unblocked_listener.local_peer_id();
+        let blocked_peer_id = *blocked_listener.local_peer_id();
+
+        println!("- Dialer: {dialer_peer_id:?}");
+        println!("- Unblocked Listener: {unblocked_peer_id:?}");
+        println!("- Blocked Listener: {blocked_peer_id:?}");
+
+        // 2. Listen on the listener swarms
+        let (unblocked_addr, _) = unblocked_listener
+            .listen()
+            .with_memory_addr_external()
+            .await;
+        let (blocked_addr, _) = blocked_listener.listen().with_memory_addr_external().await;
+        println!("- Unblocked listening on: {unblocked_addr}");
+        println!("- Blocked listening on: {blocked_addr}");
+
+        // 3. Block the 'blocked_listener' on the dialer
+        dialer_swarm
+            .behaviour_mut()
+            .block_peer(blocked_peer_id, Duration::from_secs(60));
+        println!("- Dialer has blocked peer {blocked_peer_id:?}");
+        assert!(dialer_swarm.behaviour_mut().is_blocked(&blocked_peer_id));
+
+        // 4. Verify dialing the BLOCKED peer fails immediately
+        println!("- Dialing the blocked peer {blocked_peer_id:?}...");
+        let dial_result = dialer_swarm.dial(
+            libp2p::swarm::dial_opts::DialOpts::peer_id(blocked_peer_id)
+                .condition(libp2p::swarm::dial_opts::PeerCondition::Always)
+                .addresses(vec![blocked_addr])
+                .build(),
+        );
+
+        // The dial should be denied immediately due to our blocking behavior
+        match dial_result {
+            Err(libp2p::swarm::DialError::Denied { cause }) => {
+                if let Ok(dnd_error) = cause.downcast::<DoNotDisturbError>() {
+                    println!(
+                        "- ✅ Dialer correctly denied connection to blocked peer immediately."
+                    );
+                    assert_eq!(dnd_error.peer_id, blocked_peer_id);
+                } else {
+                    panic!("Expected DoNotDisturbError but got different denial reason");
+                }
+            }
+            Ok(_) => panic!("Expected connection to blocked peer to be denied immediately"),
+            Err(e) => panic!("Unexpected dial error: {e:?}"),
+        }
+
+        // 5. THE CRITICAL TEST: Dial the UNBLOCKED peer
+        println!("- Dialing the unblocked peer {unblocked_peer_id:?}...");
+        dialer_swarm
+            .dial(
+                libp2p::swarm::dial_opts::DialOpts::peer_id(unblocked_peer_id)
+                    .condition(libp2p::swarm::dial_opts::PeerCondition::Always)
+                    .addresses(vec![unblocked_addr])
+                    .build(),
+            )
+            .expect("Dialing an unblocked peer should not fail immediately.");
+
+        // 6. Wait for connection established event
+        let mut dialer_connected = false;
+        let mut listener_connected = false;
+
+        let connection_timeout = timeout(Duration::from_secs(5), async {
+            loop {
+                tokio::select! {
+                    event = dialer_swarm.select_next_some() => {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
+                            if peer_id == unblocked_peer_id {
+                                println!("- ✅ Dialer swarm established connection with unblocked peer.");
+                                dialer_connected = true;
+                                if listener_connected {
+                                    break;
+                                }
+                            }
+                        }
+                    },
+                    event = unblocked_listener.select_next_some() => {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
+                            if peer_id == dialer_peer_id {
+                                println!("- ✅ Unblocked listener established connection with dialer.");
+                                listener_connected = true;
+                                if dialer_connected {
+                                    break;
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        });
+
+        // 7. Assert that the connection was established
+        connection_timeout
+            .await
+            .expect("Connection to unblocked peer timed out. This indicates the bug is present.");
+
+        println!("- ✅ SUCCESS: Connection to unblocked peer was established correctly.");
     }
 }

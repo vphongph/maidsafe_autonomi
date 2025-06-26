@@ -65,6 +65,8 @@ libp2p = { version = "0.55.0", features = [
     "tcp",
     "yamux",
     "websocket",
+    "metrics",
+    "autonat",
 ] }
 num-traits = "0.2"
 prometheus-client = { version = "0.22", optional = true }

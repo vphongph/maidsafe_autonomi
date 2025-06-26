@@ -19,8 +19,7 @@ use ant_networking::Addresses;
 #[cfg(feature = "open-metrics")]
 use ant_networking::MetricsRegistries;
 use ant_networking::{
-    time::sleep, Instant, Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue,
-    SwarmDriver,
+    Instant, Network, NetworkBuilder, NetworkError, NetworkEvent, NodeIssue, SwarmDriver,
 };
 use ant_protocol::{
     error::Error as ProtocolError,
@@ -64,7 +63,8 @@ const STORE_CHALLENGE_INTERVAL_MAX_S: u64 = 7200;
 const UPTIME_METRICS_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Interval to clean up unrelevant records
-const UNRELEVANT_RECORDS_CLEANUP_INTERVAL: Duration = Duration::from_secs(3600);
+/// This is the max time it should take. Minimum interval at any node will be half this
+const UNRELEVANT_RECORDS_CLEANUP_INTERVAL_MAX_S: u64 = 7200;
 
 /// Highest score to achieve from each metric sub-sector during StorageChallenge.
 const HIGHEST_SCORE: usize = 100;
@@ -75,10 +75,6 @@ const MIN_ACCEPTABLE_HEALTHY_SCORE: usize = 3000;
 
 /// in ms, expecting average StorageChallenge complete time to be around 250ms.
 const TIME_STEP: usize = 20;
-
-/// Interval to carryout network density sampling
-/// This is the max time it should take. Minimum interval at any node will be half this
-const NETWORK_DENSITY_SAMPLING_INTERVAL_MAX_S: u64 = 200;
 
 /// Helper to build and run a Node
 pub struct NodeBuilder {
@@ -285,7 +281,7 @@ impl Node {
 
         let _swarm_driver_task = spawn(swarm_driver.run(shutdown_rx.clone()));
         let _node_task = spawn(async move {
-            // use a random inactivity timeout to ensure that the nodes do not sync when messages
+            // use a random activity timeout to ensure that the nodes do not sync when messages
             // are being transmitted.
             let replication_interval: u64 = rng.gen_range(
                 PERIODIC_REPLICATION_INTERVAL_MAX_S / 2..PERIODIC_REPLICATION_INTERVAL_MAX_S,
@@ -300,8 +296,16 @@ impl Node {
                 tokio::time::interval(UPTIME_METRICS_UPDATE_INTERVAL);
             let _ = uptime_metrics_update_interval.tick().await; // first tick completes immediately
 
+            // use a random activity timeout to ensure that the nodes do not sync on work,
+            // causing an overall CPU spike.
+            let irrelevant_records_cleanup_interval: u64 = rng.gen_range(
+                UNRELEVANT_RECORDS_CLEANUP_INTERVAL_MAX_S / 2
+                    ..UNRELEVANT_RECORDS_CLEANUP_INTERVAL_MAX_S,
+            );
+            let irrelevant_records_cleanup_interval_time =
+                Duration::from_secs(irrelevant_records_cleanup_interval);
             let mut irrelevant_records_cleanup_interval =
-                tokio::time::interval(UNRELEVANT_RECORDS_CLEANUP_INTERVAL);
+                tokio::time::interval(irrelevant_records_cleanup_interval_time);
             let _ = irrelevant_records_cleanup_interval.tick().await; // first tick completes immediately
 
             // use a random neighbour storage challenge ticker to ensure
@@ -314,22 +318,6 @@ impl Node {
             let mut storage_challenge_interval =
                 tokio::time::interval(storage_challenge_interval_time);
             let _ = storage_challenge_interval.tick().await; // first tick completes immediately
-
-            // use a random network density sampling ticker to ensure
-            // neighbours do not carryout sampling at the same time
-            let network_density_sampling_interval: u64 = rng.gen_range(
-                NETWORK_DENSITY_SAMPLING_INTERVAL_MAX_S / 2
-                    ..NETWORK_DENSITY_SAMPLING_INTERVAL_MAX_S,
-            );
-            let network_density_sampling_interval_time =
-                Duration::from_secs(network_density_sampling_interval);
-            debug!(
-                "Network density sampling interval set to {network_density_sampling_interval:?}"
-            );
-
-            let mut network_density_sampling_interval =
-                tokio::time::interval(network_density_sampling_interval_time);
-            let _ = network_density_sampling_interval.tick().await; // first tick completes immediately
 
             loop {
                 let peers_connected = &peers_connected;
@@ -393,20 +381,6 @@ impl Node {
                             Self::storage_challenge(network).await;
                             trace!("Periodic storage challenge took {:?}", start.elapsed());
                         });
-                    }
-                    _ = network_density_sampling_interval.tick() => {
-                        // The following shall be used by client only to support RBS.
-                        // Due to the concern of the extra resource usage that incurred.
-                        continue;
-
-                        // let start = Instant::now();
-                        // debug!("Periodic network density sampling triggered");
-                        // let network = self.network().clone();
-
-                        // let _handle = spawn(async move {
-                        //     Self::network_density_sampling(network).await;
-                        //     trace!("Periodic network density sampling took {:?}", start.elapsed());
-                        // });
                     }
                 }
             }
@@ -883,16 +857,17 @@ impl Node {
     /// This will challenge all closest peers at once.
     async fn storage_challenge(network: Network) {
         let start = Instant::now();
-        let closest_peers: Vec<(PeerId, Addresses)> =
-            if let Ok(closest_peers) = network.get_closest_k_value_local_peers().await {
-                closest_peers
-                    .into_iter()
-                    .take(CLOSE_GROUP_SIZE)
-                    .collect_vec()
-            } else {
-                error!("Cannot get local neighbours");
-                return;
-            };
+        let closest_peers: Vec<(PeerId, Addresses)> = if let Ok(closest_peers) =
+            network.get_k_closest_local_peers_to_the_target(None).await
+        {
+            closest_peers
+                .into_iter()
+                .take(CLOSE_GROUP_SIZE)
+                .collect_vec()
+        } else {
+            error!("Cannot get local neighbours");
+            return;
+        };
         if closest_peers.len() < CLOSE_GROUP_SIZE {
             debug!(
                 "Not enough neighbours ({}/{}) to carry out storage challenge.",
@@ -1031,25 +1006,6 @@ impl Node {
             }
         };
         network.notify_node_version(peer, version);
-    }
-
-    #[allow(dead_code)]
-    async fn network_density_sampling(network: Network) {
-        for _ in 0..10 {
-            let target = NetworkAddress::from(PeerId::random());
-            // Result is sorted and only return CLOSE_GROUP_SIZE entries
-            let peers = network.get_n_closest_peers(&target, CLOSE_GROUP_SIZE).await;
-            if let Ok(peers) = peers {
-                if peers.len() >= CLOSE_GROUP_SIZE {
-                    // Calculate the distance to the farthest.
-                    let distance =
-                        target.distance(&NetworkAddress::from(peers[CLOSE_GROUP_SIZE - 1].0));
-                    network.add_network_density_sample(distance);
-                }
-            }
-            // Sleep a short while to avoid causing a spike on resource usage.
-            sleep(std::time::Duration::from_secs(10)).await;
-        }
     }
 }
 

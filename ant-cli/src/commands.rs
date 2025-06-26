@@ -8,15 +8,21 @@
 
 mod analyze;
 mod file;
+mod pointer;
 mod register;
+mod scratchpad;
 mod vault;
 mod wallet;
 
 use crate::actions::NetworkContext;
-use crate::opt::Opt;
-use autonomi::ResponseQuorum;
-use clap::{error::ErrorKind, CommandFactory as _, Subcommand};
+use crate::args::max_fee_per_gas::MaxFeePerGasParam;
+use crate::opt::{NetworkId, Opt};
+use autonomi::networking::Quorum;
+use clap::{error::ErrorKind, Args, CommandFactory as _, Subcommand};
 use color_eyre::Result;
+use pointer::parse_target_data_type;
+use pointer::TargetDataType;
+use std::num::NonZeroUsize;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -36,6 +42,18 @@ pub enum SubCmd {
     Vault {
         #[command(subcommand)]
         command: VaultCmd,
+    },
+
+    /// Operations related to scratchpad management.
+    Scratchpad {
+        #[command(subcommand)]
+        command: ScratchpadCmd,
+    },
+
+    /// Operations related to pointer management.
+    Pointer {
+        #[command(subcommand)]
+        command: PointerCmd,
     },
 
     /// Operations related to wallet management.
@@ -69,14 +87,19 @@ pub enum FileCmd {
         /// Upload the file as public. Everyone can see public data on the Network.
         #[arg(short, long)]
         public: bool,
-        /// Experimental: Optionally specify the quorum for the verification of the upload.
-        ///
-        /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
-        #[arg(short, long)]
-        quorum: Option<ResponseQuorum>,
-        /// Optional: Specify the maximum fee per gas in u128.
+        /// Skip creating an archive after uploading a directory.
+        /// When uploading a directory, files are normally grouped into an archive for easier management.
+        /// This flag uploads the files individually without creating the archive metadata.
+        /// Note: This option only affects directory uploads - single file uploads never create archives.
         #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        no_archive: bool,
+        /// Retry failed uploads automatically after 1 minute pause.
+        /// This will persistently retry any failed chunks until all data is successfully uploaded.
+        #[arg(long)]
+        #[clap(default_value = "0")]
+        retry_failed: u64,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Download a file from the given address.
@@ -85,15 +108,19 @@ pub enum FileCmd {
         addr: String,
         /// The destination file path.
         dest_file: String,
-        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunks).
+        /// Experimental: Optionally specify the quorum for the download (makes sure that we have n copies for each chunk).
         ///
         /// Possible values are: "one", "majority", "all", n (where n is a number greater than 0)
-        #[arg(short, long)]
-        quorum: Option<ResponseQuorum>,
+        #[arg(short, long, value_parser = parse_quorum)]
+        quorum: Option<Quorum>,
     },
 
     /// List previous uploads
-    List,
+    List {
+        /// List files in archives. Requires network connection.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -122,9 +149,8 @@ pub enum RegisterCmd {
         /// Treat the value as a hex string and convert it to binary before storing
         #[arg(long)]
         hex: bool,
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Edit an existing register.
@@ -142,9 +168,8 @@ pub enum RegisterCmd {
         /// Treat the value as a hex string and convert it to binary before storing
         #[arg(long)]
         hex: bool,
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Get the value of a register.
@@ -191,9 +216,8 @@ pub enum VaultCmd {
     /// Create a vault at a deterministic address based on your `SECRET_KEY`.
     /// Pushing an encrypted backup of your local user data to the network
     Create {
-        /// Optional: Specify the maximum fee per gas in u128.
-        #[arg(long)]
-        max_fee_per_gas: Option<u128>,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
     },
 
     /// Load an existing vault from the network.
@@ -210,6 +234,135 @@ pub enum VaultCmd {
         #[arg(short, long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ScratchpadCmd {
+    /// Generate a new general scratchpad key from which all your scratchpad keys can be derived (using their names).
+    GenerateKey {
+        /// Overwrite existing key if it exists
+        /// Warning: overwriting the existing key will result in loss of access to any existing scratchpads
+        #[arg(short, long)]
+        overwrite: bool,
+    },
+
+    /// Estimate cost to create a scratchpad.
+    Cost {
+        /// The name of the scratchpad.
+        name: String,
+    },
+
+    /// Create a new scratchpad.
+    Create {
+        /// The name of the scratchpad.
+        name: String,
+        /// The data to store in the scratchpad (Up to 4MB)
+        data: String,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
+    },
+
+    /// Share a scratchpad secret key with someone else.
+    /// Sharing this key means that the other party will have permanent read and write access to the scratchpad.
+    Share {
+        /// The name of the scratchpad.
+        name: String,
+    },
+
+    /// Get the contents of an existing scratchpad from the network.
+    Get {
+        /// The name of the scratchpad.
+        name: String,
+        /// Indicate that this is an external scratchpad secret key.
+        /// (Use this when interacting with a scratchpad shared with you by someone else)
+        #[arg(short, long)]
+        secret_key: bool,
+        /// Display the data as a hex string instead of raw bytes
+        #[arg(long)]
+        hex: bool,
+    },
+
+    /// Edit the contents of an existing scratchpad.
+    Edit {
+        /// The name of the scratchpad.
+        name: String,
+        /// Indicate that this is an external scratchpad secret key.
+        /// (Use this when interacting with a scratchpad shared with you by someone else)
+        #[arg(short, long)]
+        secret_key: bool,
+        /// The new data to store in the scratchpad (Up to 4MB)
+        data: String,
+    },
+
+    /// List owned scratchpads
+    List,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PointerCmd {
+    /// Generate a new general pointer key from which all your pointer keys can be derived (using their names).
+    GenerateKey {
+        /// Overwrite existing key if it exists
+        /// Warning: overwriting the existing key will result in loss of access to any existing pointers
+        #[arg(short, long)]
+        overwrite: bool,
+    },
+
+    /// Estimate cost to create a pointer.
+    Cost {
+        /// The name of the pointer.
+        name: String,
+    },
+
+    /// Create a new pointer.
+    Create {
+        /// The name of the pointer.
+        name: String,
+        /// The target address to point to
+        target: String,
+        /// The data type of the target (valid values: graph, scratchpad, pointer, chunk, auto)
+        /// If not specified (or 'auto'), the type will be automatically detected by fetching the data from the network
+        #[arg(value_parser = parse_target_data_type, default_value = "auto", long, short)]
+        target_data_type: TargetDataType,
+        #[command(flatten)]
+        transaction_opt: TransactionOpt,
+    },
+
+    /// Share a pointer secret key with someone else.
+    /// Sharing this key means that the other party will have permanent read and write access to the pointer.
+    Share {
+        /// The name of the pointer.
+        name: String,
+    },
+
+    /// Get the target of an existing pointer from the network.
+    Get {
+        /// The name of the pointer.
+        name: String,
+        /// Indicate that this is an external pointer secret key.
+        /// (Use this when interacting with a pointer shared with you by someone else)
+        #[arg(short, long)]
+        secret_key: bool,
+    },
+
+    /// Edit the target of an existing pointer.
+    Edit {
+        /// The name of the pointer.
+        name: String,
+        /// The new target address to point to
+        target: String,
+        /// The data type of the target (valid values: graph, scratchpad, pointer, chunk, auto)
+        /// If not specified (or 'auto'), the type will be automatically detected by fetching the data from the network
+        #[arg(value_parser = parse_target_data_type, default_value = "auto", long, short)]
+        target_data_type: TargetDataType,
+        /// Indicate that this is an external pointer secret key.
+        /// (Use this when interacting with a pointer shared with you by someone else)
+        #[arg(short, long)]
+        secret_key: bool,
+    },
+
+    /// List owned pointers
+    List,
 }
 
 #[derive(Subcommand, Debug)]
@@ -243,15 +396,27 @@ pub enum WalletCmd {
     Balance,
 }
 
+#[derive(Args, Debug)]
+pub(crate) struct TransactionOpt {
+    /// Max fee per gas / gas price bid.
+    /// Options:
+    /// - `low`: Use the average max gas price bid.
+    /// - `market`: Use the current max gas price bid, with a max of 4 * the average gas price bid. (default)
+    /// - `auto`: Use the current max gas price bid. WARNING: Can result in high gas fees! (default: when using custom EVM network)
+    /// - `limited-auto:<WEI AMOUNT>`: Use the current max gas price bid, with a specified upper limit.
+    /// - `unlimited`: Do not use a limit for the gas price bid. WARNING: Can result in high gas fees!
+    /// - `<WEI AMOUNT>`: Set a custom max gas price bid.
+    #[clap(long, verbatim_doc_comment)]
+    pub max_fee_per_gas: Option<MaxFeePerGasParam>,
+}
+
 pub async fn handle_subcommand(opt: Opt) -> Result<()> {
     let cmd = opt.command;
 
-    let network_context = if let Some(network_id) = opt.network_id {
-        NetworkContext::new(opt.peers, network_id)
-    } else if opt.alpha {
-        NetworkContext::new(opt.peers, 2)
+    let network_context = if opt.alpha {
+        NetworkContext::new(opt.peers, NetworkId::alpha())
     } else {
-        NetworkContext::new(opt.peers, 1)
+        NetworkContext::new(opt.peers, opt.network_id)
     };
 
     match cmd {
@@ -260,11 +425,19 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             FileCmd::Upload {
                 file,
                 public,
-                quorum,
-                max_fee_per_gas,
+                no_archive,
+                retry_failed,
+                transaction_opt,
             } => {
-                if let Err((err, exit_code)) =
-                    file::upload(&file, public, network_context, quorum, max_fee_per_gas).await
+                if let Err((err, exit_code)) = file::upload(
+                    &file,
+                    public,
+                    no_archive,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                    retry_failed,
+                )
+                .await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);
@@ -286,7 +459,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     Ok(())
                 }
             }
-            FileCmd::List => file::list(),
+            FileCmd::List { verbose } => {
+                if let Err((err, exit_code)) = file::list(network_context, verbose).await {
+                    eprintln!("{err:?}");
+                    std::process::exit(exit_code);
+                } else {
+                    Ok(())
+                }
+            }
         },
         Some(SubCmd::Register { command }) => match command {
             RegisterCmd::GenerateKey { overwrite } => register::generate_key(overwrite),
@@ -295,15 +475,34 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 name,
                 value,
                 hex,
-                max_fee_per_gas,
-            } => register::create(&name, &value, hex, network_context, max_fee_per_gas).await,
+                transaction_opt,
+            } => {
+                register::create(
+                    &name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Edit {
                 address,
                 name,
                 value,
                 hex,
-                max_fee_per_gas,
-            } => register::edit(address, name, &value, hex, network_context, max_fee_per_gas).await,
+                transaction_opt,
+            } => {
+                register::edit(
+                    address,
+                    name,
+                    &value,
+                    hex,
+                    network_context,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
             RegisterCmd::Get { address, name, hex } => {
                 register::get(address, name, hex, network_context).await
             }
@@ -316,11 +515,65 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             VaultCmd::Cost { expected_max_size } => {
                 vault::cost(network_context, expected_max_size).await
             }
-            VaultCmd::Create { max_fee_per_gas } => {
-                vault::create(network_context, max_fee_per_gas).await
+            VaultCmd::Create { transaction_opt } => {
+                vault::create(network_context, transaction_opt.max_fee_per_gas).await
             }
             VaultCmd::Load => vault::load(network_context).await,
             VaultCmd::Sync { force } => vault::sync(force, network_context).await,
+        },
+        Some(SubCmd::Scratchpad { command }) => match command {
+            ScratchpadCmd::GenerateKey { overwrite } => scratchpad::generate_key(overwrite),
+            ScratchpadCmd::Cost { name } => scratchpad::cost(name, network_context).await,
+            ScratchpadCmd::Create {
+                name,
+                data,
+                transaction_opt,
+            } => {
+                scratchpad::create(network_context, name, data, transaction_opt.max_fee_per_gas)
+                    .await
+            }
+            ScratchpadCmd::Share { name } => scratchpad::share(name),
+            ScratchpadCmd::Get {
+                name,
+                secret_key,
+                hex,
+            } => scratchpad::get(network_context, name, secret_key, hex).await,
+            ScratchpadCmd::Edit {
+                name,
+                secret_key,
+                data,
+            } => scratchpad::edit(network_context, name, secret_key, data).await,
+            ScratchpadCmd::List => scratchpad::list(),
+        },
+        Some(SubCmd::Pointer { command }) => match command {
+            PointerCmd::GenerateKey { overwrite } => pointer::generate_key(overwrite),
+            PointerCmd::Cost { name } => pointer::cost(name, network_context).await,
+            PointerCmd::Create {
+                name,
+                target,
+                target_data_type,
+                transaction_opt,
+            } => {
+                pointer::create(
+                    network_context,
+                    name,
+                    target,
+                    target_data_type,
+                    transaction_opt.max_fee_per_gas,
+                )
+                .await
+            }
+            PointerCmd::Share { name } => pointer::share(name),
+            PointerCmd::Get { name, secret_key } => {
+                pointer::get(network_context, name, secret_key).await
+            }
+            PointerCmd::Edit {
+                name,
+                target,
+                target_data_type,
+                secret_key,
+            } => pointer::edit(network_context, name, secret_key, target, target_data_type).await,
+            PointerCmd::List => pointer::list(),
         },
         Some(SubCmd::Wallet { command }) => match command {
             WalletCmd::Create {
@@ -343,6 +596,18 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             Opt::command()
                 .error(ErrorKind::MissingSubcommand, "Please provide a subcommand")
                 .exit();
+        }
+    }
+}
+
+fn parse_quorum(str: &str) -> Result<Quorum, String> {
+    match str {
+        "one" => Ok(Quorum::One),
+        "majority" => Ok(Quorum::Majority),
+        "all" => Ok(Quorum::All),
+        _ => {
+            let n: NonZeroUsize = str.parse().map_err(|_| "Invalid quorum value")?;
+            Ok(Quorum::N(n))
         }
     }
 }

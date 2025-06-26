@@ -24,9 +24,9 @@ use std::{
 use tonic::Request;
 use tracing::{error, info, trace};
 
-/// Sleep for sometime for the nodes for discover each other before verification
+/// Sleep for sometime for the nodes to discover each other before verification
 /// Also can be set through the env variable of the same name.
-const SLEEP_BEFORE_VERIFICATION: Duration = Duration::from_secs(5);
+const SLEEP_BEFORE_VERIFICATION: Duration = Duration::from_secs(30);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn verify_routing_table() -> Result<()> {
@@ -44,7 +44,7 @@ async fn verify_routing_table() -> Result<()> {
     info!("Sleeping for {sleep_duration:?} before verification");
     tokio::time::sleep(sleep_duration).await;
 
-    let node_rpc_address = get_all_rpc_addresses(false)?;
+    let node_rpc_address = get_all_rpc_addresses(false).await?;
 
     let all_peers = get_all_peer_ids(&node_rpc_address).await?;
     trace!("All peers: {all_peers:?}");

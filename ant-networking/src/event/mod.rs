@@ -76,6 +76,7 @@ pub(super) enum NodeEvent {
     Identify(Box<libp2p::identify::Event>),
     RelayClient(Box<libp2p::relay::client::Event>),
     RelayServer(Box<libp2p::relay::Event>),
+    DoNotDisturb(crate::behaviour::do_not_disturb::DoNotDisturbEvent),
     Void(void::Void),
 }
 
@@ -110,6 +111,12 @@ impl From<libp2p::relay::client::Event> for NodeEvent {
 impl From<libp2p::relay::Event> for NodeEvent {
     fn from(event: libp2p::relay::Event) -> Self {
         NodeEvent::RelayServer(Box::new(event))
+    }
+}
+
+impl From<crate::behaviour::do_not_disturb::DoNotDisturbEvent> for NodeEvent {
+    fn from(event: crate::behaviour::do_not_disturb::DoNotDisturbEvent) -> Self {
+        NodeEvent::DoNotDisturb(event)
     }
 }
 
@@ -279,7 +286,7 @@ impl SwarmDriver {
     #[cfg(feature = "open-metrics")]
     pub(crate) fn check_for_change_in_our_close_group(&mut self) {
         // this includes self
-        let closest_k_peers = self.get_closest_k_value_local_peers();
+        let closest_k_peers = self.get_closest_k_local_peers_to_self();
 
         let new_closest_peers: Vec<PeerId> = closest_k_peers
             .into_iter()
@@ -307,8 +314,8 @@ impl SwarmDriver {
 
         let distance =
             NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
-        info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
-        self.peers_in_rt, distance.ilog2());
+        info!("Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.", 
+        self.self_peer_id, distance.ilog2());
 
         #[cfg(feature = "loud")]
         println!(

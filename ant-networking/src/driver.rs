@@ -12,19 +12,16 @@ use crate::{
     bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
     circular_vec::CircularVec,
     cmd::{LocalSwarmCmd, NetworkSwarmCmd},
-    config::GetRecordCfg,
     driver::kad::U256,
     error::Result,
     event::{NetworkEvent, NodeEvent},
     external_address::ExternalAddressManager,
-    fifo_register::FifoRegister,
     log_markers::Marker,
     network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL},
-    record_store_api::UnifiedRecordStore,
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
     time::{interval, spawn, Instant, Interval},
-    Addresses, GetRecordError, NodeIssue, CLOSE_GROUP_SIZE,
+    Addresses, NodeIssue, NodeRecordStore, CLOSE_GROUP_SIZE,
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::PaymentQuote;
@@ -35,9 +32,12 @@ use ant_protocol::{
 };
 use futures::StreamExt;
 use libp2p::{
-    kad::{self, KBucketDistance as Distance, QueryId, Record, RecordKey, K_VALUE},
+    kad::{self, KBucketDistance as Distance, QueryId, K_VALUE},
     request_response::OutboundRequestId,
-    swarm::{ConnectionId, Swarm},
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        ConnectionId, Swarm,
+    },
     Multiaddr, PeerId,
 };
 use libp2p::{
@@ -45,14 +45,10 @@ use libp2p::{
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour, SwarmEvent},
 };
 use rand::Rng;
-use std::{
-    collections::{btree_map::Entry, BTreeMap, HashMap, HashSet},
-    net::IpAddr,
-};
+use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Duration;
 use tracing::warn;
-use xor_name::XorName;
 
 /// 10 is the max number of issues per node we track to avoid mem leaks
 /// The boolean flag to indicate whether the node is considered as bad or not
@@ -65,6 +61,9 @@ pub(crate) const CLOSET_RECORD_CHECK_INTERVAL: Duration = Duration::from_secs(15
 /// Interval over which we query relay manager to check if we can make any more reservations.
 pub(crate) const RELAY_MANAGER_RESERVATION_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Interval over which we check if we could dial any peer in the dial queue.
+const DIAL_QUEUE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+
 /// The ways in which the Get Closest queries are used.
 pub(crate) enum PendingGetClosestType {
     /// The network discovery method is present at the networking layer
@@ -74,18 +73,6 @@ pub(crate) enum PendingGetClosestType {
     FunctionCall(oneshot::Sender<Vec<(PeerId, Addresses)>>),
 }
 type PendingGetClosest = HashMap<QueryId, (PendingGetClosestType, Vec<(PeerId, Addresses)>)>;
-
-/// Using XorName to differentiate different record content under the same key.
-type GetRecordResultMap = HashMap<XorName, (Record, HashSet<PeerId>)>;
-pub(crate) type PendingGetRecord = HashMap<
-    QueryId,
-    (
-        RecordKey, // record we're fetching, to dedupe repeat requests
-        Vec<oneshot::Sender<std::result::Result<Record, GetRecordError>>>, // vec of senders waiting for this record
-        GetRecordResultMap,
-        GetRecordCfg,
-    ),
->;
 
 impl From<std::convert::Infallible> for NodeEvent {
     fn from(_: std::convert::Infallible) -> Self {
@@ -101,11 +88,12 @@ impl From<std::convert::Infallible> for NodeEvent {
 pub(super) struct NodeBehaviour {
     pub(super) blocklist:
         libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
+    pub(super) do_not_disturb: crate::behaviour::do_not_disturb::Behaviour,
     pub(super) identify: libp2p::identify::Behaviour,
     pub(super) upnp: Toggle<libp2p::upnp::tokio::Behaviour>,
     pub(super) relay_client: libp2p::relay::client::Behaviour,
     pub(super) relay_server: Toggle<libp2p::relay::Behaviour>,
-    pub(super) kademlia: kad::Behaviour<UnifiedRecordStore>,
+    pub(super) kademlia: kad::Behaviour<NodeRecordStore>,
     pub(super) request_response: request_response::cbor::Behaviour<Request, Response>,
 }
 
@@ -114,7 +102,6 @@ pub struct SwarmDriver {
     pub(crate) self_peer_id: PeerId,
     /// When true, we don't filter our local addresses
     pub(crate) local: bool,
-    pub(crate) is_client: bool,
     pub(crate) is_relay_client: bool,
     #[cfg(feature = "open-metrics")]
     pub(crate) close_group: Vec<PeerId>,
@@ -145,15 +132,15 @@ pub struct SwarmDriver {
         OutboundRequestId,
         Option<oneshot::Sender<Result<(Response, Option<ConnectionInfo>)>>>,
     >,
-    pub(crate) pending_get_record: PendingGetRecord,
     /// A list of the most recent peers we have dialed ourselves. Old dialed peers are evicted once the vec fills up.
     pub(crate) dialed_peers: CircularVec<PeerId>,
+    pub(crate) dial_queue: HashMap<PeerId, (Addresses, Instant, usize)>,
     // Peers that having live connection to. Any peer got contacted during kad network query
     // will have live connection established. And they may not appear in the RT.
     pub(crate) live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr, Instant)>,
     /// The list of recently established connections ids.
     /// This is used to prevent log spamming.
-    pub(crate) latest_established_connection_ids: HashMap<usize, (IpAddr, Instant)>,
+    pub(crate) latest_established_connection_ids: HashMap<usize, (Multiaddr, Instant)>,
     // Record the handling time of the recent 10 for each handling kind.
     pub(crate) handling_statistics: BTreeMap<String, Vec<Duration>>,
     pub(crate) handled_times: usize,
@@ -166,8 +153,6 @@ pub struct SwarmDriver {
     pub(crate) last_replication: Option<Instant>,
     /// when was the last outdated connection prunning undertaken.
     pub(crate) last_connection_pruning_time: Instant,
-    /// FIFO cache for the network density samples
-    pub(crate) network_density_samples: FifoRegister,
     /// record versions of those peers that in the non-full-kbuckets.
     pub(crate) peers_version: HashMap<PeerId, String>,
 }
@@ -186,6 +171,8 @@ impl SwarmDriver {
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
         let mut initial_bootstrap_trigger_check_interval =
             Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
+        let mut dial_queue_check_interval = interval(DIAL_QUEUE_CHECK_INTERVAL);
+        dial_queue_check_interval.tick().await; // first tick completes immediately
 
         let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
             if cache.config().disable_cache_writing {
@@ -271,6 +258,31 @@ impl SwarmDriver {
                 },
                 // thereafter we can check our intervals
 
+                _ = dial_queue_check_interval.tick() => {
+                    let now = Instant::now();
+                    let mut to_remove = vec![];
+                    // check if we can dial any peer in the dial queue
+                    // if we have no peers in the dial queue, skip this check
+                    for (peer_id, (addrs, wait_time, _resets)) in self.dial_queue.iter() {
+                        if now > *wait_time {
+                            info!("Dialing peer {peer_id:?} from dial queue with addresses {addrs:?}");
+                            to_remove.push(*peer_id);
+                            if let Err(err) = self.swarm.dial(
+                                DialOpts::peer_id(*peer_id)
+                                    .condition(PeerCondition::NotDialing)
+                                    .addresses(addrs.0.clone())
+                                    .build(),
+                            ) {
+                                warn!(%peer_id, ?addrs, "dialing error: {err:?}");
+                            }
+                        }
+                    }
+
+                    for peer_id in to_remove.iter() {
+                        self.dial_queue.remove(peer_id);
+                    }
+                },
+
                 // check if we can trigger the initial bootstrap process
                 // once it is triggered, we don't re-trigger it
                 Some(()) = Self::conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
@@ -319,60 +331,41 @@ impl SwarmDriver {
                     }
                 }
                 _ = set_farthest_record_interval.tick() => {
-                    if !self.is_client {
-                        let kbucket_status = self.get_kbuckets_status();
-                        self.update_on_kbucket_status(&kbucket_status);
-                        if kbucket_status.estimated_network_size <= CLOSE_GROUP_SIZE {
-                            info!("Not enough estimated network size {}, with {} peers_in_non_full_buckets and {} num_of_full_buckets.",
-                            kbucket_status.estimated_network_size,
-                            kbucket_status.peers_in_non_full_buckets,
-                            kbucket_status.num_of_full_buckets);
-                            continue;
-                        }
-                        // The entire Distance space is U256
-                        // (U256::MAX is 115792089237316195423570985008687907853269984665640564039457584007913129639935)
-                        // The network density (average distance among nodes) can be estimated as:
-                        //     network_density = entire_U256_space / estimated_network_size
-                        let density = U256::MAX / U256::from(kbucket_status.estimated_network_size);
-                        let density_distance = density * U256::from(CLOSE_GROUP_SIZE);
-
-                        // Use distance to close peer to avoid the situation that
-                        // the estimated density_distance is too narrow.
-                        let closest_k_peers = self.get_closest_k_value_local_peers();
-                        if closest_k_peers.len() <= CLOSE_GROUP_SIZE + 2 {
-                            continue;
-                        }
-                        // Results are sorted, hence can calculate distance directly
-                        // Note: self is included
-                        let self_addr = NetworkAddress::from(self.self_peer_id);
-                        let close_peers_distance = self_addr.distance(&NetworkAddress::from(closest_k_peers[CLOSE_GROUP_SIZE + 1].0));
-
-                        let distance = std::cmp::max(Distance(density_distance), close_peers_distance);
-
-                        // The sampling approach has severe impact to the node side performance
-                        // Hence suggested to be only used by client side.
-                        // let distance = if let Some(distance) = self.network_density_samples.get_median() {
-                        //     distance
-                        // } else {
-                        //     // In case sampling not triggered or yet,
-                        //     // fall back to use the distance to CLOSE_GROUP_SIZEth closest
-                        //     let closest_k_peers = self.get_closest_k_value_local_peers();
-                        //     if closest_k_peers.len() <= CLOSE_GROUP_SIZE + 1 {
-                        //         continue;
-                        //     }
-                        //     // Results are sorted, hence can calculate distance directly
-                        //     // Note: self is included
-                        //     let self_addr = NetworkAddress::from(self.self_peer_id);
-                        //     self_addr.distance(&NetworkAddress::from(closest_k_peers[CLOSE_GROUP_SIZE]))
-                        // };
-
-                        info!("Set responsible range to {distance:?}({:?})", distance.ilog2());
-
-                        // set any new distance to farthest record in the store
-                        self.swarm.behaviour_mut().kademlia.store_mut().set_distance_range(distance);
-                        // the distance range within the replication_fetcher shall be in sync as well
-                        self.replication_fetcher.set_replication_distance_range(distance);
+                    let kbucket_status = self.get_kbuckets_status();
+                    self.update_on_kbucket_status(&kbucket_status);
+                    if kbucket_status.estimated_network_size <= CLOSE_GROUP_SIZE {
+                        info!("Not enough estimated network size {}, with {} peers_in_non_full_buckets and {} num_of_full_buckets.",
+                        kbucket_status.estimated_network_size,
+                        kbucket_status.peers_in_non_full_buckets,
+                        kbucket_status.num_of_full_buckets);
+                        continue;
                     }
+                    // The entire Distance space is U256
+                    // (U256::MAX is 115792089237316195423570985008687907853269984665640564039457584007913129639935)
+                    // The network density (average distance among nodes) can be estimated as:
+                    //     network_density = entire_U256_space / estimated_network_size
+                    let density = U256::MAX / U256::from(kbucket_status.estimated_network_size);
+                    let density_distance = density * U256::from(CLOSE_GROUP_SIZE);
+
+                    // Use distance to close peer to avoid the situation that
+                    // the estimated density_distance is too narrow.
+                    let closest_k_peers = self.get_closest_k_local_peers_to_self();
+                    if closest_k_peers.len() <= CLOSE_GROUP_SIZE + 2 {
+                        continue;
+                    }
+                    // Results are sorted, hence can calculate distance directly
+                    // Note: self is included
+                    let self_addr = NetworkAddress::from(self.self_peer_id);
+                    let close_peers_distance = self_addr.distance(&NetworkAddress::from(closest_k_peers[CLOSE_GROUP_SIZE + 1].0));
+
+                    let distance = std::cmp::max(Distance(density_distance), close_peers_distance);
+
+                    info!("Set responsible range to {distance:?}({:?})", distance.ilog2());
+
+                    // set any new distance to farthest record in the store
+                    self.swarm.behaviour_mut().kademlia.store_mut().set_responsible_distance_range(distance);
+                    // the distance range within the replication_fetcher shall be in sync as well
+                    self.replication_fetcher.set_replication_distance_range(distance);
                 }
                 _ = relay_manager_reservation_interval.tick() => {
                     if let Some(relay_manager) = &mut self.relay_manager {
@@ -380,43 +373,29 @@ impl SwarmDriver {
                     }
                 },
                 Some(()) = Self::conditional_interval(&mut bootstrap_cache_save_interval) => {
-                    let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() else {
-                        continue;
-                    };
                     let Some(current_interval) = bootstrap_cache_save_interval.as_mut() else {
                         continue;
                     };
                     let start = Instant::now();
 
-                    let config = bootstrap_cache.config().clone();
-                    let mut old_cache = bootstrap_cache.clone();
+                    if  self.sync_and_flush_cache().is_err() {
+                        warn!("Failed to sync and flush bootstrap cache, skipping this interval");
+                        continue;
+                    }
 
-                    let new = match BootstrapCacheStore::new(config) {
-                        Ok(new) => new,
-                        Err(err) => {
-                            error!("Failed to create a new empty cache: {err}");
-                            continue;
-                        }
+                    let Some(bootstrap_config) = self.bootstrap_cache.as_ref().map(|cache|cache.config()) else {
+                        continue;
                     };
-                    *bootstrap_cache = new;
-
-                    // save the cache to disk
-                    spawn(async move {
-                        if let Err(err) = old_cache.sync_and_flush_to_disk() {
-                            error!("Failed to save bootstrap cache: {err}");
-                        }
-                    });
-
-                    if current_interval.period() >= bootstrap_cache.config().max_cache_save_duration {
+                    if current_interval.period() >= bootstrap_config.max_cache_save_duration {
                         continue;
                     }
 
                     // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
                     let max_cache_save_duration =
-                        Self::duration_with_variance(bootstrap_cache.config().max_cache_save_duration, 1);
+                        Self::duration_with_variance(bootstrap_config.max_cache_save_duration, 1);
 
                     // scale up the interval until we reach the max
-                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_cache.config().cache_save_scaling_factor);
+                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor);
                     let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
                     info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
 
@@ -474,38 +453,44 @@ impl SwarmDriver {
         });
     }
 
-    /// Get closest K_VALUE peers from our local RoutingTable. Contains self.
-    /// Is sorted for closeness to self.
-    pub(crate) fn get_closest_k_value_local_peers(&mut self) -> Vec<(PeerId, Addresses)> {
-        // Limit ourselves to K_VALUE (20) peers.
-        let peers: Vec<_> = self.get_closest_local_peers_to_target(
-            &NetworkAddress::from(self.self_peer_id),
-            K_VALUE.get() - 1,
-        );
-
-        // Start with our own PeerID and chain the closest.
-        std::iter::once((self.self_peer_id, Default::default()))
-            .chain(peers)
-            .collect()
+    /// Get K closest peers to self, from our local RoutingTable.
+    /// Always includes self in.
+    pub(crate) fn get_closest_k_local_peers_to_self(&mut self) -> Vec<(PeerId, Addresses)> {
+        self.get_closest_k_local_peers_to_target(&NetworkAddress::from(self.self_peer_id), true)
     }
 
-    /// Get closest X peers to the target. Not containing self.
-    /// Is sorted for closeness to the target.
-    pub(crate) fn get_closest_local_peers_to_target(
+    /// Get K closest peers to the target, from our local RoutingTable.
+    /// Sorted for closeness to the target
+    /// If requested, self will be added as the first entry.
+    pub(crate) fn get_closest_k_local_peers_to_target(
         &mut self,
         target: &NetworkAddress,
-        num_of_peers: usize,
+        include_self: bool,
     ) -> Vec<(PeerId, Addresses)> {
-        let peer_ids = self
+        let num_peers = if include_self {
+            K_VALUE.get() - 1
+        } else {
+            K_VALUE.get()
+        };
+
+        let peer_ids: Vec<_> = self
             .swarm
             .behaviour_mut()
             .kademlia
             .get_closest_local_peers(&target.as_kbucket_key())
             // Map KBucketKey<PeerId> to PeerId.
             .map(|key| key.into_preimage())
-            .take(num_of_peers)
+            .take(num_peers)
             .collect();
-        self.collect_peers_info(peer_ids)
+
+        if include_self {
+            // Start with our own PeerID and chain the closest.
+            std::iter::once((self.self_peer_id, Default::default()))
+                .chain(self.collect_peers_info(peer_ids))
+                .collect()
+        } else {
+            self.collect_peers_info(peer_ids)
+        }
     }
 
     /// Collect peers' address info
@@ -586,6 +571,28 @@ impl SwarmDriver {
     pub(crate) fn listen_on(&mut self, addr: Multiaddr) -> Result<()> {
         let id = self.swarm.listen_on(addr.clone())?;
         info!("Listening on {id:?} with addr: {addr:?}");
+        Ok(())
+    }
+
+    /// Sync and flush the bootstrap cache to disk.
+    ///
+    /// This function creates a new cache and saves the old one to disk.
+    pub(crate) fn sync_and_flush_cache(&mut self) -> Result<()> {
+        if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
+            let config = bootstrap_cache.config().clone();
+            let mut old_cache = bootstrap_cache.clone();
+
+            if let Ok(new) = BootstrapCacheStore::new(config) {
+                self.bootstrap_cache = Some(new);
+
+                // Save cache to disk.
+                crate::time::spawn(async move {
+                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
+                        error!("Failed to save bootstrap cache: {err}");
+                    }
+                });
+            }
+        }
         Ok(())
     }
 

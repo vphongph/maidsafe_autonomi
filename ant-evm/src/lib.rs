@@ -18,7 +18,7 @@ pub use evmlib::contract::payment_vault;
 pub use evmlib::cryptography;
 #[cfg(feature = "external-signer")]
 pub use evmlib::external_signer;
-pub use evmlib::transaction_config::TransactionConfig;
+pub use evmlib::transaction_config::{MaxFeePerGas, TransactionConfig};
 pub use evmlib::utils;
 pub use evmlib::utils::get_evm_network;
 pub use evmlib::utils::{DATA_PAYMENTS_ADDRESS, PAYMENT_TOKEN_ADDRESS, RPC_URL};
@@ -31,9 +31,7 @@ mod amount;
 mod data_payments;
 mod error;
 
-pub use data_payments::{
-    ClientProofOfPayment, EncodedPeerId, PaymentQuote, ProofOfPayment, QUOTE_EXPIRATION_SECS,
-};
+pub use data_payments::{ClientProofOfPayment, EncodedPeerId, PaymentQuote, ProofOfPayment};
 pub use evmlib::quoting_metrics::QuotingMetrics;
 
 /// Types used in the public API

@@ -151,12 +151,6 @@ impl Client {
         Ok(cost.to_string())
     }
 
-    // /// Upload chunks and retry failed uploads up to RETRY_ATTEMPTS times.
-    // #[napi]
-    // pub async fn upload_chunks_with_retries(&self, chunks: Vec<Chunk>, receipt: &Receipt) -> Vec<(Chunk, PutError)> {
-    //     todo!()
-    // }
-
     // Graph entries
 
     /// Fetches a GraphEntry from the network.
@@ -176,7 +170,7 @@ impl Client {
     pub async fn graph_entry_check_existance(&self, address: &GraphEntryAddress) -> Result<bool> {
         let exists = self
             .0
-            .graph_entry_check_existance(&address.0)
+            .graph_entry_check_existence(&address.0)
             .await
             .map_err(map_error)?;
 
@@ -225,7 +219,7 @@ impl Client {
     #[napi]
     pub async fn pointer_check_existance(&self, address: &PointerAddress) -> Result<bool> {
         self.0
-            .pointer_check_existance(&address.0)
+            .pointer_check_existence(&address.0)
             .await
             .map_err(map_error)
     }
@@ -322,7 +316,7 @@ impl Client {
     #[napi]
     pub async fn scratchpad_check_existance(&self, address: &ScratchpadAddress) -> Result<bool> {
         self.0
-            .scratchpad_check_existance(&address.0)
+            .scratchpad_check_existence(&address.0)
             .await
             .map_err(map_error)
     }
@@ -799,7 +793,7 @@ impl Client {
         Ok(cost.to_string())
     }
 
-    /// Put data into the client’s VaultPacket
+    /// Put data into the client's VaultPacket
     ///
     /// Dynamically expand the vault capacity by paying for more space (Scratchpad) when needed.
     ///
@@ -844,7 +838,7 @@ impl Client {
 
     /// Create a new register key from a SecretKey and a name.
     ///
-    /// This derives a new SecretKey from the owner’s SecretKey using the name. Note that you will need to keep track of the names you used to create the register key.
+    /// This derives a new SecretKey from the owner's SecretKey using the name. Note that you will need to keep track of the names you used to create the register key.
     #[napi]
     pub fn register_key_from_name(owner: &SecretKey, name: String) -> SecretKey {
         let key = autonomi::Client::register_key_from_name(&owner.0, &name);
@@ -911,7 +905,7 @@ impl Client {
             .map_err(map_error)
     }
 
-    /// Get the cost of a register operation. Returns the cost of creation if it doesn’t exist, else returns the cost of an update
+    /// Get the cost of a register operation. Returns the cost of creation if it doesn't exist, else returns the cost of an update
     #[napi]
     pub async fn register_cost(&self, owner: &PublicKey) -> Result</* AttoTokens */ String> {
         let cost = self
@@ -1457,6 +1451,67 @@ impl Wallet {
 
         Ok(balance.to_string())
     }
+
+    /// Sets the transaction configuration for the wallet.
+    #[napi]
+    pub fn set_transaction_config(&mut self, config: &TransactionConfig) {
+        self.0.set_transaction_config(config.0.clone())
+    }
+}
+
+/// Transaction configuration for wallets
+#[napi]
+pub struct TransactionConfig(autonomi::TransactionConfig);
+
+#[napi]
+impl TransactionConfig {
+    /// Use the current market price for fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[napi(factory)]
+    pub fn auto() -> Self {
+        Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Auto,
+        })
+    }
+
+    /// Use the current market price for fee per gas, but with an upper limit.
+    #[napi(factory)]
+    pub fn limited_auto(limit: BigInt) -> Result<Self> {
+        let (_signed, value, lossless) = limit.get_u128();
+        if !lossless {
+            return Err(napi::Error::new(
+                Status::InvalidArg,
+                "expected limit to fit in a u128",
+            ));
+        }
+
+        Ok(Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::LimitedAuto(value),
+        }))
+    }
+
+    /// Use no max fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[napi(factory)]
+    pub fn unlimited() -> Self {
+        Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Unlimited,
+        })
+    }
+
+    /// Use a custom max fee per gas in WEI.
+    #[napi(factory)]
+    pub fn custom(fee: BigInt) -> Result<Self> {
+        let (_signed, value, lossless) = fee.get_u128();
+        if !lossless {
+            return Err(napi::Error::new(
+                Status::InvalidArg,
+                "expected fee to fit in a u128",
+            ));
+        }
+
+        Ok(Self(autonomi::TransactionConfig {
+            max_fee_per_gas: autonomi::MaxFeePerGas::Custom(value),
+        }))
+    }
 }
 
 /// Options for making payments on the network
@@ -1710,8 +1765,13 @@ impl Pointer {
     /// This pointer would be stored on the network at the provided key's public key.
     /// There can only be one pointer at a time at the same address (one per key).
     #[napi(constructor)]
-    pub fn new(owner: &SecretKey, counter: u32, target: &PointerTarget) -> Self {
-        Pointer(autonomi::Pointer::new(&owner.0, counter, target.0.clone()))
+    pub fn new(owner: &SecretKey, counter: BigInt, target: &PointerTarget) -> Result<Self> {
+        let counter = big_int_to_u64(counter, "counter")?;
+        Ok(Pointer(autonomi::Pointer::new(
+            &owner.0,
+            counter,
+            target.0.clone(),
+        )))
     }
 
     /// Get the address of the pointer
@@ -1747,7 +1807,7 @@ impl Pointer {
     /// Get the counter of the pointer, the higher the counter, the more recent the pointer is
     /// Similarly to counter CRDTs only the latest version (highest counter) of the pointer is kept on the network
     #[napi]
-    pub fn counter(&self) -> u32 {
+    pub fn counter(&self) -> u64 {
         self.0.counter()
     }
 

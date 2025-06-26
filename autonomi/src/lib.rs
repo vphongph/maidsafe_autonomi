@@ -57,10 +57,8 @@
 extern crate tracing;
 
 pub mod client;
+pub mod networking;
 pub mod self_encryption;
-
-/// Client Operation config types
-pub use ant_networking::{ResponseQuorum, RetryStrategy};
 
 // The Network data types
 pub use client::data_types::chunk;
@@ -80,8 +78,8 @@ pub use ant_evm::EvmNetwork as Network;
 pub use ant_evm::EvmWallet as Wallet;
 pub use ant_evm::QuoteHash;
 pub use ant_evm::RewardsAddress;
-pub use ant_evm::TransactionConfig;
 pub use ant_evm::{Amount, AttoTokens};
+pub use ant_evm::{MaxFeePerGas, TransactionConfig};
 
 // Re-exports of address related types
 pub use ant_protocol::storage::AddressParseError;

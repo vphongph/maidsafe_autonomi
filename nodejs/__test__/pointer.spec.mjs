@@ -32,6 +32,9 @@ test('pointer put and get', async (t) => {
   const selfTarget = PointerTarget.PointerAddress(addr);
   await client.pointerUpdate(secretKey, selfTarget);
 
+  // Wait for 1 second
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
   // Get the updated pointer
   const updatedPointer = await client.pointerGet(addr);
 

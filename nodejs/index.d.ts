@@ -24,6 +24,8 @@ export declare class Client {
    * See `init_with_config`.
    */
   static initLocal(): Promise<Client>
+  /** Initialize a client that is configured to be connected to the alpha network. */
+  static initAlpha(): Promise<Client>
   /**
    * Initialize a client that bootstraps from a list of peers.
    *
@@ -386,6 +388,19 @@ export declare class Wallet {
   balance(): Promise<string>
   /** Returns the current balance of gas tokens in the wallet */
   balanceOfGas(): Promise<string>
+  /** Sets the transaction configuration for the wallet. */
+  setTransactionConfig(config: TransactionConfig): void
+}
+/** Transaction configuration for wallets */
+export declare class TransactionConfig {
+  /** Use the current market price for fee per gas. WARNING: This can result in unexpected high gas fees! */
+  static auto(): TransactionConfig
+  /** Use the current market price for fee per gas, but with an upper limit. */
+  static limitedAuto(limit: bigint): TransactionConfig
+  /** Use no max fee per gas. WARNING: This can result in unexpected high gas fees! */
+  static unlimited(): TransactionConfig
+  /** Use a custom max fee per gas in WEI. */
+  static custom(fee: bigint): TransactionConfig
 }
 /** Options for making payments on the network */
 export declare class PaymentOption {
@@ -450,7 +465,7 @@ export declare class Pointer {
    * This pointer would be stored on the network at the provided key's public key.
    * There can only be one pointer at a time at the same address (one per key).
    */
-  constructor(owner: SecretKey, counter: number, target: PointerTarget)
+  constructor(owner: SecretKey, counter: bigint, target: PointerTarget)
   /** Get the address of the pointer */
   address(): PointerAddress
   /** Get the owner of the pointer */
@@ -465,7 +480,7 @@ export declare class Pointer {
    * Get the counter of the pointer, the higher the counter, the more recent the pointer is
    * Similarly to counter CRDTs only the latest version (highest counter) of the pointer is kept on the network
    */
-  counter(): number
+  counter(): bigint
   /** Verifies if the pointer has a valid signature */
   verifySignature(): boolean
   /** Size of the pointer */

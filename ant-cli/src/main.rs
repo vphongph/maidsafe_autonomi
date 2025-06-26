@@ -11,6 +11,7 @@ extern crate tracing;
 
 mod access;
 mod actions;
+mod args;
 mod commands;
 mod exit_code;
 mod opt;
@@ -27,16 +28,13 @@ use color_eyre::Result;
 use ant_logging::metrics::init_metrics;
 use ant_logging::{LogBuilder, LogFormat, ReloadHandle, WorkerGuard};
 use autonomi::version;
-use opt::Opt;
+use opt::{NetworkId, Opt};
 use tracing::Level;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install().expect("Failed to initialise error handler");
-    let opt = Opt::parse();
-    if let Some(network_id) = opt.network_id {
-        version::set_network_id(network_id);
-    }
+    let mut opt = Opt::parse();
 
     // The clone is necessary to resolve a clippy warning related to a mutex.
     let identify_protocol_str = version::IDENTIFY_PROTOCOL_STR
@@ -74,6 +72,7 @@ async fn main() -> Result<()> {
     let _log_guards = init_logging_and_metrics(&opt)?;
     if opt.peers.local {
         tokio::spawn(init_metrics(std::process::id()));
+        opt.network_id = NetworkId::local();
     }
 
     info!("\"{}\"", std::env::args().collect::<Vec<_>>().join(" "));

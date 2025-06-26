@@ -27,7 +27,7 @@ use crate::{
     ScratchpadAddress,
 };
 
-use ant_evm::{PaymentQuote, QuotingMetrics, RewardsAddress};
+use ant_evm::{MaxFeePerGas, PaymentQuote, QuotingMetrics, RewardsAddress, TransactionConfig};
 use ant_protocol::storage::DataTypes;
 use bls::{PublicKey, SecretKey};
 use libp2p::{Multiaddr, PeerId};
@@ -189,38 +189,6 @@ impl PyClient {
         })
     }
 
-    fn upload_chunks_with_retries<'a>(
-        &self,
-        py: Python<'a>,
-        chunks: Vec<PyChunk>, // Vec<&PyChunk> to match original code is not supported by PyO3
-        receipt: PyReceipt,
-    ) -> PyResult<Bound<'a, PyAny>> {
-        let inner_client = self.inner.clone();
-        let inner_receipt = receipt.inner;
-
-        future_into_py(py, async move {
-            let inner_chunks: Vec<Chunk> = chunks.into_iter().map(|chunk| chunk.inner).collect();
-            let chunk_refs: Vec<&Chunk> = inner_chunks.iter().collect();
-            let result = inner_client
-                .upload_chunks_with_retries(chunk_refs, &inner_receipt)
-                .await;
-
-            let py_failures = result
-                .into_iter()
-                .map(|(chunk, err)| {
-                    (
-                        PyChunk {
-                            inner: chunk.clone(),
-                        },
-                        err.to_string(),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            Ok(py_failures)
-        })
-    }
-
     /// Fetches a GraphEntry from the network.
     fn graph_entry_get<'a>(
         &self,
@@ -248,7 +216,7 @@ impl PyClient {
 
         future_into_py(py, async move {
             let exists = client
-                .graph_entry_check_existance(&addr.inner)
+                .graph_entry_check_existence(&addr.inner)
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to get graph entry: {e}")))?;
             Ok(exists)
@@ -335,7 +303,7 @@ impl PyClient {
 
         future_into_py(py, async move {
             let exists = client
-                .scratchpad_check_existance(&addr.inner)
+                .scratchpad_check_existence(&addr.inner)
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
 
@@ -1103,7 +1071,7 @@ impl PyClient {
 
         future_into_py(py, async move {
             let exists = client
-                .pointer_check_existance(&addr.inner)
+                .pointer_check_existence(&addr.inner)
                 .await
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to get pointer: {e}")))?;
 
@@ -1393,7 +1361,7 @@ impl PyPointer {
     /// This pointer would be stored on the network at the provided key's public key.
     /// There can only be one pointer at a time at the same address (one per key).
     #[new]
-    pub fn new(key: &PySecretKey, counter: u32, target: &PyPointerTarget) -> PyResult<Self> {
+    pub fn new(key: &PySecretKey, counter: u64, target: &PyPointerTarget) -> PyResult<Self> {
         Ok(Self {
             inner: Pointer::new(&key.inner, counter, target.inner.clone()),
         })
@@ -1887,6 +1855,87 @@ impl PyWallet {
     pub fn random_private_key() -> String {
         Wallet::random_private_key()
     }
+
+    /// Sets the transaction configuration for the wallet.
+    fn set_transaction_config(&mut self, config: PyTransactionConfig) -> PyResult<()> {
+        self.inner.set_transaction_config(config.into());
+        Ok(())
+    }
+}
+
+#[pyclass(name = "TransactionConfig")]
+#[derive(Clone, Debug)]
+pub struct PyTransactionConfig {
+    pub max_fee_per_gas: PyMaxFeePerGas,
+}
+
+#[pymethods]
+impl PyTransactionConfig {
+    fn __str__(&self) -> String {
+        format!(
+            "{:?}",
+            std::convert::Into::<TransactionConfig>::into(self.clone())
+        )
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<TransactionConfig> for PyTransactionConfig {
+    fn into(self) -> TransactionConfig {
+        let max_fee_per_gas = match self.max_fee_per_gas {
+            PyMaxFeePerGas::Auto() => MaxFeePerGas::Auto,
+            PyMaxFeePerGas::LimitedAuto(limit) => MaxFeePerGas::LimitedAuto(limit),
+            PyMaxFeePerGas::Unlimited() => MaxFeePerGas::Unlimited,
+            PyMaxFeePerGas::Custom(limit) => MaxFeePerGas::Custom(limit),
+        };
+
+        TransactionConfig { max_fee_per_gas }
+    }
+}
+
+#[pyclass(name = "MaxFeePerGas")]
+#[derive(Clone, Debug)]
+pub enum PyMaxFeePerGas {
+    Auto(),
+    LimitedAuto(u128),
+    Unlimited(),
+    Custom(u128),
+}
+
+#[pymethods]
+impl PyMaxFeePerGas {
+    /// Use the current market price for fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[staticmethod]
+    pub fn auto() -> Self {
+        Self::Auto()
+    }
+
+    /// Use the current market price for fee per gas, but with an upper limit.
+    #[staticmethod]
+    pub fn limited_auto(value: u128) -> Self {
+        Self::LimitedAuto(value)
+    }
+
+    /// Use no max fee per gas. WARNING: This can result in unexpected high gas fees!
+    #[staticmethod]
+    pub fn unlimited() -> Self {
+        Self::Unlimited()
+    }
+
+    /// Use a custom max fee per gas in WEI.
+    #[staticmethod]
+    pub fn custom(value: u128) -> Self {
+        Self::Custom(value)
+    }
+
+    pub fn __str__(&self) -> String {
+        match self {
+            Self::Auto() => "Auto".to_string(),
+            Self::LimitedAuto(val) => format!("LimitedAuto({val})"),
+            Self::Unlimited() => "Unlimited".to_string(),
+            Self::Custom(val) => format!("Custom({val})"),
+        }
+    }
 }
 
 /// Options for making payments on the network.
@@ -2265,11 +2314,6 @@ impl PyPaymentQuote {
         };
 
         Ok(self.inner.check_is_signed_by_claimed_peer(peer_id))
-    }
-
-    /// Returns true if the quote has expired
-    fn has_expired(&self) -> bool {
-        self.inner.has_expired()
     }
 
     /// Check whether self is newer than the target quote
@@ -2952,6 +2996,8 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyReceipt>()?;
     m.add_class::<PyStoreQuote>()?;
     m.add_class::<PyWallet>()?;
+    m.add_class::<PyTransactionConfig>()?;
+    m.add_class::<PyMaxFeePerGas>()?;
     m.add_class::<PyPaymentOption>()?;
     m.add_class::<PyVaultSecretKey>()?;
     m.add_class::<PyUserData>()?;

@@ -6,9 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-pub mod auditor;
 pub mod daemon;
-pub mod faucet;
 pub mod local;
 pub mod nat_detection;
 pub mod node;
@@ -39,10 +37,12 @@ pub async fn download_and_get_upgrade_bin_path(
             "Using the supplied custom binary at {}",
             path.to_string_lossy()
         );
-        println!(
-            "Using the supplied custom binary at {}",
-            path.to_string_lossy()
-        );
+        if verbosity != VerbosityLevel::Minimal {
+            println!(
+                "Using the supplied custom binary at {}",
+                path.to_string_lossy()
+            );
+        }
         let bin_version = get_bin_version(&path)?;
         return Ok((path, bin_version.parse()?));
     }

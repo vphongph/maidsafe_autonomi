@@ -625,9 +625,9 @@ pub fn print_banner(text: &str) {
     let total_width = text_width + border_chars;
     let top_bottom = "═".repeat(total_width);
 
-    println!("╔{}╗", top_bottom);
-    println!("║ {:^width$} ║", text, width = text_width);
-    println!("╚{}╝", top_bottom);
+    println!("╔{top_bottom}╗");
+    println!("║ {text:^text_width$} ║");
+    println!("╚{top_bottom}╝");
 }
 
 fn format_status(status: &ServiceStatus) -> String {
@@ -1912,10 +1912,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2165,10 +2162,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Forced but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Forced but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2326,10 +2320,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2478,10 +2469,9 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::UpgradedButNotStarted but was {:#?}",
-                upgrade_result
-            ),
+            _ => {
+                panic!("Expected UpgradeResult::UpgradedButNotStarted but was {upgrade_result:#?}")
+            }
         }
 
         Ok(())
@@ -2635,10 +2625,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;

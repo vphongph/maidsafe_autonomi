@@ -39,8 +39,7 @@ impl<'de> Deserialize<'de> for NodeServiceData {
                 ) {
                     Ok(v2) => Ok(v2),
                     Err(e) => Err(D::Error::custom(format!(
-                        "Failed to deserialize as V2: {}",
-                        e
+                        "Failed to deserialize as V2: {e}"
                     ))),
                 }
             }
@@ -53,8 +52,7 @@ impl<'de> Deserialize<'de> for NodeServiceData {
                         Ok(v2)
                     }
                     Err(e) => Err(D::Error::custom(format!(
-                        "Failed to deserialize as V1: {}",
-                        e
+                        "Failed to deserialize as V1: {e}"
                     ))),
                 }
             }
@@ -68,8 +66,7 @@ impl<'de> Deserialize<'de> for NodeServiceData {
                         Ok(v2)
                     }
                     Err(e) => Err(D::Error::custom(format!(
-                        "Failed to deserialize as V0: {}",
-                        e
+                        "Failed to deserialize as V0: {e}"
                     ))),
                 }
             }
@@ -85,7 +82,7 @@ impl NodeServiceData {
             println!("Listening addresses are defined");
             for addr in multi_addrs {
                 if let Some(port) = get_port_from_multiaddr(addr) {
-                    println!("Found port: {}", port);
+                    println!("Found port: {port}");
                     return Some(port);
                 }
             }

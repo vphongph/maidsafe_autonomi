@@ -142,7 +142,7 @@ impl ExternalAddressManager {
                     };
 
                     if confirmed {
-                        info!("External address confirmed, adding it to swarm: {address:?}");
+                        debug!("External address confirmed, adding it to swarm: {address:?}");
                         swarm.add_external_address(address.clone());
                         *state = ExternalAddressState::Confirmed {
                             address: address.clone(),
@@ -159,9 +159,10 @@ impl ExternalAddressManager {
                     }
                 }
             } else {
-                debug!(
-                    "External address: {address:?} is already confirmed or a listener. Do nothing"
-                );
+                if state.num_reports() < 10 {
+                    debug!("External address: {address:?} is already confirmed or a listener. Do nothing");
+                }
+
                 return;
             }
         }
@@ -529,15 +530,17 @@ impl ExternalAddressState {
     }
 
     fn increment_reports(&mut self) {
-        debug!(
-            "Incrementing reports for address: {}, current reports: {}",
-            self.multiaddr(),
-            self.num_reports(),
-        );
         match self {
             Self::Candidate { num_reports, .. } => *num_reports = num_reports.saturating_add(1),
             Self::Confirmed { num_reports, .. } => *num_reports = num_reports.saturating_add(1),
             Self::Listener { .. } => {}
+        }
+        if self.num_reports() < 10 {
+            debug!(
+                "Incrementing reports for address: {}, current reports: {}",
+                self.multiaddr(),
+                self.num_reports(),
+            );
         }
     }
 

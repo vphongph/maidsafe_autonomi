@@ -101,7 +101,7 @@ pub fn print_upgrade_summary(upgrade_summary: Vec<(String, UpgradeResult)>) {
     for (service_name, upgrade_result) in upgrade_summary {
         match upgrade_result {
             UpgradeResult::NotRequired => {
-                println!("- {} did not require an upgrade", service_name);
+                println!("- {service_name} did not require an upgrade");
             }
             UpgradeResult::Upgraded(previous_version, new_version) => {
                 println!(
@@ -188,7 +188,7 @@ fn build_binary(bin_type: &ReleaseType) -> Result<PathBuf> {
         args.extend(["--features", "open-metrics"]);
     }
 
-    print_banner(&format!("Building {} binary", bin_name));
+    print_banner(&format!("Building {bin_name} binary"));
 
     let mut target_dir = PathBuf::new();
     let mut build_result = Command::new("cargo");

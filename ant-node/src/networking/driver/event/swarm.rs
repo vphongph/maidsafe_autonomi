@@ -447,7 +447,7 @@ impl SwarmDriver {
                     }
                     DialError::LocalPeerId { address } => {
                         // This is actually _us_ So we should remove this from the RT
-                        debug!("OutgoingConnectionError: LocalPeerId: {address:?}");
+                        debug!("OutgoingConnectionError: LocalPeerId: {address}");
                         true
                     }
                     DialError::WrongPeerId { obtained, address } => {

@@ -414,8 +414,7 @@ async fn add_node(args: MaintainNodesArgs, node_registry: NodeRegistryManager) {
             args.action_sender.clone(),
             Action::StatusActions(StatusActions::ErrorAddingNodes {
                 raw_error: format!(
-                    "When adding a new node we reached maximum port number ({}).\nUnable to find an available port.",
-                    max_port
+                    "When adding a new node we reached maximum port number ({max_port}).\nUnable to find an available port."
                 ),
             }),
         );
@@ -728,8 +727,7 @@ async fn add_nodes(
                 action_sender.clone(),
                 Action::StatusActions(StatusActions::ErrorScalingUpNodes {
                     raw_error: format!(
-                        "Reached maximum port number ({}).\nUnable to find an available port.",
-                        max_port
+                        "Reached maximum port number ({max_port}).\nUnable to find an available port."
                     ),
                 }),
             );
@@ -830,9 +828,8 @@ async fn add_nodes(
             action_sender.clone(),
             Action::StatusActions(StatusActions::ErrorScalingUpNodes {
                 raw_error: format!(
-                    "When trying to start a node, we reached the maximum amount of retries ({}).\n\
-                    Could this be a firewall blocking nodes starting or ports on your router already in use?",
-                    NODE_ADD_MAX_RETRIES
+                    "When trying to start a node, we reached the maximum amount of retries ({NODE_ADD_MAX_RETRIES}).\n\
+                    Could this be a firewall blocking nodes starting or ports on your router already in use?"
                 ),
             }),
         );

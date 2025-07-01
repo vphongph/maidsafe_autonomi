@@ -168,6 +168,7 @@ impl Status<'_> {
             &ServiceController {},
             false,
             true,
+            ant_node_manager::VerbosityLevel::Minimal,
         )
         .await?;
         node_registry.save().await?;
@@ -926,7 +927,7 @@ impl Component for Status<'_> {
                     if GB_PER_NODE > self.available_disk_space_gb {
                         self.error_popup = Some(ErrorPopup::new(
                         "Cannot Add Node".to_string(),
-                        format!("\nEach Node requires {}GB of available space.", GB_PER_NODE),
+                        format!("\nEach Node requires {GB_PER_NODE}GB of available space."),
                         format!("{} has only {}GB remaining.\n\nYou can free up some space or change to different drive in the options.", get_drive_name(&self.storage_mountpoint)?, self.available_disk_space_gb),
                     ));
                         if let Some(error_popup) = &mut self.error_popup {
@@ -947,8 +948,7 @@ impl Component for Status<'_> {
                         self.error_popup = Some(ErrorPopup::new(
                             "Cannot Add Node".to_string(),
                             format!(
-                                "There are not enough ports available in your\ncustom port range to start another node ({}).",
-                                MAX_NODE_COUNT
+                                "There are not enough ports available in your\ncustom port range to start another node ({MAX_NODE_COUNT})."
                             ),
                             "\nVisit autonomi.com/support/port-error for help".to_string(),
                         ));
@@ -1076,7 +1076,7 @@ impl Component for Status<'_> {
                     action_sender,
                     connection_timeout_s: 5,
                     do_not_start: true,
-                    custom_bin_path: None,
+                    custom_bin_path: self.antnode_path.clone(),
                     force: false,
                     fixed_interval: Some(FIXED_INTERVAL),
                     peer_ids,
@@ -1294,10 +1294,9 @@ impl Component for Status<'_> {
 
                 let line2 = Line::from(vec![Span::styled(
                     format!(
-                        "Each node will use {}GB of storage and a small amount of memory, \
+                        "Each node will use {GB_PER_NODE}GB of storage and a small amount of memory, \
                         CPU, and Network bandwidth. Most computers can run many nodes at once, \
-                        but we recommend you add them gradually",
-                        GB_PER_NODE
+                        but we recommend you add them gradually"
                     ),
                     Style::default().fg(LIGHT_PERIWINKLE),
                 )]);

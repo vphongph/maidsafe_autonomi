@@ -487,7 +487,7 @@ async fn validate_network(node_registry: NodeRegistryManager, peers: Vec<Multiad
             .collect();
         if !invalid_peers.is_empty() {
             for invalid_peer in invalid_peers.iter() {
-                println!("Invalid peer found: {}", invalid_peer);
+                println!("Invalid peer found: {invalid_peer}");
             }
             error!("Network validation failed: {invalid_peers:?}");
             return Err(eyre!("Network validation failed",));

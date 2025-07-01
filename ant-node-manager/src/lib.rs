@@ -373,6 +373,7 @@ pub async fn status_report(
         service_control,
         !output_json,
         is_local_network,
+        VerbosityLevel::Normal,
     )
     .await?;
 
@@ -522,25 +523,29 @@ pub async fn refresh_node_registry(
     service_control: &dyn ServiceControl,
     full_refresh: bool,
     is_local_network: bool,
+    verbosity: VerbosityLevel,
 ) -> Result<()> {
     // This message is useful for users, but needs to be suppressed when a JSON output is
     // requested.
 
     info!("Refreshing the node registry");
-
-    let total_nodes = node_registry.nodes.read().await.len() as u64;
-    // Create a progress bar
-    let pb = ProgressBar::new(total_nodes);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{msg} {spinner:.green} [{bar:40.cyan/blue}] ({percent}%)")
-            .unwrap_or_else(|_e| {
-                // Fallback to default style if template fails
-                ProgressStyle::default_bar()
-            })
-            .progress_chars("#>-"),
-    );
-    pb.set_message("Refreshing the node registry");
+    let pb = if verbosity != VerbosityLevel::Minimal {
+        let total_nodes = node_registry.nodes.read().await.len() as u64;
+        let pb = ProgressBar::new(total_nodes);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{msg} {spinner:.green} [{bar:40.cyan/blue}] ({percent}%)")
+                .unwrap_or_else(|_e| {
+                    // Fallback to default style if template fails
+                    ProgressStyle::default_bar()
+                })
+                .progress_chars("#>-"),
+        );
+        pb.set_message("Refreshing the node registry");
+        Some(pb)
+    } else {
+        None
+    };
 
     // Main processing loop
     for node in node_registry.nodes.read().await.iter() {
@@ -598,9 +603,15 @@ pub async fn refresh_node_registry(
                 }
             }
         }
-        pb.inc(1);
+
+        if let Some(ref pb) = pb {
+            pb.inc(1);
+        }
     }
-    pb.finish_and_clear();
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
 
     info!("Node registry refresh complete!");
 
@@ -614,9 +625,9 @@ pub fn print_banner(text: &str) {
     let total_width = text_width + border_chars;
     let top_bottom = "═".repeat(total_width);
 
-    println!("╔{}╗", top_bottom);
-    println!("║ {:^width$} ║", text, width = text_width);
-    println!("╚{}╝", top_bottom);
+    println!("╔{top_bottom}╗");
+    println!("║ {text:^text_width$} ║");
+    println!("╚{top_bottom}╝");
 }
 
 fn format_status(status: &ServiceStatus) -> String {
@@ -1901,10 +1912,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2154,10 +2162,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Forced but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Forced but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2315,10 +2320,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;
@@ -2467,10 +2469,9 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::UpgradedButNotStarted but was {:#?}",
-                upgrade_result
-            ),
+            _ => {
+                panic!("Expected UpgradeResult::UpgradedButNotStarted but was {upgrade_result:#?}")
+            }
         }
 
         Ok(())
@@ -2624,10 +2625,7 @@ mod tests {
                 assert_eq!(old_version, current_version);
                 assert_eq!(new_version, target_version);
             }
-            _ => panic!(
-                "Expected UpgradeResult::Upgraded but was {:#?}",
-                upgrade_result
-            ),
+            _ => panic!("Expected UpgradeResult::Upgraded but was {upgrade_result:#?}"),
         }
 
         let service_data = service_data.read().await;

@@ -40,19 +40,18 @@ pub mod spawn;
 pub mod utils;
 
 pub use self::{
+    error::{Error, PutValidationError},
     event::{NodeEvent, NodeEventsChannel, NodeEventsReceiver},
     log_markers::Marker,
     node::{NodeBuilder, PERIODIC_REPLICATION_INTERVAL_MAX_S},
 };
 pub use ant_networking::SwarmLocalState;
 
-use crate::error::{Error, Result};
-
+use crate::error::Result;
 use ant_evm::RewardsAddress;
 use ant_networking::Network;
 use ant_protocol::{get_port_from_multiaddr, NetworkAddress};
 use libp2p::{Multiaddr, PeerId};
-
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,

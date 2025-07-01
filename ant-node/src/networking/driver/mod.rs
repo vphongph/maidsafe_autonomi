@@ -50,9 +50,9 @@ use libp2p::{
 };
 use rand::Rng;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{interval, Duration, Interval};
-use std::time::Instant;
 use tracing::warn;
 
 use super::interface::{LocalSwarmCmd, NetworkEvent, NetworkSwarmCmd};

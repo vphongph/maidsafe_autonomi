@@ -7,7 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::{
-    multiaddr_get_port, relay_manager::{is_a_relayed_peer, RelayManager}, Addresses, NetworkEvent
+    multiaddr_get_port,
+    relay_manager::{is_a_relayed_peer, RelayManager},
+    Addresses, NetworkEvent,
 };
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use itertools::Itertools;

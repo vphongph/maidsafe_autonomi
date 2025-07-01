@@ -25,10 +25,7 @@ use crate::networking::{
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::{
-    version::{
-        get_network_id_str, IDENTIFY_PROTOCOL_STR,
-        REQ_RESPONSE_VERSION_STR,
-    },
+    version::{get_network_id_str, IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR},
     NetworkAddress, PrettyPrintKBucketKey,
 };
 use futures::future::Either;

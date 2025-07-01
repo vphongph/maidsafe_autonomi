@@ -36,14 +36,14 @@ use std::{
 };
 use tokio::time::Instant;
 
-pub const MAX_DO_NOT_DISTURB_DURATION: u64 = 5 * 60; // 5 minutes
+pub(crate) const MAX_DO_NOT_DISTURB_DURATION: u64 = 5 * 60; // 5 minutes
 
 /// The protocol string for the do-not-disturb capability.
-pub const DND_PROTOCOL: StreamProtocol = StreamProtocol::new("/autonomi/dnd/1.0.0");
+pub(crate) const DND_PROTOCOL: StreamProtocol = StreamProtocol::new("/autonomi/dnd/1.0.0");
 
 /// Messages exchanged in the Do Not Disturb protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DoNotDisturbMessage {
+pub(crate) enum DoNotDisturbMessage {
     /// Request to be added to the remote peer's do-not-disturb list.
     Request {
         /// Duration in seconds for which the sender should not be disturbed.
@@ -58,10 +58,10 @@ pub enum DoNotDisturbMessage {
 }
 
 /// Codec for DND protocol messages
-pub struct DndCodec;
+pub(crate) struct DndCodec;
 
 impl DndCodec {
-    pub async fn read_message<T>(stream: &mut T) -> io::Result<DoNotDisturbMessage>
+    pub(crate) async fn read_message<T>(stream: &mut T) -> io::Result<DoNotDisturbMessage>
     where
         T: AsyncRead + Unpin,
     {
@@ -106,7 +106,10 @@ impl DndCodec {
         })
     }
 
-    pub async fn write_message<T>(stream: &mut T, message: &DoNotDisturbMessage) -> io::Result<()>
+    pub(crate) async fn write_message<T>(
+        stream: &mut T,
+        message: &DoNotDisturbMessage,
+    ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin,
     {
@@ -149,7 +152,7 @@ impl DndCodec {
 
 /// DND Protocol upgrade for inbound streams
 #[derive(Debug, Clone)]
-pub struct DndInboundUpgrade;
+pub(crate) struct DndInboundUpgrade;
 
 impl UpgradeInfo for DndInboundUpgrade {
     type Info = StreamProtocol;
@@ -201,7 +204,7 @@ impl InboundUpgrade<Stream> for DndInboundUpgrade {
 
 /// DND Protocol upgrade for outbound streams
 #[derive(Debug, Clone)]
-pub struct DndOutboundUpgrade {
+pub(crate) struct DndOutboundUpgrade {
     pub message: DoNotDisturbMessage,
 }
 
@@ -253,7 +256,7 @@ impl OutboundUpgrade<Stream> for DndOutboundUpgrade {
 
 /// Events emitted by the Do Not Disturb behavior.
 #[derive(Debug)]
-pub enum DoNotDisturbEvent {
+pub(crate) enum DoNotDisturbEvent {
     /// A do-not-disturb request was received from a peer.
     RequestReceived {
         /// The peer that sent the request.
@@ -306,7 +309,7 @@ pub enum DoNotDisturbEvent {
 /// assert!(!behaviour.is_blocked(&peer_id));
 /// ```
 #[derive(Debug, Default)]
-pub struct Behaviour {
+pub(crate) struct Behaviour {
     /// Map of blocked peers to their unblock time
     blocked_peers: HashMap<PeerId, Instant>,
     /// Pending events to be emitted to the swarm
@@ -318,14 +321,14 @@ impl Behaviour {
     ///
     /// The duration is capped at [`MAX_DO_NOT_DISTURB_DURATION`] seconds.
     /// If the peer is already blocked, this will update the block expiration time.
-    pub fn block_peer(&mut self, peer_id: PeerId, duration: Duration) {
+    pub(crate) fn block_peer(&mut self, peer_id: PeerId, duration: Duration) {
         let original_duration = duration.as_secs();
         let capped_duration =
             Duration::from_secs(duration.as_secs().min(MAX_DO_NOT_DISTURB_DURATION));
         let unblock_time = Instant::now() + capped_duration;
 
         let was_already_blocked = self.blocked_peers.contains_key(&peer_id);
-        self.blocked_peers.insert(peer_id, unblock_time);
+        let _ = self.blocked_peers.insert(peer_id, unblock_time);
 
         if was_already_blocked {
             info!(
@@ -350,7 +353,7 @@ impl Behaviour {
     }
 
     /// Remove the peer from the blocked list, allowing outgoing connections immediately.
-    pub fn unblock_peer(&mut self, peer_id: &PeerId) {
+    pub(crate) fn unblock_peer(&mut self, peer_id: &PeerId) {
         let was_blocked = self.blocked_peers.remove(peer_id).is_some();
 
         if was_blocked {
@@ -364,7 +367,7 @@ impl Behaviour {
     }
 
     /// Check if outgoing connections to this peer are currently blocked.
-    pub fn is_blocked(&mut self, peer_id: &PeerId) -> bool {
+    pub(crate) fn is_blocked(&mut self, peer_id: &PeerId) -> bool {
         // Clean up expired entries first
         self.cleanup_expired();
         self.blocked_peers.contains_key(peer_id)
@@ -400,7 +403,7 @@ impl Behaviour {
     /// asking the peer to add us to their do-not-disturb list for the given duration.
     ///
     /// The duration is capped at [`MAX_DO_NOT_DISTURB_DURATION`] seconds.
-    pub fn send_do_not_disturb_request(&mut self, peer: PeerId, duration_secs: u64) {
+    pub(crate) fn send_do_not_disturb_request(&mut self, peer: PeerId, duration_secs: u64) {
         let duration_secs = duration_secs.min(MAX_DO_NOT_DISTURB_DURATION);
 
         info!("Sending do-not-disturb request to peer {peer:?} for {duration_secs}s");
@@ -418,14 +421,14 @@ impl Behaviour {
 
 /// Messages sent from the NetworkBehaviour to the ConnectionHandler.
 #[derive(Debug)]
-pub enum HandlerInEvent {
+pub(crate) enum HandlerInEvent {
     /// Send a do-not-disturb request to the remote peer.
     SendRequest { duration: u64 },
 }
 
 /// Messages sent from the ConnectionHandler to the NetworkBehaviour.
 #[derive(Debug)]
-pub enum HandlerOutEvent {
+pub(crate) enum HandlerOutEvent {
     /// A DND request was received from the remote peer.
     RequestReceived { duration: u64 },
     /// A DND response was received for a request we sent.
@@ -439,7 +442,7 @@ pub enum HandlerOutEvent {
 /// This handler manages DND protocol streams, processing inbound requests
 /// and sending outbound requests when instructed by the NetworkBehaviour.
 #[derive(Debug, Default)]
-pub struct Handler {
+pub(crate) struct Handler {
     /// Events pending to be reported to the NetworkBehaviour.
     pending_events: Vec<HandlerOutEvent>,
     /// Pending outbound DND requests to be sent.
@@ -610,7 +613,7 @@ impl ConnectionHandler for Handler {
 
 /// Error indicating that a peer is currently blocked from outgoing connections.
 #[derive(Debug, Clone)]
-pub struct DoNotDisturbError {
+pub(crate) struct DoNotDisturbError {
     pub peer_id: PeerId,
     pub remaining_duration: Duration,
 }
@@ -929,7 +932,8 @@ mod tests {
 
         // swarm2 should still be able to connect TO swarm1 (incoming connection to swarm1)
         // This tests that only outgoing connections are blocked
-        tokio::spawn(swarm1.loop_on_next());
+        #[allow(clippy::let_underscore_future)]
+        let _ = tokio::spawn(swarm1.loop_on_next());
 
         let connection_result = swarm2.dial(listen_addr);
         assert!(

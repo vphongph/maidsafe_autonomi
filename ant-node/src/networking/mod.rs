@@ -127,34 +127,6 @@ pub(crate) fn multiaddr_get_p2p(multiaddr: &Multiaddr) -> Option<PeerId> {
     }
 }
 
-/// Build a `Multiaddr` with the p2p protocol filtered out.
-/// If it is a relayed address, then the relay's P2P address is preserved.
-pub(crate) fn multiaddr_strip_p2p(multiaddr: &Multiaddr) -> Multiaddr {
-    let is_relayed = multiaddr.iter().any(|p| matches!(p, Protocol::P2pCircuit));
-
-    if is_relayed {
-        // Do not add any PeerId after we've found the P2PCircuit protocol. The prior one is the relay's PeerId which
-        // we should preserve.
-        let mut before_relay_protocol = true;
-        let mut new_multi_addr = Multiaddr::empty();
-        for p in multiaddr.iter() {
-            if matches!(p, Protocol::P2pCircuit) {
-                before_relay_protocol = false;
-            }
-            if matches!(p, Protocol::P2p(_)) && !before_relay_protocol {
-                continue;
-            }
-            new_multi_addr.push(p);
-        }
-        new_multi_addr
-    } else {
-        multiaddr
-            .iter()
-            .filter(|p| !matches!(p, Protocol::P2p(_)))
-            .collect()
-    }
-}
-
 /// Get the `IpAddr` from the `Multiaddr`
 pub(crate) fn multiaddr_get_ip(addr: &Multiaddr) -> Option<IpAddr> {
     addr.iter().find_map(|p| match p {

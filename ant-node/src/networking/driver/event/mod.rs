@@ -66,6 +66,7 @@ pub(crate) enum NodeEvent {
     Identify(Box<libp2p::identify::Event>),
     RelayClient(Box<libp2p::relay::client::Event>),
     RelayServer(Box<libp2p::relay::Event>),
+    DoNotDisturb(super::behaviour::do_not_disturb::DoNotDisturbEvent),
     Void(void::Void),
 }
 
@@ -100,6 +101,12 @@ impl From<libp2p::relay::client::Event> for NodeEvent {
 impl From<libp2p::relay::Event> for NodeEvent {
     fn from(event: libp2p::relay::Event) -> Self {
         NodeEvent::RelayServer(Box::new(event))
+    }
+}
+
+impl From<super::behaviour::do_not_disturb::DoNotDisturbEvent> for NodeEvent {
+    fn from(event: super::behaviour::do_not_disturb::DoNotDisturbEvent) -> Self {
+        NodeEvent::DoNotDisturb(event)
     }
 }
 
@@ -153,8 +160,8 @@ impl SwarmDriver {
 
         let distance =
             NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
-        info!("New peer added to routing table: {added_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.", 
-        self.peers_in_rt, distance.ilog2());
+        info!("Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.", 
+        self.self_peer_id, distance.ilog2());
 
         #[cfg(feature = "loud")]
         println!(

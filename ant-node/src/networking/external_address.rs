@@ -25,10 +25,11 @@ const MAX_CONFIRMED_ADDRESSES_BEFORE_SWITCHING_IP: u8 = 5;
 /// The maximum number of candidates to store
 const MAX_CANDIDATES: usize = 50;
 
+/// To be deprecated in future. The external address that is advertised by the node is not used for dialing the peers
+/// anymore. But this whole struct exists for backwards compatibility with the old code.
+///
 /// Manages the external addresses of a Public node. For a relayed node, the RelayManager should deal with
 /// adding and removing external addresses. Also, we don't manage "local" addresses here.
-// TODO:
-// 1. if the max candidate is reached, kick out the oldest candidate sorted by # of reports
 #[derive(Debug)]
 pub(crate) struct ExternalAddressManager {
     /// All the external addresses of the node
@@ -143,7 +144,7 @@ impl ExternalAddressManager {
                     };
 
                     if confirmed {
-                        info!("External address confirmed, adding it to swarm: {address:?}");
+                        debug!("External address confirmed, adding it to swarm: {address:?}");
                         swarm.add_external_address(address.clone());
                         *state = ExternalAddressState::Confirmed {
                             address: address.clone(),
@@ -160,9 +161,10 @@ impl ExternalAddressManager {
                     }
                 }
             } else {
-                debug!(
-                    "External address: {address:?} is already confirmed or a listener. Do nothing"
-                );
+                if state.num_reports() < 10 {
+                    debug!("External address: {address:?} is already confirmed or a listener. Do nothing");
+                }
+
                 return;
             }
         }
@@ -541,15 +543,17 @@ impl ExternalAddressState {
     }
 
     fn increment_reports(&mut self) {
-        debug!(
-            "Incrementing reports for address: {}, current reports: {}",
-            self.multiaddr(),
-            self.num_reports(),
-        );
         match self {
             Self::Candidate { num_reports, .. } => *num_reports = num_reports.saturating_add(1),
             Self::Confirmed { num_reports, .. } => *num_reports = num_reports.saturating_add(1),
             Self::Listener { .. } => {}
+        }
+        if self.num_reports() < 10 {
+            debug!(
+                "Incrementing reports for address: {}, current reports: {}",
+                self.multiaddr(),
+                self.num_reports(),
+            );
         }
     }
 

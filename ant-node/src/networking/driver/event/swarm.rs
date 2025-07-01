@@ -12,7 +12,7 @@ use crate::networking::{
     interface::TerminateNodeReason,
     multiaddr_get_ip, NetworkEvent, NodeIssue, Result,
 };
-use ant_bootstrap::{multiaddr_get_peer_id, BootstrapCacheStore};
+use ant_bootstrap::multiaddr_get_peer_id;
 use itertools::Itertools;
 #[cfg(feature = "open-metrics")]
 use libp2p::metrics::Recorder;
@@ -170,8 +170,6 @@ impl SwarmDriver {
                     address.push(Protocol::P2p(local_peer_id));
                 }
 
-                // Trigger server mode if we're not a client and we should not add our own address if we're behind
-                // home network (is_relay_client).
                 if !self.is_relay_client {
                     if self.local {
                         // all addresses are effectively external here...
@@ -180,28 +178,17 @@ impl SwarmDriver {
 
                         // If we are local, add our own address(es) to cache
                         if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
-                            tracing::info!("Adding listen address to bootstrap cache");
-
-                            let config = bootstrap_cache.config().clone();
-                            let mut old_cache = bootstrap_cache.clone();
-
-                            if let Ok(new) = BootstrapCacheStore::new(config) {
-                                self.bootstrap_cache = Some(new);
-                                old_cache.add_addr(address.clone());
-
-                                // Save cache to disk.
-                                #[allow(clippy::let_underscore_future)]
-                                let _ = tokio::spawn(async move {
-                                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
-                                        error!("Failed to save bootstrap cache: {err}");
-                                    }
-                                });
-                            }
+                            info!("Adding listen address to bootstrap cache (local): {address:?}");
+                            bootstrap_cache.add_addr(address.clone());
                         }
-                    } else if let Some(external_add_manager) =
+                        if let Err(err) = self.sync_and_flush_cache() {
+                            warn!("Failed to sync and flush cache during NewListenAddr: {err:?}");
+                        }
+                    } else if let Some(external_address_manager) =
                         self.external_address_manager.as_mut()
                     {
-                        external_add_manager.on_new_listen_addr(address.clone(), &mut self.swarm);
+                        external_address_manager
+                            .on_new_listen_addr(address.clone(), &mut self.swarm);
                     } else {
                         // just for future reference.
                         warn!("External address manager is not enabled for a public node. This should not happen.");
@@ -217,7 +204,7 @@ impl SwarmDriver {
 
                 self.initial_bootstrap_trigger.listen_addr_obtained = true;
 
-                self.send_event(NetworkEvent::NewListenAddr(address.clone()));
+                self.send_event(NetworkEvent::NewListenAddr(address));
             }
             SwarmEvent::ListenerClosed {
                 listener_id,
@@ -263,9 +250,9 @@ impl SwarmDriver {
                     self.peers_in_rt,
                 );
 
-                if let Some(external_addr_manager) = self.external_address_manager.as_mut() {
+                if let Some(external_address_manager) = self.external_address_manager.as_mut() {
                     if let ConnectedPoint::Listener { local_addr, .. } = &endpoint {
-                        external_addr_manager
+                        external_address_manager
                             .on_established_incoming_connection(local_addr.clone());
                     }
                 }
@@ -511,14 +498,13 @@ impl SwarmDriver {
                 // And since we don't do anything critical with this event, the order and time of processing is
                 // not critical.
 
-                if self.is_incoming_connection_error_valid(connection_id, &send_back_addr) {
-                    let remote_peer_id = match multiaddr_get_peer_id(&send_back_addr) {
-                        Some(peer_id) => format!("{peer_id:?}"),
-                        None => String::new(),
-                    };
-                    debug!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
-                    let (error_str, level) = listen_error_to_str(&error);
-                    match level {
+                let remote_peer_id = match multiaddr_get_peer_id(&send_back_addr) {
+                    Some(peer_id) => format!("{peer_id:?}"),
+                    None => String::new(),
+                };
+                debug!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
+                let (error_str, level) = listen_error_to_str(&error);
+                match level {
                         tracing::Level::ERROR => error!(
                             "Node {:?} Remote {remote_peer_id} - Incoming Connection Error - {error_str:?}",
                             self.self_peer_id,
@@ -528,14 +514,14 @@ impl SwarmDriver {
                             self.self_peer_id,
                         ),
                     }
+
+                if self.is_incoming_connection_error_valid(connection_id, &send_back_addr) {
                     // This is best approximation that we can do to prevent harmless errors from affecting the external
                     // address health.
-                    if let Some(external_addr_manager) = self.external_address_manager.as_mut() {
-                        external_addr_manager
+                    if let Some(external_address_manager) = self.external_address_manager.as_mut() {
+                        external_address_manager
                             .on_incoming_connection_error(local_addr.clone(), &mut self.swarm);
                     }
-                } else {
-                    debug!("IncomingConnectionError InValid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
                 }
 
                 #[cfg(feature = "open-metrics")]
@@ -555,19 +541,19 @@ impl SwarmDriver {
             }
             SwarmEvent::NewExternalAddrCandidate { address } => {
                 event_string = "NewExternalAddrCandidate";
-                debug!(?address, "new external address candidate");
-
-                if let Some(external_addr_manager) = self.external_address_manager.as_mut() {
-                    external_addr_manager.add_external_address_candidate(address, &mut self.swarm);
+                debug!("New external address candidate: {address:?}");
+                if let Some(external_address_manager) = self.external_address_manager.as_mut() {
+                    external_address_manager
+                        .add_external_address_candidate(address, &mut self.swarm);
                 }
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 event_string = "ExternalAddrConfirmed";
-                info!(%address, "external address: confirmed");
+                info!("External address has been confirmed: {address:?}");
             }
             SwarmEvent::ExternalAddrExpired { address } => {
                 event_string = "ExternalAddrExpired";
-                info!(%address, "external address: expired");
+                info!("External address has expired: {address:?}");
             }
             SwarmEvent::ExpiredListenAddr {
                 listener_id,
@@ -575,8 +561,8 @@ impl SwarmDriver {
             } => {
                 event_string = "ExpiredListenAddr";
                 info!("Listen address has expired. {listener_id:?} on {address:?}");
-                if let Some(external_addr_manager) = self.external_address_manager.as_mut() {
-                    external_addr_manager.on_expired_listen_addr(address, &self.swarm);
+                if let Some(external_address_manager) = self.external_address_manager.as_mut() {
+                    external_address_manager.on_expired_listen_addr(address, &self.swarm);
                 }
             }
             SwarmEvent::ListenerError { listener_id, error } => {
@@ -687,13 +673,10 @@ impl SwarmDriver {
         let Ok(id) = format!("{id}").parse::<usize>() else {
             return;
         };
-        let Some(ip_addr) = multiaddr_get_ip(addr) else {
-            return;
-        };
 
         let _ = self
             .latest_established_connection_ids
-            .insert(id, (ip_addr, Instant::now()));
+            .insert(id, (addr.clone(), Instant::now()));
 
         while self.latest_established_connection_ids.len() >= 50 {
             // remove the oldest entry
@@ -710,15 +693,28 @@ impl SwarmDriver {
         }
     }
 
-    // Do not log IncomingConnectionError if the ConnectionId is adjacent to an already established connection.
+    // Do not log IncomingConnectionError if the the send_back_addr is the same on the adjacent established connections.
     //
     // We either check by IP address or by `/p2p/<peer_id>` for relayed nodes.
+    #[allow(dead_code)]
     fn is_incoming_connection_error_valid(&self, id: ConnectionId, addr: &Multiaddr) -> bool {
         let Ok(id) = format!("{id}").parse::<usize>() else {
             return true;
         };
-        let Some(ip_addr) = multiaddr_get_ip(addr) else {
-            return true;
+
+        let is_valid_error = |established_ip_addr: &Multiaddr| -> bool {
+            // this should cover the /p2p/<peer_id> case
+            if established_ip_addr == addr {
+                return false;
+            } else if let Some(ip_addr) = multiaddr_get_ip(addr) {
+                if let Some(established_ip_addr) = multiaddr_get_ip(established_ip_addr) {
+                    if established_ip_addr == ip_addr {
+                        return false;
+                    }
+                }
+            }
+
+            true
         };
 
         // This should prevent most of the cases where we get an IncomingConnectionError for a peer with multiple
@@ -726,15 +722,11 @@ impl SwarmDriver {
         if let Some((established_ip_addr, _)) =
             self.latest_established_connection_ids.get(&(id - 1))
         {
-            if established_ip_addr == &ip_addr {
-                return false;
-            }
+            return is_valid_error(established_ip_addr);
         } else if let Some((established_ip_addr, _)) =
             self.latest_established_connection_ids.get(&(id + 1))
         {
-            if established_ip_addr == &ip_addr {
-                return false;
-            }
+            return is_valid_error(established_ip_addr);
         }
 
         true

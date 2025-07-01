@@ -58,7 +58,7 @@ async fn test_cache_max_peers() -> Result<(), Box<dyn std::error::Error>> {
     // Add three peers with distinct timestamps
     let mut addresses = Vec::new();
     for i in 1..=3 {
-        let addr: Multiaddr = format!("/ip4/127.0.0.1/udp/808{}/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{}", i, i).parse()?;
+        let addr: Multiaddr = format!("/ip4/127.0.0.1/udp/808{i}/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{i}").parse()?;
         addresses.push(addr.clone());
         cache_store.add_addr(addr);
         // Add a delay to ensure distinct timestamps
@@ -77,8 +77,7 @@ async fn test_cache_max_peers() -> Result<(), Box<dyn std::error::Error>> {
         let addr_str = addr.addr.to_string();
         assert!(
             addresses[1..].iter().any(|a| a.to_string() == addr_str),
-            "Should have one of the two most recent peers, got {}",
-            addr_str
+            "Should have one of the two most recent peers, got {addr_str}"
         );
     }
 

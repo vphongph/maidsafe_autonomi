@@ -19,7 +19,7 @@ use std::{
     path::PathBuf,
 };
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub(super) struct NodeServiceDataV0 {
     pub antnode_path: PathBuf,
     #[serde(default)]

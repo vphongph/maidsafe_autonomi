@@ -26,7 +26,7 @@ use crate::networking::{
 use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::{
     version::{
-        get_network_id_str, IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR,
+        get_network_id_str, IDENTIFY_PROTOCOL_STR,
         REQ_RESPONSE_VERSION_STR,
     },
     NetworkAddress, PrettyPrintKBucketKey,
@@ -322,10 +322,8 @@ fn init_swarm_driver(
         kad::Behaviour::with_config(peer_id, store, kad_cfg)
     };
 
-    let agent_version = IDENTIFY_NODE_VERSION_STR
-        .read()
-        .expect("Failed to obtain read lock for IDENTIFY_NODE_VERSION_STR")
-        .clone();
+    let agent_version =
+        ant_protocol::version::construct_node_user_agent(env!("CARGO_PKG_VERSION").to_string());
 
     // Identify Behaviour
     info!("Building Identify with identify_protocol_str: {identify_protocol_str:?} and identify_protocol_str: {identify_protocol_str:?}");
@@ -364,6 +362,7 @@ fn init_swarm_driver(
 
     let behaviour = NodeBehaviour {
         blocklist: libp2p::allow_block_list::Behaviour::default(),
+        do_not_disturb: crate::networking::driver::behaviour::do_not_disturb::Behaviour::default(),
         // `Relay client Behaviour` is enabled for all nodes. This is required for normal nodes to connect to relay
         // clients.
         relay_client: relay_behaviour,
@@ -446,6 +445,7 @@ fn init_swarm_driver(
         last_replication: None,
         last_connection_pruning_time: Instant::now(),
         peers_version: Default::default(),
+        dial_queue: Default::default(),
     };
 
     (network_event_receiver, swarm_driver)

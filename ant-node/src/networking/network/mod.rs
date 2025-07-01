@@ -522,10 +522,7 @@ impl Network {
     }
 }
 
-pub(crate) fn send_local_swarm_cmd(
-    swarm_cmd_sender: mpsc::Sender<LocalSwarmCmd>,
-    cmd: LocalSwarmCmd,
-) {
+pub(crate) fn send_local_swarm_cmd(swarm_cmd_sender: mpsc::Sender<LocalSwarmCmd>, cmd: LocalSwarmCmd) {
     let capacity = swarm_cmd_sender.capacity();
 
     if capacity == 0 {

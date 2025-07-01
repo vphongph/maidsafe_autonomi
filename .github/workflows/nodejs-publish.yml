@@ -44,7 +44,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./${{ inputs.app_name }}-nodejs/artifacts
-          pattern: ${{ matrix.packages.app_name }}.*.node
+          pattern: ${{ inputs.app_name }}.*.node
       - name: Move artifacts
         run: npm run artifacts
       - name: List packages

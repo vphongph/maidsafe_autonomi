@@ -36,7 +36,8 @@ type RecordAndHolders = (Option<Record>, Vec<PeerId>);
 #[allow(clippy::type_complexity)]
 pub(crate) struct TaskHandler {
     closest_peers: HashMap<QueryId, OneShotTaskResult<Vec<PeerInfo>>>,
-    put_record: HashMap<QueryId, OneShotTaskResult<()>>,
+    put_record_kad: HashMap<QueryId, OneShotTaskResult<()>>,
+    put_record_req: HashMap<OutboundRequestId, OneShotTaskResult<()>>,
     get_cost: HashMap<
         OutboundRequestId,
         (
@@ -53,7 +54,8 @@ impl TaskHandler {
     pub fn new() -> Self {
         Self {
             closest_peers: Default::default(),
-            put_record: Default::default(),
+            put_record_kad: Default::default(),
+            put_record_req: Default::default(),
             get_cost: Default::default(),
             get_record: Default::default(),
             get_record_accumulator: Default::default(),
@@ -63,7 +65,7 @@ impl TaskHandler {
     pub fn contains(&self, id: &QueryId) -> bool {
         self.closest_peers.contains_key(id)
             || self.get_record.contains_key(id)
-            || self.put_record.contains_key(id)
+            || self.put_record_kad.contains_key(id)
     }
 
     pub fn contains_query(&self, id: &OutboundRequestId) -> bool {
@@ -79,8 +81,8 @@ impl TaskHandler {
             NetworkTask::GetRecord { resp, quorum, .. } => {
                 self.get_record.insert(id, (resp, quorum));
             }
-            NetworkTask::PutRecord { resp, .. } => {
-                self.put_record.insert(id, resp);
+            NetworkTask::PutRecordKad { resp, .. } => {
+                self.put_record_kad.insert(id, resp);
             }
             _ => {}
         }
@@ -88,14 +90,19 @@ impl TaskHandler {
 
     pub fn insert_query(&mut self, id: OutboundRequestId, task: NetworkTask) {
         info!("New query: with OutboundRequestId({id}): {task:?}");
-        if let NetworkTask::GetQuote {
-            resp,
-            data_type,
-            peer,
-            ..
-        } = task
-        {
-            self.get_cost.insert(id, (resp, data_type, peer));
+        match task {
+            NetworkTask::GetQuote {
+                resp,
+                data_type,
+                peer,
+                ..
+            } => {
+                self.get_cost.insert(id, (resp, data_type, peer));
+            }
+            NetworkTask::PutRecordReq { resp, .. } => {
+                self.put_record_req.insert(id, resp);
+            }
+            _ => {}
         }
     }
 
@@ -246,13 +253,13 @@ impl TaskHandler {
         Ok(())
     }
 
-    pub fn update_put_record(
+    pub fn update_put_record_kad(
         &mut self,
         id: QueryId,
         res: Result<kad::PutRecordOk, kad::PutRecordError>,
     ) -> Result<(), TaskHandlerError> {
         let responder = self
-            .put_record
+            .put_record_kad
             .remove(&id)
             .ok_or(TaskHandlerError::UnknownQuery(format!("QueryId {id:?}")))?;
 
@@ -283,6 +290,24 @@ impl TaskHandler {
                 responder
                     .send(Err(NetworkError::PutRecordTimeout(success)))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_put_record_req(
+        &mut self,
+        id: OutboundRequestId,
+        result: Result<(), ant_protocol::error::Error>,
+    ) -> Result<(), TaskHandlerError> {
+        let responder = self.put_record_req.remove(&id).ok_or(TaskHandlerError::UnknownQuery(format!("OutboundRequestId {id:?}")))?;
+
+        match result {
+            Ok(()) => {
+                responder.send(Ok(())).map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+            }
+            Err(e) => {
+                responder.send(Err(NetworkError::PutRecordRejected(e.to_string()))).map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
         }
         Ok(())

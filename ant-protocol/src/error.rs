@@ -43,6 +43,10 @@ pub enum Error {
     #[error("Provided cypher text is invalid")]
     ScratchpadCipherTextInvalid,
 
+    // ---------- Record Put errors
+    #[error("Error handling record put: {0}")]
+    PutRecordFailed(String),
+
     // ---------- payment errors
     #[error("There was an error getting the storecost from kademlia store")]
     GetStoreQuoteFailed,

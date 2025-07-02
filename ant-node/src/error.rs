@@ -91,7 +91,7 @@ pub enum PutValidationError {
 #[allow(missing_docs)]
 pub enum Error {
     #[error("Network error {0}")]
-    Network(#[from] ant_networking::NetworkError),
+    Network(#[from] crate::networking::NetworkError),
 
     #[error("Failed to parse NodeEvent")]
     NodeEventParsingFailed,

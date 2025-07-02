@@ -285,7 +285,12 @@ impl NetworkDriver {
                     },
                 );
             }
-            NetworkTask::PutRecordReq { record, to, quorum, resp } => {
+            NetworkTask::PutRecordReq {
+                record,
+                to,
+                quorum,
+                resp,
+            } => {
                 let record_address = NetworkAddress::from(&record.key);
                 let peer_address = NetworkAddress::from(to.peer_id);
                 let req = Request::Query(Query::PutRecord {

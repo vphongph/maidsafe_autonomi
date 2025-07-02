@@ -498,15 +498,15 @@ impl SwarmDriver {
                 debug!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
                 let (error_str, level) = listen_error_to_str(&error);
                 match level {
-                        tracing::Level::ERROR => error!(
-                            "Node {:?} Remote {peer_id:?} - Incoming Connection Error - {error_str:?}",
-                            self.self_peer_id,
-                        ),
-                        _ => debug!(
-                            "Node {:?} Remote {peer_id:?} - Incoming Connection Error - {error_str:?}",
-                            self.self_peer_id,
-                        ),
-                    }
+                    tracing::Level::ERROR => error!(
+                        "Node {:?} Remote {peer_id:?} - Incoming Connection Error - {error_str:?}",
+                        self.self_peer_id,
+                    ),
+                    _ => debug!(
+                        "Node {:?} Remote {peer_id:?} - Incoming Connection Error - {error_str:?}",
+                        self.self_peer_id,
+                    ),
+                }
 
                 if self.is_incoming_connection_error_valid(connection_id, &send_back_addr) {
                     // This is best approximation that we can do to prevent harmless errors from affecting the external

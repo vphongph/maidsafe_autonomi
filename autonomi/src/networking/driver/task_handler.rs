@@ -300,14 +300,23 @@ impl TaskHandler {
         id: OutboundRequestId,
         result: Result<(), ant_protocol::error::Error>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self.put_record_req.remove(&id).ok_or(TaskHandlerError::UnknownQuery(format!("OutboundRequestId {id:?}")))?;
+        let responder = self
+            .put_record_req
+            .remove(&id)
+            .ok_or(TaskHandlerError::UnknownQuery(format!(
+                "OutboundRequestId {id:?}"
+            )))?;
 
         match result {
             Ok(()) => {
-                responder.send(Ok(())).map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                responder
+                    .send(Ok(()))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
             Err(e) => {
-                responder.send(Err(NetworkError::PutRecordRejected(e.to_string()))).map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                responder
+                    .send(Err(NetworkError::PutRecordRejected(e.to_string())))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
         }
         Ok(())

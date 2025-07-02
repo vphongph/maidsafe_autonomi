@@ -124,7 +124,9 @@ impl NetworkError {
     pub fn is_fatal(&self) -> bool {
         matches!(
             self,
-            NetworkError::NetworkDriverOffline | NetworkError::NetworkDriverReceive(_) | NetworkError::IncompatibleNetworkProtocol
+            NetworkError::NetworkDriverOffline
+                | NetworkError::NetworkDriverReceive(_)
+                | NetworkError::IncompatibleNetworkProtocol
         )
     }
 }
@@ -212,7 +214,9 @@ impl Network {
         for peer in to {
             let record_clone = record.clone();
             tasks.push(async move {
-                let res = self.put_record_req(record_clone, peer.clone(), quorum).await;
+                let res = self
+                    .put_record_req(record_clone, peer.clone(), quorum)
+                    .await;
                 (res, peer)
             });
         }
@@ -228,11 +232,13 @@ impl Network {
                     let record_clone = record.clone();
                     let self_clone = self.clone();
                     let handle = tokio::spawn(async move {
-                        let res = self_clone.put_record_kad(record_clone, vec![peer.clone()], Quorum::One).await;
+                        let res = self_clone
+                            .put_record_kad(record_clone, vec![peer.clone()], Quorum::One)
+                            .await;
                         (res, peer)
                     });
                     old_nodes_tasks.push(handle);
-                },
+                }
                 // accumulate oks until Quorum is met
                 Ok(()) => {
                     ok_res.push(peer);
@@ -261,7 +267,7 @@ impl Network {
                             trace!("Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok");
                             return Ok(());
                         }
-                    },
+                    }
                     Err(e) => err_res.push((peer.peer_id, e.to_string())),
                 }
             }

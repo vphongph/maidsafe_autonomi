@@ -116,7 +116,7 @@ tempfile = "3.6.0"
 # Removing the version field is a workaround.
 test-utils = { path = "../test-utils" }
 uuid = { version = "1.5.0", features = ["v4"] }
-libp2p-swarm-test = { version = "0.5.0", features = ["tokio"] }
+libp2p-swarm-test = { version = "0.6.0", features = ["tokio"] }
 quickcheck = "1.0.3"
 
 [lints]

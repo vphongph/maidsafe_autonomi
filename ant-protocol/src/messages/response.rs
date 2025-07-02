@@ -76,9 +76,9 @@ pub enum QueryResponse {
         peer: NetworkAddress,
         version: String,
     },
-    /// Response to [`UploadRecord`]
+    /// Response to [`PutRecord`]
     ///
-    /// [`UploadRecord`]: crate::messages::Query::UploadRecord
+    /// [`PutRecord`]: crate::messages::Query::PutRecord
     PutRecord {
         /// Result of record upload.
         result: Result<()>,
@@ -149,7 +149,7 @@ impl Debug for QueryResponse {
             } => {
                 write!(
                     f,
-                    "UploadRecord(Record {record_addr:?} uploaded to {peer_address:?} with result {result:?})",
+                    "PutRecord(Record {record_addr:?} uploaded to {peer_address:?} with result {result:?})",
                 )
             }
         }

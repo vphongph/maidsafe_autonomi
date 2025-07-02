@@ -155,7 +155,7 @@ impl std::fmt::Display for Query {
             } => {
                 write!(
                     f,
-                    "Cmd::UploadRecord(To {:?}, with record {address:?} has {} data_size)",
+                    "Cmd::PutRecord(To {:?}, with record {address:?} has {} data_size)",
                     holder.as_peer_id(),
                     serialized_record.len()
                 )

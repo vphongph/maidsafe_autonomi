@@ -539,7 +539,7 @@ impl SwarmDriver {
             }
             SwarmEvent::NewExternalAddrCandidate { address } => {
                 event_string = "NewExternalAddrCandidate";
-                info!(?address, "new external address candidate");
+                debug!("New external address candidate: {address:?}");
                 if let Some(external_address_manager) = self.external_address_manager.as_mut() {
                     external_address_manager
                         .add_external_address_candidate(address, &mut self.swarm);
@@ -547,11 +547,11 @@ impl SwarmDriver {
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 event_string = "ExternalAddrConfirmed";
-                info!(%address, "external address: confirmed");
+                info!("External address has been confirmed: {address:?}");
             }
             SwarmEvent::ExternalAddrExpired { address } => {
                 event_string = "ExternalAddrExpired";
-                info!(%address, "external address: expired");
+                info!("External address has expired: {address:?}");
             }
             SwarmEvent::ExpiredListenAddr {
                 listener_id,

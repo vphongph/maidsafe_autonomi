@@ -163,7 +163,7 @@ impl NetworkDriver {
         }
 
         self.pending_tasks
-            .terminate_get_quote(request_id, peer, error)?;
+            .terminate_query(request_id, peer, error)?;
 
         Ok(())
     }

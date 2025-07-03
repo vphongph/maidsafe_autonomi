@@ -69,7 +69,7 @@ impl TaskHandler {
     }
 
     pub fn contains_query(&self, id: &OutboundRequestId) -> bool {
-        self.get_cost.contains_key(id)
+        self.get_cost.contains_key(id) || self.put_record_req.contains_key(id)
     }
 
     pub fn insert_task(&mut self, id: QueryId, task: NetworkTask) {
@@ -360,22 +360,39 @@ impl TaskHandler {
         }
     }
 
-    pub fn terminate_get_quote(
+    pub fn terminate_query(
         &mut self,
         id: OutboundRequestId,
         peer: PeerId,
         error: libp2p::autonat::OutboundFailure,
     ) -> Result<(), TaskHandlerError> {
-        let (resp, _data_type, original_peer) =
-            self.get_cost
-                .remove(&id)
-                .ok_or(TaskHandlerError::UnknownQuery(format!(
-                    "OutboundRequestId {id:?}"
-                )))?;
-
-        trace!("OutboundRequestId({id}): initially sent to peer {original_peer:?} got fatal error from peer {peer:?}: {error:?}");
-        resp.send(Err(NetworkError::GetQuoteError(error.to_string())))
-            .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+        // Get quote case
+        if let Some((resp, _data_type, original_peer)) = self.get_cost.remove(&id) {
+            trace!("OutboundRequestId({id}): get quote initially sent to peer {original_peer:?} got fatal error from peer {peer:?}: {error:?}");
+            resp.send(Err(NetworkError::GetQuoteError(error.to_string())))
+                .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+        // Put record case
+        } else if let Some(responder) = self.put_record_req.remove(&id) {
+            trace!(
+                "OutboundRequestId({id}): put record got fatal error from peer {peer:?}: {error:?}"
+            );
+            // Old nodes don't support the request response protocol for record puts
+            // we can identify them with this error:
+            // "Io(Custom { kind: UnexpectedEof, error: Eof { name: \"enum\", expect: Small(1) } })"
+            // which is due to the mismatched request_response codec max_request_set configuration
+            if error.to_string().contains("Small(1)") {
+                trace!("OutboundRequestId({id}): put record got incompatible network protocol error from peer {peer:?}");
+                responder
+                    .send(Err(NetworkError::IncompatibleNetworkProtocol))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+            } else {
+                responder
+                    .send(Err(NetworkError::PutRecordRejected(error.to_string())))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+            }
+        } else {
+            trace!("OutboundRequestId({id}): trying to terminate unknown query, maybe it was already removed");
+        }
         Ok(())
     }
 

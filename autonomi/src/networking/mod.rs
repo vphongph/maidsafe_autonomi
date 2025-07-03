@@ -209,6 +209,10 @@ impl Network {
         let total = NonZeroUsize::new(to.len()).ok_or(NetworkError::PutRecordMissingTargets)?;
         let expected_holders = expected_holders(quorum, total);
 
+        trace!(
+            "Put record {key} to {} peers with quorum {quorum:?}",
+            to.len()
+        );
         // put record using the request response protocol
         let mut tasks = FuturesUnordered::new();
         for peer in to {

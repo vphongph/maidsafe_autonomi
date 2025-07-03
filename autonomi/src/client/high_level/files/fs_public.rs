@@ -114,6 +114,9 @@ impl Client {
                 let relative_path =
                     get_relative_file_path_from_abs_file_and_folder_path(&file_path, &dir_path);
 
+                println!("File path: {file_path:?}");
+                println!("Relative path: {relative_path:?}");
+
                 Ok((
                     file_path.to_string_lossy().to_string(),
                     chunks,
@@ -220,6 +223,7 @@ impl Client {
             content_addrs.extend(addrs);
 
             let metadata = metadata_from_entry(&entry);
+
             archive.add_file(path, DataAddress::new(map_xor_name), metadata);
         }
 

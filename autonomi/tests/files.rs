@@ -177,3 +177,41 @@ async fn file_advanced_use() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[serial]
+async fn archives_use_paths_with_forward_slashes() -> Result<()> {
+    let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test(
+        "archives_use_paths_with_forward_slashes",
+        false,
+    );
+
+    let client = Client::init_local().await?;
+    let wallet = get_funded_wallet();
+
+    let (_cost, pub_archive) = client
+        .dir_content_upload_public("tests/file/test_dir".into(), (&wallet).into())
+        .await?;
+
+    for (path, _metadata) in pub_archive.files() {
+        // The path should not contain any backslashes
+        assert!(
+            !path.to_string_lossy().contains(r"\"),
+            "Path in archive contains backslashes: {path:?}"
+        );
+    }
+
+    let (_cost, private_archive) = client
+        .dir_content_upload("tests/file/test_dir".into(), (&wallet).into())
+        .await?;
+
+    for (path, _metadata) in private_archive.files() {
+        // The path should not contain any backslashes
+        assert!(
+            !path.to_string_lossy().contains(r"\"),
+            "Path in archive contains backslashes: {path:?}"
+        );
+    }
+
+    Ok(())
+}

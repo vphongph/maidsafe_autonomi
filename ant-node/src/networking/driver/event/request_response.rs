@@ -9,8 +9,8 @@
 use super::SwarmDriver;
 use crate::networking::driver::event::MsgResponder;
 use crate::networking::interface::NetworkSwarmCmd;
+use crate::networking::network::connection_action_logging;
 use crate::networking::{log_markers::Marker, NetworkError, NetworkEvent};
-
 use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
     messages::{CmdResponse, Request, Response},
@@ -37,6 +37,47 @@ impl SwarmDriver {
                     request_id,
                     ..
                 } => {
+                    // ELK logging. Do not update without proper testing.
+                    let action_string = match &request {
+                        Request::Cmd(cmd) => match cmd {
+                            ant_protocol::messages::Cmd::Replicate { .. } => {
+                                "Request::Cmd::Replicate"
+                            }
+                            ant_protocol::messages::Cmd::FreshReplicate { .. } => {
+                                "Request::Cmd::FreshReplicate"
+                            }
+                            ant_protocol::messages::Cmd::PeerConsideredAsBad { .. } => {
+                                "Request::Cmd::PeerConsideredAsBad"
+                            }
+                        },
+                        Request::Query(query) => match query {
+                            ant_protocol::messages::Query::GetStoreQuote { .. } => {
+                                "Request::Query::GetStoreQuote"
+                            }
+                            ant_protocol::messages::Query::GetReplicatedRecord { .. } => {
+                                "Request::Query::GetReplicatedRecord"
+                            }
+                            ant_protocol::messages::Query::GetChunkExistenceProof { .. } => {
+                                "Request::Query::GetChunkExistenceProof"
+                            }
+                            ant_protocol::messages::Query::CheckNodeInProblem(_) => {
+                                "Request::Query::CheckNodeInProblem"
+                            }
+                            ant_protocol::messages::Query::GetClosestPeers { .. } => {
+                                "Request::Query::GetClosestPeers"
+                            }
+                            ant_protocol::messages::Query::GetVersion(..) => {
+                                "Request::Query::GetVersion"
+                            }
+                        },
+                    };
+                    connection_action_logging(
+                        &peer,
+                        &self.self_peer_id,
+                        &connection_id,
+                        action_string,
+                    );
+
                     debug!("Received request {request_id:?} from peer {peer:?}, req: {request:?}");
                     // If the request is replication or quote verification,
                     // we can handle it and send the OK response here.
@@ -111,6 +152,55 @@ impl SwarmDriver {
                     request_id,
                     response,
                 } => {
+                    // ELK logging. Do not update without proper testing.
+                    let result_to_str =
+                        |result: &std::result::Result<(), ant_protocol::Error>| match result {
+                            Ok(_) => "Ok",
+                            Err(_) => "Err",
+                        };
+                    let action_string = match &response {
+                        Response::Cmd(cmd_response) => match cmd_response {
+                            CmdResponse::Replicate(result) => {
+                                format!("Response::Cmd::Replicate::{}", result_to_str(result))
+                            }
+                            CmdResponse::FreshReplicate(result) => {
+                                format!("Response::Cmd::FreshReplicate::{}", result_to_str(result))
+                            }
+                            CmdResponse::PeerConsideredAsBad(result) => format!(
+                                "Response::Cmd::PeerConsideredAsBad::{}",
+                                result_to_str(result)
+                            ),
+                        },
+                        Response::Query(query_response) => match query_response {
+                            ant_protocol::messages::QueryResponse::GetStoreQuote { .. } => {
+                                "Respose::Query::GetStoreQuote"
+                            }
+                            ant_protocol::messages::QueryResponse::CheckNodeInProblem {
+                                ..
+                            } => "Respose::Query::CheckNodeInProblem",
+                            ant_protocol::messages::QueryResponse::GetReplicatedRecord(_) => {
+                                "Respose::Query::GetReplicatedRecord"
+                            }
+
+                            ant_protocol::messages::QueryResponse::GetChunkExistenceProof(_) => {
+                                "Respose::Query::GetChunkExistenceProof"
+                            }
+                            ant_protocol::messages::QueryResponse::GetClosestPeers { .. } => {
+                                "Respose::Query::GetClosestPeers"
+                            }
+                            ant_protocol::messages::QueryResponse::GetVersion { .. } => {
+                                "Respose::Query::GetVersion"
+                            }
+                        }
+                        .to_string(),
+                    };
+                    connection_action_logging(
+                        &peer,
+                        &self.self_peer_id,
+                        &connection_id,
+                        &action_string,
+                    );
+
                     debug!("Got response {request_id:?} from peer {peer:?}, res: {response}.");
                     if let Some(sender) = self.pending_requests.remove(&request_id) {
                         // Get the optional connection info.
@@ -154,8 +244,15 @@ impl SwarmDriver {
                 request_id,
                 error,
                 peer,
-                ..
+                connection_id,
             } => {
+                // ELK logging. Do not update without proper testing.
+                connection_action_logging(
+                    &peer,
+                    &self.self_peer_id,
+                    &connection_id,
+                    "RequestResponse::OutboundFailure",
+                );
                 if let Some(sender) = self.pending_requests.remove(&request_id) {
                     match sender {
                         Some(sender) => {
@@ -177,13 +274,29 @@ impl SwarmDriver {
                 peer,
                 request_id,
                 error,
-                ..
+                connection_id,
             } => {
+                // ELK logging. Do not update without proper testing.
+                connection_action_logging(
+                    &peer,
+                    &self.self_peer_id,
+                    &connection_id,
+                    "RequestResponse::InboundFailure",
+                );
                 warn!("RequestResponse: InboundFailure for request_id: {request_id:?} and peer: {peer:?}, with error: {error:?}");
             }
             request_response::Event::ResponseSent {
-                peer, request_id, ..
+                peer,
+                request_id,
+                connection_id,
             } => {
+                // ELK logging. Do not update without proper testing.
+                connection_action_logging(
+                    &peer,
+                    &self.self_peer_id,
+                    &connection_id,
+                    "RequestResponse::ResponseSent",
+                );
                 debug!("ResponseSent for request_id: {request_id:?} and peer: {peer:?}");
             }
         }

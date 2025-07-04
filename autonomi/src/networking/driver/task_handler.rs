@@ -313,6 +313,17 @@ impl TaskHandler {
                     .send(Ok(()))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
             }
+            Err(ant_protocol::error::Error::OutdatedRecordCounter { counter, expected }) => {
+                trace!(
+                    "OutboundRequestId({id}): put record got outdated record error: counter: {counter}, expected: {expected}"
+                );
+                responder
+                    .send(Err(NetworkError::OutdatedRecordRejected {
+                        counter,
+                        expected,
+                    }))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+            }
             Err(e) => {
                 responder
                     .send(Err(NetworkError::PutRecordRejected(e.to_string())))

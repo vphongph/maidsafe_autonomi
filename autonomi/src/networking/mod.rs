@@ -87,6 +87,8 @@ pub enum NetworkError {
     PutRecordTimeout(Vec<PeerId>),
     #[error("Put record rejected: {0}")]
     PutRecordRejected(String),
+    #[error("Outdated record rejected: with counter {counter}, expected any above {expected}")]
+    OutdatedRecordRejected { counter: u64, expected: u64 },
 
     /// Error getting quote
     #[error("Failed to get quote: {0}")]
@@ -128,6 +130,11 @@ impl NetworkError {
                 | NetworkError::NetworkDriverReceive(_)
                 | NetworkError::IncompatibleNetworkProtocol
         )
+    }
+
+    /// When encountering these, the request should not be retried
+    pub fn cannot_retry(&self) -> bool {
+        matches!(self, NetworkError::OutdatedRecordRejected { .. }) || self.is_fatal()
     }
 }
 

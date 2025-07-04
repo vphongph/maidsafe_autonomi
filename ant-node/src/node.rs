@@ -14,7 +14,7 @@ use crate::metrics::NodeMetricsRecorder;
 #[cfg(feature = "open-metrics")]
 use crate::networking::MetricsRegistries;
 use crate::networking::{Addresses, Network, NetworkConfig, NetworkError, NetworkEvent, NodeIssue};
-use crate::RunningNode;
+use crate::{PutValidationError, RunningNode};
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::EvmNetwork;
 use ant_evm::RewardsAddress;
@@ -731,6 +731,13 @@ impl Node {
                     Ok(()) => {
                         debug!("Uploaded record {key} has been stored");
                         Ok(())
+                    }
+                    Err(PutValidationError::OutdatedRecordCounter { counter, expected }) => {
+                        node.record_metrics(Marker::RecordRejected(
+                            &key,
+                            &PutValidationError::OutdatedRecordCounter { counter, expected },
+                        ));
+                        Err(ProtocolError::OutdatedRecordCounter { counter, expected })
                     }
                     Err(err) => {
                         node.record_metrics(Marker::RecordRejected(&key, &err));

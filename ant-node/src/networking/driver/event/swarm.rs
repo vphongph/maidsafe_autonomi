@@ -10,7 +10,7 @@ use super::SwarmDriver;
 use crate::networking::{
     error::{dial_error_to_str, listen_error_to_str},
     interface::TerminateNodeReason,
-    multiaddr_get_ip, NetworkEvent, NodeIssue, Result,
+    NetworkEvent, NodeIssue, Result,
 };
 use itertools::Itertools;
 #[cfg(feature = "open-metrics")]
@@ -314,6 +314,7 @@ impl SwarmDriver {
                 debug!("OutgoingConnectionError on {connection_id:?} - {error:?}");
 
                 let remote_peer = "";
+                // ELK logging. Do not update without proper testing.
                 for (error_str, level) in dial_error_to_str(&error) {
                     match level {
                         tracing::Level::ERROR => error!(
@@ -343,6 +344,7 @@ impl SwarmDriver {
                 event_string = "OutgoingConnErr";
                 debug!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
 
+                // ELK logging. Do not update without proper testing.
                 for (error_str, level) in dial_error_to_str(&error) {
                     match level {
                         tracing::Level::ERROR => error!(
@@ -483,19 +485,9 @@ impl SwarmDriver {
                 peer_id,
             } => {
                 event_string = "Incoming ConnErr";
-                // Only log as ERROR if the connection is not adjacent to an already established connection id from
-                // the same IP address.
-                //
-                // If a peer contains multiple transports/listen addrs, we might try to open multiple connections,
-                // and if the first one passes, we would get error on the rest. We don't want to log these.
-                //
-                // Also sometimes we get the ConnectionEstablished event immediately after this event.
-                // So during tokio::select! of the events, we skip processing IncomingConnectionError for one round,
-                // giving time for ConnectionEstablished to be hopefully processed.
-                // And since we don't do anything critical with this event, the order and time of processing is
-                // not critical.
+                debug!("IncomingConnectionError from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
 
-                debug!("IncomingConnectionError Valid from local_addr {local_addr:?}, send_back_addr {send_back_addr:?} on {connection_id:?} with error {error:?}");
+                // ELK logging. Do not update without proper testing.
                 let (error_str, level) = listen_error_to_str(&error);
                 match level {
                     tracing::Level::ERROR => error!(
@@ -506,15 +498,6 @@ impl SwarmDriver {
                         "Node {:?} Remote {peer_id:?} - Incoming Connection Error - {error_str:?}",
                         self.self_peer_id,
                     ),
-                }
-
-                if self.is_incoming_connection_error_valid(connection_id, &send_back_addr) {
-                    // This is best approximation that we can do to prevent harmless errors from affecting the external
-                    // address health.
-                    if let Some(external_address_manager) = self.external_address_manager.as_mut() {
-                        external_address_manager
-                            .on_incoming_connection_error(local_addr.clone(), &mut self.swarm);
-                    }
                 }
 
                 #[cfg(feature = "open-metrics")]
@@ -684,45 +667,6 @@ impl SwarmDriver {
 
             let _ = self.latest_established_connection_ids.remove(&oldest_key);
         }
-    }
-
-    // Do not log IncomingConnectionError if the the send_back_addr is the same on the adjacent established connections.
-    //
-    // We either check by IP address or by `/p2p/<peer_id>` for relayed nodes.
-    #[allow(dead_code)]
-    fn is_incoming_connection_error_valid(&self, id: ConnectionId, addr: &Multiaddr) -> bool {
-        let Ok(id) = format!("{id}").parse::<usize>() else {
-            return true;
-        };
-
-        let is_valid_error = |established_ip_addr: &Multiaddr| -> bool {
-            // this should cover the /p2p/<peer_id> case
-            if established_ip_addr == addr {
-                return false;
-            } else if let Some(ip_addr) = multiaddr_get_ip(addr) {
-                if let Some(established_ip_addr) = multiaddr_get_ip(established_ip_addr) {
-                    if established_ip_addr == ip_addr {
-                        return false;
-                    }
-                }
-            }
-
-            true
-        };
-
-        // This should prevent most of the cases where we get an IncomingConnectionError for a peer with multiple
-        // transports/listen addrs.
-        if let Some((established_ip_addr, _)) =
-            self.latest_established_connection_ids.get(&(id - 1))
-        {
-            return is_valid_error(established_ip_addr);
-        } else if let Some((established_ip_addr, _)) =
-            self.latest_established_connection_ids.get(&(id + 1))
-        {
-            return is_valid_error(established_ip_addr);
-        }
-
-        true
     }
 }
 

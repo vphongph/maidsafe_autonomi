@@ -53,6 +53,8 @@ const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: t
 /// Size of the LRU cache for peers and their addresses.
 /// Libp2p defaults to 100, we use 2k.
 const PEER_CACHE_SIZE: usize = 2_000;
+/// Client with poor connection requires a longer time to transmit large sized recrod to production network, via put_record_to
+const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
 
 /// Driver for the Autonomi Client Network
 ///
@@ -156,7 +158,10 @@ impl NetworkDriver {
             .set_parallelism(KAD_ALPHA)
             .set_replication_factor(REPLICATION_FACTOR)
             .set_query_timeout(KAD_QUERY_TIMEOUT)
-            .set_periodic_bootstrap_interval(None);
+            .set_periodic_bootstrap_interval(None)
+            // Extend outbound_substreams timeout to allow client with poor connection
+            // still able to upload large sized record with higher success rate.
+            .set_substreams_timeout(CLIENT_SUBSTREAMS_TIMEOUT_S);
 
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {

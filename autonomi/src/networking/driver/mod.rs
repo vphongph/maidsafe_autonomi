@@ -285,12 +285,7 @@ impl NetworkDriver {
                     },
                 );
             }
-            NetworkTask::PutRecordReq {
-                record,
-                to,
-                quorum,
-                resp,
-            } => {
+            NetworkTask::PutRecordReq { record, to, resp } => {
                 let record_address = NetworkAddress::from(&record.key);
                 let peer_address = NetworkAddress::from(to.peer_id);
                 let req = Request::Query(Query::PutRecord {
@@ -299,22 +294,12 @@ impl NetworkDriver {
                     address: record_address,
                 });
 
-                // Add the peer addresses to our cache before sending a request.
-                for addr in &to.addrs {
-                    self.swarm.add_peer_address(to.peer_id, addr.clone());
-                }
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&to.peer_id, req, to.addrs.clone());
 
-                let req_id = self.req().send_request(&to.peer_id, req);
-
-                self.pending_tasks.insert_query(
-                    req_id,
-                    NetworkTask::PutRecordReq {
-                        record,
-                        to,
-                        quorum,
-                        resp,
-                    },
-                );
+                self.pending_tasks
+                    .insert_query(req_id, NetworkTask::PutRecordReq { record, to, resp });
             }
             NetworkTask::GetQuote {
                 addr,
@@ -331,12 +316,9 @@ impl NetworkDriver {
                     difficulty: 0,
                 });
 
-                // Add the peer addresses to our cache before sending a request.
-                for addr in &peer.addrs {
-                    self.swarm.add_peer_address(peer.peer_id, addr.clone());
-                }
-
-                let req_id = self.req().send_request(&peer.peer_id, req);
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
 
                 self.pending_tasks.insert_query(
                     req_id,

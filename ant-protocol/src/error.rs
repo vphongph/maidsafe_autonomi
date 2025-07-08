@@ -34,12 +34,6 @@ pub enum Error {
     #[error("Provided cypher text is invalid")]
     ScratchpadCipherTextInvalid,
 
-    // ---------- Record Put errors
-    #[error("Error handling record put: {0}")]
-    PutRecordFailed(String),
-    #[error("Outdated record: with counter {counter}, expected any above {expected}")]
-    OutdatedRecordCounter { counter: u64, expected: u64 },
-
     // ---------- payment errors
     #[error("There was an error getting the storecost from kademlia store")]
     GetStoreQuoteFailed,
@@ -66,6 +60,12 @@ pub enum Error {
     // The record already exists at this node
     #[error("The record already exists, so do not charge for it: {0:?}")]
     RecordExists(PrettyPrintRecordKey<'static>),
+
+    // ---------- Record Put errors
+    #[error("Error handling record put: {0}")]
+    PutRecordFailed(String),
+    #[error("Outdated record: with counter {counter}, expected any above {expected}")]
+    OutdatedRecordCounter { counter: u64, expected: u64 },
 }
 
 impl From<Error> for store::Error {

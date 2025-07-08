@@ -225,9 +225,7 @@ impl Network {
         for peer in to {
             let record_clone = record.clone();
             tasks.push(async move {
-                let res = self
-                    .put_record_req(record_clone, peer.clone(), quorum)
-                    .await;
+                let res = self.put_record_req(record_clone, peer.clone()).await;
                 (res, peer)
             });
         }
@@ -291,17 +289,11 @@ impl Network {
         Err(NetworkError::PutRecordTooManyPeerFailed(ok_peers, err_res))
     }
 
-    async fn put_record_req(
-        &self,
-        record: Record,
-        to: PeerInfo,
-        quorum: Quorum,
-    ) -> Result<(), NetworkError> {
+    async fn put_record_req(&self, record: Record, to: PeerInfo) -> Result<(), NetworkError> {
         let (tx, rx) = oneshot::channel();
         let task = NetworkTask::PutRecordReq {
             record,
             to,
-            quorum,
             resp: tx,
         };
         self.task_sender

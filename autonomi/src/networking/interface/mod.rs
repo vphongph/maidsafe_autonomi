@@ -55,7 +55,6 @@ pub(super) enum NetworkTask {
         #[debug(skip)]
         record: Record,
         to: PeerInfo,
-        quorum: Quorum,
         #[debug(skip)]
         resp: OneShotTaskResult<()>,
     },

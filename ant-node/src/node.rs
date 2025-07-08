@@ -728,10 +728,7 @@ impl Node {
 
                 let key = PrettyPrintRecordKey::from(&record.key).into_owned();
                 let result = match node.validate_and_store_record(record).await {
-                    Ok(()) => {
-                        debug!("Uploaded record {key} has been stored");
-                        Ok(())
-                    }
+                    Ok(()) => Ok(()),
                     Err(PutValidationError::OutdatedRecordCounter { counter, expected }) => {
                         node.record_metrics(Marker::RecordRejected(
                             &key,

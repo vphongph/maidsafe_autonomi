@@ -19,10 +19,9 @@ use ant_bootstrap::{BootstrapCacheStore, InitialPeersConfig};
 use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
-use ant_node::utils::get_root_dir_and_keypair;
+use ant_node::utils::{get_antnode_root_dir, get_root_dir_and_keypair};
 use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver};
 use ant_protocol::{
-    node::get_antnode_root_dir,
     node_rpc::{NodeCtrl, StopResult},
     version,
 };

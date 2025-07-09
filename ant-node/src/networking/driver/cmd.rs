@@ -24,7 +24,6 @@ use libp2p::{
         store::{Error as StoreError, RecordStore},
         KBucketDistance as Distance,
     },
-    swarm::dial_opts::{DialOpts, PeerCondition},
     Multiaddr, PeerId,
 };
 use std::time::Instant;
@@ -83,29 +82,25 @@ impl SwarmDriver {
                         trace!("Replicate cmd to self received, ignoring");
                     }
                 } else {
-                    if let Some(addrs) = addrs {
-                        // dial the peer and send the request
-                        if addrs.0.is_empty() {
-                            info!("No addresses for peer {peer:?} to send request. This could cause dial failure if swarm could not find the peer's addrs.");
-                        } else {
-                            let opts = DialOpts::peer_id(peer).addresses(addrs.0.clone()).build();
+                    let addresses = if addrs.0.is_empty() {
+                        // The input addrs is a default one, try to fetch from local.
+                        self.fetch_peer_addresses_from_local(peer)
+                    } else {
+                        addrs.0.clone()
+                    };
 
-                            match self.swarm.dial(opts) {
-                                Ok(()) => {
-                                    debug!("Dialing peer {peer:?} for req_resp with address: {addrs:?}",);
-                                }
-                                Err(err) => {
-                                    error!("Failed to dial peer {peer:?} for req_resp with address: {addrs:?} error: {err}",);
-                                }
-                            }
-                        }
-                    }
+                    let request_id = if addresses.is_empty() {
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request(&peer, req)
+                    } else {
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request_with_addresses(&peer, req, addresses)
+                    };
 
-                    let request_id = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer, req);
                     trace!("Sending request {request_id:?} to peer {peer:?}");
                     let _ = self.pending_requests.insert(request_id, sender);
 
@@ -137,23 +132,6 @@ impl SwarmDriver {
                             .request_response
                             .send_response(channel, resp)
                             .map_err(NetworkError::OutgoingResponseDropped)?;
-                    }
-                }
-            }
-            NetworkSwarmCmd::DialPeer { peer, addrs } => {
-                cmd_string = "DialPeer";
-                let opts = DialOpts::peer_id(peer)
-                    // If we have a peer ID, we can prevent simultaneous dials.
-                    .condition(PeerCondition::NotDialing)
-                    .addresses(addrs.0.clone())
-                    .build();
-
-                match self.swarm.dial(opts) {
-                    Ok(()) => {
-                        info!("Manual dialing peer {peer:?} with address: {addrs:?}",);
-                    }
-                    Err(err) => {
-                        error!("Failed to manual dial peer {peer:?} with address: {addrs:?} error: {err}",);
                     }
                 }
             }
@@ -650,7 +628,7 @@ impl SwarmDriver {
                 });
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request,
-                    addrs: Some(addrs),
+                    addrs,
                     peer: peer_id,
                     sender: Some(tx),
                 });
@@ -720,12 +698,11 @@ impl SwarmDriver {
                     .map(|(addr, val_type, _data_type)| (addr, val_type))
                     .collect(),
             });
-            for (peer_id, _addrs) in replicate_targets {
+            for (peer_id, addrs) in replicate_targets {
                 self.queue_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
                     req: request.clone(),
                     peer: peer_id,
-                    // replicate targets are part of the RT, so no need to dial them manually.
-                    addrs: None,
+                    addrs,
                     sender: None,
                 });
 
@@ -736,6 +713,26 @@ impl SwarmDriver {
         }
 
         Ok(())
+    }
+
+    fn fetch_peer_addresses_from_local(&mut self, peer: PeerId) -> Vec<Multiaddr> {
+        for kbucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
+            let peer_addrs = kbucket
+                .iter()
+                .filter_map(|peer_entry| {
+                    if peer_entry.node.key.into_preimage() == peer {
+                        Some(peer_entry.node.value.clone().into_vec())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<Vec<Multiaddr>>>();
+            if !peer_addrs.is_empty() {
+                return peer_addrs[0].clone();
+            }
+        }
+        // return an empty vector in case can't find a peer's addresses from local
+        vec![]
     }
 
     // Replies with in-range replicate candidates

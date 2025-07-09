@@ -526,9 +526,9 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
         ("ant_build_info".to_string(), Level::DEBUG),
         ("ant_evm".to_string(), Level::DEBUG),
         ("ant_logging".to_string(), Level::DEBUG),
-        ("ant_node".to_string(), Level::DEBUG),
+        ("ant_node".to_string(), Level::INFO),
         ("ant_protocol".to_string(), Level::DEBUG),
-        ("antnode".to_string(), Level::DEBUG),
+        ("antnode".to_string(), Level::INFO),
         ("evmlib".to_string(), Level::DEBUG),
     ];
 

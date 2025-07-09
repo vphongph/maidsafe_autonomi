@@ -85,6 +85,8 @@ impl From<store::Error> for Error {
 
 #[cfg(test)]
 mod tests {
+    use libp2p::PeerId;
+
     use super::*;
 
     #[test]
@@ -124,6 +126,17 @@ mod tests {
             Unknown,
         }
 
+        // Test serialization and deserialization of ExtendedError
+        let extended_error = ExtendedError::NewErrorVariant;
+        let serialized = rmp_serde::to_vec(&extended_error).unwrap();
+
+        // Test that we can deserialize into the current Error enum
+        let deserialized: Error = rmp_serde::from_slice(&serialized).unwrap();
+        assert_eq!(deserialized, Error::Unknown);
+    }
+
+    #[test]
+    fn test_error_retro_compatibility_reduced() {
         // Test with a struct that has a missing variant (simulating older version)
         #[derive(Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
         #[non_exhaustive]
@@ -158,14 +171,6 @@ mod tests {
             Unknown,
         }
 
-        // Test serialization and deserialization of ExtendedError
-        let extended_error = ExtendedError::NewErrorVariant;
-        let serialized = rmp_serde::to_vec(&extended_error).unwrap();
-
-        // Test that we can deserialize into the current Error enum
-        let deserialized: Error = rmp_serde::from_slice(&serialized).unwrap();
-        assert_eq!(deserialized, Error::Unknown);
-
         // Test serialization and deserialization of current Error
         let current_error = Error::ScratchpadCipherTextInvalid;
         let serialized_current = rmp_serde::to_vec(&current_error).unwrap();
@@ -184,5 +189,114 @@ mod tests {
         let deserialized_unknown: ReducedError =
             rmp_serde::from_slice(&serialized_unknown).unwrap();
         assert_eq!(deserialized_unknown, ReducedError::Unknown);
+    }
+
+    #[test]
+    fn test_error_retro_compatibility_many_missing() {
+        // test with many missing variants
+        #[derive(Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[non_exhaustive]
+        enum ManyMissingVariants {
+            #[error("There was an error getting the storecost from kademlia store")]
+            GetStoreQuoteFailed,
+            // Only keeping ChunkDoesNotExist, removing all others
+            #[error("Unknown error variant")]
+            #[serde(other)]
+            Unknown,
+        }
+
+        // Test with ManyMissingVariants
+        let current_error = Error::ScratchpadCipherTextInvalid;
+        let serialized_current = rmp_serde::to_vec(&current_error).unwrap();
+        let deserialized_many_missing: ManyMissingVariants =
+            rmp_serde::from_slice(&serialized_current).unwrap();
+        assert_eq!(deserialized_many_missing, ManyMissingVariants::Unknown);
+
+        // Test that GetStoreQuoteFailed works with ManyMissingVariants
+        let chunk_error = Error::GetStoreQuoteFailed;
+        let serialized_chunk = rmp_serde::to_vec(&chunk_error).unwrap();
+        let deserialized_chunk: ManyMissingVariants =
+            rmp_serde::from_slice(&serialized_chunk).unwrap();
+        assert_eq!(deserialized_chunk, ManyMissingVariants::GetStoreQuoteFailed);
+
+        // Test that other simple variants fall back to Unknown in ManyMissingVariants
+        let record_error = Error::RecordParsingFailed;
+        let serialized_record = rmp_serde::to_vec(&record_error).unwrap();
+        let deserialized_record: ManyMissingVariants =
+            rmp_serde::from_slice(&serialized_record).unwrap();
+        assert_eq!(deserialized_record, ManyMissingVariants::Unknown);
+    }
+
+    // ignore this failing test as complex types retro compatibility is not supported yet
+    #[ignore]
+    #[test]
+    fn test_error_retro_compatibility_complex_types() {
+        // test with complex types
+        #[derive(Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[non_exhaustive]
+        enum ComplexTypesRemoved {
+            #[error("Chunk does not exist {0:?}")]
+            ChunkDoesNotExist(NetworkAddress),
+            #[error("Failed to deserialize hex ScratchpadAddress")]
+            ScratchpadHexDeserializeFailed,
+            #[error("Failed to derive CipherText from encrypted_data")]
+            ScratchpadCipherTextFailed,
+            #[error("Provided cypher text is invalid")]
+            ScratchpadCipherTextInvalid,
+            #[error("There was an error getting the storecost from kademlia store")]
+            GetStoreQuoteFailed,
+            #[error("There was an error generating the payment quote")]
+            QuoteGenerationFailed,
+            //removed this variant
+            // - #[error("Peer {holder:?} cannot find Record {key:?}")]
+            // - ReplicatedRecordNotFound {
+            // -     holder: Box<NetworkAddress>,
+            // -     key: Box<NetworkAddress>,
+            // - },
+            #[error("Could not Serialize/Deserialize RecordHeader to/from Record")]
+            RecordHeaderParsingFailed,
+            #[error("Could not Serialize/Deserialize Record")]
+            RecordParsingFailed,
+            #[error("The record already exists, so do not charge for it: {0:?}")]
+            RecordExists(PrettyPrintRecordKey<'static>),
+            // Missing some variants that exist in the current Error enum
+            #[error("Unknown error variant")]
+            #[serde(other)]
+            Unknown,
+        }
+
+        // Test that complex types (ReplicatedRecordNotFound) fall back to Unknown
+        // when the variant is missing from the older version
+        let holder = NetworkAddress::from(PeerId::random());
+        let key = NetworkAddress::from(PeerId::random());
+        let complex_error = Error::ReplicatedRecordNotFound {
+            holder: Box::new(holder),
+            key: Box::new(key),
+        };
+        let serialized_complex = rmp_serde::to_vec(&complex_error).unwrap();
+        let deserialized_complex: ComplexTypesRemoved =
+            rmp_serde::from_slice(&serialized_complex).unwrap();
+        assert_eq!(deserialized_complex, ComplexTypesRemoved::Unknown);
+
+        // Test that simple variants that exist in both work correctly
+        let simple_error = Error::ScratchpadCipherTextInvalid;
+        let serialized_simple = rmp_serde::to_vec(&simple_error).unwrap();
+        let deserialized_simple: ComplexTypesRemoved =
+            rmp_serde::from_slice(&serialized_simple).unwrap();
+        assert_eq!(
+            deserialized_simple,
+            ComplexTypesRemoved::ScratchpadCipherTextInvalid
+        );
+
+        // Test that other simple variants also work
+        let addr = NetworkAddress::from(PeerId::random());
+        let chunk_error = Error::ChunkDoesNotExist(addr.clone());
+        let serialized_chunk = rmp_serde::to_vec(&chunk_error).unwrap();
+        let deserialized_chunk: ComplexTypesRemoved =
+            rmp_serde::from_slice(&serialized_chunk).unwrap();
+        assert_eq!(
+            deserialized_chunk,
+            ComplexTypesRemoved::ChunkDoesNotExist(addr)
+        );
     }
 }

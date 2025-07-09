@@ -15,6 +15,16 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Main error types for the SAFE protocol.
+//
+// IMPORTANT DEV NOTE: when adding new variants to our Protocol Error enum,
+// make sure to keep them simple variants and not complex ones to keep retro compatibility.
+// this is a simple variant:  OK
+//    `NewErrorVariant`
+// this is a complex variant: NOT OK
+//    `NewErrorVariant( some other data type )`
+//
+// This test test_error_retro_compatibility_complex_types demonstrates the issue with complex types.
+//
 #[derive(Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Error {

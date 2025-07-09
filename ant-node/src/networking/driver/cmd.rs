@@ -641,7 +641,7 @@ impl SwarmDriver {
                             error!("Failed to get response from one shot channel for Cmd::PeerConsideredAsBad : {err:?}");
                         }
                     }
-                }.instrument(tracing::Span::current()));
+                }.in_current_span());
 
                 // request
                 let request = Request::Cmd(Cmd::PeerConsideredAsBad {

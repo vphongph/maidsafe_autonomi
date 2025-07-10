@@ -27,8 +27,8 @@ pub(crate) enum NetworkSwarmCmd {
     SendRequest {
         req: Request,
         peer: PeerId,
-        /// If the address is provided, we will try to perform a dial before sending the request.
-        addrs: Option<Addresses>,
+        /// Will try to add the address before sending the request.
+        addrs: Addresses,
 
         // If a `sender` is provided, the requesting node will await for a `Response` from the
         // Peer. The result is then returned at the call site.
@@ -42,11 +42,6 @@ pub(crate) enum NetworkSwarmCmd {
     SendResponse {
         resp: Response,
         channel: MsgResponder,
-    },
-    // Attempt to dial specific peer.
-    DialPeer {
-        peer: PeerId,
-        addrs: Addresses,
     },
 }
 
@@ -66,9 +61,6 @@ impl Debug for NetworkSwarmCmd {
                     f,
                     "NetworkSwarmCmd::SendRequest req: {req:?}, peer: {peer:?}"
                 )
-            }
-            NetworkSwarmCmd::DialPeer { peer, .. } => {
-                write!(f, "NetworkSwarmCmd::DialPeer peer: {peer:?}")
             }
         }
     }

@@ -120,6 +120,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
 
     if std::env::var("SECRET_KEY").is_err() {
+        // SAFETY: This is called during benchmark initialization before any other threads
+        // are spawned, so there's no risk of data races. Setting SECRET_KEY is necessary
+        // for benchmark execution.
         #[allow(unsafe_code)]
         unsafe {
             std::env::set_var("SECRET_KEY", DEFAULT_WALLET_PRIVATE_KEY);

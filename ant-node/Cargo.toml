@@ -65,7 +65,6 @@ libp2p = { version = "0.56.0", features = [
     "tcp",
     "yamux",
     "websocket",
-    "metrics",
     "autonat",
 ] }
 num-traits = "0.2"

@@ -203,14 +203,16 @@ mod tests {
         // Test reverse direction: ReducedError -> Error for simple variants
         let reduced_simple_error = ReducedError::GetStoreQuoteFailed;
         let serialized_reduced_simple = rmp_serde::to_vec(&reduced_simple_error).unwrap();
-        let deserialized_reduced_simple: Error = rmp_serde::from_slice(&serialized_reduced_simple).unwrap();
+        let deserialized_reduced_simple: Error =
+            rmp_serde::from_slice(&serialized_reduced_simple).unwrap();
         assert_eq!(deserialized_reduced_simple, Error::GetStoreQuoteFailed);
 
         // Test reverse direction: ReducedError -> Error for complex variants
         let addr = NetworkAddress::from(PeerId::random());
         let reduced_complex_error = ReducedError::ChunkDoesNotExist(addr.clone());
         let serialized_reduced_complex = rmp_serde::to_vec(&reduced_complex_error).unwrap();
-        let deserialized_reduced_complex: Error = rmp_serde::from_slice(&serialized_reduced_complex).unwrap();
+        let deserialized_reduced_complex: Error =
+            rmp_serde::from_slice(&serialized_reduced_complex).unwrap();
         assert_eq!(deserialized_reduced_complex, Error::ChunkDoesNotExist(addr));
 
         // Test reverse direction: ReducedError -> Error for complex struct variants
@@ -221,7 +223,8 @@ mod tests {
             key: Box::new(key.clone()),
         };
         let serialized_reduced_struct = rmp_serde::to_vec(&reduced_struct_error).unwrap();
-        let deserialized_reduced_struct: Error = rmp_serde::from_slice(&serialized_reduced_struct).unwrap();
+        let deserialized_reduced_struct: Error =
+            rmp_serde::from_slice(&serialized_reduced_struct).unwrap();
         assert_eq!(
             deserialized_reduced_struct,
             Error::ReplicatedRecordNotFound {
@@ -269,19 +272,26 @@ mod tests {
 
         // Test bidirectional compatibility for complex variant ChunkDoesNotExist
         let addr = NetworkAddress::from(PeerId::random());
-        
+
         // Test Error::ChunkDoesNotExist -> ManyMissingVariants::ChunkDoesNotExist
         let chunk_error = Error::ChunkDoesNotExist(addr.clone());
         let serialized_chunk = rmp_serde::to_vec(&chunk_error).unwrap();
         let deserialized_chunk: ManyMissingVariants =
             rmp_serde::from_slice(&serialized_chunk).unwrap();
-        assert_eq!(deserialized_chunk, ManyMissingVariants::ChunkDoesNotExist(addr.clone()));
+        assert_eq!(
+            deserialized_chunk,
+            ManyMissingVariants::ChunkDoesNotExist(addr.clone())
+        );
 
         // Test ManyMissingVariants::ChunkDoesNotExist -> Error::ChunkDoesNotExist
         let many_missing_chunk = ManyMissingVariants::ChunkDoesNotExist(addr.clone());
         let serialized_many_missing_chunk = rmp_serde::to_vec(&many_missing_chunk).unwrap();
-        let deserialized_many_missing_chunk: Error = rmp_serde::from_slice(&serialized_many_missing_chunk).unwrap();
-        assert_eq!(deserialized_many_missing_chunk, Error::ChunkDoesNotExist(addr));
+        let deserialized_many_missing_chunk: Error =
+            rmp_serde::from_slice(&serialized_many_missing_chunk).unwrap();
+        assert_eq!(
+            deserialized_many_missing_chunk,
+            Error::ChunkDoesNotExist(addr)
+        );
 
         // Test that other simple variants fall back to Unknown in ManyMissingVariants
         let record_error = Error::RecordParsingFailed;

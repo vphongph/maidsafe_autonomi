@@ -57,7 +57,7 @@ impl LogOutputDest {
                     None => {
                         return Err(Error::LoggingConfiguration(
                             "could not obtain data directory path".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(LogOutputDest::Path(dir))
@@ -176,9 +176,9 @@ impl LogBuilder {
             match std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
                 Ok(_) => layers.otlp_layer(self.default_logging_targets)?,
                 Err(_) => println!(
-                "The OTLP feature is enabled but the OTEL_EXPORTER_OTLP_ENDPOINT variable is not \
+                    "The OTLP feature is enabled but the OTEL_EXPORTER_OTLP_ENDPOINT variable is not \
                 set, so traces will not be submitted."
-            ),
+                ),
             }
         }
 
@@ -299,7 +299,10 @@ impl LogBuilder {
 
         println!("Setting ANT_LOG to: {log_pattern}");
 
-        std::env::set_var("ANT_LOG", log_pattern);
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("ANT_LOG", log_pattern);
+        }
 
         let output_dest = match dirs_next::data_dir() {
             Some(dir) => {
@@ -330,16 +333,16 @@ impl LogBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::{layers::LogFormatter, ReloadHandle};
+    use crate::{ReloadHandle, layers::LogFormatter};
     use color_eyre::Result;
-    use tracing::{trace, warn, Level};
+    use tracing::{Level, trace, warn};
     use tracing_subscriber::{
+        Layer, Registry,
         filter::Targets,
         fmt as tracing_fmt,
         layer::{Filter, SubscriberExt},
         reload,
         util::SubscriberInitExt,
-        Layer, Registry,
     };
     use tracing_test::internal::global_buf;
 

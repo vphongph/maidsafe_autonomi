@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_bootstrap::{
-    cache_store::cache_data_v1, BootstrapCacheConfig, BootstrapCacheStore, InitialPeersConfig,
+    BootstrapCacheConfig, BootstrapCacheStore, InitialPeersConfig, cache_store::cache_data_v1,
 };
 use ant_logging::LogBuilder;
 use color_eyre::Result;
@@ -74,8 +74,10 @@ async fn test_cli_arguments_precedence() -> Result<()> {
 
     let env_addr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE";
-    // Set environment variable
-    std::env::set_var(ant_bootstrap::ANT_PEERS_ENV, env_addr);
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var(ant_bootstrap::ANT_PEERS_ENV, env_addr);
+    }
 
     let args = InitialPeersConfig {
         first: false,
@@ -97,8 +99,10 @@ async fn test_cli_arguments_precedence() -> Result<()> {
         "CLI argument should be used"
     );
 
-    // Cleanup
-    std::env::remove_var(ant_bootstrap::ANT_PEERS_ENV);
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::remove_var(ant_bootstrap::ANT_PEERS_ENV);
+    }
 
     Ok(())
 }

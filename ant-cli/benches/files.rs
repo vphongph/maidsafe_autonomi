@@ -18,7 +18,7 @@ use std::{
     fs::File,
     io::Write,
     path::{Path, PathBuf},
-    process::{exit, Command},
+    process::{Command, exit},
     time::Duration,
 };
 use tempfile::tempdir;
@@ -89,7 +89,7 @@ fn generate_file(path: &PathBuf, file_size_mb: usize) {
     // can create [u8; 32] max at time. Thus each mb has 1024*32 such small chunks
     let n_small_chunks = file_size_mb * 1024 * 32;
     for _ in 0..n_small_chunks {
-        let random_data: [u8; 32] = rng.gen();
+        let random_data: [u8; 32] = rng.r#gen();
         file.write_all(&random_data)
             .expect("Failed to write to file");
     }
@@ -113,12 +113,17 @@ fn criterion_benchmark(c: &mut Criterion) {
     // Check if the binary exists
     let cli_path = get_cli_path();
     if !Path::new(&cli_path).exists() {
-        eprintln!("Error: Binary {cli_path:?} does not exist. Please make sure to compile your project first");
+        eprintln!(
+            "Error: Binary {cli_path:?} does not exist. Please make sure to compile your project first"
+        );
         exit(1);
     }
 
     if std::env::var("SECRET_KEY").is_err() {
-        std::env::set_var("SECRET_KEY", DEFAULT_WALLET_PRIVATE_KEY);
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("SECRET_KEY", DEFAULT_WALLET_PRIVATE_KEY);
+        }
     }
 
     let sizes: [u64; 2] = [1, 10]; // File sizes in MB. Add more sizes as needed

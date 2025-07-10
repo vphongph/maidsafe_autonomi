@@ -47,18 +47,22 @@ pub async fn connect_to_network_with_config(
 
     let res = match network_context.network_id.as_u8() {
         LOCAL_NETWORK_ID => {
+            println!("Connecting to a local Autonomi network...");
             progress_bar.set_message("Connecting to a local Autonomi network...");
             Client::init_local().await
         }
         MAIN_NETWORK_ID => {
+            println!("Connecting to the Autonomi network...");
             progress_bar.set_message("Connecting to the Autonomi network...");
             Client::init().await
         }
         ALPHA_NETWORK_ID => {
+            println!("Connecting to the alpha Autonomi network...");
             progress_bar.set_message("Connecting to the alpha Autonomi network...");
             Client::init_alpha().await
         }
         _ => {
+            println!("Connecting to a custom Autonomi network...");
             progress_bar.set_message("Connecting to a custom Autonomi network...");
             let evm_network = get_evm_network(
                 network_context.peers.local,

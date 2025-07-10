@@ -371,7 +371,7 @@ where
         let time = SystemTime;
 
         //=======================================================================================
-        
+
         write!(writer, "[")?;
         time.format_time(&mut writer)?;
         write!(writer, " {level} {module} {lno}")?;
@@ -412,9 +412,9 @@ where
         ctx.field_format().format_fields(writer.by_ref(), event)?;
 
         writeln!(writer)
-        
+
         //=======================================================================================
-        
+
         // write!(writer, "[")?;
         // time.format_time(&mut writer)?;
         // write!(writer, " {level} {module} {lno}")?;

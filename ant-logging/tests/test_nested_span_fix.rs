@@ -56,27 +56,25 @@ async fn test_nested_spans_are_fixed() {
 
     // Verify that each node only shows ONE "/node" span in their logs (not nested)
     for i in 1..=3 {
-        let node_dir = log_dir.join(format!("node_{}", i));
-        assert!(node_dir.exists(), "Node {} directory should exist", i);
+        let node_dir = log_dir.join(format!("node_{i}"));
+        assert!(node_dir.exists(), "Node {i} directory should exist");
 
         if let Ok(node_content) = read_log_content(&node_dir) {
-            println!("Node {} logs: {}", i, node_content);
+            println!("Node {i} logs: {node_content}");
 
             // Each line should only have one "/node" in the span path
             for line in node_content.lines() {
                 let node_count = line.matches("/node").count();
                 assert_eq!(
                     node_count, 1,
-                    "Node {} should have exactly 1 '/node' span, but found {} in line: '{}'",
-                    i, node_count, line
+                    "Node {i} should have exactly 1 '/node' span, but found {node_count} in line: '{line}'"
                 );
             }
 
             // Verify this node's message exists
             assert!(
-                node_content.contains(&format!("Message from node {}", i)),
-                "Node {} logs should contain its message",
-                i
+                node_content.contains(&format!("Message from node {i}")),
+                "Node {i} logs should contain its message"
             );
         }
     }

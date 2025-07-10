@@ -224,10 +224,14 @@ pub async fn download(
     dest_path: &str,
     network_context: NetworkContext,
     quorum: Option<Quorum>,
+    retries: Option<usize>,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;
+    }
+    if let Some(retries) = retries {
+        config.chunks.get_retry = RetryStrategy::N(retries);
     }
     let client = crate::actions::connect_to_network_with_config(network_context, config).await?;
     crate::actions::download(addr, dest_path, &client).await

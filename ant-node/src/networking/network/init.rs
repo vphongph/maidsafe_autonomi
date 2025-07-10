@@ -40,7 +40,6 @@ use libp2p::{
 };
 #[cfg(feature = "open-metrics")]
 use prometheus_client::metrics::info::Info;
-use rand::Rng;
 use std::time::Instant;
 use std::{
     convert::TryInto,
@@ -65,10 +64,6 @@ const NETWORKING_CHANNEL_SIZE: usize = 10_000;
 
 /// Time before a Kad query times out if no response is received
 const KAD_QUERY_TIMEOUT_S: Duration = Duration::from_secs(10);
-
-/// Interval to trigger native libp2p::kad bootstrap.
-/// This is the max time it should take. Minimum interval at any node will be half this
-const PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S: u64 = 21600;
 
 #[derive(Debug)]
 pub(crate) struct NetworkConfig {
@@ -104,10 +99,6 @@ pub(crate) struct NetworkConfig {
 pub(super) fn init_driver(
     config: NetworkConfig,
 ) -> Result<(SwarmDriver, mpsc::Receiver<NetworkEvent>)> {
-    let bootstrap_interval = rand::thread_rng().gen_range(
-        PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S / 2..PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S,
-    );
-
     let mut kad_cfg = kad::Config::new(StreamProtocol::new(KAD_STREAM_PROTOCOL_ID));
     let _ = kad_cfg
         .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
@@ -128,7 +119,8 @@ pub(super) fn init_driver(
         // .disjoint_query_paths(true)
         // Records never expire
         .set_record_ttl(None)
-        .set_periodic_bootstrap_interval(Some(Duration::from_secs(bootstrap_interval)))
+        // Disable node side libp2p periodic bootstrap
+        .set_periodic_bootstrap_interval(None)
         // Emit PUT events for validation prior to insertion into the RecordStore.
         // This is no longer needed as the record_storage::put now can carry out validation.
         // .set_record_filtering(KademliaStoreInserts::FilterBoth)

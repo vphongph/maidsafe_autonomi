@@ -405,10 +405,15 @@ impl Client {
             download_tasks.push(async move {
                 let idx = i + 1;
                 let chunk_addr = ChunkAddress::new(info.dst_hash);
+
+                #[cfg(feature = "loud")]
+                println!("Fetching chunk {idx}/{total_chunks} ...");
+                info!("Fetching chunk {idx}/{total_chunks}({chunk_addr:?})");
+
                 match self.chunk_get(&chunk_addr).await {
                     Ok(chunk) => {
                         #[cfg(feature = "loud")]
-                        println!("Successfully fetched chunk {idx}/{total_chunks}({chunk_addr:?})");
+                        println!("Fetching chunk {idx}/{total_chunks} [DONE]");
                         info!("Successfully fetched chunk {idx}/{total_chunks}({chunk_addr:?})");
                         Ok(EncryptedChunk {
                             index: info.index,
@@ -417,9 +422,7 @@ impl Client {
                     }
                     Err(err) => {
                         #[cfg(feature = "loud")]
-                        println!(
-                            "Error fetching chunk {idx}/{total_chunks}({chunk_addr:?}): {err:?}"
-                        );
+                        println!("Error fetching chunk {idx}/{total_chunks}: {err:?}");
                         error!(
                             "Error fetching chunk {idx}/{total_chunks}({chunk_addr:?}): {err:?}"
                         );

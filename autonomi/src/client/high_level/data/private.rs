@@ -6,12 +6,12 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::storage::DataTypes;
 use std::time::Instant;
 
 use crate::client::payment::PaymentOption;
-use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
-use crate::Amount;
+use crate::client::{GetError, PutError};
+use crate::data::DataAddress;
+use crate::files::UploadError;
 use crate::AttoTokens;
 use crate::{self_encryption::encrypt, Client};
 
@@ -73,44 +73,18 @@ impl Client {
         let (data_map_chunk, chunks) = encrypt(data)?;
         debug!("Encryption took: {:.2?}", now.elapsed());
 
-        // Pay for all chunks
-        let xor_names: Vec<_> = chunks
-            .iter()
-            .map(|chunk| (*chunk.name(), chunk.size()))
-            .collect();
-        info!("Paying for {} addresses", xor_names.len());
-        let (receipt, skipped_payments) = self
-            .pay_for_content_addrs(DataTypes::Chunk, xor_names.into_iter(), payment_option)
-            .await
-            .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
+        let data_address = DataAddress::new(*data_map_chunk.address().xorname());
+        let combined_chunks = vec![(
+            (format!("Private Data {data_address:?}"), Some(data_address)),
+            chunks,
+        )];
 
-        // Upload the chunks with the payments
-        debug!("Uploading {} chunks", chunks.len());
-
-        self.chunk_batch_upload(chunks.iter().collect(), &receipt)
-            .await?;
-
-        let record_count = chunks.len().saturating_sub(skipped_payments);
-
-        let tokens_spent = receipt
-            .values()
-            .map(|(_, cost)| cost.as_atto())
-            .sum::<Amount>();
-        let total_cost = AttoTokens::from_atto(tokens_spent);
-
-        // Reporting
-        if let Some(channel) = self.client_event_sender.as_ref() {
-            let summary = UploadSummary {
-                records_paid: record_count,
-                records_already_paid: skipped_payments,
-                tokens_spent,
-            };
-            if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send client event: {err:?}");
-            }
+        // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
+        match self.pay_and_upload(payment_option, combined_chunks).await {
+            Ok(total_cost) => Ok((total_cost, DataMapChunk(data_map_chunk))),
+            Err(UploadError::PutError(err)) => Err(err),
+            Err(err) => Err(PutError::Other(format!("{err}"))),
         }
-
-        Ok((total_cost, DataMapChunk(data_map_chunk)))
     }
 }
 

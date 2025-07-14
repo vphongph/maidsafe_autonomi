@@ -71,7 +71,7 @@ async fn test_analyze_public_data() -> Result<()> {
     let wallet = get_funded_wallet();
     let payment_option = PaymentOption::from(&wallet);
 
-    let data = Bytes::from("Public data example");
+    let data = Bytes::from("Public test data example");
     let (_cost, addr) = client.data_put_public(data, payment_option).await?;
     let public_data_addr = addr.to_hex();
     println!("Public Data (XorName): {public_data_addr}");

@@ -12,7 +12,8 @@ use std::time::Instant;
 
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
-use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
+use crate::client::{GetError, PutError};
+use crate::files::UploadError;
 use crate::{chunk::ChunkAddress, self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
 use xor_name::XorName;
@@ -41,58 +42,26 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataAddress), PutError> {
         let now = Instant::now();
-        let (data_map_chunk, chunks) = encrypt(data)?;
-        let data_map_addr = data_map_chunk.address();
+        let (data_map_chunk, mut chunks) = encrypt(data)?;
+        let data_map_addr = *data_map_chunk.address();
         debug!("Encryption took: {:.2?}", now.elapsed());
         info!("Uploading datamap chunk to the network at: {data_map_addr:?}");
 
-        let map_xor_name = *data_map_chunk.address().xorname();
-        let mut xor_names = vec![(map_xor_name, data_map_chunk.size())];
+        // `data_map_chunks` shall be included as well.
+        chunks.push(data_map_chunk);
 
-        for chunk in &chunks {
-            xor_names.push((*chunk.name(), chunk.size()));
+        let data_address = DataAddress::new(*data_map_addr.xorname());
+        let combined_chunks = vec![(
+            (format!("Public Data {data_address:?}"), Some(data_address)),
+            chunks,
+        )];
+
+        // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
+        match self.pay_and_upload(payment_option, combined_chunks).await {
+            Ok(total_cost) => Ok((total_cost, data_address)),
+            Err(UploadError::PutError(err)) => Err(err),
+            Err(err) => Err(PutError::Other(format!("{err}"))),
         }
-
-        // Pay for all chunks + data map chunk
-        info!("Paying for {} addresses", xor_names.len());
-        let (receipt, skipped_payments) = self
-            .pay_for_content_addrs(DataTypes::Chunk, xor_names.into_iter(), payment_option)
-            .await
-            .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
-
-        // Upload all the chunks in parallel including the data map chunk
-        debug!("Uploading {} chunks", chunks.len());
-
-        self.chunk_batch_upload(
-            chunks
-                .iter()
-                .chain(std::iter::once(&data_map_chunk))
-                .collect(),
-            &receipt,
-        )
-        .await?;
-
-        let record_count = (chunks.len() + 1) - skipped_payments;
-
-        let tokens_spent = receipt
-            .values()
-            .map(|(_proof, price)| price.as_atto())
-            .sum::<Amount>();
-        let total_cost = AttoTokens::from_atto(tokens_spent);
-
-        // Reporting
-        if let Some(channel) = self.client_event_sender.as_ref() {
-            let summary = UploadSummary {
-                records_paid: record_count,
-                records_already_paid: skipped_payments,
-                tokens_spent,
-            };
-            if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send client event: {err:?}");
-            }
-        }
-
-        Ok((total_cost, DataAddress::new(map_xor_name)))
     }
 
     /// Get the estimated cost of storing a piece of data.

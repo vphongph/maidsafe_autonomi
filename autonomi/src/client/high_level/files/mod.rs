@@ -152,6 +152,20 @@ pub enum FileCostError {
     WalkDir(#[from] walkdir::Error),
 }
 
+/// Normalize a path to use forward slashes, regardless of the operating system.
+/// This is used to ensure that paths stored in archives always use forward slashes,
+/// which is important for cross-platform compatibility.
+pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
+    // Convert backslashes to forward slashes (Windows..)
+    let normalized = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    PathBuf::from(normalized)
+}
+
 pub(crate) fn get_relative_file_path_from_abs_file_and_folder_path(
     abs_file_pah: &Path,
     abs_folder_path: &Path,
@@ -177,5 +191,21 @@ pub(crate) fn get_relative_file_path_from_abs_file_and_folder_path(
             .strip_prefix(folder_prefix)
             .expect("Could not strip prefix path")
             .to_path_buf()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(windows)]
+    use super::normalize_path;
+    #[cfg(windows)]
+    use std::path::PathBuf;
+
+    #[cfg(windows)]
+    #[test]
+    fn test_normalize_path_to_forward_slashes() {
+        let windows_path = PathBuf::from(r"folder\test\file.txt");
+        let normalized = normalize_path(windows_path);
+        assert_eq!(normalized, PathBuf::from("folder/test/file.txt"));
     }
 }

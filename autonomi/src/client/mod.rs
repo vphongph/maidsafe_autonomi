@@ -46,8 +46,6 @@ mod utils;
 use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 
-use crate::networking::Multiaddr;
-use crate::networking::NetworkAddress;
 use ant_bootstrap::{contacts::ALPHANET_CONTACTS, InitialPeersConfig};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
@@ -64,8 +62,7 @@ const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
 use crate::client::config::ClientOperatingStrategy;
-use crate::networking::multiaddr_is_global;
-use crate::networking::{Network, NetworkError};
+use crate::networking::{multiaddr_is_global, Multiaddr, Network, NetworkAddress, NetworkError};
 use ant_protocol::storage::RecordKind;
 pub use ant_protocol::CLOSE_GROUP_SIZE;
 
@@ -260,7 +257,11 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let initial_peers = match config.init_peers_config.get_addrs(None, None).await {
+        let initial_peers = match config
+            .init_peers_config
+            .get_bootstrap_addr(None, None)
+            .await
+        {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };

@@ -6,10 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::Marker;
-use ant_networking::time::Instant;
 #[cfg(feature = "open-metrics")]
-use ant_networking::MetricsRegistries;
+use crate::networking::MetricsRegistries;
+use crate::Marker;
 use ant_protocol::storage::DataTypes;
 use prometheus_client::{
     encoding::{EncodeLabelSet, EncodeLabelValue},
@@ -21,6 +20,7 @@ use prometheus_client::{
         info::Info,
     },
 };
+use std::time::Instant;
 
 #[derive(Clone)]
 /// The shared recorders that are used to record metrics.
@@ -221,7 +221,7 @@ enum PutRecordErrorType {
     PaymentQuoteOutOfRange,
     PaymentVerificationFailed,
     OversizedChunk,
-    IgnoringOutdatedScratchpadPut,
+    OutdatedRecordCounter,
     InvalidScratchpadSignature,
     ScratchpadTooBig,
     EmptyGraphEntry,
@@ -253,9 +253,7 @@ impl From<&crate::PutValidationError> for PutRecordErrorType {
                 Self::PaymentVerificationFailed
             }
             crate::PutValidationError::OversizedChunk(_, _) => Self::OversizedChunk,
-            crate::PutValidationError::IgnoringOutdatedScratchpadPut => {
-                Self::IgnoringOutdatedScratchpadPut
-            }
+            crate::PutValidationError::OutdatedRecordCounter { .. } => Self::OutdatedRecordCounter,
             crate::PutValidationError::InvalidScratchpadSignature => {
                 Self::InvalidScratchpadSignature
             }

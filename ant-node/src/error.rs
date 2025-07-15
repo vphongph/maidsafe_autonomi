@@ -67,9 +67,9 @@ pub enum PutValidationError {
     #[error("Chunk is too large: {0} bytes, when max size is {1} bytes")]
     OversizedChunk(usize, usize),
 
-    // ------------ Scratchpad Errors
-    #[error("A newer version of this Scratchpad already exists")]
-    IgnoringOutdatedScratchpadPut,
+    // ------------ Mutable data errors
+    #[error("Rejected outdated record: with counter {counter}, expected any above {expected}")]
+    OutdatedRecordCounter { counter: u64, expected: u64 },
 
     #[error("Scratchpad signature is invalid")]
     InvalidScratchpadSignature,
@@ -91,7 +91,7 @@ pub enum PutValidationError {
 #[allow(missing_docs)]
 pub enum Error {
     #[error("Network error {0}")]
-    Network(#[from] ant_networking::NetworkError),
+    Network(#[from] crate::networking::NetworkError),
 
     #[error("Failed to parse NodeEvent")]
     NodeEventParsingFailed,

@@ -7,13 +7,14 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::archive_public::{ArchiveAddress, PublicArchive};
-use super::{CombinedChunks, DownloadError, FileCostError, Metadata, UploadError};
+use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::client::high_level::files::{
     get_relative_file_path_from_abs_file_and_folder_path, FILE_ENCRYPT_BATCH_SIZE,
 };
 use crate::client::payment::PaymentOption;
 use crate::client::Client;
 use crate::client::{high_level::data::DataAddress, utils::process_tasks_with_max_concurrency};
+use crate::data::CombinedChunks;
 use crate::self_encryption::encrypt;
 use crate::AttoTokens;
 use bytes::Bytes;

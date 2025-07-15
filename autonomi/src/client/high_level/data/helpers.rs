@@ -6,13 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::CombinedChunks;
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use crate::client::payment::Receipt;
 use crate::client::utils::format_upload_error;
 use crate::client::{ClientEvent, PutError, UploadSummary};
-use crate::files::UploadError;
 use crate::Client;
 use ant_evm::{Amount, AttoTokens};
 use ant_protocol::storage::{Chunk, DataTypes};
@@ -22,6 +20,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 type AggregatedChunks = Vec<((String, Option<DataAddress>, usize, usize), Chunk)>;
+
+pub(crate) type CombinedChunks = Vec<((String, Option<DataAddress>), Vec<Chunk>)>;
 
 /// Number of batch size of an entire quote-pay-upload flow to process.
 /// Suggested to be multiples of `MAX_TRANSFERS_PER_TRANSACTION  / 3` (records-payouts-per-transaction).
@@ -75,7 +75,7 @@ impl Client {
         &self,
         payment_option: PaymentOption,
         combined_chunks: CombinedChunks,
-    ) -> Result<AttoTokens, UploadError> {
+    ) -> Result<AttoTokens, PutError> {
         let start = tokio::time::Instant::now();
         let total_files = combined_chunks.len();
         let mut receipts = Vec::new();
@@ -117,12 +117,12 @@ impl Client {
                 .collect();
             let candidate_chunks = batch_chunks.len();
 
-            let (retry_chunks, receipt, free_chunks_count, upload_error) = self
+            let (retry_chunks, receipt, free_chunks_count, put_error) = self
                 .process_chunk_batch(batch_chunks, payment_option.clone(), retry_on_failure)
                 .await;
             receipts.extend(receipt);
             free_chunks_counts.extend(free_chunks_count);
-            if let Some(err) = upload_error {
+            if let Some(err) = put_error {
                 return Err(err);
             }
 
@@ -173,12 +173,7 @@ impl Client {
         mut batch: AggregatedChunks,
         payment_option: PaymentOption,
         retry_on_failure: bool,
-    ) -> (
-        AggregatedChunks,
-        Vec<Receipt>,
-        Vec<usize>,
-        Option<UploadError>,
-    ) {
+    ) -> (AggregatedChunks, Vec<Receipt>, Vec<usize>, Option<PutError>) {
         // Prepare payment info for batch
         let payment_info: Vec<_> = batch
             .iter()
@@ -191,7 +186,7 @@ impl Client {
 
         let mut file_infos = vec![];
         let mut batch_chunks = vec![];
-        let mut upload_error = None;
+        let mut put_error = None;
 
         for (chunk_info, chunk) in batch.clone() {
             file_infos.push(chunk_info);
@@ -226,12 +221,7 @@ impl Client {
                     println!("Quoting or payment error encountered, retry scheduled.");
                     return (batch, vec![], vec![], None);
                 } else {
-                    return (
-                        vec![],
-                        vec![],
-                        vec![],
-                        Some(UploadError::from(PutError::from(err))),
-                    );
+                    return (vec![], vec![], vec![], Some(PutError::from(err)));
                 }
             }
         };
@@ -272,12 +262,12 @@ impl Client {
                 } else {
                     // Encounterred Un-recoverable upload errors
                     // Return immediately to terminate the entire upload flow
-                    upload_error = Some(UploadError::PutError(err));
+                    put_error = Some(err);
                 };
             }
-            Err(err) => upload_error = Some(UploadError::PutError(err)),
+            Err(err) => put_error = Some(err),
         }
 
-        (retry_chunks, vec![receipt], vec![free_chunks], upload_error)
+        (retry_chunks, vec![receipt], vec![free_chunks], put_error)
     }
 }

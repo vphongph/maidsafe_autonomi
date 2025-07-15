@@ -16,10 +16,11 @@
 
 use super::archive_private::{PrivateArchive, PrivateArchiveDataMap};
 use super::{get_relative_file_path_from_abs_file_and_folder_path, FILE_ENCRYPT_BATCH_SIZE};
-use super::{CombinedChunks, DownloadError, UploadError};
+use super::{DownloadError, UploadError};
 
 use crate::client::payment::PaymentOption;
 use crate::client::{data_types::chunk::DataMapChunk, utils::process_tasks_with_max_concurrency};
+use crate::data::CombinedChunks;
 use crate::self_encryption::encrypt;
 use crate::{AttoTokens, Client};
 use bytes::Bytes;

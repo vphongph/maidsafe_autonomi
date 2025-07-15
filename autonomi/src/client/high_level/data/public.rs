@@ -13,7 +13,6 @@ use std::time::Instant;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::{GetError, PutError};
-use crate::files::UploadError;
 use crate::{chunk::ChunkAddress, self_encryption::encrypt, Client};
 use ant_evm::{Amount, AttoTokens};
 use xor_name::XorName;
@@ -57,11 +56,9 @@ impl Client {
         )];
 
         // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
-        match self.pay_and_upload(payment_option, combined_chunks).await {
-            Ok(total_cost) => Ok((total_cost, data_address)),
-            Err(UploadError::PutError(err)) => Err(err),
-            Err(err) => Err(PutError::Other(format!("{err}"))),
-        }
+        self.pay_and_upload(payment_option, combined_chunks)
+            .await
+            .map(|total_cost| (total_cost, data_address))
     }
 
     /// Get the estimated cost of storing a piece of data.

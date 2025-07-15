@@ -6,7 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::storage::Chunk;
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -16,18 +15,14 @@ use std::{
 use thiserror::Error;
 
 use crate::client::{quote::CostError, GetError, PutError};
-use crate::data::DataAddress;
 
 pub mod archive_private;
 pub mod archive_public;
 pub mod fs_private;
 pub mod fs_public;
-mod fs_shared;
 
 pub use archive_private::PrivateArchive;
 pub use archive_public::PublicArchive;
-
-pub(crate) type CombinedChunks = Vec<((String, Option<DataAddress>), Vec<Chunk>)>;
 
 /// Number of files to upload in parallel.
 ///

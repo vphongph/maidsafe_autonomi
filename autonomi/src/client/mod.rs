@@ -143,8 +143,6 @@ pub enum PutError {
     },
     #[error("Batch upload: {0}")]
     Batch(ChunkBatchUploadState),
-    #[error("Other: {0}")]
-    Other(String),
 }
 
 /// Errors that can occur during the get operation.

@@ -11,7 +11,6 @@ use std::time::Instant;
 use crate::client::payment::PaymentOption;
 use crate::client::{GetError, PutError};
 use crate::data::DataAddress;
-use crate::files::UploadError;
 use crate::AttoTokens;
 use crate::{self_encryption::encrypt, Client};
 
@@ -80,11 +79,9 @@ impl Client {
         )];
 
         // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
-        match self.pay_and_upload(payment_option, combined_chunks).await {
-            Ok(total_cost) => Ok((total_cost, DataMapChunk(data_map_chunk))),
-            Err(UploadError::PutError(err)) => Err(err),
-            Err(err) => Err(PutError::Other(format!("{err}"))),
-        }
+        self.pay_and_upload(payment_option, combined_chunks)
+            .await
+            .map(|total_cost| (total_cost, DataMapChunk(data_map_chunk)))
     }
 }
 

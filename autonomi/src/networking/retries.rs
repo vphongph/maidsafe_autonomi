@@ -24,36 +24,15 @@ impl Network {
         strategy: &Strategy,
     ) -> Result<(), NetworkError> {
         let addr = PrettyPrintRecordKey::from(&record.key).into_owned();
-        let verification_strategy = Strategy {
-            get_quorum: strategy.verification_quorum,
-            ..*strategy
-        };
         let mut errors = vec![];
         for duration in strategy.put_retry.backoff() {
             match self
                 .put_record(record.clone(), to.clone(), strategy.put_quorum)
                 .await
             {
-                // return success if verification succeeds
-                Ok(()) => {
-                    let network_address = NetworkAddress::from(&record.key);
-                    let error = match self
-                        .get_record_with_retries(network_address, &verification_strategy)
-                        .await
-                    {
-                        Ok(Some(_)) => return Ok(()),
-                        Ok(None) => NetworkError::PutRecordVerification("Not found".to_string()),
-                        Err(err) => NetworkError::PutRecordVerification(err.to_string()),
-                    };
-
-                    // retry on verification errors
-                    warn!("Put record failed at {addr}: {error:?}, retrying in {duration:?}");
-                    errors.push(error.clone());
-                    match duration {
-                        Some(retry_delay) => sleep(retry_delay).await,
-                        None => return Err(error),
-                    }
-                }
+                // Exitence verification is no longer mandatory as req/rsp upload allows client
+                // collect storage result from nodes directly.
+                Ok(()) => return Ok(()),
                 // return fatal errors
                 Err(err) if err.cannot_retry() => {
                     return Err(err);

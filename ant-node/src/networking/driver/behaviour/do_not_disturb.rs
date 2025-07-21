@@ -1032,7 +1032,7 @@ mod tests {
         let result = behaviour.handle_pending_outbound_connection(
             ConnectionId::new_unchecked(1),
             None, // No specific peer
-            &[test_addr.clone()],
+            std::slice::from_ref(&test_addr),
             Endpoint::Dialer,
         );
 

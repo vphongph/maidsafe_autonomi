@@ -166,7 +166,7 @@ impl ChangeDrivePopup {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         let pop_up_border = Paragraph::new("").block(
             Block::default()
                 .borders(Borders::ALL)
@@ -261,7 +261,7 @@ impl ChangeDrivePopup {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         let pop_up_border = Paragraph::new("").block(
             Block::default()
                 .borders(Borders::ALL)
@@ -617,7 +617,7 @@ pub struct DriveItem {
 }
 
 impl DriveItem {
-    fn to_list_item(&self, _index: usize, width: usize) -> ListItem {
+    fn to_list_item(&self, _index: usize, width: usize) -> ListItem<'_> {
         let spaces = width - self.name.len() - self.size.len() - "   ".len() - 4;
         let line = match self.status {
             DriveStatus::NotSelected => Line::from(vec![

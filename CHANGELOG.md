@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-07-21
+
+### API
+
+#### Added
+
+- The `ScratchpadError` type has a new `Fork` variant. When there was a forked scratchpad with two
+  or more scratchpads at the same version, the API would only return one of them, meaning a merge
+  couldn't be performed correctly. Now when this situation occurs, the `Fork` error type is
+  returned, and along with it, all the scratchpad versions, which can then be used for merge and
+  conflict resolution.
+
+#### Removed
+
+- The client was configured to use relays. This should not be necessary and could adversely affect
+  performance.
+
+### Network
+
+#### Fixed
+
+- Reintroduce the external address manager. The removal of this component caused an issue with
+  clients whereby they sometimes couldn't communicate with nodes, though node-to-node communication
+  was fine. This resulted in problems such as randomly failing to retrieve chunks during downloads,
+  and it also affected emissions payments, because the client in the emissions service wasn't
+  communicating with certain types of nodes. It seemed that port-forwarded nodes were the most
+  affected. The removal of the external address manager was based on the assumption that addresses
+  could be obtained from the connection information, but we suspect the libp2p client doesn't have
+  that part of the code.
+
+## 2025-07-18
+
+### API
+
+#### Added
+
+- `RetryStrategy::N(usize)`: New retry strategy for data operations that allows specification of a
+  custom count
+
+#### Changed
+
+- Extend libp2p client substreams timeout to 30 seconds. This should allow a client with a poor
+  connection to upload larger records with a higher success rate.
+- Enhanced logging and progress tracking for chunk data operations.
+- Improved error handling and retry mechanisms for chunk operations.
+- Paths in archives now use forward slashes on all platforms for cross-platform compatibility.
+
+### Network
+
+#### Changed
+
+- The bootstrap peer cache is changed to use a simple FIFO mechanism to maintain the cache, rather
+  than attempting to track the reliability of a peer. There is a `--write-older-cache-files`
+  argument provided for backwards compatibility. This enables the peer cache servers to still
+  provide the bootstrap cache in the old format until everyone has upgraded.
+-  The `libp2p` library was upgraded from `0.55.0` to `0.56.0`. The main benefit of this was to
+  enable the request/response model for uploads on the client.
+- The `ant-networking` code was moved to a module within the `ant-node` crate, and in turn
+  `ant-networking` was removed. This enabled the refactor and simplification of network
+  initialisation and it also opens the door for further refactors. The networking code is now much
+  more maintainable.
+
+#### Removed
+
+- The node's external address manager was removed. This component was responsible for advertising a
+  node's address to others, but we now favour obtaining the address from the connection information,
+  which is more accurate and less error prone.
+
+### Client
+
+#### Added
+
+- The `file download` command supports a `--retries` argument that allows the user to specify a
+  custom retry count for pulling chunks. If you are on a slower connection, you can consider trying
+  a value like `20`, and you should see better and more consistent downloads.
+- Use a request/response model for storing records on the network. This was a feature enabled by the
+  `libp2p` upgrade and in internal testing it significantly improved the speed of uploads. This is
+  because KAD requests in `libp2p` are not as well optimised as request/response.
+
+#### Changed
+
+- The output of the `file download` command was enhanced to use text to show chunks being obtained.
+  The purpose being to provide the user with more feedback that progress is being made on the
+  download.
+
+#### Removed
+
+- The progress bar was removed from the `file download` command in favour of text output that
+  provides more informative feedback. The bar was only useful for downloads with multiple files and
+  did not make sense for single file downloads. Better progress indicators will be added as later
+  enhancements.
+
 ## 2025-06-26
 
 ### API

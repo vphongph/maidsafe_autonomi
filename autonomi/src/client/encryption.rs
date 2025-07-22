@@ -21,7 +21,9 @@ use super::files::FILE_ENCRYPT_BATCH_SIZE;
 
 enum EncryptionState {
     InMemory(Vec<Chunk>, DataMapChunk),
+    #[allow(dead_code)]
     StreamInProgress(mpsc::Receiver<Chunk>),
+    #[allow(dead_code)]
     StreamDone(DataMapChunk),
 }
 
@@ -119,6 +121,21 @@ impl EncryptionStream {
             bytes,
         )
     }
+
+    // pub fn new_stream_from_file(
+    //     file_path: String,
+    //     relative_path: PathBuf,
+    //     metadata: Metadata,
+    //     is_public: bool,
+    // ) -> Result<Self, String> {
+    //     let (sender, receiver) = mpsc::channel(100);
+
+    //     self_encryption::streaming_encrypt_from_file(file_path, |(xorname, bytes)| {
+    //         let chunk = Chunk::new(xorname, bytes);
+    //         sender.send(chunk).await.map_err(|err| format!("Error sending chunk: {err:?}"))?;
+    //         Ok(())
+    //     })
+    // }
 }
 
 impl Client {

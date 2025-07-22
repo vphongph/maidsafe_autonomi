@@ -79,19 +79,26 @@ impl Client {
         let mut total_chunks = 0;
 
         // Estimate total chunks to be processed
+        let maybe_file = if total_files > 1 {
+            &format!(" of {total_files} files")
+        } else {
+            ""
+        };
         let est_total_chunks: usize = encryption_streams
             .iter()
             .map(|stream| stream.total_chunks())
             .sum();
-        info!("Processing estimated total {est_total_chunks} chunks of {total_files} files");
+        info!("Processing estimated total {est_total_chunks} chunks{maybe_file}");
         #[cfg(feature = "loud")]
-        println!("Processing estimated total {est_total_chunks} chunks of {total_files} files");
+        println!("Processing estimated total {est_total_chunks} chunks{maybe_file}");
 
         // Process to upload file by file
         for stream in encryption_streams.iter_mut() {
-            info!("Uploading file: {}", stream.file_path);
-            #[cfg(feature = "loud")]
-            println!("Uploading file: {}", stream.file_path);
+            if !stream.file_path.is_empty() {
+                info!("Uploading file: {}", stream.file_path);
+                #[cfg(feature = "loud")]
+                println!("Uploading file: {}", stream.file_path);
+            }
             let (processed_chunks, free_chunks, receipt) = self
                 .pay_and_upload_file(payment_option.clone(), stream)
                 .await?;
@@ -105,16 +112,21 @@ impl Client {
                 .data_address()
                 .map(|addr| format!(" at {}", addr.to_hex()))
                 .unwrap_or_else(|| "".to_string());
-            info!("Uploaded file: {filename}{addr_if_pub}");
+            let filename_if_any = if !filename.is_empty() {
+                &format!(" for file {filename}")
+            } else {
+                ""
+            };
+            info!("Upload completed{filename_if_any}{addr_if_pub}");
             #[cfg(feature = "loud")]
-            println!("Uploaded file: {filename}{addr_if_pub}");
+            println!("Upload completed{filename_if_any}{addr_if_pub}");
         }
 
         // Report
         let total_elapsed = start.elapsed();
-        info!("Upload of {total_files} files completed in {total_elapsed:?}");
+        info!("Upload{maybe_file} completed in {total_elapsed:?}");
         #[cfg(feature = "loud")]
-        println!("Upload of {total_files} files completed in {total_elapsed:?}");
+        println!("Upload{maybe_file} completed in {total_elapsed:?}");
 
         Ok(self
             .calculate_total_cost(total_chunks, receipts, total_free_chunks)
@@ -142,8 +154,8 @@ impl Client {
         let mut current_batch = vec![];
         while let Some(next_batch) = file.next_batch(*UPLOAD_FLOW_BATCH_SIZE - current_batch.len())
         {
-            processed_chunks += next_batch.len();
             // prepare batch
+            let next_batch_len = next_batch.len();
             let path = file.file_path.clone();
             let aggr_batch: AggregatedChunks = next_batch
                 .into_iter()
@@ -153,6 +165,7 @@ impl Client {
             current_batch.extend(aggr_batch);
 
             // process batch
+            processed_chunks += next_batch_len;
             attempted_uploads += current_batch.len();
             let (retry_chunks, receipt, free_chunks_count, put_error) = self
                 .process_chunk_batch(current_batch, payment_option.clone(), retry_on_failure)
@@ -214,9 +227,14 @@ impl Client {
         }
 
         for (file_name, i, est_total) in file_infos.iter() {
-            info!("Processing chunk ({}/~{est_total}) of {file_name:?}", i + 1);
+            let maybe_file = if !file_name.is_empty() {
+                &format!(" of {file_name}")
+            } else {
+                ""
+            };
+            info!("Processing chunk ({}/{est_total}){maybe_file}", i + 1);
             #[cfg(feature = "loud")]
-            println!("Processing chunk ({}/~{est_total}) of {file_name:?}", i + 1);
+            println!("Processing chunk ({}/{est_total}){maybe_file}", i + 1);
         }
 
         // Process payment for this batch

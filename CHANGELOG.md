@@ -19,11 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returned, and along with it, all the scratchpad versions, which can then be used for merge and
   conflict resolution.
 
-#### Removed
-
-- The client was configured to use relays. This should not be necessary and could adversely affect
-  performance.
-
 ### Network
 
 #### Fixed

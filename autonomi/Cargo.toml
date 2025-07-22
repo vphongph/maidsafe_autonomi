@@ -52,6 +52,8 @@ libp2p = { version = "0.56.0", features = [
     "cbor",
     "identify",
     "quic",
+    "relay",
+    "noise",
     "tcp",
     "yamux",
     "websocket",

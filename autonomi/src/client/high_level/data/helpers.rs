@@ -88,16 +88,26 @@ impl Client {
         println!("Processing estimated total {est_total_chunks} chunks of {total_files} files");
 
         // Process to upload file by file
-        for file in encryption_streams.iter_mut() {
-            info!("Uploading file: {}", file.file_path);
+        for stream in encryption_streams.iter_mut() {
+            info!("Uploading file: {}", stream.file_path);
             #[cfg(feature = "loud")]
-            println!("Uploading file: {}", file.file_path);
+            println!("Uploading file: {}", stream.file_path);
             let (processed_chunks, free_chunks, receipt) = self
-                .pay_and_upload_file(payment_option.clone(), file)
+                .pay_and_upload_file(payment_option.clone(), stream)
                 .await?;
             total_chunks += processed_chunks;
             total_free_chunks += free_chunks;
             receipts.extend(receipt);
+
+            // Report upload completion
+            let filename = stream.file_path.clone();
+            let addr_if_pub = stream
+                .data_address()
+                .map(|addr| format!(" at {}", addr.to_hex()))
+                .unwrap_or_else(|| "".to_string());
+            info!("Uploaded file: {filename}{addr_if_pub}");
+            #[cfg(feature = "loud")]
+            println!("Uploaded file: {filename}{addr_if_pub}");
         }
 
         // Report
@@ -117,7 +127,7 @@ impl Client {
         payment_option: PaymentOption,
         file: &mut EncryptionStream,
     ) -> Result<(usize, usize, Vec<Receipt>), PutError> {
-        let est_total_chunks = file.total_chunks();
+        let est_total_todo = file.total_chunks();
         let mut processed_chunks = 0;
         let mut total_free_chunks = 0;
         let mut receipts = vec![];
@@ -126,7 +136,7 @@ impl Client {
         let mut retry_on_failure = true;
         let mut attempted_uploads = 0;
         let allowed_attempts =
-            est_total_chunks + std::cmp::max(20, est_total_chunks * self.retry_failed as usize);
+            est_total_todo + std::cmp::max(20, est_total_todo * self.retry_failed as usize);
 
         // Process all chunks for this file in batches
         let mut current_batch = vec![];
@@ -134,10 +144,11 @@ impl Client {
         {
             processed_chunks += next_batch.len();
             // prepare batch
+            let path = file.file_path.clone();
             let aggr_batch: AggregatedChunks = next_batch
                 .into_iter()
                 .enumerate()
-                .map(|(i, chunk)| ((file.file_path.clone(), i, est_total_chunks), chunk))
+                .map(|(i, chunk)| ((path.clone(), processed_chunks + i, est_total_todo), chunk))
                 .collect();
             current_batch.extend(aggr_batch);
 

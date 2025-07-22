@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
+use super::data::DataAddress;
 use super::files::FILE_ENCRYPT_BATCH_SIZE;
 
 enum EncryptionState {
@@ -37,7 +38,7 @@ impl EncryptionStream {
         match &self.state {
             EncryptionState::InMemory(chunks, _) => chunks.len(),
             EncryptionState::StreamInProgress(_) => 42, // NB TODO: implement
-            EncryptionState::StreamDone(_) => 42,       // NB TODO: implement
+            EncryptionState::StreamDone(_datamap) => 42, // NB TODO: implement
         }
     }
 
@@ -66,6 +67,17 @@ impl EncryptionStream {
             EncryptionState::InMemory(_, data_map_chunk) => Some(data_map_chunk.clone()),
             EncryptionState::StreamInProgress(_) => None,
             EncryptionState::StreamDone(data_map_chunk) => Some(data_map_chunk.clone()),
+        }
+    }
+
+    /// Returns the data address of the file if the file is public and the stream is done.
+    pub fn data_address(&self) -> Option<DataAddress> {
+        let data_map_chunk = self.data_map_chunk()?;
+        if self.is_public {
+            let data_address = DataAddress::new(*data_map_chunk.0.address().xorname());
+            Some(data_address)
+        } else {
+            None
         }
     }
 

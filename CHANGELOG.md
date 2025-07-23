@@ -30,7 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   communicating with certain types of nodes. It seemed that port-forwarded nodes were the most
   affected. The removal of the external address manager was based on the assumption that addresses
   could be obtained from the connection information, but we suspect the libp2p client doesn't have
-  that part of the code.
+  that part of the code. Reintroducing the component resolves emissions for nodes configured with
+  port-forwarding and should also very significantly improve the situation with uploads and
+  downloads.
 
 ## 2025-07-18
 

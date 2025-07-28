@@ -36,6 +36,7 @@ bls = { package = "blsttc", version = "8.0.1" }
 bytes = { version = "1.0.1", features = ["serde"] }
 const-hex = "1.12.0"
 custom_debug = "~0.6.1"
+dirs-next = "2.0.0"
 evmlib = { path = "../evmlib", version = "0.4.2" }
 exponential-backoff = "2.0.0"
 eyre = "0.6.5"
@@ -78,6 +79,7 @@ ant-logging = { path = "../ant-logging", version = "0.2.51" }
 evmlib = { path = "../evmlib", version = "0.4.2" }
 eyre = "0.6.5"
 serial_test = "3.2.0"
+tempfile = "3.12.0"
 sha2 = "0.10.6"
 # Do not specify the version field. Release process expects even the local dev deps to be published.
 # Removing the version field is a workaround.

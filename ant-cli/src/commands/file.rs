@@ -225,6 +225,8 @@ pub async fn download(
     network_context: NetworkContext,
     quorum: Option<Quorum>,
     retries: Option<usize>,
+    cache_chunks: bool,
+    cache_dir: Option<&PathBuf>,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
     if let Some(quorum) = quorum {
@@ -233,7 +235,15 @@ pub async fn download(
     if let Some(retries) = retries {
         config.chunks.get_retry = RetryStrategy::N(retries);
     }
+    // Enable chunk caching in config if requested
+    if cache_chunks {
+        config.chunk_cache_enabled = true;
+        config.chunk_cache_dir = cache_dir.cloned();
+        println!("Chunk caching enabled - failed downloads will be resumable");
+    }
+
     let client = crate::actions::connect_to_network_with_config(network_context, config).await?;
+
     crate::actions::download(addr, dest_path, &client).await
 }
 

@@ -23,6 +23,7 @@ use color_eyre::Result;
 use pointer::parse_target_data_type;
 use pointer::TargetDataType;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -116,6 +117,15 @@ pub enum FileCmd {
         /// Experimental: Optionally specify the number of retries for the download.
         #[arg(short, long)]
         retries: Option<usize>,
+        /// Enable chunk caching to resume failed downloads.
+        /// Successfully downloaded chunks are cached to disk and reused on retry.
+        /// The cache is automatically keyed by the data address being downloaded.
+        #[arg(long)]
+        cache_chunks: bool,
+        /// Custom cache directory for chunk caching.
+        /// If not specified, uses the default Autonomi client data directory.
+        #[arg(long, requires = "cache_chunks")]
+        cache_dir: Option<PathBuf>,
     },
 
     /// List previous uploads
@@ -453,9 +463,11 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 dest_file,
                 quorum,
                 retries,
+                cache_chunks,
+                cache_dir,
             } => {
                 if let Err((err, exit_code)) =
-                    file::download(&addr, &dest_file, network_context, quorum, retries).await
+                    file::download(&addr, &dest_file, network_context, quorum, retries, cache_chunks, cache_dir.as_ref()).await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);

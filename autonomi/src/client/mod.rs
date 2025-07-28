@@ -39,6 +39,7 @@ pub mod quote;
 pub mod external_signer;
 
 // private module with utility functions
+mod chunk_cache;
 mod network;
 mod put_error_state;
 mod utils;
@@ -163,6 +164,8 @@ pub enum GetError {
     // The RecordKind that was obtained did not match with the expected one
     #[error("The RecordKind obtained from the Record did not match with the expected kind: {0}")]
     RecordKindMismatch(RecordKind),
+    #[error("Configuration error: {0}")]
+    Configuration(String),
 }
 
 impl Client {

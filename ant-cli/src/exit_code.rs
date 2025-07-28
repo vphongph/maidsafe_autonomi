@@ -58,6 +58,7 @@ pub(crate) fn get_error_exit_code(err: &GetError) -> i32 {
         GetError::Protocol(_) => PROTOCOL_ERROR,
         GetError::RecordNotFound => 33,
         GetError::RecordKindMismatch(_) => 34,
+        GetError::Configuration(_) => 35,
     }
 }
 

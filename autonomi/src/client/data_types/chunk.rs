@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::client::chunk_cache::{default_cache_dir, is_chunk_cached, load_chunk, store_chunk};
 use crate::networking::PeerInfo;
 use crate::{
     client::{
@@ -106,12 +107,47 @@ fn hash_to_short_string(input: &str) -> String {
 }
 
 impl Client {
-    /// Get a chunk from the network.
-    pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
-        info!("Getting chunk: {addr:?}");
+    fn get_chunk_cache_dir(&self) -> Result<std::path::PathBuf, GetError> {
+        match &self.config.chunk_cache_dir {
+            Some(dir) => Ok(dir.clone()),
+            None => {
+                default_cache_dir().map_err(|_| {
+                    GetError::Configuration(
+                        "Chunk caching is enabled but no cache directory is specified. \
+                         Please set a cache directory in the client config or disable chunk caching.".to_string()
+                    )
+                })
+            }
+        }
+    }
 
+    fn try_load_chunk_from_cache(&self, addr: &ChunkAddress) -> Result<Option<Chunk>, GetError> {
+        if !self.config.chunk_cache_enabled {
+            return Ok(None);
+        }
+
+        let cache_dir = self.get_chunk_cache_dir()?;
+        if is_chunk_cached(cache_dir.clone(), addr) {
+            if let Ok(Some(cached_chunk)) = load_chunk(cache_dir, addr) {
+                debug!("Loaded chunk from cache: {addr:?}");
+                return Ok(Some(cached_chunk));
+            }
+        }
+        Ok(None)
+    }
+
+    fn try_cache_chunk(&self, addr: &ChunkAddress, chunk: &Chunk) -> Result<(), GetError> {
+        if self.config.chunk_cache_enabled {
+            let cache_dir = self.get_chunk_cache_dir()?;
+            if let Err(e) = store_chunk(cache_dir, addr, chunk) {
+                warn!("Failed to cache chunk {}: {}", addr.to_hex(), e);
+            }
+        }
+        Ok(())
+    }
+
+    async fn fetch_chunk_from_network(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         let key = NetworkAddress::from(*addr);
-
         debug!("Fetching chunk from network at: {key:?}");
 
         let record = self
@@ -123,7 +159,7 @@ impl Client {
 
         let header = RecordHeader::from_record(&record)?;
 
-        if let Ok(true) = RecordHeader::is_record_of_type_chunk(&record) {
+        if RecordHeader::is_record_of_type_chunk(&record)? {
             let chunk: Chunk = try_deserialize_record(&record)?;
             Ok(chunk)
         } else {
@@ -135,6 +171,19 @@ impl Client {
                 DataTypes::Chunk,
             )))
         }
+    }
+
+    /// Get a chunk from the network.
+    pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
+        info!("Getting chunk: {addr:?}");
+
+        if let Some(cached_chunk) = self.try_load_chunk_from_cache(addr)? {
+            return Ok(cached_chunk);
+        }
+
+        let chunk = self.fetch_chunk_from_network(addr).await?;
+        self.try_cache_chunk(addr, &chunk)?;
+        Ok(chunk)
     }
 
     /// Manually upload a chunk to the network.

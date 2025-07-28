@@ -6,7 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::client::chunk_cache::{default_cache_dir, is_chunk_cached, load_chunk, store_chunk};
+use crate::client::chunk_cache::{
+    default_cache_dir, delete_chunks, is_chunk_cached, load_chunk, store_chunk,
+};
 use crate::networking::PeerInfo;
 use crate::{
     client::{
@@ -450,6 +452,12 @@ impl Client {
         debug!("Fetching {total_chunks} encrypted data chunks from data map {data_map:?}");
 
         let mut download_tasks = vec![];
+        let chunk_addrs: Vec<ChunkAddress> = data_map
+            .infos()
+            .iter()
+            .map(|info| ChunkAddress::new(info.dst_hash))
+            .collect();
+        
         for (i, info) in data_map.infos().into_iter().enumerate() {
             download_tasks.push(async move {
                 let idx = i + 1;
@@ -496,6 +504,18 @@ impl Client {
         #[cfg(feature = "loud")]
         println!("Successfully decrypted all {total_chunks} chunks");
         debug!("Successfully decrypted all {total_chunks} chunks");
+        
+        // Delete cached chunks after successful download
+        if self.config.chunk_cache_enabled {
+            if let Ok(cache_dir) = self.get_chunk_cache_dir() {
+                if let Err(e) = delete_chunks(cache_dir, &chunk_addrs) {
+                    warn!("Failed to delete cached chunks after download: {e}");
+                } else {
+                    debug!("Deleted {} cached chunks after successful download", chunk_addrs.len());
+                }
+            }
+        }
+        
         Ok(data)
     }
 }

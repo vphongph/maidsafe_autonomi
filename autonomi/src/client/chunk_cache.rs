@@ -103,3 +103,30 @@ pub fn load_chunk(
         }
     }
 }
+
+/// Delete a chunk from the cache
+pub fn delete_chunk(cache_dir: PathBuf, chunk_addr: &ChunkAddress) -> Result<(), ChunkCacheError> {
+    let chunk_file_path = chunk_file_path(cache_dir, chunk_addr);
+    
+    if chunk_file_path.exists() {
+        fs::remove_file(&chunk_file_path)?;
+        debug!(
+            "Deleted cached chunk {} at {}",
+            chunk_addr.to_hex(),
+            chunk_file_path.display()
+        );
+    }
+    
+    Ok(())
+}
+
+/// Delete multiple chunks from the cache
+pub fn delete_chunks(
+    cache_dir: PathBuf,
+    chunk_addrs: &[ChunkAddress],
+) -> Result<(), ChunkCacheError> {
+    for chunk_addr in chunk_addrs {
+        delete_chunk(cache_dir.clone(), chunk_addr)?;
+    }
+    Ok(())
+}

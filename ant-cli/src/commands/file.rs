@@ -239,7 +239,7 @@ pub async fn download(
     if cache_chunks {
         config.chunk_cache_enabled = true;
         config.chunk_cache_dir = cache_dir.cloned();
-        println!("Chunk caching enabled - failed downloads will be resumable");
+        println!("Chunk caching enabled");
     }
 
     let client = crate::actions::connect_to_network_with_config(network_context, config).await?;

@@ -148,6 +148,21 @@ impl Client {
         Ok(())
     }
 
+    fn cleanup_cached_chunks(&self, chunk_addrs: &[ChunkAddress]) {
+        if self.config.chunk_cache_enabled {
+            if let Ok(cache_dir) = self.get_chunk_cache_dir() {
+                if let Err(e) = delete_chunks(cache_dir, chunk_addrs) {
+                    warn!("Failed to delete cached chunks after download: {e}");
+                } else {
+                    debug!(
+                        "Deleted {} cached chunks after successful download",
+                        chunk_addrs.len()
+                    );
+                }
+            }
+        }
+    }
+
     async fn fetch_chunk_from_network(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         let key = NetworkAddress::from(*addr);
         debug!("Fetching chunk from network at: {key:?}");
@@ -505,19 +520,7 @@ impl Client {
         println!("Successfully decrypted all {total_chunks} chunks");
         debug!("Successfully decrypted all {total_chunks} chunks");
 
-        // Delete cached chunks after successful download
-        if self.config.chunk_cache_enabled {
-            if let Ok(cache_dir) = self.get_chunk_cache_dir() {
-                if let Err(e) = delete_chunks(cache_dir, &chunk_addrs) {
-                    warn!("Failed to delete cached chunks after download: {e}");
-                } else {
-                    debug!(
-                        "Deleted {} cached chunks after successful download",
-                        chunk_addrs.len()
-                    );
-                }
-            }
-        }
+        self.cleanup_cached_chunks(&chunk_addrs);
 
         Ok(data)
     }

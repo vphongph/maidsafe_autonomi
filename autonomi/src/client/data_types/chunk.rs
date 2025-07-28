@@ -457,7 +457,7 @@ impl Client {
             .iter()
             .map(|info| ChunkAddress::new(info.dst_hash))
             .collect();
-        
+
         for (i, info) in data_map.infos().into_iter().enumerate() {
             download_tasks.push(async move {
                 let idx = i + 1;
@@ -504,18 +504,21 @@ impl Client {
         #[cfg(feature = "loud")]
         println!("Successfully decrypted all {total_chunks} chunks");
         debug!("Successfully decrypted all {total_chunks} chunks");
-        
+
         // Delete cached chunks after successful download
         if self.config.chunk_cache_enabled {
             if let Ok(cache_dir) = self.get_chunk_cache_dir() {
                 if let Err(e) = delete_chunks(cache_dir, &chunk_addrs) {
                     warn!("Failed to delete cached chunks after download: {e}");
                 } else {
-                    debug!("Deleted {} cached chunks after successful download", chunk_addrs.len());
+                    debug!(
+                        "Deleted {} cached chunks after successful download",
+                        chunk_addrs.len()
+                    );
                 }
             }
         }
-        
+
         Ok(data)
     }
 }

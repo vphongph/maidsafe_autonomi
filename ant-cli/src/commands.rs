@@ -466,8 +466,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 cache_chunks,
                 cache_dir,
             } => {
-                if let Err((err, exit_code)) =
-                    file::download(&addr, &dest_file, network_context, quorum, retries, cache_chunks, cache_dir.as_ref()).await
+                if let Err((err, exit_code)) = file::download(
+                    &addr,
+                    &dest_file,
+                    network_context,
+                    quorum,
+                    retries,
+                    cache_chunks,
+                    cache_dir.as_ref(),
+                )
+                .await
                 {
                     eprintln!("{err:?}");
                     std::process::exit(exit_code);

@@ -107,7 +107,7 @@ pub fn load_chunk(
 /// Delete a chunk from the cache
 pub fn delete_chunk(cache_dir: PathBuf, chunk_addr: &ChunkAddress) -> Result<(), ChunkCacheError> {
     let chunk_file_path = chunk_file_path(cache_dir, chunk_addr);
-    
+
     if chunk_file_path.exists() {
         fs::remove_file(&chunk_file_path)?;
         debug!(
@@ -116,7 +116,7 @@ pub fn delete_chunk(cache_dir: PathBuf, chunk_addr: &ChunkAddress) -> Result<(),
             chunk_file_path.display()
         );
     }
-    
+
     Ok(())
 }
 

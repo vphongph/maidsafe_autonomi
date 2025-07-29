@@ -38,6 +38,10 @@ pub struct ClientOperatingStrategy {
     pub graph_entry: Strategy,
     pub pointer: Strategy,
     pub scratchpad: Strategy,
+    /// Enable chunk caching for faster retrieval
+    pub chunk_cache_enabled: bool,
+    /// Custom chunk cache directory (if None, uses default)
+    pub chunk_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl ClientOperatingStrategy {
@@ -82,6 +86,8 @@ impl Default for ClientOperatingStrategy {
                 get_quorum: Quorum::Majority, // majority to catch possible differences in versions
                 get_retry: RetryStrategy::Quick,
             },
+            chunk_cache_enabled: true,
+            chunk_cache_dir: None,
         }
     }
 }

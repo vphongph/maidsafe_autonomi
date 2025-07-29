@@ -472,12 +472,16 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     network_context,
                     quorum,
                     retries,
-                    !disable_cache,  // Invert the flag - cache is enabled by default
+                    !disable_cache, // Invert the flag - cache is enabled by default
                     cache_dir.as_ref(),
                 )
                 .await
                 {
                     eprintln!("{err:?}");
+                    if !disable_cache {
+                        println!("Successfully downloaded chunks were cached.");
+                        println!("Please run the command again to obtain the chunks that were not retrieved and complete the download.");
+                    }
                     std::process::exit(exit_code);
                 } else {
                     Ok(())

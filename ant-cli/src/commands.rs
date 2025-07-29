@@ -117,14 +117,14 @@ pub enum FileCmd {
         /// Experimental: Optionally specify the number of retries for the download.
         #[arg(short, long)]
         retries: Option<usize>,
-        /// Enable chunk caching to resume failed downloads.
-        /// Successfully downloaded chunks are cached to disk and reused on retry.
-        /// The cache is automatically keyed by the data address being downloaded.
+        /// By default, chunks will be cached to enable resuming downloads.
+        /// Set this flag to disable the cache.
         #[arg(long)]
-        cache_chunks: bool,
+        disable_cache: bool,
         /// Custom cache directory for chunk caching.
         /// If not specified, uses the default Autonomi client data directory.
-        #[arg(long, requires = "cache_chunks")]
+        /// This option only applies when cache is enabled (default).
+        #[arg(long, conflicts_with = "disable_cache")]
         cache_dir: Option<PathBuf>,
     },
 
@@ -463,7 +463,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 dest_file,
                 quorum,
                 retries,
-                cache_chunks,
+                disable_cache,
                 cache_dir,
             } => {
                 if let Err((err, exit_code)) = file::download(
@@ -472,7 +472,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     network_context,
                     quorum,
                     retries,
-                    cache_chunks,
+                    !disable_cache,  // Invert the flag - cache is enabled by default
                     cache_dir.as_ref(),
                 )
                 .await

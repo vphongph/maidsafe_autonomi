@@ -229,17 +229,26 @@ pub async fn download(
     cache_dir: Option<&PathBuf>,
 ) -> Result<(), ExitCodeError> {
     let mut config = ClientOperatingStrategy::new();
+
     if let Some(quorum) = quorum {
         config.chunks.get_quorum = quorum;
     }
+
     if let Some(retries) = retries {
         config.chunks.get_retry = RetryStrategy::N(retries);
     }
-    // Enable chunk caching in config if requested
+
+    // Enable chunk caching in config (enabled by default unless disabled)
     if cache_chunks {
         config.chunk_cache_enabled = true;
         config.chunk_cache_dir = cache_dir.cloned();
-        println!("Chunk caching enabled");
+        // Only print message if custom cache dir is specified
+        if let Some(dir) = cache_dir {
+            println!("Using custom cache directory: {}", dir.display());
+        }
+    } else {
+        config.chunk_cache_enabled = false;
+        println!("Chunk caching disabled");
     }
 
     let client = crate::actions::connect_to_network_with_config(network_context, config).await?;

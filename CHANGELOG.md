@@ -7,6 +7,195 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-07-21
+
+### API
+
+#### Added
+
+- The `ScratchpadError` type has a new `Fork` variant. When there was a forked scratchpad with two
+  or more scratchpads at the same version, the API would only return one of them, meaning a merge
+  couldn't be performed correctly. Now when this situation occurs, the `Fork` error type is
+  returned, and along with it, all the scratchpad versions, which can then be used for merge and
+  conflict resolution.
+
+### Network
+
+#### Fixed
+
+- Reintroduce the external address manager. The removal of this component caused an issue with
+  clients whereby they sometimes couldn't communicate with nodes, though node-to-node communication
+  was fine. This resulted in problems such as randomly failing to retrieve chunks during downloads,
+  and it also affected emissions payments, because the client in the emissions service wasn't
+  communicating with certain types of nodes. It seemed that port-forwarded nodes were the most
+  affected. The removal of the external address manager was based on the assumption that addresses
+  could be obtained from the connection information, but we suspect the libp2p client doesn't have
+  that part of the code. Reintroducing the component resolves emissions for nodes configured with
+  port-forwarding and should also very significantly improve the situation with uploads and
+  downloads.
+
+## 2025-07-18
+
+### API
+
+#### Added
+
+- `RetryStrategy::N(usize)`: New retry strategy for data operations that allows specification of a
+  custom count
+
+#### Changed
+
+- Extend libp2p client substreams timeout to 30 seconds. This should allow a client with a poor
+  connection to upload larger records with a higher success rate.
+- Enhanced logging and progress tracking for chunk data operations.
+- Improved error handling and retry mechanisms for chunk operations.
+- Paths in archives now use forward slashes on all platforms for cross-platform compatibility.
+
+### Network
+
+#### Changed
+
+- The bootstrap peer cache is changed to use a simple FIFO mechanism to maintain the cache, rather
+  than attempting to track the reliability of a peer. There is a `--write-older-cache-files`
+  argument provided for backwards compatibility. This enables the peer cache servers to still
+  provide the bootstrap cache in the old format until everyone has upgraded.
+-  The `libp2p` library was upgraded from `0.55.0` to `0.56.0`. The main benefit of this was to
+  enable the request/response model for uploads on the client.
+- The `ant-networking` code was moved to a module within the `ant-node` crate, and in turn
+  `ant-networking` was removed. This enabled the refactor and simplification of network
+  initialisation and it also opens the door for further refactors. The networking code is now much
+  more maintainable.
+
+#### Removed
+
+- The node's external address manager was removed. This component was responsible for advertising a
+  node's address to others, but we now favour obtaining the address from the connection information,
+  which is more accurate and less error prone.
+
+### Client
+
+#### Added
+
+- The `file download` command supports a `--retries` argument that allows the user to specify a
+  custom retry count for pulling chunks. If you are on a slower connection, you can consider trying
+  a value like `20`, and you should see better and more consistent downloads.
+- Use a request/response model for storing records on the network. This was a feature enabled by the
+  `libp2p` upgrade and in internal testing it significantly improved the speed of uploads. This is
+  because KAD requests in `libp2p` are not as well optimised as request/response.
+
+#### Changed
+
+- The output of the `file download` command was enhanced to use text to show chunks being obtained.
+  The purpose being to provide the user with more feedback that progress is being made on the
+  download.
+
+#### Removed
+
+- The progress bar was removed from the `file download` command in favour of text output that
+  provides more informative feedback. The bar was only useful for downloads with multiple files and
+  did not make sense for single file downloads. Better progress indicators will be added as later
+  enhancements.
+
+## 2025-06-26
+
+### API
+
+Key changes are the new networking module, `Quorum` type replacement, pointer counter expansion to
+`u64`.
+
+#### Added
+
+- Networking:
+    + `pub mod networking`: new network module.
+    + `networking::Quorum`: enum for consensus operations.
+    + Network driver, retry strategies, and utilities.
+- Enhanced transaction configuration with the new `MaxFeePerGas` type.
+
+#### Changed
+
+- Type updates:
+    + `ResponseQuorum` → `networking::Quorum` (breaking change)
+    + Pointer counter type: `u32` → `u64` (with backward compatibility)
+- Error handling improvements:
+    + Enhanced `PointerError` error variants, e.g., `PutError`, `GetError`.
+    + More specific error handling in pointer operations.
+- Internal infrastructure:
+    + Enhanced networking layer with better retry mechanisms.
+    + Improved put/get record operations with retries.
+    + Better split record handling for pointers.
+
+####  Fixed
+
+- `Client::pointer_check_existance()` → `Client::pointer_check_existence()` (typo fix)
+
+### Network
+
+- A peer's address is obtained from its connection info rather than self-advertised addresses from
+  identify requests. The earlier method was incorrect and error prone.
+- Peers are now added to the routing table only if they can be dialled back after 180 seconds, giving
+  enough time for the UDP mapping to expire. Dialling back immediately would always succeed even if the
+  peer was not externally reachable. When the routing table consists more of these reachable peers,
+  it improves network health and should subsequently lead to better performance and reliability.
+- Introduce a `DoNotDisturb` behaviour to fix an edge case with the 180-second delayed dial-back
+  queue, where a peer would get re-added if it sent constant requests. This would happen if the peer
+  thinks we are close and spams periodic messages.
+
+### Client
+
+#### Added
+
+- The `ant` binary now has a `scratchpad` subcommand for working with scratchpads. These are a
+  mutable 4MB blob of memory on the network. An initial payment is made to create one, but all
+  further mutations are free. Personal user vaults have been implemented with scratchpads and some
+  people have been using them for chat applications.
+- The `ant` binary now has a `pointer` subcommand for managing pointers. Pointers enable building
+  mutable data structures by providing authenticated, updatable references that only the owner can
+  modify. Here are the available subcommands:
+      + `cost`: calculate payment required before creating pointers
+      + `create`: point to different data types (chunks, graphs, scratchpads, other pointers) that
+        can be updated over time
+      + `edit`: update an existing pointer reference
+      + `generate-key`: create cryptographic keys for owning and updating pointers
+      + `get`: retrieve the target of a pointer from the network
+      + `list`: view all pointers controlled by the current user
+      + `share`: give others read/write access by sharing pointer secret keys
+
+#### Changed
+
+The client has fundamentally changed with a large refactor we call 'light client networking'. The
+previous networking implementation was complex and also shared between both node and client, leading
+to all kinds of exceptions and special cases in the code. After the refactor, the client now has its
+own, simpler networking implementation, and now the client and node network can evolve
+independently.
+
+This refactor made it easier to make other changes that featured in the release:
+
+* Retry strategies were adapted to limit retrying without reason.
+* Connect to peers in advance when performing libp2p put queries.
+* No periodic network discovery.
+* Improve connection success rate by using libp2p's `add_address` rather than dialling.
+* Use a batched upload flow to reduce payment rejection resulting from quote expiration.
+
+All these changes led to the following observations in our testing:
+
+* Improved performance and throughput for uploads.
+* Improved reliability and elimination of errors in uploads that were not related to payments. We do
+  still see some errors related to gas prices on the Ethereum network, but these would hopefully be
+  mitigated with retrying.
+* Improved reliability and reduction of errors in downloads.
+
+The download performance had parity with the current stable release.
+
+There should be further improvements coming for the next release. In particular we are waiting on a
+new `libp2p` release which will have a feature contributed by us that should further improve
+performance. We've been told by the `libp2p` team that this release is now forthcoming.
+
+### Launchpad
+
+#### Added
+
+- Provide a 3-minute timeout for NAT detection. If not successful, relaying will be used.
+
 ## 2025-05-14
 
 ### Client

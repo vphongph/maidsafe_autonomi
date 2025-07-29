@@ -45,6 +45,8 @@ pub enum ScratchpadError {
     ScratchpadTooBig(usize),
     #[error("Scratchpad signature is not valid")]
     BadSignature,
+    #[error("Got multiple conflicting scratchpads with the latest version, the fork can be resolved by putting a new scratchpad with a higher counter")]
+    Fork(Vec<Scratchpad>),
 }
 
 impl Client {
@@ -100,9 +102,9 @@ impl Client {
                 // make sure we only have one of latest version
                 let pad = match &latest_pads[..] {
                     [one] => one,
-                    [multi, ..] => {
-                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version, returning the first one");
-                        multi
+                    [_multi, ..] => {
+                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version");
+                        return Err(ScratchpadError::Fork(latest_pads));
                     }
                     [] => {
                         error!("Got no valid scratchpads for {scratch_key:?}");
@@ -339,7 +341,8 @@ impl Client {
                 payment: None,
             })?;
         debug!(
-            "Updating scratchpad at address {address:?} to the network on nodes {target_nodes:?}"
+            "Updating scratchpad at address {address:?} (counter {}) to the network on nodes {target_nodes:?}",
+            scratchpad.counter()
         );
 
         self.network

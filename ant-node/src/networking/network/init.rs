@@ -25,6 +25,7 @@ use crate::networking::{
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::{
+    messages::{Request, Response},
     version::{get_network_id_str, IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR},
     NetworkAddress, PrettyPrintKBucketKey,
 };
@@ -35,13 +36,14 @@ use libp2p::{
     identity::Keypair,
     kad,
     multiaddr::Protocol,
-    request_response::{self, Config as RequestResponseConfig, ProtocolSupport},
+    request_response::{
+        self, cbor::codec::Codec as CborCodec, Config as RequestResponseConfig, ProtocolSupport,
+    },
     swarm::{StreamProtocol, Swarm},
     Multiaddr, PeerId,
 };
 #[cfg(feature = "open-metrics")]
 use prometheus_client::metrics::info::Info;
-use rand::Rng;
 use std::time::Instant;
 use std::{
     convert::TryInto,
@@ -66,10 +68,6 @@ const NETWORKING_CHANNEL_SIZE: usize = 10_000;
 
 /// Time before a Kad query times out if no response is received
 const KAD_QUERY_TIMEOUT_S: Duration = Duration::from_secs(10);
-
-/// Interval to trigger native libp2p::kad bootstrap.
-/// This is the max time it should take. Minimum interval at any node will be half this
-const PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S: u64 = 21600;
 
 #[derive(Debug)]
 pub(crate) struct NetworkConfig {
@@ -105,10 +103,6 @@ pub(crate) struct NetworkConfig {
 pub(super) fn init_driver(
     config: NetworkConfig,
 ) -> Result<(SwarmDriver, mpsc::Receiver<NetworkEvent>)> {
-    let bootstrap_interval = rand::thread_rng().gen_range(
-        PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S / 2..PERIODIC_KAD_BOOTSTRAP_INTERVAL_MAX_S,
-    );
-
     let mut kad_cfg = kad::Config::new(StreamProtocol::new(KAD_STREAM_PROTOCOL_ID));
     let _ = kad_cfg
         .set_kbucket_inserts(libp2p::kad::BucketInserts::Manual)
@@ -129,7 +123,8 @@ pub(super) fn init_driver(
         // .disjoint_query_paths(true)
         // Records never expire
         .set_record_ttl(None)
-        .set_periodic_bootstrap_interval(Some(Duration::from_secs(bootstrap_interval)))
+        // Disable node side libp2p periodic bootstrap
+        .set_periodic_bootstrap_interval(None)
         // Emit PUT events for validation prior to insertion into the RecordStore.
         // This is no longer needed as the record_storage::put now can carry out validation.
         // .set_record_filtering(KademliaStoreInserts::FilterBoth)
@@ -284,9 +279,11 @@ fn init_swarm_driver(
             .read()
             .expect("Failed to obtain read lock for REQ_RESPONSE_VERSION_STR")
             .clone();
-
-        info!("Building request response with {req_res_version_str:?}",);
-        request_response::cbor::Behaviour::new(
+        info!("Building request response with {req_res_version_str:?}");
+        let codec = CborCodec::<Request, Response>::default()
+            .set_request_size_maximum(2 * MAX_PACKET_SIZE as u64);
+        request_response::Behaviour::with_codec(
+            codec,
             [(
                 StreamProtocol::try_from_owned(req_res_version_str)
                     .expect("StreamProtocol should start with a /"),

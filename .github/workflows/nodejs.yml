@@ -162,4 +162,3 @@ jobs:
         shell: bash
       - name: Test bindings
         run: npm test
-        

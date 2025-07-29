@@ -15,8 +15,6 @@ pub mod constants;
 pub mod error;
 /// Messages types
 pub mod messages;
-/// Helpers for antnode
-pub mod node;
 /// RPC commands to node
 pub mod node_rpc;
 /// Storage types for GraphEntry and Chunk

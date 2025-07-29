@@ -14,8 +14,8 @@ use ant_protocol::messages::{ConnectionInfo, Request, Response};
 use ant_protocol::storage::ValidationType;
 use ant_protocol::{NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey};
 use futures::future::select_all;
-use libp2p::autonat::OutboundFailure;
 use libp2p::kad::{KBucketDistance, Record, RecordKey, K_VALUE};
+use libp2p::swarm::ConnectionId;
 use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
 
@@ -245,8 +245,6 @@ impl Network {
     /// then the `Request` is forwarded to itself and handled, and a corresponding `Response` is created
     /// and returned to itself. Hence the flow remains the same and there is no branching at the upper
     /// layers.
-    ///
-    /// If an outbound issue is raised, we retry once more to send the request before returning an error.
     pub(crate) async fn send_request(
         &self,
         req: Request,
@@ -254,80 +252,14 @@ impl Network {
         addrs: Addresses,
     ) -> Result<(Response, Option<ConnectionInfo>)> {
         let (sender, receiver) = oneshot::channel();
-        let req_str = format!("{req:?}");
-        // try to send the request without dialing the peer
+
         self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
             req: req.clone(),
             peer,
-            addrs: None,
+            addrs,
             sender: Some(sender),
         });
-        let mut r = receiver.await?;
-
-        if let Err(error) = &r {
-            error!("Error in response: {:?}", error);
-
-            match error {
-                NetworkError::OutboundError(OutboundFailure::Io(_))
-                | NetworkError::OutboundError(OutboundFailure::ConnectionClosed)
-                | NetworkError::OutboundError(OutboundFailure::DialFailure) => {
-                    warn!(
-                        "Outbound failed for {req_str} .. {error:?}, dialing it then re-attempt."
-                    );
-
-                    // Default Addresses will be used for request sent to close range.
-                    // For example: replication requests.
-                    // In that case, we shall get the proper addrs from local then re-dial.
-                    let dial_addrs = if addrs.0.is_empty() {
-                        debug!("Input addrs of {peer:?} is empty, lookup from local");
-                        let (sender, receiver) = oneshot::channel();
-
-                        self.send_local_swarm_cmd(LocalSwarmCmd::GetPeersWithMultiaddr { sender });
-                        let peers = receiver.await?;
-
-                        let Some(new_addrs) = peers
-                            .iter()
-                            .find(|(id, _addrs)| *id == peer)
-                            .map(|(_id, addrs)| addrs.clone())
-                        else {
-                            error!("Cann't find the addrs of peer {peer:?} from local, during the request reattempt of {req:?}.");
-                            return r;
-                        };
-                        Addresses(new_addrs)
-                    } else {
-                        addrs.clone()
-                    };
-
-                    self.send_network_swarm_cmd(NetworkSwarmCmd::DialPeer {
-                        peer,
-                        addrs: dial_addrs.clone(),
-                    });
-
-                    // Short wait to allow connection re-established.
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-                    let (sender, receiver) = oneshot::channel();
-                    debug!("Reattempting to send_request {req_str} to {peer:?} by dialing the addrs manually.");
-                    self.send_network_swarm_cmd(NetworkSwarmCmd::SendRequest {
-                        req,
-                        peer,
-                        addrs: Some(dial_addrs),
-                        sender: Some(sender),
-                    });
-
-                    r = receiver.await?;
-                    if let Err(error) = &r {
-                        error!("Reattempt of {req_str} led to an error again (even after dialing). {error:?}");
-                    }
-                }
-                _ => {
-                    // If the record is found, we should log the error and continue
-                    warn!("Error in response for {req_str}: {error:?}",);
-                }
-            }
-        }
-
-        r
+        receiver.await?
     }
 
     /// Send a `Response` through the channel opened by the requester.
@@ -541,4 +473,15 @@ pub(crate) fn send_local_swarm_cmd(
             error!("Failed to send SwarmCmd: {}", error);
         }
     });
+}
+
+// A standard way to log connection id & the action performed on it.
+pub(crate) fn connection_action_logging(
+    remote_peer_id: &PeerId,
+    self_peer_id: &PeerId,
+    connection_id: &ConnectionId,
+    action_string: &str,
+) {
+    // ELK logging. Do not update without proper testing.
+    info!("Action: {action_string}, performed on: {connection_id:?}, remote_peer_id: {remote_peer_id:?}, self_peer_id: {self_peer_id:?}");
 }

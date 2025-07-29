@@ -15,7 +15,7 @@ use std::{num::NonZeroUsize, time::Duration};
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
-use ant_protocol::PrettyPrintRecordKey;
+use ant_protocol::NetworkAddress;
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
@@ -30,7 +30,7 @@ use libp2p::{
     kad::{self, store::MemoryStore},
     multiaddr::Protocol,
     quic::tokio::Transport as QuicTransport,
-    request_response::{self, ProtocolSupport},
+    request_response::{self, cbor::codec::Codec as CborCodec, ProtocolSupport},
     swarm::NetworkBehaviour,
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
 };
@@ -53,6 +53,8 @@ const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: t
 /// Size of the LRU cache for peers and their addresses.
 /// Libp2p defaults to 100, we use 2k.
 const PEER_CACHE_SIZE: usize = 2_000;
+/// Client with poor connection requires a longer time to transmit large sized recrod to production network, via put_record_to
+const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
 
 /// Driver for the Autonomi Client Network
 ///
@@ -133,6 +135,7 @@ impl NetworkDriver {
         // autonomi requests
         let request_response = {
             let cfg = request_response::Config::default().with_request_timeout(REQ_TIMEOUT);
+
             let req_res_version_str = REQ_RESPONSE_VERSION_STR
                 .read()
                 .expect("no protocol version")
@@ -140,7 +143,11 @@ impl NetworkDriver {
             let stream = StreamProtocol::try_from_owned(req_res_version_str)
                 .expect("StreamProtocol should start with a /");
             let proto = [(stream, ProtocolSupport::Outbound)];
-            request_response::cbor::Behaviour::new(proto, cfg)
+
+            let codec = CborCodec::<Request, Response>::default()
+                .set_request_size_maximum(2 * MAX_PACKET_SIZE as u64);
+
+            request_response::Behaviour::with_codec(codec, proto, cfg)
         };
 
         // kademlia
@@ -156,7 +163,10 @@ impl NetworkDriver {
             .set_parallelism(KAD_ALPHA)
             .set_replication_factor(REPLICATION_FACTOR)
             .set_query_timeout(KAD_QUERY_TIMEOUT)
-            .set_periodic_bootstrap_interval(None);
+            .set_periodic_bootstrap_interval(None)
+            // Extend outbound_substreams timeout to allow client with poor connection
+            // still able to upload large sized record with higher success rate.
+            .set_substreams_timeout(CLIENT_SUBSTREAMS_TIMEOUT_S);
 
         // setup kad and autonomi requests as our behaviour
         let behaviour = AutonomiClientBehaviour {
@@ -246,17 +256,14 @@ impl NetworkDriver {
                 self.pending_tasks
                     .insert_task(query_id, NetworkTask::GetRecord { addr, quorum, resp });
             }
-            NetworkTask::PutRecord {
+            NetworkTask::PutRecordKad {
                 record,
                 to,
                 quorum,
                 resp,
             } => {
                 let query_id = if to.is_empty() {
-                    let _pretty_key = PrettyPrintRecordKey::from(&record.key);
-                    let error_str =
-                        "Target holders of record {_pretty_key:?} shall be provided".to_string();
-                    if let Err(e) = resp.send(Err(NetworkError::PutRecordError(error_str))) {
+                    if let Err(e) = resp.send(Err(NetworkError::PutRecordMissingTargets)) {
                         error!("Error sending put record response: {e:?}");
                     }
                     return;
@@ -275,13 +282,29 @@ impl NetworkDriver {
 
                 self.pending_tasks.insert_task(
                     query_id,
-                    NetworkTask::PutRecord {
+                    NetworkTask::PutRecordKad {
                         record,
                         to,
                         quorum,
                         resp,
                     },
                 );
+            }
+            NetworkTask::PutRecordReq { record, to, resp } => {
+                let record_address = NetworkAddress::from(&record.key);
+                let peer_address = NetworkAddress::from(to.peer_id);
+                let req = Request::Query(Query::PutRecord {
+                    holder: peer_address,
+                    serialized_record: record.value.clone(),
+                    address: record_address,
+                });
+
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&to.peer_id, req, to.addrs.clone());
+
+                self.pending_tasks
+                    .insert_query(req_id, NetworkTask::PutRecordReq { record, to, resp });
             }
             NetworkTask::GetQuote {
                 addr,
@@ -298,12 +321,9 @@ impl NetworkDriver {
                     difficulty: 0,
                 });
 
-                // Add the peer addresses to our cache before sending a request.
-                for addr in &peer.addrs {
-                    self.swarm.add_peer_address(peer.peer_id, addr.clone());
-                }
-
-                let req_id = self.req().send_request(&peer.peer_id, req);
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
 
                 self.pending_tasks.insert_query(
                     req_id,

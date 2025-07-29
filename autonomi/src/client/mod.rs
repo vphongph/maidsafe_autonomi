@@ -180,6 +180,12 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config =
+            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(true) {
+                Some(config)
+            } else {
+                None
+            };
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local: true,
@@ -189,12 +195,20 @@ impl Client {
                 .map_err(|e| ConnectError::EvmNetworkError(e.to_string()))?,
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config =
+            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(false) {
+                Some(config)
+            } else {
+                None
+            };
+
         let client_config = ClientConfig {
             init_peers_config: InitialPeersConfig {
                 first: false,
@@ -207,6 +221,7 @@ impl Client {
             evm_network: EvmNetwork::ArbitrumSepoliaTest,
             strategy: Default::default(),
             network_id: Some(2),
+            bootstrap_cache_config,
         };
         Self::init_with_config(client_config).await
     }
@@ -228,6 +243,12 @@ impl Client {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
 
+        let bootstrap_cache_config =
+            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(local) {
+                Some(config)
+            } else {
+                None
+            };
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local,
@@ -237,6 +258,7 @@ impl Client {
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
@@ -269,7 +291,7 @@ impl Client {
             Err(e) => return Err(e.into()),
         };
 
-        let network = Network::new(initial_peers)?;
+        let network = Network::new(initial_peers, config.bootstrap_cache_config)?;
 
         Ok(Self {
             network,

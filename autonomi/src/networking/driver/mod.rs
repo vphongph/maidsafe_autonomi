@@ -14,6 +14,7 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
+use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use ant_protocol::NetworkAddress;
 use ant_protocol::{
@@ -34,6 +35,7 @@ use libp2p::{
     swarm::NetworkBehaviour,
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
 };
+use rand::Rng;
 use task_handler::TaskHandler;
 use tokio::sync::mpsc;
 
@@ -65,6 +67,8 @@ const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
 ///
 /// Please read the doc comment above
 pub(crate) struct NetworkDriver {
+    /// The bootstrap cache store.
+    bootstrap_cache: Option<BootstrapCacheStore>,
     /// libp2p interaction through the swarm and its events
     swarm: Swarm<AutonomiClientBehaviour>,
     /// can receive tasks from the [`crate::Network`]
@@ -84,7 +88,10 @@ pub(crate) struct AutonomiClientBehaviour {
 
 impl NetworkDriver {
     /// Create a new network runner
-    pub fn new(task_receiver: mpsc::Receiver<NetworkTask>) -> Self {
+    pub fn new(
+        bootstrap_cache: Option<BootstrapCacheStore>,
+        task_receiver: mpsc::Receiver<NetworkTask>,
+    ) -> Self {
         // random new client id
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
@@ -183,6 +190,7 @@ impl NetworkDriver {
         let task_handler = TaskHandler::new();
 
         Self {
+            bootstrap_cache,
             swarm,
             task_receiver,
             pending_tasks: task_handler,
@@ -191,6 +199,16 @@ impl NetworkDriver {
 
     /// Run the network runner, loops forever waiting for tasks and processing them
     pub async fn run(mut self) {
+        let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
+            if cache.config().disable_cache_writing {
+                None
+            } else {
+                // add a variance of 10% to the interval, to avoid all nodes writing to disk at the same time.
+                let duration = duration_with_variance(cache.config().min_cache_save_duration, 10);
+                Some(tokio::time::interval(duration))
+            }
+        });
+
         loop {
             tokio::select! {
                 // tasks sent by client
@@ -209,6 +227,36 @@ impl NetworkDriver {
                         error!("Error processing swarm event: {e}");
                     }
                 }
+                Some(()) = conditional_interval(&mut bootstrap_cache_save_interval) => {
+                    let Some(current_interval) = bootstrap_cache_save_interval.as_mut() else {
+                        continue;
+                    };
+                    let start = tokio::time::Instant::now();
+
+                     self.sync_and_flush_cache();
+
+                    let Some(bootstrap_config) = self.bootstrap_cache.as_ref().map(|cache|cache.config()) else {
+                        continue;
+                    };
+                    if current_interval.period() >= bootstrap_config.max_cache_save_duration {
+                        continue;
+                    }
+
+                    // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
+                    let max_cache_save_duration =
+                        duration_with_variance(bootstrap_config.max_cache_save_duration, 1);
+
+                    // scale up the interval until we reach the max
+                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor);
+                    let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
+                    info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
+
+                    *current_interval = tokio::time::interval(new_duration);
+                    let _ = current_interval.tick().await;
+
+                    trace!("Bootstrap cache synced in {:?}", start.elapsed());
+
+                },
             }
         }
     }
@@ -337,5 +385,50 @@ impl NetworkDriver {
                 );
             }
         }
+    }
+
+    /// Sync and flush the bootstrap cache to disk.
+    ///
+    /// This function creates a new cache and saves the old one to disk.
+    pub fn sync_and_flush_cache(&mut self) {
+        if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
+            let config = bootstrap_cache.config().clone();
+            let mut old_cache = bootstrap_cache.clone();
+
+            if let Ok(new) = BootstrapCacheStore::new(config) {
+                self.bootstrap_cache = Some(new);
+
+                // Save cache to disk.
+                #[allow(clippy::let_underscore_future)]
+                let _ = tokio::spawn(async move {
+                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
+                        error!("Failed to save bootstrap cache: {err}");
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Returns a new duration that is within +/- variance of the provided duration.
+fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
+    let variance = duration.as_secs() as f64 * (variance as f64 / 100.0);
+
+    let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
+    if random_adjustment.as_secs() % 2 == 0 {
+        duration - random_adjustment
+    } else {
+        duration + random_adjustment
+    }
+}
+
+/// To tick an optional interval inside tokio::select! without looping forever.
+async fn conditional_interval(i: &mut Option<tokio::time::Interval>) -> Option<()> {
+    match i {
+        Some(i) => {
+            let _ = i.tick().await;
+            Some(())
+        }
+        None => None,
     }
 }

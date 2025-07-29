@@ -156,11 +156,6 @@ impl SwarmDriver {
                     response,
                 } => {
                     // ELK logging. Do not update without proper testing.
-                    let result_to_str =
-                        |result: &std::result::Result<(), ant_protocol::Error>| match result {
-                            Ok(_) => "Ok",
-                            Err(_) => "Err",
-                        };
                     let action_string = match &response {
                         Response::Cmd(cmd_response) => match cmd_response {
                             CmdResponse::Replicate(result) => {
@@ -175,30 +170,33 @@ impl SwarmDriver {
                             ),
                         },
                         Response::Query(query_response) => match query_response {
-                            ant_protocol::messages::QueryResponse::PutRecord { .. } => {
-                                "Response::Query::PutRecord"
+                            ant_protocol::messages::QueryResponse::PutRecord { result, .. } => {
+                                format!("Response::Query::PutRecord::{}", result_to_str(result))
                             }
-                            ant_protocol::messages::QueryResponse::GetStoreQuote { .. } => {
-                                "Respose::Query::GetStoreQuote"
+                            ant_protocol::messages::QueryResponse::GetStoreQuote {
+                                quote, ..
+                            } => {
+                                format!("Response::Query::GetStoreQuote::{}", result_to_str(quote))
                             }
                             ant_protocol::messages::QueryResponse::CheckNodeInProblem {
                                 ..
-                            } => "Respose::Query::CheckNodeInProblem",
-                            ant_protocol::messages::QueryResponse::GetReplicatedRecord(_) => {
-                                "Respose::Query::GetReplicatedRecord"
+                            } => "Response::Query::CheckNodeInProblem".to_string(),
+                            ant_protocol::messages::QueryResponse::GetReplicatedRecord(result) => {
+                                format!(
+                                    "Response::Query::GetReplicatedRecord::{}",
+                                    result_to_str(result)
+                                )
                             }
-
                             ant_protocol::messages::QueryResponse::GetChunkExistenceProof(_) => {
-                                "Respose::Query::GetChunkExistenceProof"
+                                "Response::Query::GetChunkExistenceProof".to_string()
                             }
                             ant_protocol::messages::QueryResponse::GetClosestPeers { .. } => {
-                                "Respose::Query::GetClosestPeers"
+                                "Response::Query::GetClosestPeers".to_string()
                             }
                             ant_protocol::messages::QueryResponse::GetVersion { .. } => {
-                                "Respose::Query::GetVersion"
+                                "Response::Query::GetVersion".to_string()
                             }
-                        }
-                        .to_string(),
+                        },
                     };
                     connection_action_logging(
                         &peer,
@@ -367,5 +365,12 @@ impl SwarmDriver {
         }
 
         Ok(())
+    }
+}
+
+fn result_to_str<T>(result: &Result<T, ant_protocol::Error>) -> &'static str {
+    match result {
+        Ok(_) => "Ok",
+        Err(_) => "Err",
     }
 }

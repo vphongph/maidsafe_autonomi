@@ -417,7 +417,7 @@ impl Network {
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self.get_closest_peers_with_retries(addr.clone()).await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-        trace!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
+        debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
 
         // get all quotes
         let mut tasks = FuturesUnordered::new();
@@ -445,11 +445,11 @@ impl Network {
             // if we have enough quotes, return them
             if quotes.len() >= minimum_quotes {
                 let peer_ids = quotes.iter().map(|(p, _)| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
+                debug!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
                 return Ok(Some(quotes));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
+                debug!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
                 return Ok(None);
             }
         }

@@ -80,6 +80,7 @@ pub(crate) struct AutonomiClientBehaviour {
     pub identify: libp2p::identify::Behaviour,
     pub relay_client: libp2p::relay::client::Behaviour,
     pub request_response: request_response::cbor::Behaviour<Request, Response>,
+    pub blocklist: libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
 }
 
 impl NetworkDriver {
@@ -174,6 +175,7 @@ impl NetworkDriver {
             relay_client: relay_client_behaviour,
             identify,
             request_response,
+            blocklist: libp2p::allow_block_list::Behaviour::default(),
         };
 
         // create swarm

@@ -6,14 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::constants::KAD_STREAM_PROTOCOL_ID;
 use ant_protocol::messages::{QueryResponse, Response};
 use libp2p::autonat::OutboundFailure;
 use libp2p::kad::{Event as KadEvent, ProgressStep, QueryId, QueryResult, QueryStats};
 use libp2p::request_response::{Event as ReqEvent, Message, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
-use libp2p::{PeerId, StreamProtocol};
+use libp2p::PeerId;
 use thiserror::Error;
+
+const REQUIRED_PROTOCOLS: &[&str] = &["/autonomi/kad/"];
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum NetworkDriverError {
@@ -182,14 +183,22 @@ impl NetworkDriver {
     }
 
     fn handle_blocklist(&mut self, peer_id: PeerId, info: libp2p::identify::Info) {
-        if !info
-            .protocols
-            .contains(&StreamProtocol::new(KAD_STREAM_PROTOCOL_ID))
-        {
+        // Check which required protocols are missing
+        let missing_protocols: Vec<&&str> = REQUIRED_PROTOCOLS
+            .iter()
+            .filter(|required| {
+                !info
+                    .protocols
+                    .iter()
+                    .any(|protocol| protocol.as_ref().contains(*required))
+            })
+            .collect();
+
+        if !missing_protocols.is_empty() {
             // Block the peer from any further communication.
             let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
             if let Some(_dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
-                error!("Clearing out peer as it does not support some mandatory protocols. The peer pushed an incorrect identify info after being added: {peer_id:?}");
+                error!("Blocking peer {peer_id:?} as it does not support mandatory protocols. Missing: {:?}", missing_protocols);
             }
         }
     }

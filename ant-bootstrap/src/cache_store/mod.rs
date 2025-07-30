@@ -283,3 +283,25 @@ fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
         duration + random_adjustment
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::duration_with_variance;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_duration_variance_fn() {
+        let duration = Duration::from_secs(150);
+        let variance = 10;
+        let expected_variance = Duration::from_secs(15); // 10% of 150
+        for _ in 0..10000 {
+            let new_duration = duration_with_variance(duration, variance);
+            println!("new_duration: {new_duration:?}");
+            if new_duration < duration - expected_variance
+                || new_duration > duration + expected_variance
+            {
+                panic!("new_duration: {new_duration:?} is not within the expected range",);
+            }
+        }
+    }
+}

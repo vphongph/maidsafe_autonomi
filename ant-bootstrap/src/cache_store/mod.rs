@@ -11,8 +11,10 @@ pub mod cache_data_v1;
 
 use crate::{craft_valid_multiaddr, BootstrapCacheConfig, Error, InitialPeersConfig, Result};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
-use std::{fs, sync::Arc};
+use rand::Rng;
+use std::{fs, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
+use tracing::Instrument;
 
 pub type CacheDataLatest = cache_data_v1::CacheData;
 pub const CACHE_DATA_VERSION_LATEST: u32 = cache_data_v1::CacheData::CACHE_DATA_VERSION;
@@ -233,5 +235,51 @@ impl BootstrapCacheStore {
         } else {
             format!("bootstrap_cache_{}.json", crate::get_network_version())
         }
+    }
+
+    /// Runs the sync_and_flush_to_disk method periodically
+    /// This is useful for keeping the cache up-to-date without blocking the main thread.
+    pub fn sync_and_flush_periodically(&self) -> tokio::task::JoinHandle<()> {
+        let store = self.clone();
+
+        let current_span = tracing::Span::current();
+        tokio::spawn(async move {
+            // add a variance of 10% to the interval, to avoid all nodes writing to disk at the same time.
+            let mut sleep_interval =
+                duration_with_variance(store.config.min_cache_save_duration, 10);
+            if store.config.disable_cache_writing {
+                info!("Cache writing is disabled, skipping periodic sync and flush task");
+                return;
+            }
+            info!("Starting periodic cache sync and flush task, first sync in {sleep_interval:?}");
+
+            loop {
+                tokio::time::sleep(sleep_interval).await;
+                if let Err(e) = store.sync_and_flush_to_disk().await {
+                    error!("Failed to sync and flush cache to disk: {e}");
+                }
+                // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
+                let max_cache_save_duration =
+                    duration_with_variance(store.config.max_cache_save_duration, 1);
+
+                let new_interval = sleep_interval
+                    .checked_mul(store.config.cache_save_scaling_factor)
+                    .unwrap_or(max_cache_save_duration);
+                sleep_interval = new_interval.min(max_cache_save_duration);
+                info!("Cache synced and flushed to disk successfully - next sync in {sleep_interval:?}");
+            }
+        }.instrument(current_span))
+    }
+}
+
+/// Returns a new duration that is within +/- variance of the provided duration.
+fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
+    let variance = duration.as_secs() as f64 * (variance as f64 / 100.0);
+
+    let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
+    if random_adjustment.as_secs() % 2 == 0 {
+        duration - random_adjustment
+    } else {
+        duration + random_adjustment
     }
 }

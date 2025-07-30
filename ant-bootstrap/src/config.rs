@@ -21,8 +21,8 @@ const MAX_PEERS: usize = 1500;
 /// Maximum number of addresses to store for a Peer
 const MAX_ADDRS_PER_PEER: usize = 3;
 
-// Min time until we save the bootstrap cache to disk. 5 mins
-const MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+// Min time until we save the bootstrap cache to disk. 30 secs
+const MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 // Max time until we save the bootstrap cache to disk. 3 hours
 const MAX_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
@@ -38,7 +38,7 @@ pub struct BootstrapCacheConfig {
     /// The directory to load and store the bootstrap cache. If not provided, the default path will be used.
     pub cache_dir: PathBuf,
     /// The cache save scaling factor. We start with the min_cache_save_duration and scale it up to the max_cache_save_duration.
-    pub cache_save_scaling_factor: u64,
+    pub cache_save_scaling_factor: u32,
     /// Flag to disable writing to the cache file
     pub disable_cache_writing: bool,
     /// If set to true, the cache filename will be suffixed with "_local"

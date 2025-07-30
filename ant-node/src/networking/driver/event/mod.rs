@@ -173,11 +173,13 @@ impl SwarmDriver {
         kbucket_status.log();
 
         if let Some(bootstrap_cache) = &self.bootstrap_cache {
-            for addr in addresses.0.into_iter() {
-                let bootstrap_cache = bootstrap_cache.clone();
-                #[allow(clippy::let_underscore_future)]
-                let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
-            }
+            let bootstrap_cache = bootstrap_cache.clone();
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                for addr in addresses.0.into_iter() {
+                    bootstrap_cache.add_addr(addr).await
+                }
+            });
         }
 
         self.send_event(NetworkEvent::PeerAdded(added_peer, self.peers_in_rt));

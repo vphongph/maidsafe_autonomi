@@ -381,7 +381,7 @@ impl SwarmDriver {
                         duration_with_variance(bootstrap_config.max_cache_save_duration, 1);
 
                     // scale up the interval until we reach the max
-                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor);
+                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor as u64);
                     let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
                     info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
 

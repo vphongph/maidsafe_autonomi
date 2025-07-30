@@ -11,15 +11,16 @@ pub mod cache_data_v1;
 
 use crate::{craft_valid_multiaddr, BootstrapCacheConfig, Error, InitialPeersConfig, Result};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
-use std::fs;
+use std::{fs, sync::Arc};
+use tokio::sync::RwLock;
 
 pub type CacheDataLatest = cache_data_v1::CacheData;
 pub const CACHE_DATA_VERSION_LATEST: u32 = cache_data_v1::CacheData::CACHE_DATA_VERSION;
 
 #[derive(Clone, Debug)]
 pub struct BootstrapCacheStore {
-    pub(crate) config: BootstrapCacheConfig,
-    pub(crate) data: CacheDataLatest,
+    pub(crate) config: Arc<BootstrapCacheConfig>,
+    pub(crate) data: Arc<RwLock<CacheDataLatest>>,
 }
 
 impl BootstrapCacheStore {
@@ -46,8 +47,8 @@ impl BootstrapCacheStore {
         }
 
         let store = Self {
-            config,
-            data: CacheDataLatest::default(),
+            config: Arc::new(config),
+            data: Arc::new(RwLock::new(CacheDataLatest::default())),
         };
 
         Ok(store)
@@ -58,7 +59,7 @@ impl BootstrapCacheStore {
     /// And also performs some actions based on the `InitialPeersConfig`.
     ///
     /// `InitialPeersConfig::bootstrap_cache_dir` will take precedence over the path provided inside `config`.
-    pub fn new_from_initial_peers_config(
+    pub async fn new_from_initial_peers_config(
         init_peers_config: &InitialPeersConfig,
         config: Option<BootstrapCacheConfig>,
     ) -> Result<Self> {
@@ -72,35 +73,39 @@ impl BootstrapCacheStore {
             config.cache_dir = cache_dir.clone();
         }
 
-        let mut store = Self::new(config)?;
+        let store = Self::new(config)?;
 
         // If it is the first node, clear the cache.
         if init_peers_config.first {
             info!("First node in network, writing empty cache to disk");
-            store.write()?;
+            store.write().await?;
         } else {
             info!("Flushing cache to disk on init.");
-            store.sync_and_flush_to_disk()?;
+            store.sync_and_flush_to_disk().await?;
         }
 
         Ok(store)
     }
 
-    pub fn peer_count(&self) -> usize {
-        self.data.peers.len()
+    pub async fn peer_count(&self) -> usize {
+        self.data.read().await.peers.len()
     }
 
-    pub fn get_all_addrs(&self) -> impl Iterator<Item = &Multiaddr> {
-        self.data.get_all_addrs()
+    pub async fn get_all_addrs(&self) -> Vec<Multiaddr> {
+        self.data.read().await.get_all_addrs().cloned().collect()
     }
 
     /// Remove a peer from the cache. This does not update the cache on disk.
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        self.data.peers.retain(|(id, _)| id != peer_id);
+    pub async fn remove_peer(&self, peer_id: &PeerId) {
+        self.data
+            .write()
+            .await
+            .peers
+            .retain(|(id, _)| id != peer_id);
     }
 
     /// Add an address to the cache
-    pub fn add_addr(&mut self, addr: Multiaddr) {
+    pub async fn add_addr(&self, addr: Multiaddr) {
         let Some(addr) = craft_valid_multiaddr(&addr, false) else {
             return;
         };
@@ -114,7 +119,7 @@ impl BootstrapCacheStore {
 
         debug!("Adding addr to bootstrap cache: {addr}");
 
-        self.data.add_peer(
+        self.data.write().await.add_peer(
             peer_id,
             [addr].iter(),
             self.config.max_addrs_per_peer,
@@ -163,8 +168,7 @@ impl BootstrapCacheStore {
     }
 
     /// Flush the cache to disk after syncing with the CacheData from the file.
-    /// Do not perform cleanup when `data` is fetched from the network. The SystemTime might not be accurate.
-    pub fn sync_and_flush_to_disk(&mut self) -> Result<()> {
+    pub async fn sync_and_flush_to_disk(&self) -> Result<()> {
         if self.config.disable_cache_writing {
             info!("Cache writing is disabled, skipping sync to disk");
             return Ok(());
@@ -172,11 +176,11 @@ impl BootstrapCacheStore {
 
         info!(
             "Flushing cache to disk, with data containing: {} peers",
-            self.data.peers.len(),
+            self.data.read().await.peers.len(),
         );
 
         if let Ok(data_from_file) = Self::load_cache_data(&self.config) {
-            self.data.sync(
+            self.data.write().await.sync(
                 &data_from_file,
                 self.config.max_addrs_per_peer,
                 self.config.max_peers,
@@ -185,19 +189,19 @@ impl BootstrapCacheStore {
             warn!("Failed to load cache data from file, overwriting with new data");
         }
 
-        self.write().inspect_err(|e| {
+        self.write().await.inspect_err(|e| {
             error!("Failed to save cache to disk: {e}");
         })?;
 
         // Flush after writing
-        self.data.peers.clear();
+        self.data.write().await.peers.clear();
 
         Ok(())
     }
 
     /// Write the cache to disk atomically. This will overwrite the existing cache file, use sync_and_flush_to_disk to
     /// sync with the file first.
-    pub fn write(&self) -> Result<()> {
+    pub async fn write(&self) -> Result<()> {
         if self.config.disable_cache_writing {
             info!("Cache writing is disabled, skipping sync to disk");
             return Ok(());
@@ -205,10 +209,14 @@ impl BootstrapCacheStore {
 
         let filename = Self::cache_file_name(self.config.local);
 
-        self.data.write_to_file(&self.config.cache_dir, &filename)?;
+        self.data
+            .write()
+            .await
+            .write_to_file(&self.config.cache_dir, &filename)?;
 
         if self.config.backwards_compatible_writes {
-            cache_data_v0::CacheData::from(&self.data)
+            let data = self.data.read().await;
+            cache_data_v0::CacheData::from(&*data)
                 .write_to_file(&self.config.cache_dir, &filename)?;
         }
 

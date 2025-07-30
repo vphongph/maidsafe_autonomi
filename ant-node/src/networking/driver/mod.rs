@@ -566,7 +566,7 @@ impl SwarmDriver {
     pub(crate) fn sync_and_flush_cache(&mut self) -> Result<()> {
         if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
             let config = bootstrap_cache.config().clone();
-            let mut old_cache = bootstrap_cache.clone();
+            let old_cache = bootstrap_cache.clone();
 
             if let Ok(new) = BootstrapCacheStore::new(config) {
                 self.bootstrap_cache = Some(new);
@@ -574,7 +574,7 @@ impl SwarmDriver {
                 // Save cache to disk.
                 #[allow(clippy::let_underscore_future)]
                 let _ = tokio::spawn(async move {
-                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
+                    if let Err(err) = old_cache.sync_and_flush_to_disk().await {
                         error!("Failed to save bootstrap cache: {err}");
                     }
                 });

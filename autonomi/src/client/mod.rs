@@ -180,12 +180,7 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config =
-            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(true) {
-                Some(config)
-            } else {
-                None
-            };
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true).ok();
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local: true,
@@ -202,12 +197,7 @@ impl Client {
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config =
-            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(false) {
-                Some(config)
-            } else {
-                None
-            };
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false).ok();
 
         let client_config = ClientConfig {
             init_peers_config: InitialPeersConfig {
@@ -243,12 +233,7 @@ impl Client {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
 
-        let bootstrap_cache_config =
-            if let Ok(config) = ant_bootstrap::BootstrapCacheConfig::new(local) {
-                Some(config)
-            } else {
-                None
-            };
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local).ok();
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local,

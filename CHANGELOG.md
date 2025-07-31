@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `chunk_cache` module that provides a mechanism for caching downloaded chunks.
 - Use the chunk cache for downloads to enable resuming failed downloads.
 
+#### Fixed
+
+- Public files without archives had their content downloaded twice
+
 #### Changed
 
 - For the client connection, nodes that do not identify as KAD will not be added to the routing

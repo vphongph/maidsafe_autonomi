@@ -23,7 +23,7 @@ otlp = ["ant-logging/otlp"]
 
 [dependencies]
 aes-gcm-siv = "0.11.1"
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.6-rc.1" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.6" }
 ant-build-info = { path = "../ant-build-info", version = "0.1.29" }
 ant-evm = { path = "../ant-evm", version = "0.1.16" }
 ant-logging = { path = "../ant-logging", version = "0.2.51", features = ["process-metrics"] }
@@ -106,7 +106,7 @@ void = "1.0.2"
 ant-protocol = { path = "../ant-protocol", version = "1.0.7", features = ["rpc"] }
 assert_fs = "1.0.0"
 evmlib = { path = "../evmlib", version = "0.4.2" }
-autonomi = { path = "../autonomi", version = "0.5.3-rc.2" }
+autonomi = { path = "../autonomi", version = "0.5.3" }
 reqwest = { version = "0.12.2", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }

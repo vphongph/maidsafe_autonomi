@@ -59,15 +59,15 @@ async fn test_full_bootstrap_flow() -> Result<()> {
     );
 
     // 2. Add some known peers
-    let mut cache = BootstrapCacheStore::new(config.clone())?;
+    let cache = BootstrapCacheStore::new(config.clone())?;
     let addr1: Multiaddr = "/ip4/192.168.1.1/udp/8080/quic-v1/p2p/12D3KooWEHbMXSPvGCQAHjSTYWRKz1PcizQYdq5vMDqV2wLiXyJ9".parse()?;
     let addr2: Multiaddr =
         "/ip4/192.168.1.2/tcp/8080/ws/p2p/12D3KooWQF3NMWHRmMQBY8GVdpQh1V6TFYuQqZkKKvYE7yCS6fYK"
             .parse()?;
 
-    cache.add_addr(addr1.clone());
-    cache.add_addr(addr2.clone());
-    cache.write()?;
+    cache.add_addr(addr1.clone()).await;
+    cache.add_addr(addr2.clone()).await;
+    cache.write().await?;
 
     // 3. Try to get bootstrap addresses from cache
     let cache_args = InitialPeersConfig {

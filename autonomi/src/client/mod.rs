@@ -39,6 +39,7 @@ pub mod quote;
 pub mod external_signer;
 
 // private module with utility functions
+mod chunk_cache;
 mod network;
 mod put_error_state;
 mod utils;
@@ -163,6 +164,8 @@ pub enum GetError {
     // The RecordKind that was obtained did not match with the expected one
     #[error("The RecordKind obtained from the Record did not match with the expected kind: {0}")]
     RecordKindMismatch(RecordKind),
+    #[error("Configuration error: {0}")]
+    Configuration(String),
 }
 
 impl Client {
@@ -170,13 +173,28 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init() -> Result<Self, ConnectError> {
-        Self::init_with_config(Default::default()).await
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+        Self::init_with_config(ClientConfig {
+            bootstrap_cache_config,
+            ..Default::default()
+        })
+        .await
     }
 
     /// Initialize a client that is configured to be local.
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local: true,
@@ -186,12 +204,19 @@ impl Client {
                 .map_err(|e| ConnectError::EvmNetworkError(e.to_string()))?,
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         let client_config = ClientConfig {
             init_peers_config: InitialPeersConfig {
                 first: false,
@@ -204,6 +229,7 @@ impl Client {
             evm_network: EvmNetwork::ArbitrumSepoliaTest,
             strategy: Default::default(),
             network_id: Some(2),
+            bootstrap_cache_config,
         };
         Self::init_with_config(client_config).await
     }
@@ -225,6 +251,12 @@ impl Client {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
 
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local,
@@ -234,6 +266,7 @@ impl Client {
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
@@ -259,14 +292,14 @@ impl Client {
 
         let initial_peers = match config
             .init_peers_config
-            .get_bootstrap_addr(None, None)
+            .get_bootstrap_addr(None, Some(50))
             .await
         {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };
 
-        let network = Network::new(initial_peers)?;
+        let network = Network::new(initial_peers, config.bootstrap_cache_config)?;
 
         Ok(Self {
             network,

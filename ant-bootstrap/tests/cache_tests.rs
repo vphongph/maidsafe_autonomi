@@ -30,7 +30,7 @@ async fn test_empty_cache() -> Result<()> {
     let cache_store = BootstrapCacheStore::new(config.clone())?;
 
     // Write empty cache to disk
-    cache_store.write()?;
+    cache_store.write().await?;
 
     // Try loading it back
     let loaded_data = BootstrapCacheStore::load_cache_data(&config)?;
@@ -53,27 +53,27 @@ async fn test_max_peer_limit_enforcement() -> Result<()> {
         .with_cache_dir(temp_dir.path())
         .with_max_peers(3);
 
-    let mut cache_store = BootstrapCacheStore::new(config.clone())?;
+    let cache_store = BootstrapCacheStore::new(config.clone())?;
 
     // Store all addresses to check FIFO behavior
     let mut addresses = Vec::new();
     for i in 1..=5 {
         let addr: Multiaddr = format!("/ip4/127.0.0.1/udp/808{i}/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{i}").parse()?;
         addresses.push(addr.clone());
-        cache_store.add_addr(addr);
+        cache_store.add_addr(addr).await;
 
         // Add a delay to ensure distinct timestamps
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Check we don't exceed max
         assert!(
-            cache_store.peer_count() <= 3,
+            cache_store.peer_count().await <= 3,
             "Cache should enforce max_peers limit"
         );
     }
 
     // Get current peers in cache
-    let current_addrs = cache_store.get_all_addrs().cloned().collect::<Vec<_>>();
+    let current_addrs = cache_store.get_all_addrs().await;
     assert_eq!(
         current_addrs.len(),
         3,
@@ -104,7 +104,7 @@ async fn test_max_peer_limit_enforcement() -> Result<()> {
     });
 
     // Write to disk and verify FIFO persists after reload
-    cache_store.write()?;
+    cache_store.write().await?;
 
     // Load cache from disk
     let loaded_data = BootstrapCacheStore::load_cache_data(&config)?;
@@ -146,22 +146,22 @@ async fn test_peer_removal() -> Result<()> {
 
     // Create cache
     let config = BootstrapCacheConfig::empty().with_cache_dir(temp_dir.path());
-    let mut cache_store = BootstrapCacheStore::new(config)?;
+    let cache_store = BootstrapCacheStore::new(config)?;
 
     // Add a peer
     let addr: Multiaddr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()?;
-    cache_store.add_addr(addr.clone());
+    cache_store.add_addr(addr.clone()).await;
 
     // Get the peer ID
     let peer_id = ant_bootstrap::multiaddr_get_peer_id(&addr).unwrap();
 
     // Remove the peer
-    cache_store.remove_peer(&peer_id);
+    cache_store.remove_peer(&peer_id).await;
 
     // Verify it's gone
-    let addrs = cache_store.get_all_addrs().collect::<Vec<_>>();
+    let addrs = cache_store.get_all_addrs().await;
     assert!(addrs.is_empty(), "Peer should be removed");
 
     Ok(())
@@ -174,29 +174,29 @@ async fn peer_removal_should_not_affect_fs_cache() -> Result<()> {
 
     // Create cache
     let config = BootstrapCacheConfig::empty().with_cache_dir(temp_dir.path());
-    let mut cache_store = BootstrapCacheStore::new(config.clone())?;
+    let cache_store = BootstrapCacheStore::new(config.clone())?;
 
     // Add a peer
     let addr: Multiaddr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()?;
-    cache_store.add_addr(addr.clone());
+    cache_store.add_addr(addr.clone()).await;
 
     // write to disk
-    cache_store.sync_and_flush_to_disk()?;
+    cache_store.sync_and_flush_to_disk().await?;
 
     // Get the peer ID
     let peer_id = ant_bootstrap::multiaddr_get_peer_id(&addr).unwrap();
 
     // Remove the peer
-    cache_store.remove_peer(&peer_id);
+    cache_store.remove_peer(&peer_id).await;
 
     // Verify it's gone
-    let addrs = cache_store.get_all_addrs().collect::<Vec<_>>();
+    let addrs = cache_store.get_all_addrs().await;
     assert!(addrs.is_empty(), "Peer should be removed");
 
     // but syncing to disk should not remove the peer
-    cache_store.sync_and_flush_to_disk()?;
+    cache_store.sync_and_flush_to_disk().await?;
     let loaded_data = BootstrapCacheStore::load_cache_data(&config)?;
     let loaded_addrs = loaded_data.get_all_addrs().collect::<Vec<_>>();
     assert_eq!(loaded_addrs.len(), 1, "Peer should remain in the cache");
@@ -212,14 +212,14 @@ async fn test_cache_file_corruption() -> Result<()> {
 
     // Create a valid cache first
     let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
-    let mut cache_store = BootstrapCacheStore::new(config.clone())?;
+    let cache_store = BootstrapCacheStore::new(config.clone())?;
 
     // Add a peer
     let addr: Multiaddr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()?;
-    cache_store.add_addr(addr.clone());
-    cache_store.write()?;
+    cache_store.add_addr(addr.clone()).await;
+    cache_store.write().await?;
 
     // Now corrupt the cache file by writing invalid JSON
     let cache_path = cache_dir
@@ -236,8 +236,8 @@ async fn test_cache_file_corruption() -> Result<()> {
 
     // The code should now attempt to create a new cache
     let new_store = BootstrapCacheStore::new(config.clone())?;
-    assert_eq!(new_store.peer_count(), 0);
-    new_store.write()?;
+    assert_eq!(new_store.peer_count().await, 0);
+    new_store.write().await?;
 
     // load the cache data and check it's empty
     let cache_data = BootstrapCacheStore::load_cache_data(&config)?;
@@ -256,23 +256,23 @@ async fn test_max_addrs_per_peer() -> Result<()> {
         .with_cache_dir(temp_dir.path())
         .with_addrs_per_peer(2);
 
-    let mut cache_store = BootstrapCacheStore::new(config.clone())?;
+    let cache_store = BootstrapCacheStore::new(config.clone())?;
 
     // Create multiple addresses for the same peer
     let peer_id = "12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE";
     for i in 1..=4 {
         let addr: Multiaddr = format!("/ip4/127.0.0.{i}/udp/8080/quic-v1/p2p/{peer_id}").parse()?;
-        cache_store.add_addr(addr);
+        cache_store.add_addr(addr).await;
     }
 
     // Write to disk and reload to check the limit
-    cache_store.write()?;
+    cache_store.write().await?;
 
     // Create new store to read the final state
     let new_store = BootstrapCacheStore::new(config)?;
 
     // Count addresses for the peer
-    let peer_addrs = new_store.get_all_addrs().collect::<Vec<_>>();
+    let peer_addrs = new_store.get_all_addrs().await;
     assert!(
         peer_addrs.len() <= 2,
         "Should enforce max_addrs_per_peer limit"

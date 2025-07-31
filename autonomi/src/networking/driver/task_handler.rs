@@ -22,8 +22,8 @@ use thiserror::Error;
 pub enum TaskHandlerError {
     #[error("No tasks matching query {0}, query might have been completed already")]
     UnknownQuery(String),
-    #[error("Network client dropped, cannot send oneshot response")]
-    NetworkClientDropped,
+    #[error("Network client dropped, cannot send oneshot response for: {0}")]
+    NetworkClientDropped(String),
 }
 
 type QuoteDataType = u32;
@@ -120,7 +120,7 @@ impl TaskHandler {
             Ok(kad::GetClosestPeersOk { peers, .. }) => {
                 responder
                     .send(Ok(peers))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(kad::GetClosestPeersError::Timeout { key, peers }) => {
                 trace!(
@@ -130,7 +130,7 @@ impl TaskHandler {
                 );
                 responder
                     .send(Err(NetworkError::GetClosestPeersTimeout))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
         }
         Ok(())
@@ -181,7 +181,7 @@ impl TaskHandler {
 
                 responder
                     .send(Ok((None, peers)))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(kad::GetRecordError::QuorumFailed {
                 key,
@@ -199,7 +199,7 @@ impl TaskHandler {
 
                 responder
                     .send(Ok((None, peers)))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(kad::GetRecordError::Timeout { key }) => {
                 trace!(
@@ -211,7 +211,7 @@ impl TaskHandler {
 
                 responder
                     .send(Err(NetworkError::GetRecordTimeout(peers)))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
         }
         Ok(false)
@@ -228,7 +228,7 @@ impl TaskHandler {
                     got_holders: holders.len(),
                     expected_holders,
                 }))
-                .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
 
             return Ok(());
         }
@@ -248,7 +248,7 @@ impl TaskHandler {
             [_one, _two, ..] => responder.send(Err(NetworkError::SplitRecord(holders))),
         };
 
-        res.map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+        res.map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id}")))?;
 
         Ok(())
     }
@@ -268,7 +268,7 @@ impl TaskHandler {
                 trace!("QueryId({id}): PutRecordOk");
                 responder
                     .send(Ok(()))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(kad::PutRecordError::QuorumFailed {
                 key,
@@ -283,13 +283,13 @@ impl TaskHandler {
                 );
                 responder
                     .send(Err(NetworkError::PutRecordQuorumFailed(success, quorum)))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(kad::PutRecordError::Timeout { success, .. }) => {
                 trace!("QueryId({id}): PutRecordError::Timeout");
                 responder
                     .send(Err(NetworkError::PutRecordTimeout(success)))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
         }
         Ok(())
@@ -311,7 +311,7 @@ impl TaskHandler {
             Ok(()) => {
                 responder
                     .send(Ok(()))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(ant_protocol::error::Error::OutdatedRecordCounter { counter, expected }) => {
                 trace!(
@@ -322,12 +322,12 @@ impl TaskHandler {
                         counter,
                         expected,
                     }))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
             Err(e) => {
                 responder
                     .send(Err(NetworkError::PutRecordRejected(e.to_string())))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
         }
         Ok(())
@@ -351,21 +351,21 @@ impl TaskHandler {
                 trace!("OutboundRequestId({id}): got quote from peer {peer_address:?}");
                 // Send can fail here if we already accumulated enough quotes.
                 resp.send(Ok(Some((peer, quote))))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
                 Ok(())
             }
             Ok(None) => {
                 trace!("OutboundRequestId({id}): no quote needed as record already exists at peer {peer_address:?}");
                 // Send can fail here if we already accumulated enough quotes.
                 resp.send(Ok(None))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
                 Ok(())
             }
             Err(e) => {
                 warn!("OutboundRequestId({id}): got invalid quote from peer {peer_address:?}: {e}");
                 // Send can fail here if we already accumulated enough quotes.
                 resp.send(Err(e))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
                 Ok(())
             }
         }
@@ -381,7 +381,7 @@ impl TaskHandler {
         if let Some((resp, _data_type, original_peer)) = self.get_cost.remove(&id) {
             trace!("OutboundRequestId({id}): get quote initially sent to peer {original_peer:?} got fatal error from peer {peer:?}: {error:?}");
             resp.send(Err(NetworkError::GetQuoteError(error.to_string())))
-                .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
         // Put record case
         } else if let Some(responder) = self.put_record_req.remove(&id) {
             trace!(
@@ -395,11 +395,11 @@ impl TaskHandler {
                 trace!("OutboundRequestId({id}): put record got incompatible network protocol error from peer {peer:?}");
                 responder
                     .send(Err(NetworkError::IncompatibleNetworkProtocol))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             } else {
                 responder
                     .send(Err(NetworkError::PutRecordRejected(error.to_string())))
-                    .map_err(|_| TaskHandlerError::NetworkClientDropped)?;
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
         } else {
             trace!("OutboundRequestId({id}): trying to terminate unknown query, maybe it was already removed");

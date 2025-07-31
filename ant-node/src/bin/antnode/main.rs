@@ -287,10 +287,14 @@ fn main() -> Result<()> {
     let (log_output_dest, log_reload_handle, _log_appender_guard) =
         init_logging(&opt, keypair.public().to_peer_id())?;
 
+    let rt = Runtime::new()?;
+
     let mut bootstrap_config = BootstrapCacheConfig::new(opt.peers.local)?;
     bootstrap_config.backwards_compatible_writes = opt.write_older_cache_files;
-    let bootstrap_cache =
-        BootstrapCacheStore::new_from_initial_peers_config(&opt.peers, Some(bootstrap_config))?;
+    let bootstrap_cache = rt.block_on(BootstrapCacheStore::new_from_initial_peers_config(
+        &opt.peers,
+        Some(bootstrap_config),
+    ))?;
 
     let msg = format!(
         "Running {} v{}",
@@ -308,7 +312,6 @@ fn main() -> Result<()> {
     // Create a tokio runtime per `run_node` attempt, this ensures
     // any spawned tasks are closed before we would attempt to run
     // another process with these args.
-    let rt = Runtime::new()?;
     if opt.peers.local {
         rt.spawn(init_metrics(std::process::id()));
     }

@@ -10,10 +10,12 @@
 mod swarm_events;
 mod task_handler;
 
+use std::collections::BTreeMap;
 use std::{num::NonZeroUsize, time::Duration};
 
 use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
+use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use ant_protocol::NetworkAddress;
 use ant_protocol::{
@@ -23,6 +25,7 @@ use ant_protocol::{
 use futures::future::Either;
 use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
+use libp2p::swarm::ConnectionId;
 use libp2p::{
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
@@ -65,6 +68,10 @@ const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
 ///
 /// Please read the doc comment above
 pub(crate) struct NetworkDriver {
+    /// The bootstrap cache store.
+    bootstrap_cache: Option<BootstrapCacheStore>,
+    /// The list of currently connected peers and their addresses.
+    live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr)>,
     /// libp2p interaction through the swarm and its events
     swarm: Swarm<AutonomiClientBehaviour>,
     /// can receive tasks from the [`crate::Network`]
@@ -85,7 +92,10 @@ pub(crate) struct AutonomiClientBehaviour {
 
 impl NetworkDriver {
     /// Create a new network runner
-    pub fn new(task_receiver: mpsc::Receiver<NetworkTask>) -> Self {
+    pub fn new(
+        bootstrap_cache: Option<BootstrapCacheStore>,
+        task_receiver: mpsc::Receiver<NetworkTask>,
+    ) -> Self {
         // random new client id
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
@@ -185,6 +195,8 @@ impl NetworkDriver {
         let task_handler = TaskHandler::new();
 
         Self {
+            bootstrap_cache,
+            live_connected_peers: Default::default(),
             swarm,
             task_receiver,
             pending_tasks: task_handler,
@@ -193,6 +205,11 @@ impl NetworkDriver {
 
     /// Run the network runner, loops forever waiting for tasks and processing them
     pub async fn run(mut self) {
+        if let Some(cache) = &self.bootstrap_cache {
+            // start the periodic cache sync and flush task
+            #[allow(clippy::let_underscore_future)]
+            let _ = cache.sync_and_flush_periodically();
+        }
         loop {
             tokio::select! {
                 // tasks sent by client

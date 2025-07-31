@@ -11,15 +11,18 @@ pub mod cache_data_v1;
 
 use crate::{craft_valid_multiaddr, BootstrapCacheConfig, Error, InitialPeersConfig, Result};
 use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
-use std::fs;
+use rand::Rng;
+use std::{fs, sync::Arc, time::Duration};
+use tokio::sync::RwLock;
+use tracing::Instrument;
 
 pub type CacheDataLatest = cache_data_v1::CacheData;
 pub const CACHE_DATA_VERSION_LATEST: u32 = cache_data_v1::CacheData::CACHE_DATA_VERSION;
 
 #[derive(Clone, Debug)]
 pub struct BootstrapCacheStore {
-    pub(crate) config: BootstrapCacheConfig,
-    pub(crate) data: CacheDataLatest,
+    pub(crate) config: Arc<BootstrapCacheConfig>,
+    pub(crate) data: Arc<RwLock<CacheDataLatest>>,
 }
 
 impl BootstrapCacheStore {
@@ -46,8 +49,8 @@ impl BootstrapCacheStore {
         }
 
         let store = Self {
-            config,
-            data: CacheDataLatest::default(),
+            config: Arc::new(config),
+            data: Arc::new(RwLock::new(CacheDataLatest::default())),
         };
 
         Ok(store)
@@ -58,7 +61,7 @@ impl BootstrapCacheStore {
     /// And also performs some actions based on the `InitialPeersConfig`.
     ///
     /// `InitialPeersConfig::bootstrap_cache_dir` will take precedence over the path provided inside `config`.
-    pub fn new_from_initial_peers_config(
+    pub async fn new_from_initial_peers_config(
         init_peers_config: &InitialPeersConfig,
         config: Option<BootstrapCacheConfig>,
     ) -> Result<Self> {
@@ -72,35 +75,39 @@ impl BootstrapCacheStore {
             config.cache_dir = cache_dir.clone();
         }
 
-        let mut store = Self::new(config)?;
+        let store = Self::new(config)?;
 
         // If it is the first node, clear the cache.
         if init_peers_config.first {
             info!("First node in network, writing empty cache to disk");
-            store.write()?;
+            store.write().await?;
         } else {
             info!("Flushing cache to disk on init.");
-            store.sync_and_flush_to_disk()?;
+            store.sync_and_flush_to_disk().await?;
         }
 
         Ok(store)
     }
 
-    pub fn peer_count(&self) -> usize {
-        self.data.peers.len()
+    pub async fn peer_count(&self) -> usize {
+        self.data.read().await.peers.len()
     }
 
-    pub fn get_all_addrs(&self) -> impl Iterator<Item = &Multiaddr> {
-        self.data.get_all_addrs()
+    pub async fn get_all_addrs(&self) -> Vec<Multiaddr> {
+        self.data.read().await.get_all_addrs().cloned().collect()
     }
 
     /// Remove a peer from the cache. This does not update the cache on disk.
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        self.data.peers.retain(|(id, _)| id != peer_id);
+    pub async fn remove_peer(&self, peer_id: &PeerId) {
+        self.data
+            .write()
+            .await
+            .peers
+            .retain(|(id, _)| id != peer_id);
     }
 
     /// Add an address to the cache
-    pub fn add_addr(&mut self, addr: Multiaddr) {
+    pub async fn add_addr(&self, addr: Multiaddr) {
         let Some(addr) = craft_valid_multiaddr(&addr, false) else {
             return;
         };
@@ -114,7 +121,7 @@ impl BootstrapCacheStore {
 
         debug!("Adding addr to bootstrap cache: {addr}");
 
-        self.data.add_peer(
+        self.data.write().await.add_peer(
             peer_id,
             [addr].iter(),
             self.config.max_addrs_per_peer,
@@ -163,8 +170,7 @@ impl BootstrapCacheStore {
     }
 
     /// Flush the cache to disk after syncing with the CacheData from the file.
-    /// Do not perform cleanup when `data` is fetched from the network. The SystemTime might not be accurate.
-    pub fn sync_and_flush_to_disk(&mut self) -> Result<()> {
+    pub async fn sync_and_flush_to_disk(&self) -> Result<()> {
         if self.config.disable_cache_writing {
             info!("Cache writing is disabled, skipping sync to disk");
             return Ok(());
@@ -172,11 +178,11 @@ impl BootstrapCacheStore {
 
         info!(
             "Flushing cache to disk, with data containing: {} peers",
-            self.data.peers.len(),
+            self.data.read().await.peers.len(),
         );
 
         if let Ok(data_from_file) = Self::load_cache_data(&self.config) {
-            self.data.sync(
+            self.data.write().await.sync(
                 &data_from_file,
                 self.config.max_addrs_per_peer,
                 self.config.max_peers,
@@ -185,19 +191,19 @@ impl BootstrapCacheStore {
             warn!("Failed to load cache data from file, overwriting with new data");
         }
 
-        self.write().inspect_err(|e| {
+        self.write().await.inspect_err(|e| {
             error!("Failed to save cache to disk: {e}");
         })?;
 
         // Flush after writing
-        self.data.peers.clear();
+        self.data.write().await.peers.clear();
 
         Ok(())
     }
 
     /// Write the cache to disk atomically. This will overwrite the existing cache file, use sync_and_flush_to_disk to
     /// sync with the file first.
-    pub fn write(&self) -> Result<()> {
+    pub async fn write(&self) -> Result<()> {
         if self.config.disable_cache_writing {
             info!("Cache writing is disabled, skipping sync to disk");
             return Ok(());
@@ -205,10 +211,14 @@ impl BootstrapCacheStore {
 
         let filename = Self::cache_file_name(self.config.local);
 
-        self.data.write_to_file(&self.config.cache_dir, &filename)?;
+        self.data
+            .write()
+            .await
+            .write_to_file(&self.config.cache_dir, &filename)?;
 
         if self.config.backwards_compatible_writes {
-            cache_data_v0::CacheData::from(&self.data)
+            let data = self.data.read().await;
+            cache_data_v0::CacheData::from(&*data)
                 .write_to_file(&self.config.cache_dir, &filename)?;
         }
 
@@ -224,6 +234,74 @@ impl BootstrapCacheStore {
             )
         } else {
             format!("bootstrap_cache_{}.json", crate::get_network_version())
+        }
+    }
+
+    /// Runs the sync_and_flush_to_disk method periodically
+    /// This is useful for keeping the cache up-to-date without blocking the main thread.
+    pub fn sync_and_flush_periodically(&self) -> tokio::task::JoinHandle<()> {
+        let store = self.clone();
+
+        let current_span = tracing::Span::current();
+        tokio::spawn(async move {
+            // add a variance of 10% to the interval, to avoid all nodes writing to disk at the same time.
+            let mut sleep_interval =
+                duration_with_variance(store.config.min_cache_save_duration, 10);
+            if store.config.disable_cache_writing {
+                info!("Cache writing is disabled, skipping periodic sync and flush task");
+                return;
+            }
+            info!("Starting periodic cache sync and flush task, first sync in {sleep_interval:?}");
+
+            loop {
+                tokio::time::sleep(sleep_interval).await;
+                if let Err(e) = store.sync_and_flush_to_disk().await {
+                    error!("Failed to sync and flush cache to disk: {e}");
+                }
+                // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
+                let max_cache_save_duration =
+                    duration_with_variance(store.config.max_cache_save_duration, 1);
+
+                let new_interval = sleep_interval
+                    .checked_mul(store.config.cache_save_scaling_factor)
+                    .unwrap_or(max_cache_save_duration);
+                sleep_interval = new_interval.min(max_cache_save_duration);
+                info!("Cache synced and flushed to disk successfully - next sync in {sleep_interval:?}");
+            }
+        }.instrument(current_span))
+    }
+}
+
+/// Returns a new duration that is within +/- variance of the provided duration.
+fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
+    let variance = duration.as_secs() as f64 * (variance as f64 / 100.0);
+
+    let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
+    if random_adjustment.as_secs() % 2 == 0 {
+        duration - random_adjustment
+    } else {
+        duration + random_adjustment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration_with_variance;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_duration_variance_fn() {
+        let duration = Duration::from_secs(150);
+        let variance = 10;
+        let expected_variance = Duration::from_secs(15); // 10% of 150
+        for _ in 0..10000 {
+            let new_duration = duration_with_variance(duration, variance);
+            println!("new_duration: {new_duration:?}");
+            if new_duration < duration - expected_variance
+                || new_duration > duration + expected_variance
+            {
+                panic!("new_duration: {new_duration:?} is not within the expected range",);
+            }
         }
     }
 }

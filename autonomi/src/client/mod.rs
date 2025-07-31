@@ -292,7 +292,7 @@ impl Client {
 
         let initial_peers = match config
             .init_peers_config
-            .get_bootstrap_addr(None, Some(25))
+            .get_bootstrap_addr(None, Some(50))
             .await
         {
             Ok(peers) => peers,

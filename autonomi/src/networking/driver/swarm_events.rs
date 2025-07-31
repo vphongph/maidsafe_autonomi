@@ -207,7 +207,8 @@ impl NetworkDriver {
                     "identify: received info from {peer_id:?} on {connection_id:?}. Info: {info:?}"
                 );
 
-                let Some((_, addr_fom_connection)) = self.live_connected_peers.get(connection_id)
+                let Some((peer_id, addr_fom_connection)) =
+                    self.live_connected_peers.get(connection_id)
                 else {
                     warn!("identify: received info for peer {peer_id:?} on {connection_id:?} that is not in the live connected peers");
                     return Ok(());
@@ -220,13 +221,14 @@ impl NetworkDriver {
                 }
 
                 let addr = craft_valid_multiaddr_without_p2p(addr_fom_connection);
-                let Some(addr) = addr else {
+                let Some(mut addr) = addr else {
                     warn!(
                         "identify: no valid multiaddr found for {peer_id:?} on {connection_id:?}"
                     );
                     return Ok(());
                 };
-                debug!("Peer {peer_id:?} is a normal peer, crafted valid multiaddress : {addr:?}.");
+                addr.push(Protocol::P2p(*peer_id));
+                trace!("Peer {peer_id:?} is a normal peer, crafted valid multiaddress : {addr:?}.");
 
                 if let Some(bootstrap_cache) = &self.bootstrap_cache {
                     let bootstrap_cache = bootstrap_cache.clone();

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-07-31
+
+### API
+
+#### Added
+
+- New `chunk_cache` module that provides a mechanism for caching downloaded chunks.
+- Use the chunk cache for downloads to enable resuming failed downloads.
+
+#### Changed
+
+- For the client connection, nodes that do not identify as KAD will not be added to the routing
+  table. The client's routing table included nodes that were not upgraded, and these nodes were not
+  identifying themselves as KAD nodes. If any of those older, non-KAD nodes were returned in a query
+  for the closest peers, this resulted in no close peers being obtained. These older nodes did not
+  identify themselves as KAD due to the removal of the external address manager. Having them in the
+  routing table then had cascading effects, resulting in failed downloads and uploads. Excluding them
+  using a block list restores reliable uploads and downloads. These older nodes already constitute a
+  small percentage of the network and will eventually be filtered out with more upgrades.
+
+### Client
+
+#### Added
+
+- The `file download` command now supports resuming downloads. The command will attempt to fetch all
+  the chunks for a file, and in doing so, they will be saved to a temporary location on the local
+  disk. If there's a failure to retrieve some chunks, users can run the same command again and it
+  will only attempt to download the missing chunks. When all the chunks have been retrieved and the
+  file is reassembled, the cached chunks will be deleted.
+- The `file download` command supports a `--disable-cache` argument, if for some reason users want
+  to disable the caching behaviour that applies by default.
+- When connecting to the network, the client will now use the local bootstrap cache if it exists. If
+  it doesn't exist, the initial connection will use a set of pre-defined bootstrap servers to obtain
+  a peer list, and the cache will then be written periodically. This improves decentralization.
+
+
 ## 2025-07-21
 
 ### API

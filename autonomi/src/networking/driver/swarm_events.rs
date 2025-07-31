@@ -15,6 +15,8 @@ use libp2p::swarm::SwarmEvent;
 use libp2p::{Multiaddr, PeerId};
 use thiserror::Error;
 
+const REQUIRED_PROTOCOLS: &[&str] = &["/autonomi/kad/"];
+
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum NetworkDriverError {
     #[error("TaskHandlerError: {0}")]
@@ -207,6 +209,8 @@ impl NetworkDriver {
                     "identify: received info from {peer_id:?} on {connection_id:?}. Info: {info:?}"
                 );
 
+                let banned = self.handle_blocklist(*peer_id, info);
+
                 let Some((peer_id, addr_fom_connection)) =
                     self.live_connected_peers.get(connection_id)
                 else {
@@ -230,10 +234,12 @@ impl NetworkDriver {
                 addr.push(Protocol::P2p(*peer_id));
                 trace!("Peer {peer_id:?} is a normal peer, crafted valid multiaddress : {addr:?}.");
 
-                if let Some(bootstrap_cache) = &self.bootstrap_cache {
-                    let bootstrap_cache = bootstrap_cache.clone();
-                    #[allow(clippy::let_underscore_future)]
-                    let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
+                if !banned {
+                    if let Some(bootstrap_cache) = &self.bootstrap_cache {
+                        let bootstrap_cache = bootstrap_cache.clone();
+                        #[allow(clippy::let_underscore_future)]
+                        let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
+                    }
                 }
             }
             _ => {
@@ -262,6 +268,32 @@ impl NetworkDriver {
             .terminate_query(request_id, peer, error)?;
 
         Ok(())
+    }
+
+    /// Check if the peer needs to be banned.
+    /// Returns whether the peer was banned.
+    fn handle_blocklist(&mut self, peer_id: PeerId, info: &libp2p::identify::Info) -> bool {
+        // Check which required protocols are missing
+        let missing_protocols: Vec<&&str> = REQUIRED_PROTOCOLS
+            .iter()
+            .filter(|required| {
+                !info
+                    .protocols
+                    .iter()
+                    .any(|protocol| protocol.as_ref().contains(*required))
+            })
+            .collect();
+
+        if !missing_protocols.is_empty() {
+            // Block the peer from any further communication.
+            let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
+            if let Some(_dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
+                error!("Blocking peer {peer_id:?} as it does not support mandatory protocols. Missing: {:?}", missing_protocols);
+            }
+            return true;
+        }
+
+        false
     }
 }
 

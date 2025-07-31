@@ -9,9 +9,10 @@
 use ant_protocol::messages::{QueryResponse, Response};
 use libp2p::autonat::OutboundFailure;
 use libp2p::kad::{Event as KadEvent, ProgressStep, QueryId, QueryResult, QueryStats};
+use libp2p::multiaddr::Protocol;
 use libp2p::request_response::{Event as ReqEvent, Message, OutboundRequestId};
 use libp2p::swarm::SwarmEvent;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -57,6 +58,46 @@ impl NetworkDriver {
                     step,
                 },
             )) => self.handle_kad_progress_event(id, result, &stats, &step),
+            SwarmEvent::Behaviour(AutonomiClientBehaviourEvent::Identify(identify_event)) => {
+                self.handle_identify_event(identify_event)
+            }
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                endpoint,
+                num_established,
+                concurrent_dial_errors,
+                established_in,
+            } => {
+                debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
+                let _ = self.live_connected_peers.insert(
+                    connection_id,
+                    (peer_id, endpoint.get_remote_address().clone()),
+                );
+                Ok(())
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                endpoint,
+                cause,
+                num_established,
+                connection_id,
+            } => {
+                debug!(%peer_id, ?connection_id, ?cause, num_established, "ConnectionClosed: {}", endpoint_str(&endpoint));
+                let _ = self.live_connected_peers.remove(&connection_id);
+
+                Ok(())
+            }
+            SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                error,
+                connection_id,
+            } => {
+                debug!("OutgoingConnectionError to {peer_id:?} on {connection_id:?} - {error:?}");
+                let _ = self.live_connected_peers.remove(&connection_id);
+
+                Ok(())
+            }
             _other_event => {
                 trace!("Other event: {:?}", _other_event);
                 Ok(())
@@ -104,10 +145,9 @@ impl NetworkDriver {
             QueryResult::GetProviders(res) => {
                 trace!("GetProviders: {:?}", res);
             }
-            QueryResult::Bootstrap(_) => {}
-            QueryResult::StartProviding(_)
-            | QueryResult::RepublishProvider(_)
-            | QueryResult::RepublishRecord(_) => {}
+            _ => {
+                trace!("Other Kad event: {:?}", result);
+            }
         }
         Ok(())
     }
@@ -142,7 +182,63 @@ impl NetworkDriver {
                 self.pending_tasks
                     .update_put_record_req(request_id, result)?;
             }
-            _ => {}
+
+            _ => {
+                trace!("Other request response event: {response:?}");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_identify_event(
+        &mut self,
+        identify_event: libp2p::identify::Event,
+    ) -> Result<(), NetworkDriverError> {
+        trace!("Identify event: {identify_event:?}",);
+
+        match &identify_event {
+            libp2p::identify::Event::Received {
+                peer_id,
+                info,
+                connection_id,
+            } => {
+                debug!(
+                    "identify: received info from {peer_id:?} on {connection_id:?}. Info: {info:?}"
+                );
+
+                let Some((peer_id, addr_fom_connection)) =
+                    self.live_connected_peers.get(connection_id)
+                else {
+                    warn!("identify: received info for peer {peer_id:?} on {connection_id:?} that is not in the live connected peers");
+                    return Ok(());
+                };
+                if is_a_relayed_peer(info.listen_addrs.iter()) {
+                    debug!(
+                        "identify: peer {peer_id:?} is a relayed peer, skipping adding to cache."
+                    );
+                    return Ok(());
+                }
+
+                let addr = craft_valid_multiaddr_without_p2p(addr_fom_connection);
+                let Some(mut addr) = addr else {
+                    warn!(
+                        "identify: no valid multiaddr found for {peer_id:?} on {connection_id:?}"
+                    );
+                    return Ok(());
+                };
+                addr.push(Protocol::P2p(*peer_id));
+                trace!("Peer {peer_id:?} is a normal peer, crafted valid multiaddress : {addr:?}.");
+
+                if let Some(bootstrap_cache) = &self.bootstrap_cache {
+                    let bootstrap_cache = bootstrap_cache.clone();
+                    #[allow(clippy::let_underscore_future)]
+                    let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
+                }
+            }
+            _ => {
+                trace!("Other identify event: {identify_event:?}");
+            }
         }
 
         Ok(())
@@ -167,4 +263,44 @@ impl NetworkDriver {
 
         Ok(())
     }
+}
+
+/// Helper function to print formatted connection role info.
+fn endpoint_str(endpoint: &libp2p::core::ConnectedPoint) -> String {
+    match endpoint {
+        libp2p::core::ConnectedPoint::Dialer { address, .. } => {
+            format!("outgoing ({address})")
+        }
+        libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => {
+            format!("incoming ({send_back_addr})")
+        }
+    }
+}
+
+/// Craft valid multiaddr like /ip4/68.183.39.80/udp/31055/quic-v1
+/// RelayManager::craft_relay_address for relayed addr. This is for non-relayed addr.
+fn craft_valid_multiaddr_without_p2p(addr: &Multiaddr) -> Option<Multiaddr> {
+    let mut new_multiaddr = Multiaddr::empty();
+    let ip = addr.iter().find_map(|p| match p {
+        Protocol::Ip4(addr) => Some(addr),
+        _ => None,
+    })?;
+    let port = multiaddr_get_port(addr)?;
+
+    new_multiaddr.push(Protocol::Ip4(ip));
+    new_multiaddr.push(Protocol::Udp(port));
+    new_multiaddr.push(Protocol::QuicV1);
+
+    Some(new_multiaddr)
+}
+
+fn multiaddr_get_port(addr: &Multiaddr) -> Option<u16> {
+    addr.iter().find_map(|p| match p {
+        Protocol::Udp(port) => Some(port),
+        _ => None,
+    })
+}
+
+fn is_a_relayed_peer<'a>(mut addrs: impl Iterator<Item = &'a Multiaddr>) -> bool {
+    addrs.any(|multiaddr| multiaddr.iter().any(|p| matches!(p, Protocol::P2pCircuit)))
 }

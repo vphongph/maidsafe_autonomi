@@ -48,7 +48,6 @@ use libp2p::{
     request_response,
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour},
 };
-use rand::Rng;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -181,21 +180,10 @@ impl SwarmDriver {
         let mut dial_queue_check_interval = interval(DIAL_QUEUE_CHECK_INTERVAL);
         let _ = dial_queue_check_interval.tick().await; // first tick completes immediately
 
-        let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
-            if cache.config().disable_cache_writing {
-                None
-            } else {
-                // add a variance of 10% to the interval, to avoid all nodes writing to disk at the same time.
-                let duration = duration_with_variance(cache.config().min_cache_save_duration, 10);
-                Some(interval(duration))
-            }
-        });
-        if let Some(interval) = bootstrap_cache_save_interval.as_mut() {
-            let _ = interval.tick().await; // first tick completes immediately
-            info!(
-                "Bootstrap cache save interval is set to {:?}",
-                interval.period()
-            );
+        if let Some(cache) = &self.bootstrap_cache {
+            // start the periodic cache sync and flush task
+            #[allow(clippy::let_underscore_future)]
+            let _ = cache.sync_and_flush_periodically();
         }
 
         let mut round_robin_index = 0;
@@ -357,39 +345,6 @@ impl SwarmDriver {
                     if let Some(relay_manager) = &mut self.relay_manager {
                         relay_manager.try_connecting_to_relay(&mut self.swarm, &self.bad_nodes)
                     }
-                },
-                Some(()) = conditional_interval(&mut bootstrap_cache_save_interval) => {
-                    let Some(current_interval) = bootstrap_cache_save_interval.as_mut() else {
-                        continue;
-                    };
-                    let start = Instant::now();
-
-                    if  self.sync_and_flush_cache().is_err() {
-                        warn!("Failed to sync and flush bootstrap cache, skipping this interval");
-                        continue;
-                    }
-
-                    let Some(bootstrap_config) = self.bootstrap_cache.as_ref().map(|cache|cache.config()) else {
-                        continue;
-                    };
-                    if current_interval.period() >= bootstrap_config.max_cache_save_duration {
-                        continue;
-                    }
-
-                    // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
-                    let max_cache_save_duration =
-                        duration_with_variance(bootstrap_config.max_cache_save_duration, 1);
-
-                    // scale up the interval until we reach the max
-                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor);
-                    let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
-                    info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
-
-                    *current_interval = interval(new_duration);
-                    let _ = current_interval.tick().await;
-
-                    trace!("Bootstrap cache synced in {:?}", start.elapsed());
-
                 },
             }
         }
@@ -566,7 +521,7 @@ impl SwarmDriver {
     pub(crate) fn sync_and_flush_cache(&mut self) -> Result<()> {
         if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
             let config = bootstrap_cache.config().clone();
-            let mut old_cache = bootstrap_cache.clone();
+            let old_cache = bootstrap_cache.clone();
 
             if let Ok(new) = BootstrapCacheStore::new(config) {
                 self.bootstrap_cache = Some(new);
@@ -574,25 +529,13 @@ impl SwarmDriver {
                 // Save cache to disk.
                 #[allow(clippy::let_underscore_future)]
                 let _ = tokio::spawn(async move {
-                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
+                    if let Err(err) = old_cache.sync_and_flush_to_disk().await {
                         error!("Failed to save bootstrap cache: {err}");
                     }
                 });
             }
         }
         Ok(())
-    }
-}
-
-/// Returns a new duration that is within +/- variance of the provided duration.
-fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
-    let variance = duration.as_secs() as f64 * (variance as f64 / 100.0);
-
-    let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
-    if random_adjustment.as_secs() % 2 == 0 {
-        duration - random_adjustment
-    } else {
-        duration + random_adjustment
     }
 }
 
@@ -604,27 +547,5 @@ async fn conditional_interval(i: &mut Option<Interval>) -> Option<()> {
             Some(())
         }
         None => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::duration_with_variance;
-    use std::time::Duration;
-
-    #[tokio::test]
-    async fn test_duration_variance_fn() {
-        let duration = Duration::from_secs(150);
-        let variance = 10;
-        let expected_variance = Duration::from_secs(15); // 10% of 150
-        for _ in 0..10000 {
-            let new_duration = duration_with_variance(duration, variance);
-            println!("new_duration: {new_duration:?}");
-            if new_duration < duration - expected_variance
-                || new_duration > duration + expected_variance
-            {
-                panic!("new_duration: {new_duration:?} is not within the expected range",);
-            }
-        }
     }
 }

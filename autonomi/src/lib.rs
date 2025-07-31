@@ -99,6 +99,7 @@ pub use libp2p::Multiaddr;
 #[doc(inline)]
 pub use client::{
     // Client Configs
+    config::BootstrapCacheConfig,
     config::BootstrapError,
     config::ClientConfig,
     config::ClientOperatingStrategy,

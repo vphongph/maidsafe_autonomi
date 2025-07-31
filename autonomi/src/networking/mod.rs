@@ -14,6 +14,7 @@ mod interface;
 mod retries;
 mod utils;
 
+use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore};
 // export the utils
 pub(crate) use utils::multiaddr_is_global;
 
@@ -148,9 +149,37 @@ impl Network {
     /// Create a new network client
     /// This will start the network driver in a background thread, which is a long-running task that runs until the [`Network`] is dropped
     /// The [`Network`] is cheaply cloneable, prefer cloning over creating new instances to avoid creating multiple network drivers
-    pub fn new(initial_contacts: Vec<Multiaddr>) -> Result<Self, NoKnownPeers> {
+    pub fn new(
+        initial_contacts: Vec<Multiaddr>,
+        bootstrap_cache_config: Option<BootstrapCacheConfig>,
+    ) -> Result<Self, NoKnownPeers> {
         let (task_sender, task_receiver) = mpsc::channel(100);
-        let mut driver = NetworkDriver::new(task_receiver);
+        let bootstrap_cache_store = if let Some(config) = bootstrap_cache_config {
+            if config.disable_cache_writing {
+                warn!("Bootstrap cache writing is disabled, the cache will not be saved to disk");
+                None
+            } else {
+                match BootstrapCacheStore::new(config) {
+                    Ok(store) => {
+                        info!(
+                            "Bootstrap cache writing is enabled, the cache will be saved to disk"
+                        );
+                        Some(store)
+                    }
+                    Err(err) => {
+                        warn!(
+                            "Failed to create bootstrap cache store, cache will not be saved to disk: {err}"
+                        );
+                        None
+                    }
+                }
+            }
+        } else {
+            info!("Bootstrap cache config not provided, cache will not be written to disk");
+            None
+        };
+
+        let mut driver = NetworkDriver::new(bootstrap_cache_store, task_receiver);
 
         // Bootstrap here so we can early detect a failure
         driver.connect_to_peers(initial_contacts)?;
@@ -417,7 +446,7 @@ impl Network {
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self.get_closest_peers_with_retries(addr.clone()).await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-        trace!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
+        debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
 
         // get all quotes
         let mut tasks = FuturesUnordered::new();
@@ -445,11 +474,11 @@ impl Network {
             // if we have enough quotes, return them
             if quotes.len() >= minimum_quotes {
                 let peer_ids = quotes.iter().map(|(p, _)| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
+                debug!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
                 return Ok(Some(quotes));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
+                debug!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
                 return Ok(None);
             }
         }

@@ -175,6 +175,7 @@ impl Network {
                 }
             }
         } else {
+            info!("Bootstrap cache config not provided, cache will not be written to disk");
             None
         };
 

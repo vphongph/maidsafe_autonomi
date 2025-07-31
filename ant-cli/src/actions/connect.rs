@@ -73,7 +73,11 @@ pub async fn connect_to_network_with_config(
                 (err.into(), exit_code)
             })?;
 
-            let bootstrap_cache_config = autonomi::BootstrapCacheConfig::new(false).ok();
+            let bootstrap_cache_config = autonomi::BootstrapCacheConfig::new(false)
+                .inspect_err(|err| {
+                    warn!("Failed to create bootstrap cache config: {err}");
+                })
+                .ok();
 
             let config = ClientConfig {
                 init_peers_config: network_context.peers,

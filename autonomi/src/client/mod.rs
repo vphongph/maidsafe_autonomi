@@ -173,14 +173,28 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init() -> Result<Self, ConnectError> {
-        Self::init_with_config(Default::default()).await
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+        Self::init_with_config(ClientConfig {
+            bootstrap_cache_config,
+            ..Default::default()
+        })
+        .await
     }
 
     /// Initialize a client that is configured to be local.
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true).ok();
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local: true,
@@ -197,7 +211,11 @@ impl Client {
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false).ok();
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
 
         let client_config = ClientConfig {
             init_peers_config: InitialPeersConfig {
@@ -233,7 +251,12 @@ impl Client {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
 
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local).ok();
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local,

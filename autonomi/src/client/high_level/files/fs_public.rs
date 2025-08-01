@@ -7,18 +7,13 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::archive_public::{ArchiveAddress, PublicArchive};
-use super::{CombinedChunks, DownloadError, FileCostError, Metadata, UploadError};
-use crate::client::high_level::files::{
-    get_relative_file_path_from_abs_file_and_folder_path, FILE_ENCRYPT_BATCH_SIZE,
-};
+use super::{DownloadError, FileCostError, Metadata, UploadError};
+use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use crate::client::Client;
-use crate::client::{high_level::data::DataAddress, utils::process_tasks_with_max_concurrency};
-use crate::self_encryption::encrypt;
 use crate::AttoTokens;
 use bytes::Bytes;
 use std::path::PathBuf;
-use std::time;
 use std::time::{Duration, SystemTime};
 
 impl Client {
@@ -70,85 +65,49 @@ impl Client {
     ) -> Result<(AttoTokens, PublicArchive), UploadError> {
         info!("Uploading directory: {dir_path:?}");
 
-        let mut encryption_tasks = vec![];
-
-        for entry in walkdir::WalkDir::new(&dir_path) {
-            let entry = entry?;
-
-            if entry.file_type().is_dir() {
-                continue;
-            }
-
-            let dir_path = dir_path.clone();
-
-            encryption_tasks.push(async move {
-                let file_path = entry.path().to_path_buf();
-
-                info!("Encrypting file: {file_path:?}..");
-                #[cfg(feature = "loud")]
-                println!("Encrypting file: {file_path:?}..");
-
-                let data = tokio::fs::read(&file_path)
-                    .await
-                    .map_err(|err| format!("Could not read file {file_path:?}: {err:?}"))?;
-                let data = Bytes::from(data);
-
-                if data.len() < 3 {
-                    let err_msg =
-                        format!("Skipping file {file_path:?}, as it is smaller than 3 bytes");
-                    return Err(err_msg);
-                }
-
-                let now = time::Instant::now();
-
-                let (data_map_chunk, mut chunks) = encrypt(data).map_err(|err| err.to_string())?;
-
-                debug!("Encryption of {file_path:?} took: {:.2?}", now.elapsed());
-
-                let data_address = *data_map_chunk.name();
-
-                chunks.push(data_map_chunk);
-
-                let metadata = metadata_from_entry(&entry);
-
-                let relative_path =
-                    get_relative_file_path_from_abs_file_and_folder_path(&file_path, &dir_path);
-
-                println!("File path: {file_path:?}");
-                println!("Relative path: {relative_path:?}");
-
-                Ok((
-                    file_path.to_string_lossy().to_string(),
-                    chunks,
-                    (relative_path, DataAddress::new(data_address), metadata),
-                ))
-            });
-        }
-
-        let mut combined_chunks: CombinedChunks = vec![];
-        let mut public_archive = PublicArchive::new();
-
-        let encryption_results =
-            process_tasks_with_max_concurrency(encryption_tasks, *FILE_ENCRYPT_BATCH_SIZE).await;
-
+        // encrypt
+        let encryption_results = self
+            .encrypt_directory_files_in_memory(dir_path, true)
+            .await?;
+        let mut chunk_iterators = vec![];
         for encryption_result in encryption_results {
             match encryption_result {
-                Ok((file_path, chunks, file_data)) => {
+                Ok((file_chunk_iterator, _)) => {
+                    let file_path = file_chunk_iterator.file_path.clone();
                     info!("Successfully encrypted file: {file_path:?}");
                     #[cfg(feature = "loud")]
                     println!("Successfully encrypted file: {file_path:?}");
 
-                    let (relative_path, data_address, file_metadata) = file_data;
-                    combined_chunks.push(((file_path, Some(data_address)), chunks));
-                    public_archive.add_file(relative_path, data_address, file_metadata);
+                    chunk_iterators.push(file_chunk_iterator);
                 }
                 Err(err_msg) => {
                     error!("Error during file encryption: {err_msg}");
+                    #[cfg(feature = "loud")]
+                    println!("Error during file encryption: {err_msg}");
                 }
             }
         }
 
-        let total_cost = self.pay_and_upload(payment_option, combined_chunks).await?;
+        // pay and upload
+        let total_cost = self
+            .pay_and_upload(payment_option, &mut chunk_iterators)
+            .await?;
+
+        // create an archive
+        let mut public_archive = PublicArchive::new();
+        for file_chunk_iterator in chunk_iterators {
+            let file_path = file_chunk_iterator.file_path.clone();
+            let relative_path = file_chunk_iterator.relative_path.clone();
+            let file_metadata = file_chunk_iterator.metadata.clone();
+            let data_address = match file_chunk_iterator.data_map_chunk() {
+                Some(datamap) => DataAddress::new(*datamap.0.name()),
+                None => {
+                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    continue;
+                }
+            };
+            public_archive.add_file(relative_path, data_address, file_metadata);
+        }
 
         for (file_path, data_addr, _meta) in public_archive.iter() {
             info!("Uploaded file: {file_path:?} to: {data_addr}");

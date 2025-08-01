@@ -40,6 +40,7 @@ pub mod external_signer;
 
 // private module with utility functions
 mod chunk_cache;
+mod encryption;
 mod network;
 mod put_error_state;
 mod utils;
@@ -290,11 +291,7 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let initial_peers = match config
-            .init_peers_config
-            .get_bootstrap_addr(None, Some(50))
-            .await
-        {
+        let initial_peers = match config.init_peers_config.get_bootstrap_addr(Some(50)).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };

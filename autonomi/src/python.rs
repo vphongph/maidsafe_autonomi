@@ -1906,7 +1906,7 @@ impl PyBootstrapCacheConfig {
 
     /// Get the cache save scaling factor
     #[getter]
-    fn cache_save_scaling_factor(&self) -> u64 {
+    fn cache_save_scaling_factor(&self) -> u32 {
         self.inner.cache_save_scaling_factor
     }
 

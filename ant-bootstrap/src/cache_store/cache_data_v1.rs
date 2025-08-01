@@ -34,6 +34,9 @@ impl CacheData {
 
     /// Sync the self cache with another cache. This would just add the 'other' state to self.
     pub fn sync(&mut self, other: &CacheData, max_addrs_per_peer: usize, max_peers: usize) {
+        let old_len = self.peers.len();
+        let other_len = other.peers.len();
+
         for (other_peer, other_addrs) in other.peers.iter() {
             if other_addrs.is_empty() {
                 continue;
@@ -58,6 +61,10 @@ impl CacheData {
                 self.peers.pop_front();
             }
         }
+
+        let new_len = self.peers.len();
+
+        info!("Synced {other_len} peers to our current {old_len:?} peers to have a final count of {new_len:?} peers");
 
         self.last_updated = SystemTime::now();
     }

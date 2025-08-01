@@ -7,26 +7,29 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::{Quorum, RetryStrategy, Strategy};
-pub use ant_bootstrap::{error::Error as BootstrapError, InitialPeersConfig};
+pub use ant_bootstrap::{error::Error as BootstrapError, BootstrapCacheConfig, InitialPeersConfig};
 use ant_evm::EvmNetwork;
 use std::num::NonZero;
 
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
-    /// Configurations to fetch the initial peers which is used to bootstrap the network.
-    /// Also contains the configurations to the bootstrap cache.
-    pub init_peers_config: InitialPeersConfig,
+    /// Configuration for the Bootstrap Cache.
+    pub bootstrap_cache_config: Option<BootstrapCacheConfig>,
 
     /// EVM network to use for quotations and payments.
     pub evm_network: EvmNetwork,
 
-    /// Strategy for data operations by the client.
-    pub strategy: ClientOperatingStrategy,
+    /// Configurations to fetch the initial peers which is used to bootstrap the network.
+    /// Also contains the configurations to the bootstrap cache.
+    pub init_peers_config: InitialPeersConfig,
 
     /// The network ID to use for the client.
     /// This is used to differentiate between different networks.
     pub network_id: Option<u8>,
+
+    /// Strategy for data operations by the client.
+    pub strategy: ClientOperatingStrategy,
 }
 
 /// Strategy configuration for data operations by the client.
@@ -38,6 +41,10 @@ pub struct ClientOperatingStrategy {
     pub graph_entry: Strategy,
     pub pointer: Strategy,
     pub scratchpad: Strategy,
+    /// Enable chunk caching for faster retrieval
+    pub chunk_cache_enabled: bool,
+    /// Custom chunk cache directory (if None, uses default)
+    pub chunk_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl ClientOperatingStrategy {
@@ -82,6 +89,8 @@ impl Default for ClientOperatingStrategy {
                 get_quorum: Quorum::Majority, // majority to catch possible differences in versions
                 get_retry: RetryStrategy::Quick,
             },
+            chunk_cache_enabled: true,
+            chunk_cache_dir: None,
         }
     }
 }

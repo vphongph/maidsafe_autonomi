@@ -78,14 +78,14 @@ async fn test_backwards_compatible_writes() -> Result<()> {
         .with_backwards_compatible_writes(true);
 
     // Create and populate cache store
-    let mut cache_store = BootstrapCacheStore::new(config)?;
+    let cache_store = BootstrapCacheStore::new(config)?;
     let addr: Multiaddr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()?;
-    cache_store.add_addr(addr.clone());
+    cache_store.add_addr(addr.clone()).await;
 
     // Write cache to disk
-    cache_store.write()?;
+    cache_store.write().await?;
 
     // Check that v0 format file exists and can be read
     let filename = BootstrapCacheStore::cache_file_name(false);

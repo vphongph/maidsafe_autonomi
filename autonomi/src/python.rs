@@ -2011,18 +2011,16 @@ impl PyInitialPeersConfig {
     }
 
     /// Get bootstrap addresses
-    #[pyo3(signature = (config=None, count=None))]
+    #[pyo3(signature = (count=None))]
     fn get_bootstrap_addr<'a>(
         &self,
         py: Python<'a>,
-        config: Option<PyBootstrapCacheConfig>,
         count: Option<usize>,
     ) -> PyResult<Bound<'a, PyAny>> {
         let inner_config = self.inner.clone();
-        let rust_config = config.map(|c| c.inner);
 
         future_into_py(py, async move {
-            match inner_config.get_bootstrap_addr(rust_config, count).await {
+            match inner_config.get_bootstrap_addr(count).await {
                 Ok(addrs) => Ok(addrs
                     .into_iter()
                     .map(|addr| addr.to_string())

@@ -922,11 +922,14 @@ run_integration_tests() {
     local config_test_output
     if config_test_output=$(cargo test --release --package autonomi --lib "config" 2>&1); then
         local test_count=$(parse_test_results "$config_test_output" "autonomi-config")
+        # Call again to populate TEST_DETAILS (since command substitution creates a subshell)
+        parse_test_results "$config_test_output" "autonomi-config" >/dev/null
         if [ -n "$test_count" ] && [ "$test_count" -gt 0 ]; then
             print_success "Client config tests passed ($test_count tests)"
         else
             print_success "Client config tests passed"
         fi
+        PASSED_PACKAGES+=("autonomi-config")
         integration_passed=$((integration_passed + 1))
     else
         local failed_test_names=$(extract_failed_tests "$config_test_output")
@@ -947,11 +950,14 @@ $config_test_output
     local protocol_test_output
     if protocol_test_output=$(cargo test --release --package ant-protocol --lib 2>&1); then
         local test_count=$(parse_test_results "$protocol_test_output" "ant-protocol")
+        # Call again to populate TEST_DETAILS (since command substitution creates a subshell)
+        parse_test_results "$protocol_test_output" "ant-protocol" >/dev/null
         if [ -n "$test_count" ] && [ "$test_count" -gt 0 ]; then
             print_success "Protocol tests passed ($test_count tests)"
         else
             print_success "Protocol tests passed"
         fi
+        PASSED_PACKAGES+=("ant-protocol")
         integration_passed=$((integration_passed + 1))
     else
         local failed_test_names=$(extract_failed_tests "$protocol_test_output")
@@ -1443,13 +1449,23 @@ print_summary() {
     local total_duration=0
     
     # Calculate totals from test details
+    local total_failed_tests=0
     for detail in "${TEST_DETAILS[@]}"; do
         IFS=':' read -ra parts <<< "$detail"
         local passed=${parts[1]:-0}
+        local failed=${parts[2]:-0}
+        
+        
         if [[ "$passed" =~ ^[0-9]+$ ]]; then
             total_individual_tests=$((total_individual_tests + passed))
         fi
+        if [[ "$failed" =~ ^[0-9]+$ ]]; then
+            total_failed_tests=$((total_failed_tests + failed))
+        fi
     done
+    
+    # Add failed tests to the total individual test count
+    total_individual_tests=$((total_individual_tests + total_failed_tests))
     
     # Print overview
     echo "📊 Overview:"

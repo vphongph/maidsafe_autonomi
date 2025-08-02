@@ -24,12 +24,12 @@ pub use ant_protocol::NetworkAddress;
 pub use config::{RetryStrategy, Strategy};
 pub use libp2p::kad::PeerInfo;
 pub use libp2p::{
-    kad::{Quorum, Record},
     Multiaddr, PeerId,
+    kad::{Quorum, Record},
 };
 
 // internal needs
-use ant_protocol::{PrettyPrintRecordKey, CLOSE_GROUP_SIZE};
+use ant_protocol::{CLOSE_GROUP_SIZE, PrettyPrintRecordKey};
 use driver::NetworkDriver;
 use futures::stream::{FuturesUnordered, StreamExt};
 use interface::NetworkTask;
@@ -96,7 +96,9 @@ pub enum NetworkError {
     GetQuoteError(String),
     #[error("Invalid quote: {0}")]
     InvalidQuote(String),
-    #[error("Failed to get enough quotes: {got_quotes}/{CLOSE_GROUP_SIZE} quotes, got {record_exists_responses} record exists responses, and {errors_len} errors: {errors:?}")]
+    #[error(
+        "Failed to get enough quotes: {got_quotes}/{CLOSE_GROUP_SIZE} quotes, got {record_exists_responses} record exists responses, and {errors_len} errors: {errors:?}"
+    )]
     InsufficientQuotes {
         got_quotes: usize,
         record_exists_responses: usize,
@@ -109,7 +111,9 @@ pub enum NetworkError {
     SplitRecord(HashMap<PeerId, Record>),
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
-    #[error("Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}")]
+    #[error(
+        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}"
+    )]
     GetRecordQuorumFailed {
         got_holders: usize,
         expected_holders: usize,
@@ -302,7 +306,9 @@ impl Network {
                         ok_res.push(peer);
                         if ok_res.len() >= expected_holders.get() {
                             let old_nodes_ok = ok_res.len() - new_nodes_ok;
-                            trace!("Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok");
+                            trace!(
+                                "Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok"
+                            );
                             return Ok(());
                         }
                     }
@@ -313,7 +319,9 @@ impl Network {
 
         // we don't have enough oks, return an error
         let ok_peers = ok_res.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-        warn!("Put record {key} failed, only the following peers stored the record: {ok_peers:?}, needed {expected_holders} peers. Errors: {err_res:?}");
+        warn!(
+            "Put record {key} failed, only the following peers stored the record: {ok_peers:?}, needed {expected_holders} peers. Errors: {err_res:?}"
+        );
 
         Err(NetworkError::PutRecordTooManyPeerFailed(ok_peers, err_res))
     }
@@ -330,8 +338,7 @@ impl Network {
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
 
-        let res = rx.await?;
-        res
+        rx.await?
     }
 
     async fn put_record_kad(
@@ -478,7 +485,9 @@ impl Network {
                 return Ok(Some(quotes));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-                debug!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
+                debug!(
+                    "Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}"
+                );
                 return Ok(None);
             }
         }

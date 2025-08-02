@@ -250,7 +250,13 @@ metrics.
 
 ## Testing
 
-The Autonomi Network includes a comprehensive testing infrastructure with enhanced logging capabilities to validate network functionality across all supported data types and operations.
+The root of the repository provides a `test.sh` script that can run either unit tests, integration
+tests, or a full suite of end to end tests. The integration tests do not require a running local
+network, but the end to end tests do.
+
+By default, `test.sh` will run the unit test suite.
+
+See the sections below for further guidance.
 
 ### Test Levels
 

@@ -209,7 +209,7 @@ pub async fn run(
 }
 
 /// Get the path to the evm-testnet binary, building it if necessary
-async fn get_evm_testnet_bin_path(build: bool, verbosity: VerbosityLevel) -> Result<PathBuf> {
+fn get_evm_testnet_bin_path(build: bool, verbosity: VerbosityLevel) -> Result<PathBuf> {
     if build {
         // Build the evm-testnet binary from source
         if verbosity != VerbosityLevel::Minimal {
@@ -278,7 +278,7 @@ async fn get_evm_testnet_bin_path(build: bool, verbosity: VerbosityLevel) -> Res
 
 /// Spawn the evm-testnet binary as a child process
 async fn spawn_evm_testnet(build: bool, verbosity: VerbosityLevel) -> Result<()> {
-    let evm_testnet_path = get_evm_testnet_bin_path(build, verbosity).await?;
+    let evm_testnet_path = get_evm_testnet_bin_path(build, verbosity)?;
 
     if verbosity != VerbosityLevel::Minimal {
         print_banner("Starting EVM testnet");
@@ -305,7 +305,7 @@ async fn spawn_evm_testnet(build: bool, verbosity: VerbosityLevel) -> Result<()>
 }
 
 /// Check if EVM testnet is already running by checking the process list
-async fn check_evm_testnet_running() -> bool {
+fn check_evm_testnet_running() -> bool {
     let mut system = System::new_all();
     system.refresh_all();
 
@@ -321,7 +321,7 @@ async fn check_evm_testnet_running() -> bool {
 
 /// Ensure an EVM testnet is running, starting one if necessary
 async fn ensure_evm_testnet_running(build: bool, verbosity: VerbosityLevel) -> Result<()> {
-    if check_evm_testnet_running().await {
+    if check_evm_testnet_running() {
         if verbosity != VerbosityLevel::Minimal {
             println!("EVM testnet is already running");
         }
@@ -332,12 +332,12 @@ async fn ensure_evm_testnet_running(build: bool, verbosity: VerbosityLevel) -> R
 
     // Wait for the testnet to be fully ready
     let mut attempts = 0;
-    while !check_evm_testnet_running().await && attempts < 30 {
+    while !check_evm_testnet_running() && attempts < 30 {
         sleep(Duration::from_millis(1000)).await;
         attempts += 1;
     }
 
-    if !check_evm_testnet_running().await {
+    if !check_evm_testnet_running() {
         return Err(eyre!(
             "Failed to start EVM testnet - not responding after 30 seconds"
         ));

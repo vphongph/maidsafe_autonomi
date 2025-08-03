@@ -130,7 +130,7 @@ impl Launcher for LocalSafeLauncher {
 }
 
 /// Kill any running EVM testnet processes
-async fn kill_evm_testnet_processes(system: &mut System) {
+fn kill_evm_testnet_processes(system: &mut System) {
     // Look for anvil processes (which are used by evm-testnet)
     for (pid, process) in system.processes() {
         let process_name = process.name().to_lowercase();
@@ -158,8 +158,7 @@ pub async fn kill_network(
         std::fs::remove_dir_all(genesis_data_path)?;
     }
 
-    // Kill any running EVM testnet processes
-    kill_evm_testnet_processes(&mut system).await;
+    kill_evm_testnet_processes(&mut system);
 
     for node in node_registry.nodes.read().await.iter() {
         let node = node.read().await;

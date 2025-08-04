@@ -9,11 +9,11 @@
 // Allow expect usage - to be refactored
 #![allow(clippy::expect_used)]
 
-use ant_releases::{get_running_platform, AntReleaseRepoActions, ArchiveType, ReleaseType};
+use ant_releases::{AntReleaseRepoActions, ArchiveType, ReleaseType, get_running_platform};
 use ant_service_management::NodeServiceData;
 use color_eyre::{
-    eyre::{bail, eyre},
     Result,
+    eyre::{bail, eyre},
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use semver::Version;
@@ -25,7 +25,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{add_services::config::PortRange, config, VerbosityLevel};
+use crate::{VerbosityLevel, add_services::config::PortRange, config};
 
 const MAX_DOWNLOAD_RETRIES: u8 = 3;
 
@@ -87,7 +87,9 @@ pub async fn configure_winsw(dest_path: &Path, verbosity: VerbosityLevel) -> Res
                         println!("Error downloading WinSW: {e:?}");
                         println!("Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}");
                     }
-                    error!("Error downloading WinSW. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}: {e:?}");
+                    error!(
+                        "Error downloading WinSW. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}: {e:?}"
+                    );
                     download_attempts += 1;
                     if let Some(pb) = &pb {
                         pb.finish_and_clear();
@@ -105,7 +107,10 @@ pub async fn configure_winsw(dest_path: &Path, verbosity: VerbosityLevel) -> Res
 
     info!("WinSW installed at {dest_path:?}. Setting WINSW_PATH environment variable.");
 
-    std::env::set_var("WINSW_PATH", dest_path.to_string_lossy().to_string());
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var("WINSW_PATH", dest_path.to_string_lossy().to_string());
+    }
 
     Ok(())
 }
@@ -234,9 +239,13 @@ pub async fn download_and_extract_release(
                         break binary_download_path;
                     }
                     Err(_) => {
-                        info!("Cached {release_type} version {version} is corrupted. Downloading again...");
+                        info!(
+                            "Cached {release_type} version {version} is corrupted. Downloading again..."
+                        );
                         if verbosity != VerbosityLevel::Minimal {
-                            println!("Cached {release_type} version {version} is corrupted. Downloading again...");
+                            println!(
+                                "Cached {release_type} version {version} is corrupted. Downloading again..."
+                            );
                         }
                     }
                 }
@@ -262,9 +271,13 @@ pub async fn download_and_extract_release(
                     break binary_download_path;
                 }
                 Err(err) => {
-                    error!("Error while downloading release. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}:  {err:?}");
+                    error!(
+                        "Error while downloading release. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}:  {err:?}"
+                    );
                     if verbosity != VerbosityLevel::Minimal {
-                        println!("Error while downloading release. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}: {err:?}");
+                        println!(
+                            "Error while downloading release. Trying again {download_attempts}/{MAX_DOWNLOAD_RETRIES}: {err:?}"
+                        );
                     }
                     download_attempts += 1;
                     if let Some(pb) = &pb {

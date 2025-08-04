@@ -88,22 +88,32 @@ impl Client {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|_| ScratchpadError::Corrupt(*address))?;
 
-                // take the latest versions
+                // take the latest versions and filter out duplicates with same content
                 pads.sort_by_key(|s| s.counter());
                 let max_version = pads.last().map(|p| p.counter()).unwrap_or_else(|| {
                     error!("Got empty scratchpad vector for {scratch_key:?}");
                     u64::MAX
                 });
+                
+                // Filter to latest version and remove duplicates with same content
                 let latest_pads: Vec<_> = pads
                     .into_iter()
                     .filter(|s| s.counter() == max_version)
                     .collect();
+                
+                // Remove duplicates
+                let mut dedup_latest_pads = latest_pads.clone();
+                dedup_latest_pads.dedup_by(|a, b| {
+                    a.data_encoding() == b.data_encoding() && 
+                    a.encrypted_data() == b.encrypted_data()
+                });
 
                 // make sure we only have one of latest version
-                let pad = match &latest_pads[..] {
+                let pad = match &dedup_latest_pads[..] {
                     [one] => one,
                     [_multi, ..] => {
-                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version");
+                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version: {latest_pads:?}");
+                        // Still return with the non-dedup version
                         return Err(ScratchpadError::Fork(latest_pads));
                     }
                     [] => {

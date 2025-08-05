@@ -24,9 +24,14 @@ pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<()
         return download_public(addr, public_address, dest_path, client).await;
     }
 
-    let try_private_address = crate::user_data::get_local_private_archive_access(addr).ok();
-    if let Some(private_address) = try_private_address {
+    let try_local_private_archive = crate::user_data::get_local_private_archive_access(addr).ok();
+    if let Some(private_address) = try_local_private_archive {
         return download_private(addr, private_address, dest_path, client).await;
+    }
+
+    let try_local_private_file = crate::user_data::get_local_private_file_access(addr).ok();
+    if let Some(private_file_datamap) = try_local_private_file {
+        return download_from_datamap(addr, private_file_datamap, dest_path, client).await;
     }
 
     let try_datamap = DataMapChunk::from_hex(addr).ok();

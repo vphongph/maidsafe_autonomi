@@ -23,6 +23,7 @@ use color_eyre::Result;
 use pointer::parse_target_data_type;
 use pointer::TargetDataType;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -116,6 +117,15 @@ pub enum FileCmd {
         /// Experimental: Optionally specify the number of retries for the download.
         #[arg(short, long)]
         retries: Option<usize>,
+        /// By default, chunks will be cached to enable resuming downloads.
+        /// Set this flag to disable the cache.
+        #[arg(long)]
+        disable_cache: bool,
+        /// Custom cache directory for chunk caching.
+        /// If not specified, uses the default Autonomi client data directory.
+        /// This option only applies when cache is enabled (default).
+        #[arg(long, conflicts_with = "disable_cache")]
+        cache_dir: Option<PathBuf>,
     },
 
     /// List previous uploads
@@ -461,11 +471,25 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 dest_file,
                 quorum,
                 retries,
+                disable_cache,
+                cache_dir,
             } => {
-                if let Err((err, exit_code)) =
-                    file::download(&addr, &dest_file, network_context, quorum, retries).await
+                if let Err((err, exit_code)) = file::download(
+                    &addr,
+                    &dest_file,
+                    network_context,
+                    quorum,
+                    retries,
+                    !disable_cache, // Invert the flag - cache is enabled by default
+                    cache_dir.as_ref(),
+                )
+                .await
                 {
                     eprintln!("{err:?}");
+                    if !disable_cache {
+                        println!("Successfully downloaded chunks were cached.");
+                        println!("Please run the command again to obtain the chunks that were not retrieved and complete the download.");
+                    }
                     std::process::exit(exit_code);
                 } else {
                     Ok(())

@@ -6,6 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#![allow(clippy::expect_used)]
+
 mod common;
 
 use crate::common::{
@@ -358,13 +360,13 @@ fn create_scratchpad_task(
                             error!("Failed to update ScratchPad at {addr:?}. Retrying ...");
                             if retries >= 3 {
                                 println!(
-                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                    "Failed to update ScratchPad at {addr:?} after 3 retries: {err}"
                                 );
                                 error!(
-                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                    "Failed to update ScratchPad at {addr:?} after 3 retries: {err}"
                                 );
                                 bail!(
-                                    "Failed to update pointer at {addr:?} after 3 retries: {err}"
+                                    "Failed to update ScratchPad at {addr:?} after 3 retries: {err}"
                                 );
                             }
                             retries += 1;

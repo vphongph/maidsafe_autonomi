@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "autonomi-nodejs"
 version = "0.1.1"
 description = "NodeJS bindings for the autonomi client"
@@ -9,7 +9,7 @@ license = "GPL-3.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-autonomi = { path = "../autonomi", version = "0.5.2" }
+autonomi = { path = "../autonomi", version = "0.5.3" }
 bytes = { version = "1.0.1", features = ["serde"] }
 eyre = "0.6.12"
 futures = "0.3"
@@ -19,6 +19,9 @@ rand = "0.8.5"
 serde = { version = "1.0.133", features = ["derive", "rc"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
+
+[lints]
+workspace = true
 
 [build-dependencies]
 napi-build = "2.0.1"

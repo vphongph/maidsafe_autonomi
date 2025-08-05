@@ -10,11 +10,7 @@ use super::get_progress_bar;
 use crate::exit_code::{self, ExitCodeError, INVALID_INPUT_EXIT_CODE, IO_ERROR};
 use autonomi::{
     chunk::DataMapChunk,
-    client::{
-        analyze::Analysis,
-        files::{archive_private::PrivateArchiveDataMap, archive_public::ArchiveAddress},
-        GetError,
-    },
+    client::{analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
     data::DataAddress,
     files::{PrivateArchive, PublicArchive},
     Client,
@@ -121,25 +117,41 @@ async fn download_priv_archive_to_disk(
 
 async fn download_public(
     addr: &str,
-    address: ArchiveAddress,
+    address: DataAddress,
     dest_path: &str,
     client: &Client,
 ) -> Result<(), ExitCodeError> {
-    let archive = match client.archive_get_public(&address).await {
-        Ok(archive) => archive,
-        Err(GetError::Deserialization(_)) => {
-            info!("Failed to deserialize Public Archive from address {addr}, trying to fetch data assuming it is a single file instead");
-            return download_public_single_file(addr, address, dest_path, client).await;
-        }
-        Err(err) => {
-            let exit_code = exit_code::get_error_exit_code(&err);
+    // First try to get the raw data
+    let data = match client.data_get_public(&address).await {
+        Ok(data) => data,
+        Err(e) => {
+            let exit_code = exit_code::get_error_exit_code(&e);
             return Err((
-                eyre!(err).wrap_err("Failed to fetch Public Archive from address"),
+                eyre!(e).wrap_err("Failed to fetch data from address"),
                 exit_code,
             ));
         }
     };
-    download_pub_archive_to_disk(addr, archive, dest_path, client).await
+
+    // Try to deserialize as archive
+    match PublicArchive::from_bytes(data.clone()) {
+        Ok(archive) => {
+            info!("Successfully deserialized as Public Archive at: {addr}");
+            download_pub_archive_to_disk(addr, archive, dest_path, client).await
+        }
+        Err(_) => {
+            info!("Failed to deserialize as Public Archive from address {addr}, treating as single file");
+            // Write the raw data as a file
+            let path = PathBuf::from(dest_path);
+            let here = PathBuf::from(".");
+            let parent = path.parent().unwrap_or_else(|| &here);
+            std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
+            std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
+            info!("Successfully downloaded file at: {addr}");
+            println!("Successfully downloaded file at: {addr}");
+            Ok(())
+        }
+    }
 }
 
 async fn download_pub_archive_to_disk(
@@ -193,34 +205,6 @@ async fn download_pub_archive_to_disk(
             Ok(())
         }
     }
-}
-
-async fn download_public_single_file(
-    addr: &str,
-    address: DataAddress,
-    dest_path: &str,
-    client: &Client,
-) -> Result<(), ExitCodeError> {
-    let bytes = match client.data_get_public(&address).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
-            let err = format!("Failed to fetch file at {addr:?}: {e}");
-            return Err((
-                eyre!(err).wrap_err("Failed to fetch file content from address"),
-                exit_code,
-            ));
-        }
-    };
-
-    let path = PathBuf::from(dest_path);
-    let here = PathBuf::from(".");
-    let parent = path.parent().unwrap_or_else(|| &here);
-    std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
-    std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?;
-    info!("Successfully downloaded file at: {addr}");
-    println!("Successfully downloaded file at: {addr}");
-    Ok(())
 }
 
 // The `addr` string here could be the entire datamap chunk hexed content.

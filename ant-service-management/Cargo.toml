@@ -1,7 +1,7 @@
 [package]
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "A command-line application for installing, managing and operating `antnode` as a service."
-edition = "2021"
+edition = "2024"
 homepage = "https://maidsafe.net"
 license = "GPL-3.0"
 name = "ant-service-management"
@@ -10,7 +10,7 @@ repository = "https://github.com/maidsafe/autonomi"
 version = "0.4.15"
 
 [dependencies]
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.5" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.6" }
 ant-evm = { path = "../ant-evm", version = "0.1.16" }
 ant-logging = { path = "../ant-logging", version = "0.2.51" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.7", features = ["rpc"] }
@@ -30,6 +30,9 @@ tonic = { version = "0.6.2" }
 tracing = { version = "~0.1.26" }
 tracing-core = "0.1.30"
 chrono = "0.4.39"
+
+[lints]
+workspace = true
 
 [build-dependencies]
 # watch out updating this, protoc compiler needs to be installed on all build systems

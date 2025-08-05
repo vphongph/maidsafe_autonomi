@@ -920,11 +920,10 @@ async fn main() -> Result<()> {
                 evm_network,
                 skip_validation: _,
             } => {
-                let evm_network = if let Some(evm_network) = evm_network {
-                    Some(evm_network.try_into()?)
-                } else {
-                    None
-                };
+                let evm_network = evm_network
+                    .unwrap_or(EvmNetworkCommand::EvmLocal)
+                    .try_into()?;
+
                 cmd::local::join(
                     build,
                     count,
@@ -963,11 +962,10 @@ async fn main() -> Result<()> {
                 evm_network,
                 skip_validation: _,
             } => {
-                let evm_network = if let Some(evm_network) = evm_network {
-                    Some(evm_network.try_into()?)
-                } else {
-                    None
-                };
+                let evm_network = evm_network
+                    .unwrap_or(EvmNetworkCommand::EvmLocal)
+                    .try_into()?;
+
                 cmd::local::run(
                     build,
                     clean,
@@ -1122,13 +1120,13 @@ async fn configure_winsw(verbosity: VerbosityLevel) -> Result<()> {
         ant_node_manager::helpers::configure_winsw(
             &get_node_manager_path()?.join("winsw.exe"),
             verbosity,
-        )
-        .await?;
+        ).await?;
     }
     Ok(())
 }
 
 #[cfg(not(windows))]
+#[allow(clippy::unused_async)]
 async fn configure_winsw(_verbosity: VerbosityLevel) -> Result<()> {
     Ok(())
 }

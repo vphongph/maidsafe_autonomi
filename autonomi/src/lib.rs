@@ -52,6 +52,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::result_large_err)]
+// Allow expect/panic and wrong_self_convention temporarily
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::wrong_self_convention)]
 
 #[macro_use]
 extern crate tracing;
@@ -99,6 +103,7 @@ pub use libp2p::Multiaddr;
 #[doc(inline)]
 pub use client::{
     // Client Configs
+    config::BootstrapCacheConfig,
     config::BootstrapError,
     config::ClientConfig,
     config::ClientOperatingStrategy,

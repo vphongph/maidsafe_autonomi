@@ -172,10 +172,14 @@ impl SwarmDriver {
 
         kbucket_status.log();
 
-        if let Some(bootstrap_cache) = &mut self.bootstrap_cache {
-            for addr in addresses.0.iter() {
-                bootstrap_cache.add_addr(addr.clone());
-            }
+        if let Some(bootstrap_cache) = &self.bootstrap_cache {
+            let bootstrap_cache = bootstrap_cache.clone();
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                for addr in addresses.0.into_iter() {
+                    bootstrap_cache.add_addr(addr).await
+                }
+            });
         }
 
         self.send_event(NetworkEvent::PeerAdded(added_peer, self.peers_in_rt));
@@ -205,8 +209,13 @@ impl SwarmDriver {
 
         self.send_event(NetworkEvent::PeerRemoved(removed_peer, self.peers_in_rt));
 
-        if let Some(bootstrap_cache) = &mut self.bootstrap_cache {
-            bootstrap_cache.remove_peer(&removed_peer);
+        if let Some(bootstrap_cache) = &self.bootstrap_cache {
+            let removed_peer_clone = removed_peer;
+            let bootstrap_cache = bootstrap_cache.clone();
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                bootstrap_cache.remove_peer(&removed_peer_clone).await;
+            });
         }
 
         kbucket_status.log();

@@ -6,6 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect usage in this crate as it's used for compile-time constants
+#![allow(clippy::expect_used)]
+// Allow enum variant names that end with Error as they come from external derives
+#![allow(clippy::enum_variant_names)]
+
 use crate::common::Address;
 use crate::utils::get_evm_network;
 use alloy::primitives::address;
@@ -67,7 +72,7 @@ pub struct CustomNetwork {
 }
 
 impl CustomNetwork {
-    fn new(rpc_url: &str, payment_token_addr: &str, data_payments_addr: &str) -> Self {
+    pub fn new(rpc_url: &str, payment_token_addr: &str, data_payments_addr: &str) -> Self {
         Self {
             rpc_url_http: reqwest::Url::parse(rpc_url).expect("Invalid RPC URL"),
             payment_token_address: Address::from_str(payment_token_addr)

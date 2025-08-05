@@ -85,6 +85,8 @@ sha2 = "0.10.6"
 # Removing the version field is a workaround.
 test-utils = { path = "../test-utils" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Older version of self_encryption for backward compatibility testing
+self_encryption_old = { package = "self_encryption", git = "https://github.com/maidsafe/self_encryption.git", branch = "master"}
 
 [lints]
 workspace = true

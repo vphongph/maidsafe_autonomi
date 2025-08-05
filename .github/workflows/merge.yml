@@ -131,6 +131,10 @@ jobs:
         timeout-minutes: 25
         run: cargo test --release --package autonomi --doc
 
+      - name: Run autonomi self_encryption backward_compatibility tests
+        timeout-minutes: 25
+        run: cargo test --release backward_compatibility
+
       - name: Run bootstrap tests
         timeout-minutes: 25
         run: cargo test --release --package ant-bootstrap

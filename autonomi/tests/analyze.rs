@@ -81,7 +81,8 @@ async fn test_analyze_public_data() -> Result<()> {
 
     let analysis = client.analyze_address(&public_data_addr, true).await?;
     println!("Analysis: {analysis}");
-    assert!(matches!(analysis, Analysis::DataMap { .. }));
+    // now data_map chunks are stored as normal Chunk
+    assert!(matches!(analysis, Analysis::Chunk(_)));
     Ok(())
 }
 
@@ -242,7 +243,8 @@ async fn test_analyze_public_dir() -> Result<()> {
 
     let analysis = client.analyze_address(&archive_addr_str, true).await?;
     println!("Analysis: {analysis}");
-    assert!(matches!(analysis, Analysis::PublicArchive { .. }));
+    // now data_map chunks are stored as normal Chunk
+    assert!(matches!(analysis, Analysis::Chunk(..)));
 
     Ok(())
 }

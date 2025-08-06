@@ -33,7 +33,20 @@ pub(crate) enum DataMapLevel {
 
 pub fn encrypt(data: Bytes) -> Result<(Chunk, Vec<Chunk>), Error> {
     let (data_map, chunks) = self_encryption::encrypt(data)?;
-    let (data_map_chunk, additional_chunks) = pack_data_map(data_map)?;
+    let data_map_chunk = pack_data_map(data_map)?;
+
+    // Transform `EncryptedChunk` into `Chunk`
+    let chunks: Vec<Chunk> = chunks
+        .into_par_iter()
+        .map(|c| Chunk::new(c.content.clone()))
+        .collect();
+
+    Ok((data_map_chunk, chunks))
+}
+
+pub fn encrypt_old(data: Bytes) -> Result<(Chunk, Vec<Chunk>), Error> {
+    let (data_map, chunks) = self_encryption::encrypt(data)?;
+    let (data_map_chunk, additional_chunks) = pack_data_map_old(data_map)?;
 
     // Transform `EncryptedChunk` into `Chunk`
     let chunks: Vec<Chunk> = chunks
@@ -46,14 +59,22 @@ pub fn encrypt(data: Bytes) -> Result<(Chunk, Vec<Chunk>), Error> {
 }
 
 // Produces a chunk out of the first `DataMap`, which is validated for its size.
+// self-encryption now returns the root_data_map only, which points to the three datamap_chunks.
+// Hence guaranteed can be packed into one chunk.
+fn pack_data_map(data_map: DataMap) -> Result<Chunk, Error> {
+    let chunk_content = wrap_data_map(&data_map)?;
+    Ok(Chunk::new(chunk_content))
+}
+
+// Produces a chunk out of the first `DataMap`, which is validated for its size.
 // If the chunk is too big, it is self-encrypted and the resulting (additional level) `DataMap` is put into a chunk.
 // The above step is repeated as many times as required until the chunk size is valid.
 // In other words: If the chunk content is too big, it will be
 // self encrypted into additional chunks, and now we have a new `DataMap`
 // which points to all of those additional chunks.. and so on.
-fn pack_data_map(data_map: DataMap) -> Result<(Chunk, Vec<Chunk>), Error> {
+fn pack_data_map_old(data_map: DataMap) -> Result<(Chunk, Vec<Chunk>), Error> {
     let mut chunks = vec![];
-    let mut chunk_content = wrap_data_map(&DataMapLevel::First(data_map))?;
+    let mut chunk_content = wrap_data_map_old(&DataMapLevel::First(data_map))?;
 
     let (data_map_chunk, additional_chunks) = loop {
         debug!("Max chunk size: {}", MAX_CHUNK_SIZE);
@@ -76,15 +97,25 @@ fn pack_data_map(data_map: DataMap) -> Result<(Chunk, Vec<Chunk>), Error> {
                 .map(|c| Chunk::new(c.content.clone())) // no need to encrypt what is self-encrypted
                 .chain(chunks)
                 .collect();
-            chunk_content = wrap_data_map(&DataMapLevel::Additional(data_map))?;
+            chunk_content = wrap_data_map_old(&DataMapLevel::Additional(data_map))?;
         }
     };
 
     Ok((data_map_chunk, additional_chunks))
 }
 
-fn wrap_data_map(data_map: &DataMapLevel) -> Result<Bytes, rmp_serde::encode::Error> {
+fn wrap_data_map_old(data_map: &DataMapLevel) -> Result<Bytes, rmp_serde::encode::Error> {
     // we use an initial/starting size of 300 bytes as that's roughly the current size of a DataMapLevel instance.
+    let mut bytes = BytesMut::with_capacity(300).writer();
+    let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
+    data_map
+        .serialize(&mut serialiser)
+        .inspect_err(|err| error!("Failed to serialize data map: {err:?}"))?;
+    Ok(bytes.into_inner().freeze())
+}
+
+fn wrap_data_map(data_map: &DataMap) -> Result<Bytes, rmp_serde::encode::Error> {
+    // we use an initial/starting size of 300 bytes as that's roughly the current size of a DataMap instance.
     let mut bytes = BytesMut::with_capacity(300).writer();
     let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
     data_map

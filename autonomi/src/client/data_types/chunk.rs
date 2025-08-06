@@ -28,13 +28,14 @@ use ant_protocol::{
 };
 use bytes::Bytes;
 use libp2p::kad::Record;
-use self_encryption::{DataMap, EncryptedChunk, decrypt};
+use self_encryption::{DataMap, EncryptedChunk, decrypt, get_root_data_map};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     sync::LazyLock,
 };
+use xor_name::XorName;
 
 /// Number of chunks to upload in parallel.
 ///
@@ -469,8 +470,9 @@ impl Client {
         Ok(*chunk.address())
     }
 
+    #[allow(dead_code)]
     /// Unpack a wrapped data map and fetch all bytes using self-encryption.
-    pub(crate) async fn fetch_from_data_map_chunk(
+    pub(crate) async fn fetch_from_data_map_chunk_old(
         &self,
         data_map_bytes: &Bytes,
     ) -> Result<Bytes, GetError> {
@@ -496,6 +498,78 @@ impl Client {
                 }
             };
         }
+    }
+
+    /// Unpack a wrapped data map and fetch all bytes using self-encryption.
+    pub(crate) async fn fetch_from_data_map_chunk(
+        &self,
+        root_data_map_bytes: &Bytes,
+    ) -> Result<Bytes, GetError> {
+        // self_encryption now changed to always return a data_map pointing to the 3 datamap_chunks.
+        // Hence, the input data_map_bytes is actually the root_data_map pointing to that 3 datamap_chunks.
+        // The downloading work flow then shall be:
+        //   * fetch that 3 datamap_chunks first
+        //   * compose the real datamap of the file, from that 3 datamap_chunks
+        //   * repeat the above two steps if the recovered data_map contains chiled
+        //   * fetch the leftover content chunks to compose the file
+        let root_data_map: DataMap = rmp_serde::from_slice(root_data_map_bytes)
+            .map_err(GetError::InvalidDataMap)
+            .inspect_err(|err| error!("Error deserializing data map: {err:?}"))?;
+
+        let file_data_map = self.fetch_data_map(&root_data_map)?;
+        debug!("Fetched file_data_map: {file_data_map:?}");
+        let data_bytes = self.fetch_from_data_map(&file_data_map).await?;
+        Ok(data_bytes)
+    }
+
+    /// Fetch and decrypt file data_map from the root one using lazy evaluation.
+    /// Chunks are only fetched from the network when actually needed by get_root_data_map.
+    pub(crate) fn fetch_data_map(&self, data_map: &DataMap) -> Result<DataMap, GetError> {
+        let total_chunks = data_map.infos().len();
+        #[cfg(feature = "loud")]
+        println!("Setting up lazy chunk fetching for {total_chunks} chunks.");
+        debug!("Setting up lazy chunk fetching for data map {data_map:?}");
+
+        // Create a closure that fetches chunks on-demand
+        let client = self.clone();
+        let mut chunk_fetcher = move |xor_name: XorName| -> Result<Bytes, self_encryption::Error> {
+            let chunk_addr = ChunkAddress::new(xor_name);
+
+            // Use tokio::task::spawn_blocking to handle the async operation in a sync context
+            let fetch_result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { client.chunk_get(&chunk_addr).await })
+            });
+
+            match fetch_result {
+                Ok(chunk) => {
+                    #[cfg(feature = "loud")]
+                    println!("Successfully fetched chunk for XorName: {xor_name:?}");
+                    debug!("Successfully fetched chunk for XorName: {xor_name:?}");
+                    Ok(chunk.value)
+                }
+                Err(err) => {
+                    #[cfg(feature = "loud")]
+                    println!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
+                    error!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
+                    Err(self_encryption::Error::Generic(format!(
+                        "Failed to fetch chunk for XorName {xor_name:?}: {err:?}"
+                    )))
+                }
+            }
+        };
+
+        let result_data_map =
+            get_root_data_map(data_map.clone(), &mut chunk_fetcher).map_err(|e| {
+                error!("Error processing data_map: {e:?}");
+                GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e))
+            })?;
+
+        #[cfg(feature = "loud")]
+        println!("Successfully processed data_map with lazy chunk fetching");
+        debug!("Successfully processed data_map with lazy chunk fetching");
+
+        Ok(result_data_map)
     }
 
     /// Fetch and decrypt all chunks in the data map.

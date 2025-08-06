@@ -260,14 +260,16 @@ impl Client {
         {
             Ok((receipt, free_chunks)) => (receipt, free_chunks),
             Err(err) if matches!(err, EvmWalletError(InsufficientTokensForQuotes(_, _))) => {
+                error!("Insufficient tokens: {err:?}. Returning immediately.");
                 return (vec![], vec![], 0, Some(PutError::from(err)));
             }
             Err(err) => {
                 return if retry_on_failure {
-                    info!("Quoting or payment error encountered, retry scheduled {err:?}");
+                    error!("Quoting or payment error encountered, retry scheduled {err:?}");
                     println!("Quoting or payment error encountered, retry scheduled.");
                     (batch, vec![], 0, None)
                 } else {
+                    error!("Quoting or payment error encountered, no retry scheduled {err:?}");
                     (vec![], vec![], 0, Some(PutError::from(err)))
                 };
             }

@@ -45,6 +45,8 @@ struct PublicFile {
 pub fn get_local_user_data() -> Result<UserData> {
     let file_archives = get_local_public_file_archives()?;
     let private_file_archives = get_local_private_file_archives()?;
+    let public_files = get_local_public_files()?;
+    let private_files = get_local_private_files()?;
     let registers = get_local_registers()?;
     let register_key = super::keys::get_register_signing_key()
         .map(|k| k.to_hex())
@@ -63,6 +65,8 @@ pub fn get_local_user_data() -> Result<UserData> {
         register_key,
         scratchpad_key,
         pointer_key,
+        public_files,
+        private_files,
     };
     Ok(user_data)
 }
@@ -169,6 +173,8 @@ pub fn write_local_user_data(user_data: &UserData) -> Result<()> {
         register_key,
         scratchpad_key,
         pointer_key,
+        public_files,
+        private_files,
     } = user_data;
 
     for (archive, name) in file_archives.iter() {
@@ -177,6 +183,14 @@ pub fn write_local_user_data(user_data: &UserData) -> Result<()> {
 
     for (archive, name) in private_file_archives.iter() {
         write_local_private_file_archive(archive.to_hex(), archive.address(), name)?;
+    }
+
+    for (data_address, name) in public_files.iter() {
+        write_local_public_file(data_address.to_hex(), name)?;
+    }
+
+    for (private_datamap, name) in private_files.iter() {
+        write_local_private_file(private_datamap.to_hex(), private_datamap.address(), name)?;
     }
 
     for (register, name) in register_addresses.iter() {

@@ -978,7 +978,7 @@ dependencies = [
  "rayon",
  "reqwest 0.12.22",
  "rmp-serde",
- "self_encryption 0.30.0",
+ "self_encryption 0.32.0",
  "serde",
  "serde_json",
  "sha2",
@@ -1616,7 +1616,7 @@ dependencies = [
  "rayon",
  "rmp-serde",
  "self_encryption 0.30.0",
- "self_encryption 0.31.0",
+ "self_encryption 0.32.0",
  "serde",
  "serial_test",
  "sha2",
@@ -8505,8 +8505,9 @@ dependencies = [
 
 [[package]]
 name = "self_encryption"
-version = "0.31.0"
-source = "git+https://github.com/maidsafe/self_encryption.git?branch=master#be94cb46afe060fdff6edad6766235214e9d4f89"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f865256fc2075a28be19d56944f68b552076088c5ccc072db0c8626599ca35b6"
 dependencies = [
  "aes",
  "bincode",

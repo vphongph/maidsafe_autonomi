@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_protocol::storage::{PointerTarget, ScratchpadAddress};
-use self_encryption::DataMap;
+use self_encryption::{ChunkInfo, DataMap};
 
 use crate::{
     Bytes, Client, PublicKey,
@@ -303,8 +303,14 @@ async fn analyze_chunk(
     println_if_verbose!("Got chunk of {} bytes...", chunk.value().len());
 
     // check if it's a data map
-    if let Ok(_data_map) = rmp_serde::from_slice::<DataMapLevel>(chunk.value()) {
+    if let Ok(_data_map) = rmp_serde::from_slice::<DataMap>(chunk.value()) {
         println_if_verbose!("Identified chunk content as a DataMap...");
+        return analyze_datamap(Some(*chunk_addr), &chunk.into(), client, verbose).await;
+    }
+
+    // check if it's an old data map
+    if let Ok(_data_map) = rmp_serde::from_slice::<DataMapLevel>(chunk.value()) {
+        println_if_verbose!("Identified chunk content as an old DataMap...");
         return analyze_datamap(Some(*chunk_addr), &chunk.into(), client, verbose).await;
     }
 
@@ -451,15 +457,31 @@ async fn analyze_datamap_old(
         });
     }
 
+            // Convert old format of DataMap into new
+            let chunk_identifiers: Vec<ChunkInfo> = map
+                .infos()
+                .iter()
+                .map(|ck_info| ChunkInfo {
+                    index: ck_info.index,
+                    dst_hash: ck_info.dst_hash,
+                    src_hash: ck_info.src_hash,
+                    src_size: ck_info.src_size,
+                })
+                .collect();
+            let data_map = DataMap {
+                chunk_identifiers,
+                child: None,
+            };
+
     let analysis = match stored_at {
         Some(addr) => Analysis::DataMap {
             address: addr,
-            chunks: chunk_list_from_datamap(map),
+            chunks: chunk_list_from_datamap(data_map),
             data,
             points_to_a_data_map,
         },
         None => Analysis::RawDataMap {
-            chunks: chunk_list_from_datamap(map),
+            chunks: chunk_list_from_datamap(data_map),
             data,
             points_to_a_data_map,
         },

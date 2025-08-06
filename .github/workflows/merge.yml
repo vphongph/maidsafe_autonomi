@@ -131,9 +131,9 @@ jobs:
         timeout-minutes: 25
         run: cargo test --release --package autonomi --doc
 
-      - name: Run autonomi self_encryption backward_compatibility tests
+      - name: Run autonomi self_encryption backward_compatibility unit tests
         timeout-minutes: 25
-        run: cargo test --release backward_compatibility
+        run: cargo test --release test_self_encryption_backward_compatibility
 
       - name: Run bootstrap tests
         timeout-minutes: 25

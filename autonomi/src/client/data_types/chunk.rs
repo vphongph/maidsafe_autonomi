@@ -28,7 +28,7 @@ use ant_protocol::{
 };
 use bytes::Bytes;
 use libp2p::kad::Record;
-use self_encryption::{DataMap, EncryptedChunk, decrypt, get_root_data_map};
+use self_encryption::{ChunkInfo, DataMap, EncryptedChunk, decrypt, get_root_data_map};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -473,7 +473,7 @@ impl Client {
     /// Generic function to unpack a wrapped data map and fetch all bytes using self-encryption.
     /// This function automatically detects whether the data map is in the old format (DataMapLevel)
     /// or new format (DataMap) and calls the appropriate handler for backward compatibility.
-    pub(crate) async fn fetch_from_data_map_chunk(
+    pub async fn fetch_from_data_map_chunk(
         &self,
         data_map_bytes: &Bytes,
     ) -> Result<Bytes, GetError> {
@@ -529,11 +529,27 @@ impl Client {
         mut data_map_level: DataMapLevel,
     ) -> Result<Bytes, GetError> {
         loop {
-            let data_map = match &data_map_level {
+            let old_data_map = match &data_map_level {
                 DataMapLevel::First(map) => map,
                 DataMapLevel::Additional(map) => map,
             };
-            let data = self.fetch_from_data_map(data_map).await?;
+
+            // Convert old format of DataMap into new
+            let chunk_identifiers: Vec<ChunkInfo> = old_data_map
+                .infos()
+                .iter()
+                .map(|ck_info| ChunkInfo {
+                    index: ck_info.index,
+                    dst_hash: ck_info.dst_hash,
+                    src_hash: ck_info.src_hash,
+                    src_size: ck_info.src_size,
+                })
+                .collect();
+            let data_map = DataMap {
+                chunk_identifiers,
+                child: None,
+            };
+            let data = self.fetch_from_data_map(&data_map).await?;
 
             match &data_map_level {
                 DataMapLevel::First(_) => break Ok(data),

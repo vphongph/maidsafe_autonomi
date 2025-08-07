@@ -405,13 +405,13 @@ pub async fn status_report(
                 "PID: {}",
                 node.pid.map_or("-".to_string(), |p| p.to_string())
             );
-            if node.status == ServiceStatus::Stopped {
-                if let Some(failure_reason) = node.get_critical_failure() {
-                    println!(
-                        "Failure reason: [{}] {}",
-                        failure_reason.0, failure_reason.1
-                    );
-                }
+            if node.status == ServiceStatus::Stopped
+                && let Some(failure_reason) = node.get_critical_failure()
+            {
+                println!(
+                    "Failure reason: [{}] {}",
+                    failure_reason.0, failure_reason.1
+                );
             }
             println!("Data path: {}", node.data_dir_path.to_string_lossy());
             println!("Log path: {}", node.log_dir_path.to_string_lossy());

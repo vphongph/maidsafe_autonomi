@@ -201,11 +201,11 @@ impl RelayManager {
 
             if let Some((peer_id, relay_addr)) = self.relay_server_candidates.remove(index) {
                 // skip if detected as a bad node
-                if let Some((_, is_bad)) = bad_nodes.get(&peer_id) {
-                    if *is_bad {
-                        debug!("Peer {peer_id:?} is considered as a bad node. Skipping it.");
-                        continue;
-                    }
+                if let Some((_, is_bad)) = bad_nodes.get(&peer_id)
+                    && *is_bad
+                {
+                    debug!("Peer {peer_id:?} is considered as a bad node. Skipping it.");
+                    continue;
                 }
 
                 if self.connected_relay_servers.contains_key(&peer_id)
@@ -454,13 +454,11 @@ impl RelayReservationHealth {
         if let Some(connections) = self
             .incoming_connections_from_remote_peer
             .get_mut(from_peer)
-        {
-            if let Some((_, _, _, succeeded)) = connections
+            && let Some((_, _, _, succeeded)) = connections
                 .iter_mut()
                 .find(|(_, id, _, _)| id == connection_id)
-            {
-                *succeeded = Some(true);
-            }
+        {
+            *succeeded = Some(true);
         }
 
         self.try_update_stat();
@@ -489,13 +487,11 @@ impl RelayReservationHealth {
         if let Some(connections) = self
             .incoming_connections_from_remote_peer
             .get_mut(&from_peer)
-        {
-            if let Some((_, _, _, succeeded)) = connections
+            && let Some((_, _, _, succeeded)) = connections
                 .iter_mut()
                 .find(|(_, id, _, _)| id == connection_id)
-            {
-                *succeeded = Some(false);
-            }
+        {
+            *succeeded = Some(false);
         }
 
         self.try_update_stat();

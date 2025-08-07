@@ -130,11 +130,11 @@ impl Client {
         }
 
         let cache_dir = self.get_chunk_cache_dir()?;
-        if is_chunk_cached(cache_dir.clone(), addr) {
-            if let Ok(Some(cached_chunk)) = load_chunk(cache_dir, addr) {
-                debug!("Loaded chunk from cache: {addr:?}");
-                return Ok(Some(cached_chunk));
-            }
+        if is_chunk_cached(cache_dir.clone(), addr)
+            && let Ok(Some(cached_chunk)) = load_chunk(cache_dir, addr)
+        {
+            debug!("Loaded chunk from cache: {addr:?}");
+            return Ok(Some(cached_chunk));
         }
         Ok(None)
     }
@@ -150,16 +150,16 @@ impl Client {
     }
 
     fn cleanup_cached_chunks(&self, chunk_addrs: &[ChunkAddress]) {
-        if self.config.chunk_cache_enabled {
-            if let Ok(cache_dir) = self.get_chunk_cache_dir() {
-                if let Err(e) = delete_chunks(cache_dir, chunk_addrs) {
-                    warn!("Failed to delete cached chunks after download: {e}");
-                } else {
-                    debug!(
-                        "Deleted {} cached chunks after successful download",
-                        chunk_addrs.len()
-                    );
-                }
+        if self.config.chunk_cache_enabled
+            && let Ok(cache_dir) = self.get_chunk_cache_dir()
+        {
+            if let Err(e) = delete_chunks(cache_dir, chunk_addrs) {
+                warn!("Failed to delete cached chunks after download: {e}");
+            } else {
+                debug!(
+                    "Deleted {} cached chunks after successful download",
+                    chunk_addrs.len()
+                );
             }
         }
     }

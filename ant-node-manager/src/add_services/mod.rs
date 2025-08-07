@@ -42,11 +42,11 @@ pub async fn add_node(
     verbosity: VerbosityLevel,
 ) -> Result<Vec<String>> {
     if options.init_peers_config.first {
-        if let Some(count) = options.count {
-            if count > 1 {
-                error!("A genesis node can only be added as a single node");
-                return Err(eyre!("A genesis node can only be added as a single node"));
-            }
+        if let Some(count) = options.count
+            && count > 1
+        {
+            error!("A genesis node can only be added as a single node");
+            return Err(eyre!("A genesis node can only be added as a single node"));
         }
 
         let mut genesis_node_exists = false;

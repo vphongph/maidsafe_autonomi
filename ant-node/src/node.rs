@@ -674,10 +674,10 @@ impl Node {
                 });
                 let record_key = key.as_record_key();
 
-                if let Some(record_key) = record_key {
-                    if let Ok(Some(record)) = network.get_local_record(&record_key).await {
-                        result = Ok((our_address, Bytes::from(record.value)));
-                    }
+                if let Some(record_key) = record_key
+                    && let Ok(Some(record)) = network.get_local_record(&record_key).await
+                {
+                    result = Ok((our_address, Bytes::from(record.value)));
                 }
 
                 QueryResponse::GetReplicatedRecord(result)

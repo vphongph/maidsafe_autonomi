@@ -155,11 +155,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
 
     let sizes: [u64; 2] = [1, 10]; // File sizes in MB. Add more sizes as needed
-    let mut uploaded_files = HashSet::new();
+    let mut total_uploaded_files = HashSet::new();
+    let mut total_size: u64 = 0;
 
     for size in sizes.iter() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let temp_dir_path = temp_dir.keep();
+        let mut uploaded_files = HashSet::new();
 
         // create 23 random files. This is to keep the benchmark results consistent with prior runs. The change to make
         // use of ChunkManager means that we don't upload the same file twice and the `uploaded_files` file is now read
@@ -211,6 +213,12 @@ fn criterion_benchmark(c: &mut Criterion) {
             "Got total {} files uploaded after iteration of {size} data_size.",
             uploaded_files.len()
         );
+
+        // During `measurement_time` and `warm_up_time`, there will be one upload run for each.
+        // Which means two additional `uploaded_files` created and for downloading.
+        total_size += size * (uploaded_files.len() as u64 + 2);
+
+        total_uploaded_files.extend(uploaded_files);
     }
 
     let mut group = c.benchmark_group("Download Benchmark".to_string());
@@ -223,20 +231,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     // there will then be around 1.1GB in total, and may take around 40s for each iteratioin.
     // Hence we have to reduce the number of iterations from the default 100 to 10,
     // To avoid the benchmark test taking over one hour to complete.
-    //
-    // During `measurement_time` and `warm_up_time`, there will be one upload run for each.
-    // Which means two additional `uploaded_files` created and for downloading.
-    let total_size: u64 = sizes
-        .iter()
-        .map(|size| (SAMPLE_SIZE as u64 + 2) * size)
-        .sum();
     group.sample_size(SAMPLE_SIZE / 2);
 
     // Set the throughput to be reported in terms of bytes
     group.throughput(Throughput::Bytes(total_size * 1024 * 1024));
     let bench_id = "ant files download".to_string();
     group.bench_function(bench_id, |b| {
-        b.iter(|| autonomi_file_download(uploaded_files.clone()))
+        b.iter(|| autonomi_file_download(total_uploaded_files.clone()))
     });
     group.finish();
 }

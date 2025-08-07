@@ -74,21 +74,28 @@ fn autonomi_file_upload(dir: &str) -> String {
             .expect("Failed to extract address from line")
             .trim();
 
-        address.to_string()
+        let address_str = address.to_string();
+        println!("Parsed address is: {address_str:?}");
+        address_str
     }
 }
 
 fn autonomi_file_download(uploaded_files: HashSet<String>) {
     let autonomi_cli_path = get_cli_path();
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = tempdir().expect("Failed to create temp dest dir");
     for address in uploaded_files.iter() {
+        let dest_file = temp_dir.path().join(address);
+
+        println!("Trying to download {address:?} to as the dest_file of {dest_file:?}");
+
         let output = Command::new(autonomi_cli_path.clone())
             .arg("--local")
             .arg("file")
             .arg("download")
+            .arg("--disable-cache")
             .arg(address)
-            .arg(temp_dir.path())
+            .arg(dest_file)
             .output()
             .expect("Failed to execute command");
 
@@ -200,6 +207,10 @@ fn criterion_benchmark(c: &mut Criterion) {
             })
         });
         group.finish();
+        println!(
+            "Got total {} files uploaded after iteration of {size} data_size.",
+            uploaded_files.len()
+        );
     }
 
     let mut group = c.benchmark_group("Download Benchmark".to_string());

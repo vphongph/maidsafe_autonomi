@@ -10,15 +10,15 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use rand::{Rng, thread_rng};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use rand::{thread_rng, Rng};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{
     collections::HashSet,
     fs::File,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, exit},
+    process::{exit, Command},
     time::Duration,
 };
 use tempfile::tempdir;
@@ -51,6 +51,7 @@ fn autonomi_file_upload(dir: &str) -> String {
     } else {
         let out = output.stdout;
         let out_string = String::from_utf8(out).expect("Failed to parse output string");
+        println!("upload output is :\n{out_string:?}");
         let address = out_string
             .lines()
             .find(|line| line.starts_with("At address:"))

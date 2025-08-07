@@ -104,15 +104,15 @@ impl InitialPeersConfig {
             }
         }
 
-        if let Some(count) = count {
-            if bootstrap_addresses.len() >= count {
-                bootstrap_addresses.truncate(count);
-                info!(
-                    "Found {} bootstrap addresses. Returning early.",
-                    bootstrap_addresses.len()
-                );
-                return Ok(bootstrap_addresses);
-            }
+        if let Some(count) = count
+            && bootstrap_addresses.len() >= count
+        {
+            bootstrap_addresses.truncate(count);
+            info!(
+                "Found {} bootstrap addresses. Returning early.",
+                bootstrap_addresses.len()
+            );
+            return Ok(bootstrap_addresses);
         }
 
         // load from cache if present
@@ -127,15 +127,15 @@ impl InitialPeersConfig {
                 if let Ok(data) = BootstrapCacheStore::load_cache_data(&cfg) {
                     bootstrap_addresses.extend(data.get_all_addrs().cloned());
 
-                    if let Some(count) = count {
-                        if bootstrap_addresses.len() >= count {
-                            bootstrap_addresses.truncate(count);
-                            info!(
-                                "Found {} bootstrap addresses. Returning early.",
-                                bootstrap_addresses.len()
-                            );
-                            return Ok(bootstrap_addresses);
-                        }
+                    if let Some(count) = count
+                        && bootstrap_addresses.len() >= count
+                    {
+                        bootstrap_addresses.truncate(count);
+                        info!(
+                            "Found {} bootstrap addresses. Returning early.",
+                            bootstrap_addresses.len()
+                        );
+                        return Ok(bootstrap_addresses);
                     }
                 }
             } else {
@@ -163,15 +163,15 @@ impl InitialPeersConfig {
             let addrs = contacts_fetcher.fetch_bootstrap_addresses().await?;
             bootstrap_addresses.extend(addrs);
 
-            if let Some(count) = count {
-                if bootstrap_addresses.len() >= count {
-                    bootstrap_addresses.truncate(count);
-                    info!(
-                        "Found {} bootstrap addresses. Returning early.",
-                        bootstrap_addresses.len()
-                    );
-                    return Ok(bootstrap_addresses);
-                }
+            if let Some(count) = count
+                && bootstrap_addresses.len() >= count
+            {
+                bootstrap_addresses.truncate(count);
+                info!(
+                    "Found {} bootstrap addresses. Returning early.",
+                    bootstrap_addresses.len()
+                );
+                return Ok(bootstrap_addresses);
             }
         }
 

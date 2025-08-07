@@ -438,13 +438,12 @@ impl SwarmDriver {
     fn collect_peers_info(&mut self, peers: Vec<PeerId>) -> Vec<(PeerId, Addresses)> {
         let mut peers_info = vec![];
         for peer_id in peers {
-            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id) {
-                if let Some(entry) = kbucket
+            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id)
+                && let Some(entry) = kbucket
                     .iter()
                     .find(|entry| entry.node.key.preimage() == &peer_id)
-                {
-                    peers_info.push((peer_id, Addresses(entry.node.value.clone().into_vec())));
-                }
+            {
+                peers_info.push((peer_id, Addresses(entry.node.value.clone().into_vec())));
             }
         }
 

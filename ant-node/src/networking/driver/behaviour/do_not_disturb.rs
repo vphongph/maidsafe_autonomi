@@ -1044,7 +1044,7 @@ mod tests {
         let result = behaviour.handle_pending_outbound_connection(
             ConnectionId::new_unchecked(1),
             None, // No specific peer
-            &[test_addr.clone()],
+            std::slice::from_ref(&test_addr),
             Endpoint::Dialer,
         );
 
@@ -1195,11 +1195,10 @@ mod tests {
 
                 tokio::select! {
                     event1 = event1_fut => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1 {
-                            if peer_id == peer2_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1
+                            && peer_id == peer2_id {
                                 connection_established = true;
                                 break;
-                            }
                         }
                     }
                     _event2 = event2_fut => {
@@ -1339,11 +1338,10 @@ mod tests {
 
                 tokio::select! {
                     event1 = event1_fut => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1 {
-                            if peer_id == peer2_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1
+                            && peer_id == peer2_id {
                                 connection_established = true;
                                 break;
-                            }
                         }
                     }
                     _event2 = event2_fut => {
@@ -1495,12 +1493,11 @@ mod tests {
 
                 tokio::select! {
                     event1 = event1_fut => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1 {
-                            if peer_id == peer2_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event1
+                            && peer_id == peer2_id {
                                 println!("🔗 Connection established: swarm1 → swarm2");
                                 connection_established = true;
                                 break;
-                            }
                         }
                     }
                     _event2 = event2_fut => {
@@ -1724,12 +1721,11 @@ mod tests {
 
                 tokio::select! {
                     event = event_a => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
-                            if peer_id == peer_b_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event
+                            && peer_id == peer_b_id {
                                 println!("🔗 PeerA connected to PeerB");
                                 connected = true;
                                 break;
-                            }
                         }
                     }
                     _event = event_b => {
@@ -1970,25 +1966,23 @@ mod tests {
             loop {
                 tokio::select! {
                     event = dialer_swarm.select_next_some() => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
-                            if peer_id == unblocked_peer_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event
+                            && peer_id == unblocked_peer_id {
                                 println!("- ✅ Dialer swarm established connection with unblocked peer.");
                                 dialer_connected = true;
                                 if listener_connected {
                                     break;
-                                }
                             }
                         }
                     },
                     event = unblocked_listener.select_next_some() => {
-                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
-                            if peer_id == dialer_peer_id {
+                        if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event
+                            && peer_id == dialer_peer_id {
                                 println!("- ✅ Unblocked listener established connection with dialer.");
                                 listener_connected = true;
                                 if dialer_connected {
                                     break;
                                 }
-                            }
                         }
                     },
                 }

@@ -333,10 +333,10 @@ impl NodeRecordStore {
     fn restore_quoting_metrics(storage_dir: &Path) -> Option<HistoricQuotingMetrics> {
         let file_path = storage_dir.join(HISTORICAL_QUOTING_METRICS_FILENAME);
 
-        if let Ok(file) = fs::File::open(file_path) {
-            if let Ok(quoting_metrics) = rmp_serde::from_read(&file) {
-                return Some(quoting_metrics);
-            }
+        if let Ok(file) = fs::File::open(file_path)
+            && let Ok(quoting_metrics) = rmp_serde::from_read(&file)
+        {
+            return Some(quoting_metrics);
         }
 
         None
@@ -696,15 +696,15 @@ impl NodeRecordStore {
         // if cache already has the record :
         //   * if with same content, do nothing and return early
         //   * if with different content, remove the existing one
-        if let Some((existing_record, _timestamp)) = self.records_cache.remove(key) {
-            if existing_record.value == r.value {
-                // we actually just want to keep what we have, and can assume it's been stored properly.
+        if let Some((existing_record, _timestamp)) = self.records_cache.remove(key)
+            && existing_record.value == r.value
+        {
+            // we actually just want to keep what we have, and can assume it's been stored properly.
 
-                // so we put it back in the cache
-                self.records_cache.push_back(key.clone(), existing_record);
-                // and exit early.
-                return Ok(());
-            }
+            // so we put it back in the cache
+            self.records_cache.push_back(key.clone(), existing_record);
+            // and exit early.
+            return Ok(());
         }
 
         // Only cash the record that put by client. For a quick response to the ChunkProof check.
@@ -951,10 +951,10 @@ impl RecordStore for NodeRecordStore {
             let _ = metric.set(self.records.len() as i64);
         }
 
-        if let Some((farthest_record, _)) = self.farthest_record.clone() {
-            if farthest_record == *k {
-                self.farthest_record = self.calculate_farthest();
-            }
+        if let Some((farthest_record, _)) = self.farthest_record.clone()
+            && farthest_record == *k
+        {
+            self.farthest_record = self.calculate_farthest();
         }
 
         let filename = Self::generate_filename(k);

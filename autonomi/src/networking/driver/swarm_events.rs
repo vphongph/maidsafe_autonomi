@@ -134,10 +134,8 @@ impl NetworkDriver {
                 // The result here is not logged because it can produce megabytes of text.
                 trace!("GetRecord event occurred");
                 let finished = self.pending_tasks.update_get_record(id, res)?;
-                if finished {
-                    if let Some(mut query) = self.kad().query_mut(&id) {
-                        query.finish();
-                    }
+                if finished && let Some(mut query) = self.kad().query_mut(&id) {
+                    query.finish();
                 }
             }
             QueryResult::PutRecord(res) => {
@@ -236,12 +234,10 @@ impl NetworkDriver {
                 addr.push(Protocol::P2p(*peer_id));
                 trace!("Peer {peer_id:?} is a normal peer, crafted valid multiaddress : {addr:?}.");
 
-                if !banned {
-                    if let Some(bootstrap_cache) = &self.bootstrap_cache {
-                        let bootstrap_cache = bootstrap_cache.clone();
-                        #[allow(clippy::let_underscore_future)]
-                        let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
-                    }
+                if !banned && let Some(bootstrap_cache) = &self.bootstrap_cache {
+                    let bootstrap_cache = bootstrap_cache.clone();
+                    #[allow(clippy::let_underscore_future)]
+                    let _ = tokio::spawn(async move { bootstrap_cache.add_addr(addr).await });
                 }
             }
             _ => {

@@ -214,10 +214,10 @@ impl ShunnedByCloseGroup {
             self.close_group_peers = new_closest_peers;
 
             while self.old_close_group_peers.len() > MAX_EVICTED_CLOSE_GROUP_PEERS {
-                if let Some(removed_peer) = self.old_close_group_peers.pop_front() {
-                    if self.old_new_group_shunned_list.remove(&removed_peer) {
-                        let _ = self.metric_old_group.dec();
-                    }
+                if let Some(removed_peer) = self.old_close_group_peers.pop_front()
+                    && self.old_new_group_shunned_list.remove(&removed_peer)
+                {
+                    let _ = self.metric_old_group.dec();
                 }
             }
         }

@@ -207,11 +207,12 @@ impl SwarmDriver {
         }
 
         // Do not use an `already relayed` or a `bootstrap` peer as `potential relay candidate`.
-        if !is_relayed_peer && !self.initial_bootstrap.is_bootstrap_peer(&peer_id) {
-            if let Some(relay_manager) = self.relay_manager.as_mut() {
-                debug!("Adding candidate relay server {peer_id:?}, it's not a bootstrap node");
-                relay_manager.add_potential_candidates(&peer_id, &addrs, &info.protocols);
-            }
+        if !is_relayed_peer
+            && !self.initial_bootstrap.is_bootstrap_peer(&peer_id)
+            && let Some(relay_manager) = self.relay_manager.as_mut()
+        {
+            debug!("Adding candidate relay server {peer_id:?}, it's not a bootstrap node");
+            relay_manager.add_potential_candidates(&peer_id, &addrs, &info.protocols);
         }
 
         let (kbucket_full, already_present_in_rt, ilog2) =

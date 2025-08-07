@@ -225,26 +225,26 @@ async fn data_availability_during_churn() -> Result<()> {
                 "Store chunks task has finished before the test duration. Probably due to an error."
             );
         }
-        if let Some(handle) = &create_pointer_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create Pointers task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_pointer_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create Pointers task has finished before the test duration. Probably due to an error."
+            );
         }
-        if let Some(handle) = &create_graph_entry_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create GraphEntry task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_graph_entry_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create GraphEntry task has finished before the test duration. Probably due to an error."
+            );
         }
-        if let Some(handle) = &create_scratchpad_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create ScratchPad task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_scratchpad_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create ScratchPad task has finished before the test duration. Probably due to an error."
+            );
         }
 
         let failed = failures.read().await;

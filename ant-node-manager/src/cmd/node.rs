@@ -427,11 +427,11 @@ pub async fn stop(
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
 
-        if service_manager.service.status().await == ServiceStatus::Running {
-            if let Some(interval) = interval {
-                debug!("Sleeping for {} milliseconds", interval);
-                std::thread::sleep(std::time::Duration::from_millis(interval));
-            }
+        if service_manager.service.status().await == ServiceStatus::Running
+            && let Some(interval) = interval
+        {
+            debug!("Sleeping for {} milliseconds", interval);
+            std::thread::sleep(std::time::Duration::from_millis(interval));
         }
         match service_manager.stop().await {
             Ok(()) => {
@@ -837,12 +837,13 @@ async fn get_services_for_ops(
                 .map_err(|_| eyre!(format!("Error parsing PeerId: '{peer_id_str}'")))?;
             for node in node_registry.nodes.read().await.iter() {
                 let node_read = node.read().await;
-                if let Some(peer_id) = node_read.peer_id {
-                    if peer_id == given_peer_id && node_read.status != ServiceStatus::Removed {
-                        services.push(Arc::clone(node));
-                        found_service_with_peer_id = true;
-                        break;
-                    }
+                if let Some(peer_id) = node_read.peer_id
+                    && peer_id == given_peer_id
+                    && node_read.status != ServiceStatus::Removed
+                {
+                    services.push(Arc::clone(node));
+                    found_service_with_peer_id = true;
+                    break;
                 }
             }
             if !found_service_with_peer_id {

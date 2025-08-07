@@ -126,7 +126,7 @@ impl ChangeConnectionModePopUp {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         let pop_up_border: Paragraph = Paragraph::new("").block(
             Block::default()
                 .borders(Borders::ALL)
@@ -220,7 +220,7 @@ impl ChangeConnectionModePopUp {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         // layer zero
         let pop_up_border = Paragraph::new("").block(
             Block::default()
@@ -519,7 +519,7 @@ pub struct ConnectionModeItem {
 }
 
 impl ConnectionModeItem {
-    fn to_list_item(&self, _index: usize, _width: usize) -> ListItem {
+    fn to_list_item(&self, _index: usize, _width: usize) -> ListItem<'_> {
         let line = match self.status {
             ConnectionModeStatus::NotSelected => Line::from(vec![
                 Span::raw("   "),

@@ -143,10 +143,10 @@ impl ReplicationFetcher {
             return;
         };
 
-        if let Some(old_farthest_distance) = self.farthest_acceptable_distance {
-            if new_farthest_distance >= old_farthest_distance {
-                return;
-            }
+        if let Some(old_farthest_distance) = self.farthest_acceptable_distance
+            && new_farthest_distance >= old_farthest_distance
+        {
+            return;
         }
 
         // Remove any ongoing or pending fetches that is farther than the current farthest
@@ -452,11 +452,11 @@ impl ReplicationFetcher {
             }
 
             // Check distance constraints
-            if let Some(farthest_distance) = self.farthest_acceptable_distance {
-                if self_address.distance(&addr) > farthest_distance {
-                    out_of_range_keys.push(addr);
-                    continue;
-                }
+            if let Some(farthest_distance) = self.farthest_acceptable_distance
+                && self_address.distance(&addr) > farthest_distance
+            {
+                out_of_range_keys.push(addr);
+                continue;
             }
 
             new_incoming_keys.push((addr, record_type));

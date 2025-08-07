@@ -109,10 +109,10 @@ impl NetworkAddress {
 
     /// Try to return the represented `PeerId`.
     pub fn as_peer_id(&self) -> Option<PeerId> {
-        if let NetworkAddress::PeerId(bytes) = self {
-            if let Ok(peer_id) = PeerId::from_bytes(bytes) {
-                return Some(peer_id);
-            }
+        if let NetworkAddress::PeerId(bytes) = self
+            && let Ok(peer_id) = PeerId::from_bytes(bytes)
+        {
+            return Some(peer_id);
         }
         None
     }

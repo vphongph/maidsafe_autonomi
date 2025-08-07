@@ -457,21 +457,21 @@ async fn analyze_datamap_old(
         });
     }
 
-            // Convert old format of DataMap into new
-            let chunk_identifiers: Vec<ChunkInfo> = map
-                .infos()
-                .iter()
-                .map(|ck_info| ChunkInfo {
-                    index: ck_info.index,
-                    dst_hash: ck_info.dst_hash,
-                    src_hash: ck_info.src_hash,
-                    src_size: ck_info.src_size,
-                })
-                .collect();
-            let data_map = DataMap {
-                chunk_identifiers,
-                child: None,
-            };
+    // Convert old format of DataMap into new
+    let chunk_identifiers: Vec<ChunkInfo> = map
+        .infos()
+        .iter()
+        .map(|ck_info| ChunkInfo {
+            index: ck_info.index,
+            dst_hash: ck_info.dst_hash,
+            src_hash: ck_info.src_hash,
+            src_size: ck_info.src_size,
+        })
+        .collect();
+    let data_map = DataMap {
+        chunk_identifiers,
+        child: None,
+    };
 
     let analysis = match stored_at {
         Some(addr) => Analysis::DataMap {

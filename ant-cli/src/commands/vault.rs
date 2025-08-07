@@ -120,6 +120,8 @@ fn prevent_loss_of_keys(net_user_data: &UserData) -> Result<()> {
         file_archives: _,
         private_file_archives: _,
         register_addresses: _,
+        public_files: _,
+        private_files: _,
     } = net_user_data;
 
     let mut endangered_key_types = Vec::new();

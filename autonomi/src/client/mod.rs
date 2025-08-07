@@ -167,6 +167,8 @@ pub enum GetError {
     RecordKindMismatch(RecordKind),
     #[error("Configuration error: {0}")]
     Configuration(String),
+    #[error("Unable to recogonize the so claimed DataMap: {0}")]
+    UnrecognizedDataMap(String),
 }
 
 impl Client {

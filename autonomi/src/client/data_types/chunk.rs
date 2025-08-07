@@ -28,13 +28,14 @@ use ant_protocol::{
 };
 use bytes::Bytes;
 use libp2p::kad::Record;
-use self_encryption::{DataMap, EncryptedChunk, decrypt_full_set};
+use self_encryption::{ChunkInfo, DataMap, EncryptedChunk, decrypt, get_root_data_map};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     sync::LazyLock,
 };
+use xor_name::XorName;
 
 /// Number of chunks to upload in parallel.
 ///
@@ -469,21 +470,86 @@ impl Client {
         Ok(*chunk.address())
     }
 
-    /// Unpack a wrapped data map and fetch all bytes using self-encryption.
-    pub(crate) async fn fetch_from_data_map_chunk(
+    /// Generic function to unpack a wrapped data map and fetch all bytes using self-encryption.
+    /// This function automatically detects whether the data map is in the old format (DataMapLevel)
+    /// or new format (DataMap) and calls the appropriate handler for backward compatibility.
+    pub async fn fetch_from_data_map_chunk(
         &self,
         data_map_bytes: &Bytes,
     ) -> Result<Bytes, GetError> {
-        let mut data_map_level: DataMapLevel = rmp_serde::from_slice(data_map_bytes)
-            .map_err(GetError::InvalidDataMap)
-            .inspect_err(|err| error!("Error deserializing data map: {err:?}"))?;
+        debug!(
+            "Attempting to detect data map format from {} bytes",
+            data_map_bytes.len()
+        );
 
+        // Try to deserialize as new format (DataMap) first
+        let new_format_result = rmp_serde::from_slice::<DataMap>(data_map_bytes);
+        match new_format_result {
+            Ok(data_map) => {
+                info!(
+                    "Successfully detected new DataMap format with {} chunk infos",
+                    data_map.infos().len()
+                );
+                debug!("Using new format handler for DataMap");
+                self.fetch_from_data_map_chunk_new(data_map).await
+            }
+            Err(new_err) => {
+                debug!("Failed to deserialize as new DataMap format: {new_err:?}");
+
+                // If new format fails, try old format (DataMapLevel)
+                let old_format_result = rmp_serde::from_slice::<DataMapLevel>(data_map_bytes);
+                match old_format_result {
+                    Ok(data_map_level) => {
+                        info!("Successfully detected old DataMapLevel format");
+                        debug!("Using old format handler for DataMapLevel");
+                        self.fetch_from_data_map_chunk_old(data_map_level).await
+                    }
+                    Err(old_err) => {
+                        error!("Failed to deserialize data map as either format:");
+                        error!("  New format (DataMap) error: {new_err:?}");
+                        error!("  Old format (DataMapLevel) error: {old_err:?}");
+                        error!("  Data map bytes length: {}", data_map_bytes.len());
+                        error!(
+                            "  Data map bytes (first 100 bytes): {:?}",
+                            &data_map_bytes[..std::cmp::min(100, data_map_bytes.len())]
+                        );
+
+                        Err(GetError::UnrecognizedDataMap(format!(
+                            "Data map format not recognized. New format error: {new_err:?}, Old format error: {old_err:?}"
+                        )))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Unpack a wrapped data map and fetch all bytes using self-encryption (old format).
+    async fn fetch_from_data_map_chunk_old(
+        &self,
+        mut data_map_level: DataMapLevel,
+    ) -> Result<Bytes, GetError> {
         loop {
-            let data_map = match &data_map_level {
+            let old_data_map = match &data_map_level {
                 DataMapLevel::First(map) => map,
                 DataMapLevel::Additional(map) => map,
             };
-            let data = self.fetch_from_data_map(data_map).await?;
+
+            // Convert old format of DataMap into new
+            let chunk_identifiers: Vec<ChunkInfo> = old_data_map
+                .infos()
+                .iter()
+                .map(|ck_info| ChunkInfo {
+                    index: ck_info.index,
+                    dst_hash: ck_info.dst_hash,
+                    src_hash: ck_info.src_hash,
+                    src_size: ck_info.src_size,
+                })
+                .collect();
+            let data_map = DataMap {
+                chunk_identifiers,
+                child: None,
+            };
+            let data = self.fetch_from_data_map(&data_map).await?;
 
             match &data_map_level {
                 DataMapLevel::First(_) => break Ok(data),
@@ -498,8 +564,77 @@ impl Client {
         }
     }
 
+    // self_encryption now changed to always return a data_map pointing to the 3 datamap_chunks.
+    // Hence, the input data_map_bytes is actually the root_data_map pointing to that 3 datamap_chunks.
+    // The downloading work flow then shall be:
+    //   * fetch that 3 datamap_chunks first
+    //   * compose the real datamap of the file, from that 3 datamap_chunks
+    //   * repeat the above two steps if the recovered data_map contains chiled
+    //   * fetch the leftover content chunks to compose the file
+    async fn fetch_from_data_map_chunk_new(
+        &self,
+        root_data_map: DataMap,
+    ) -> Result<Bytes, GetError> {
+        let file_data_map = self.fetch_data_map(&root_data_map)?;
+        debug!("Fetched file_data_map: {file_data_map:?}");
+        let data_bytes = self.fetch_from_data_map(&file_data_map).await?;
+        Ok(data_bytes)
+    }
+
+    /// Fetch and decrypt file data_map from the root one using lazy evaluation.
+    /// Chunks are only fetched from the network when actually needed by get_root_data_map.
+    fn fetch_data_map(&self, data_map: &DataMap) -> Result<DataMap, GetError> {
+        let total_chunks = data_map.infos().len();
+        #[cfg(feature = "loud")]
+        println!(
+            "Setting up lazy chunk fetching for {total_chunks} chunks of data_map {data_map:?}"
+        );
+        debug!("Setting up lazy chunk fetching for {total_chunks} chunks of data_map {data_map:?}");
+
+        // Create a closure that fetches chunks on-demand
+        let client = self.clone();
+        let mut chunk_fetcher = move |xor_name: XorName| -> Result<Bytes, self_encryption::Error> {
+            let chunk_addr = ChunkAddress::new(xor_name);
+
+            // Use tokio::task::spawn_blocking to handle the async operation in a sync context
+            let fetch_result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { client.chunk_get(&chunk_addr).await })
+            });
+
+            match fetch_result {
+                Ok(chunk) => {
+                    #[cfg(feature = "loud")]
+                    println!("Successfully fetched chunk for XorName: {xor_name:?}");
+                    debug!("Successfully fetched chunk for XorName: {xor_name:?}");
+                    Ok(chunk.value)
+                }
+                Err(err) => {
+                    #[cfg(feature = "loud")]
+                    println!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
+                    error!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
+                    Err(self_encryption::Error::Generic(format!(
+                        "Failed to fetch chunk for XorName {xor_name:?}: {err:?}"
+                    )))
+                }
+            }
+        };
+
+        let result_data_map =
+            get_root_data_map(data_map.clone(), &mut chunk_fetcher).map_err(|e| {
+                error!("Error processing data_map: {e:?}");
+                GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e))
+            })?;
+
+        #[cfg(feature = "loud")]
+        println!("Successfully processed data_map with lazy chunk fetching");
+        debug!("Successfully processed data_map with lazy chunk fetching");
+
+        Ok(result_data_map)
+    }
+
     /// Fetch and decrypt all chunks in the data map.
-    pub(crate) async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
+    async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
         println!("Fetching {total_chunks} encrypted data chunks from network.");
@@ -527,7 +662,6 @@ impl Client {
                         println!("Fetching chunk {idx}/{total_chunks} [DONE]");
                         info!("Successfully fetched chunk {idx}/{total_chunks}({chunk_addr:?})");
                         Ok(EncryptedChunk {
-                            index: info.index,
                             content: chunk.value,
                         })
                     }
@@ -551,7 +685,7 @@ impl Client {
         println!("Successfully fetched all {total_chunks} encrypted chunks");
         debug!("Successfully fetched all {total_chunks} encrypted chunks");
 
-        let data = decrypt_full_set(data_map, &encrypted_chunks).map_err(|e| {
+        let data = decrypt(data_map, &encrypted_chunks).map_err(|e| {
             error!("Error decrypting encrypted_chunks: {e:?}");
             GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e))
         })?;

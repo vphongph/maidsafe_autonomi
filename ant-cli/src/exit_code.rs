@@ -59,6 +59,7 @@ pub(crate) fn get_error_exit_code(err: &GetError) -> i32 {
         GetError::RecordNotFound => 33,
         GetError::RecordKindMismatch(_) => 34,
         GetError::Configuration(_) => 35,
+        GetError::UnrecognizedDataMap(_) => 31,
     }
 }
 

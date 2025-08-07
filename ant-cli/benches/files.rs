@@ -10,15 +10,15 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use rand::{Rng, thread_rng};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use rand::{thread_rng, Rng};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{
     collections::HashSet,
     fs::File,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, exit},
+    process::{exit, Command},
     time::Duration,
 };
 use tempfile::tempdir;
@@ -52,11 +52,28 @@ fn autonomi_file_upload(dir: &str) -> String {
         let out = output.stdout;
         let out_string = String::from_utf8(out).expect("Failed to parse output string");
         println!("upload output is :\n{out_string:?}");
+
+        // Debug: print all lines to see what we're working with
+        println!("All lines in output:");
+        for (i, line) in out_string.lines().enumerate() {
+            println!("Line {i}: {line:?}");
+            if line.contains("At address:") {
+                println!("Found line with 'At address:' at index {i}");
+            }
+        }
+
         let address = out_string
             .lines()
-            .find(|line| line.starts_with("At address:"))
+            .find(|line| line.contains("At address:"))
             .expect("Failed to find the address of the uploaded file");
-        let address = address.trim_start_matches("At address: ");
+
+        // Extract the address from the line
+        let address = address
+            .split("At address:")
+            .nth(1)
+            .expect("Failed to extract address from line")
+            .trim();
+
         address.to_string()
     }
 }

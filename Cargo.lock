@@ -978,7 +978,6 @@ dependencies = [
  "rayon",
  "reqwest 0.12.22",
  "rmp-serde",
- "self_encryption 0.32.0",
  "serde",
  "serde_json",
  "sha2",

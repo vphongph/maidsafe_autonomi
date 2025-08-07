@@ -19,13 +19,13 @@ use ant_protocol::{
     NetworkAddress,
     storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget, ScratchpadAddress},
 };
+use autonomi::self_encryption::MAX_CHUNK_SIZE;
 use autonomi::{Client, Wallet, data::DataAddress};
 use bls::{PublicKey, SecretKey};
 use bytes::Bytes;
 use common::client::transfer_to_new_wallet;
 use eyre::{ErrReport, Result, bail};
 use rand::Rng;
-use self_encryption::MAX_CHUNK_SIZE;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     fmt,

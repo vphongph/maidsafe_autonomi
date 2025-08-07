@@ -158,7 +158,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         // use of ChunkManager means that we don't upload the same file twice and the `uploaded_files` file is now read
         // as a set and we don't download the same file twice. Hence create 23 files as counted from the logs
         // pre ChunkManager change.
-        let file_paths: Vec<PathBuf> = (0..23)
+        //
+        // With the client performance improved, more random_files need to be generated to avoid
+        // upload same content that pollutes the tests.
+        let file_paths: Vec<PathBuf> = (0..50)
             .into_par_iter()
             .map(|idx| {
                 let path = temp_dir_path.join(format!("random_file_{size}_mb_{idx}"));
@@ -179,8 +182,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         group.warm_up_time(Duration::from_secs(5));
         group.sample_size(SAMPLE_SIZE);
 
-        // Create an iterator that cycles through the file paths
-        let mut file_path_iter = file_paths.iter().cycle();
+        // Create an iterator. Shall not use `cycle` to avoid upload duplicated content.
+        let mut file_path_iter = file_paths.iter();
 
         // Set the throughput to be reported in terms of bytes
         group.throughput(Throughput::Bytes(size * 1024 * 1024));

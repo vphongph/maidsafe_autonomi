@@ -383,6 +383,14 @@ pub async fn run_node(
     launcher: &dyn Launcher,
     rpc_client: &dyn RpcActions,
 ) -> Result<NodeServiceData> {
+    // For local network, after the first node got launched,
+    // it takes little bit time to setup the contact_service.
+    // Hence need an extra wait before launching the second node.
+    if run_options.number == 2 {
+        // in milliseconds
+        launcher.wait(5000);
+    }
+
     info!("Launching node {}...", run_options.number);
     println!("Launching node {}...", run_options.number);
     launcher.launch_node(

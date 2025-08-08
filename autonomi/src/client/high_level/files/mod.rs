@@ -19,7 +19,11 @@ use crate::client::{GetError, PutError, quote::CostError};
 pub mod archive_private;
 pub mod archive_public;
 pub mod fs_private;
+#[cfg(test)]
+mod fs_private_test;
 pub mod fs_public;
+#[cfg(test)]
+mod fs_public_test;
 
 pub use archive_private::PrivateArchive;
 pub use archive_public::PublicArchive;

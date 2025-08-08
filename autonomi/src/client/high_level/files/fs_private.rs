@@ -9,11 +9,14 @@
 use super::archive_private::{PrivateArchive, PrivateArchiveDataMap};
 use super::{DownloadError, UploadError};
 
-use crate::client::data_types::chunk::DataMapChunk;
+use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::payment::PaymentOption;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::{AttoTokens, Client};
 use bytes::Bytes;
+use self_encryption::streaming_decrypt_from_storage;
 use std::path::PathBuf;
+use xor_name::XorName;
 
 impl Client {
     /// Download a private file from network to local file system
@@ -22,12 +25,44 @@ impl Client {
         data_access: &DataMapChunk,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
-        let data = self.data_get(data_access).await?;
+        info!("Downloading file to {to_dest:?}");
+
+        // Create parent directories if needed
         if let Some(parent) = to_dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
             debug!("Created parent directories for {to_dest:?}");
         }
-        tokio::fs::write(to_dest.clone(), data).await?;
+
+        // Deserialize the data map from the chunk
+        let data_map_bytes = data_access.0.value();
+        let data_map = self.deserialize_data_map(data_map_bytes)?;
+
+        // Create parallel chunk fetcher for streaming decryption
+        let client_clone = self.clone();
+        let parallel_chunk_fetcher =
+            move |chunk_names: &[XorName]| -> Result<Vec<Bytes>, self_encryption::Error> {
+                let chunk_addresses: Vec<ChunkAddress> = chunk_names
+                    .iter()
+                    .map(|name| ChunkAddress::new(*name))
+                    .collect();
+
+                // Use tokio::task::block_in_place to handle async in sync context
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        client_clone.fetch_chunks_parallel(&chunk_addresses).await
+                    })
+                })
+            };
+
+        // Stream decrypt directly to file
+        streaming_decrypt_from_storage(&data_map, &to_dest, parallel_chunk_fetcher).map_err(
+            |e| {
+                DownloadError::GetError(crate::client::GetError::Decryption(
+                    crate::self_encryption::Error::SelfEncryption(e),
+                ))
+            },
+        )?;
+
         debug!("Downloaded file to {to_dest:?}");
         Ok(())
     }
@@ -139,5 +174,78 @@ impl Client {
         let (total_cost, addr) = self.data_put(data, payment_option).await?;
         debug!("Uploaded file successfully in the privateAchive: {addr:?}");
         Ok((total_cost, addr))
+    }
+
+    /// Deserialize data map from bytes, handling both old and new formats
+    fn deserialize_data_map(
+        &self,
+        data_map_bytes: &Bytes,
+    ) -> Result<self_encryption::DataMap, DownloadError> {
+        // Try new format first
+        if let Ok(data_map) = rmp_serde::from_slice::<self_encryption::DataMap>(data_map_bytes) {
+            return Ok(data_map);
+        }
+
+        // Fall back to old format and convert
+        let data_map_level =
+            rmp_serde::from_slice::<crate::self_encryption::DataMapLevel>(data_map_bytes)
+                .map_err(|e| DownloadError::GetError(crate::client::GetError::InvalidDataMap(e)))?;
+
+        let old_data_map = match &data_map_level {
+            crate::self_encryption::DataMapLevel::First(map) => map,
+            crate::self_encryption::DataMapLevel::Additional(map) => map,
+        };
+
+        // Convert to new format
+        let chunk_identifiers: Vec<self_encryption::ChunkInfo> = old_data_map
+            .infos()
+            .iter()
+            .map(|ck_info| self_encryption::ChunkInfo {
+                index: ck_info.index,
+                dst_hash: ck_info.dst_hash,
+                src_hash: ck_info.src_hash,
+                src_size: ck_info.src_size,
+            })
+            .collect();
+
+        Ok(self_encryption::DataMap {
+            chunk_identifiers,
+            child: None,
+        })
+    }
+
+    /// Fetch multiple chunks in parallel from the network
+    async fn fetch_chunks_parallel(
+        &self,
+        chunk_addresses: &[ChunkAddress],
+    ) -> Result<Vec<Bytes>, self_encryption::Error> {
+        let mut download_tasks = vec![];
+
+        for chunk_addr in chunk_addresses {
+            let client_clone = self.clone();
+            let addr_clone = *chunk_addr;
+
+            download_tasks.push(async move {
+                client_clone
+                    .chunk_get(&addr_clone)
+                    .await
+                    .map(|chunk| chunk.value)
+                    .map_err(|e| {
+                        self_encryption::Error::Generic(format!(
+                            "Failed to fetch chunk {addr_clone:?}: {e:?}"
+                        ))
+                    })
+            });
+        }
+
+        let chunks = process_tasks_with_max_concurrency(
+            download_tasks,
+            *crate::client::data_types::chunk::CHUNK_DOWNLOAD_BATCH_SIZE,
+        )
+        .await
+        .into_iter()
+        .collect::<Result<Vec<Bytes>, self_encryption::Error>>()?;
+
+        Ok(chunks)
     }
 }

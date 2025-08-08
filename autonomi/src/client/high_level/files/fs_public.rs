@@ -13,7 +13,6 @@ use crate::client::Client;
 use crate::client::data_types::chunk::ChunkAddress;
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
-use crate::client::utils::process_tasks_with_max_concurrency;
 use bytes::Bytes;
 use self_encryption::streaming_decrypt_from_storage;
 use std::path::PathBuf;
@@ -39,7 +38,7 @@ impl Client {
         let data_map_chunk = self
             .chunk_get(&ChunkAddress::new(*data_addr.xorname()))
             .await?;
-        let data_map = self.deserialize_public_data_map(data_map_chunk.value())?;
+        let data_map = self.deserialize_data_map(data_map_chunk.value())?;
 
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();
@@ -53,9 +52,7 @@ impl Client {
                 // Use tokio::task::block_in_place to handle async in sync context
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        client_clone
-                            .fetch_chunks_parallel_public(&chunk_addresses)
-                            .await
+                        client_clone.fetch_chunks_parallel(&chunk_addresses).await
                     })
                 })
             };
@@ -232,79 +229,6 @@ impl Client {
         let total_cost = self.get_cost_estimation(content_addrs).await?;
         debug!("Total cost for the directory: {total_cost:?}");
         Ok(total_cost)
-    }
-
-    /// Deserialize data map from bytes for public data, handling both old and new formats
-    fn deserialize_public_data_map(
-        &self,
-        data_map_bytes: &Bytes,
-    ) -> Result<self_encryption::DataMap, DownloadError> {
-        // Try new format first
-        if let Ok(data_map) = rmp_serde::from_slice::<self_encryption::DataMap>(data_map_bytes) {
-            return Ok(data_map);
-        }
-
-        // Fall back to old format and convert
-        let data_map_level =
-            rmp_serde::from_slice::<crate::self_encryption::DataMapLevel>(data_map_bytes)
-                .map_err(|e| DownloadError::GetError(crate::client::GetError::InvalidDataMap(e)))?;
-
-        let old_data_map = match &data_map_level {
-            crate::self_encryption::DataMapLevel::First(map) => map,
-            crate::self_encryption::DataMapLevel::Additional(map) => map,
-        };
-
-        // Convert to new format
-        let chunk_identifiers: Vec<self_encryption::ChunkInfo> = old_data_map
-            .infos()
-            .iter()
-            .map(|ck_info| self_encryption::ChunkInfo {
-                index: ck_info.index,
-                dst_hash: ck_info.dst_hash,
-                src_hash: ck_info.src_hash,
-                src_size: ck_info.src_size,
-            })
-            .collect();
-
-        Ok(self_encryption::DataMap {
-            chunk_identifiers,
-            child: None,
-        })
-    }
-
-    /// Fetch multiple chunks in parallel from the network for public data
-    async fn fetch_chunks_parallel_public(
-        &self,
-        chunk_addresses: &[ChunkAddress],
-    ) -> Result<Vec<Bytes>, self_encryption::Error> {
-        let mut download_tasks = vec![];
-
-        for chunk_addr in chunk_addresses {
-            let client_clone = self.clone();
-            let addr_clone = *chunk_addr;
-
-            download_tasks.push(async move {
-                client_clone
-                    .chunk_get(&addr_clone)
-                    .await
-                    .map(|chunk| chunk.value)
-                    .map_err(|e| {
-                        self_encryption::Error::Generic(format!(
-                            "Failed to fetch chunk {addr_clone:?}: {e:?}"
-                        ))
-                    })
-            });
-        }
-
-        let chunks = process_tasks_with_max_concurrency(
-            download_tasks,
-            *crate::client::data_types::chunk::CHUNK_DOWNLOAD_BATCH_SIZE,
-        )
-        .await
-        .into_iter()
-        .collect::<Result<Vec<Bytes>, self_encryption::Error>>()?;
-
-        Ok(chunks)
     }
 }
 

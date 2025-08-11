@@ -38,20 +38,21 @@ impl Client {
 
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();
-        let parallel_chunk_fetcher =
-            move |chunk_names: &[XorName]| -> Result<Vec<Bytes>, self_encryption::Error> {
-                let chunk_addresses: Vec<ChunkAddress> = chunk_names
-                    .iter()
-                    .map(|name| ChunkAddress::new(*name))
-                    .collect();
+        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
+            Vec<(usize, Bytes)>,
+            self_encryption::Error,
+        > {
+            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
+                .iter()
+                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
+                .collect();
 
-                // Use tokio::task::block_in_place to handle async in sync context
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        client_clone.fetch_chunks_parallel(&chunk_addresses).await
-                    })
-                })
-            };
+            // Use tokio::task::block_in_place to handle async in sync context
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { client_clone.fetch_chunks_parallel(&chunk_addresses).await })
+            })
+        };
 
         // Stream decrypt directly to file
         streaming_decrypt_from_storage(&data_map, &to_dest, parallel_chunk_fetcher).map_err(

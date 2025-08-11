@@ -8505,8 +8505,7 @@ dependencies = [
 [[package]]
 name = "self_encryption"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f865256fc2075a28be19d56944f68b552076088c5ccc072db0c8626599ca35b6"
+source = "git+https://github.com/maqi/self_encryption.git?branch=correct_streaming_decrypt_from_storage#cb6d056454c3af0fb6c96ca82e904bf2228cdcf7"
 dependencies = [
  "aes",
  "bincode",

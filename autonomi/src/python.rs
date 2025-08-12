@@ -59,51 +59,75 @@ use crate::{
 fn scratchpad_error_to_py_err(
     error: crate::client::data_types::scratchpad::ScratchpadError,
 ) -> PyErr {
+    // Use the original Rust error message directly
+    PyRuntimeError::new_err(format!("{error}"))
+}
+
+/// Enhanced helper that can decrypt conflicting data when owner key is available
+fn scratchpad_error_to_py_err_with_owner(
+    error: crate::client::data_types::scratchpad::ScratchpadError,
+    owner_key: Option<&crate::client::data_types::scratchpad::SecretKey>,
+) -> PyErr {
     use crate::client::data_types::scratchpad::ScratchpadError;
 
     match error {
         ScratchpadError::Fork(conflicting_scratchpads) => {
-            let py_scratchpads: Vec<PyScratchpad> = conflicting_scratchpads
-                .into_iter()
-                .map(|s| PyScratchpad { inner: s })
-                .collect();
+            let mut message = format!("{}", ScratchpadError::Fork(conflicting_scratchpads.clone()));
 
-            let message = format!(
-                "Got multiple conflicting scratchpads with the latest version, the fork can be resolved by putting a new scratchpad with a higher counter. Found {} conflicting scratchpads.",
-                py_scratchpads.len()
-            );
+            // If we have the owner key, decrypt and show the actual conflicting data
+            if let Some(owner) = owner_key {
+                message.push_str("\n\nConflicting data content:");
 
-            // For now, create a detailed error message that includes the fork information
-            let details: Vec<String> = py_scratchpads
-                .iter()
-                .enumerate()
-                .map(|(i, s)| {
-                    format!(
-                        "  Scratchpad {}: Address={}, Counter={}, DataEncoding={}",
-                        i + 1,
-                        s.inner.address().to_hex(),
-                        s.inner.counter(),
-                        s.inner.data_encoding()
-                    )
-                })
-                .collect();
+                for (i, scratchpad) in conflicting_scratchpads.iter().enumerate() {
+                    match scratchpad.decrypt_data(owner) {
+                        Ok(decrypted_bytes) => match String::from_utf8(decrypted_bytes.to_vec()) {
+                            Ok(decrypted_text) => {
+                                message.push_str(&format!(
+                                    "\n  Conflict {}: \"{}\" (Counter: {}, Hash: {})",
+                                    i + 1,
+                                    decrypted_text,
+                                    scratchpad.counter(),
+                                    hex::encode(scratchpad.encrypted_data_hash())[..16].to_string()
+                                        + "..."
+                                ));
+                            }
+                            Err(_) => {
+                                message.push_str(&format!(
+                                        "\n  Conflict {}: <binary data {} bytes> (Counter: {}, Hash: {})",
+                                        i + 1,
+                                        decrypted_bytes.len(),
+                                        scratchpad.counter(),
+                                        hex::encode(scratchpad.encrypted_data_hash())[..16].to_string() + "..."
+                                    ));
+                            }
+                        },
+                        Err(_) => {
+                            message.push_str(&format!(
+                                "\n  Conflict {}: <decryption failed> (Counter: {}, Hash: {})",
+                                i + 1,
+                                scratchpad.counter(),
+                                hex::encode(scratchpad.encrypted_data_hash())[..16].to_string()
+                                    + "..."
+                            ));
+                        }
+                    }
+                }
 
-            let max_counter = py_scratchpads
-                .iter()
-                .map(|s| s.inner.counter())
-                .max()
-                .unwrap_or(0);
+                let max_counter = conflicting_scratchpads
+                    .iter()
+                    .map(|s| s.counter())
+                    .max()
+                    .unwrap_or(0);
 
-            let detailed_message = format!(
-                "{}\nConflicting scratchpads:\n{}\nSuggested next counter: {}",
-                message,
-                details.join("\n"),
-                max_counter + 1
-            );
+                message.push_str(&format!(
+                    "\n\nChoose which data to keep and update with counter: {}",
+                    max_counter + 1
+                ));
+            }
 
-            PyRuntimeError::new_err(detailed_message)
+            PyRuntimeError::new_err(message)
         }
-        _ => PyRuntimeError::new_err(format!("Scratchpad error: {error}")),
+        _ => PyRuntimeError::new_err(format!("{error}")),
     }
 }
 
@@ -517,7 +541,7 @@ impl PyClient {
                     payment,
                 )
                 .await
-                .map_err(scratchpad_error_to_py_err)?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok((cost.to_string(), PyScratchpadAddress { inner: addr }))
         })
@@ -540,7 +564,7 @@ impl PyClient {
             client
                 .scratchpad_update(&owner.inner, content_type, &Bytes::from(data))
                 .await
-                .map_err(scratchpad_error_to_py_err)?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok(())
         })
@@ -571,7 +595,7 @@ impl PyClient {
                     &Bytes::from(data),
                 )
                 .await
-                .map_err(scratchpad_error_to_py_err)?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok(PyScratchpad {
                 inner: new_scratchpad,

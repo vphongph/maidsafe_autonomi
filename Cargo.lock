@@ -8505,7 +8505,7 @@ dependencies = [
 [[package]]
 name = "self_encryption"
 version = "0.32.0"
-source = "git+https://github.com/maqi/self_encryption.git?branch=correct_streaming_decrypt_from_storage#cb6d056454c3af0fb6c96ca82e904bf2228cdcf7"
+source = "git+https://github.com/maqi/self_encryption.git?branch=correct_streaming_decrypt_from_storage#efcacb85b4e0422a065634c25157c1741dc5cd3b"
 dependencies = [
  "aes",
  "bincode",

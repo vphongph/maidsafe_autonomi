@@ -141,6 +141,7 @@ async fn download_public(
     // Try to deserialize as archive
     match PublicArchive::from_bytes(data.clone()) {
         Ok(archive) => {
+            println!("Successfully deserialized as Public Archive at: {addr}");
             info!("Successfully deserialized as Public Archive at: {addr}");
             download_pub_archive_to_disk(addr, archive, dest_path, client).await
         }
@@ -174,21 +175,19 @@ async fn download_pub_archive_to_disk(
         if let Some(progress_bar) = &progress_bar {
             progress_bar.println(format!("Fetching file: {path:?}..."));
         }
-        let bytes = match client.data_get_public(addr).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = format!("Failed to fetch file {path:?}: {e}");
-                all_errs.push(err);
-                last_error = Some(e);
-                continue;
-            }
-        };
 
         let path = PathBuf::from(dest_path).join(path);
         let here = PathBuf::from(".");
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
-        std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?;
+
+        if let Err(e) = client.streaming_data_get_public(addr, path.clone()).await {
+            let err = format!("Failed to fetch file {path:?}: {e}");
+            all_errs.push(err);
+            last_error = Some(e);
+            continue;
+        };
+
         if let Some(progress_bar) = &progress_bar {
             progress_bar.inc(1);
         }

@@ -40,6 +40,8 @@ impl Client {
             .await?;
         let data_map = self.deserialize_data_map(data_map_chunk.value())?;
 
+        info!("Trying to download {:?} chunks.", data_map.infos().len());
+
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();
         let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<

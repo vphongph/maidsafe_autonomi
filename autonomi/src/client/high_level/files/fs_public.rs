@@ -10,14 +10,12 @@ use super::archive_public::{ArchiveAddress, PublicArchive};
 use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::AttoTokens;
 use crate::client::Client;
-use crate::client::data_types::chunk::ChunkAddress;
+use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use bytes::Bytes;
-use self_encryption::streaming_decrypt_from_storage;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-use xor_name::XorName;
 
 impl Client {
     /// Download file from network to local file system
@@ -35,39 +33,13 @@ impl Client {
         }
 
         // Get the data map chunk from the public address
-        let data_map_chunk = self
-            .chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+        let data_map_chunk = DataMapChunk(
+            self.chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+                .await?,
+        );
+
+        self.download_chunks_streamly_to_file(&data_map_chunk, &to_dest)
             .await?;
-        let data_map = self.deserialize_data_map(data_map_chunk.value())?;
-
-        info!("Trying to download {:?} chunks.", data_map.infos().len());
-
-        // Create parallel chunk fetcher for streaming decryption
-        let client_clone = self.clone();
-        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
-            Vec<(usize, Bytes)>,
-            self_encryption::Error,
-        > {
-            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
-                .iter()
-                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
-                .collect();
-
-            // Use tokio::task::block_in_place to handle async in sync context
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { client_clone.fetch_chunks_parallel(&chunk_addresses).await })
-            })
-        };
-
-        // Stream decrypt directly to file
-        streaming_decrypt_from_storage(&data_map, &to_dest, parallel_chunk_fetcher).map_err(
-            |e| {
-                DownloadError::GetError(crate::client::GetError::Decryption(
-                    crate::self_encryption::Error::SelfEncryption(e),
-                ))
-            },
-        )?;
 
         debug!("Downloaded file to {to_dest:?} from the network address {data_addr:?}");
         Ok(())

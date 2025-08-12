@@ -37,7 +37,7 @@ impl Client {
             "Fetching private data from Data Map {:?}",
             data_map.0.address()
         );
-        let data = self.fetch_from_data_map_chunk(data_map.0.value()).await?;
+        let data = self.fetch_from_data_map_chunk(data_map).await?;
 
         debug!("Successfully fetched a blob of private data from the network");
         Ok(data)

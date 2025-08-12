@@ -11,7 +11,7 @@
 //! Tests both private and public data map deserialization methods to ensure
 //! backward compatibility between old (DataMapLevel) and new (DataMap) formats.
 
-use autonomi::files::DownloadError;
+use autonomi::client::Client;
 use bytes::{BufMut, Bytes, BytesMut};
 use eyre::Result;
 use self_encryption::DataMap;
@@ -50,41 +50,6 @@ fn serialize_to_bytes<T: Serialize>(data: &T) -> Result<Bytes> {
     let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
     data.serialize(&mut serialiser)?;
     Ok(bytes.into_inner().freeze())
-}
-
-/// Shared data map deserialization logic used by both private and public clients
-fn deserialize_data_map(data_map_bytes: &Bytes) -> Result<self_encryption::DataMap, DownloadError> {
-    // Try new format first
-    if let Ok(data_map) = rmp_serde::from_slice::<self_encryption::DataMap>(data_map_bytes) {
-        return Ok(data_map);
-    }
-
-    // Fall back to old format and convert
-    let data_map_level =
-        rmp_serde::from_slice::<autonomi::self_encryption::DataMapLevel>(data_map_bytes)
-            .map_err(|e| DownloadError::GetError(autonomi::client::GetError::InvalidDataMap(e)))?;
-
-    let old_data_map = match &data_map_level {
-        autonomi::self_encryption::DataMapLevel::First(map) => map,
-        autonomi::self_encryption::DataMapLevel::Additional(map) => map,
-    };
-
-    // Convert to new format
-    let chunk_identifiers: Vec<self_encryption::ChunkInfo> = old_data_map
-        .infos()
-        .iter()
-        .map(|ck_info| self_encryption::ChunkInfo {
-            index: ck_info.index,
-            dst_hash: ck_info.dst_hash,
-            src_hash: ck_info.src_hash,
-            src_size: ck_info.src_size,
-        })
-        .collect();
-
-    Ok(self_encryption::DataMap {
-        chunk_identifiers,
-        child: None,
-    })
 }
 
 /// Test helper for verifying chunk info equivalence
@@ -127,7 +92,7 @@ fn test_private_data_map_new_format() -> Result<()> {
     };
 
     let data_map_bytes = serialize_to_bytes(&new_data_map)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -146,7 +111,7 @@ fn test_private_data_map_old_format_first() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::First(old_data_map.clone());
 
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -165,7 +130,7 @@ fn test_private_data_map_old_format_additional() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::Additional(old_data_map.clone());
 
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -181,14 +146,14 @@ fn test_private_data_map_old_format_additional() -> Result<()> {
 #[test]
 fn test_private_data_map_invalid_data() -> Result<()> {
     let invalid_data = Bytes::from_static(b"invalid msgpack data for private test");
-    let result = deserialize_data_map(&invalid_data);
+    let result = Client::deserialize_data_map(&invalid_data);
 
     assert!(
         result.is_err(),
         "Should have failed to deserialize invalid data"
     );
     match result.unwrap_err() {
-        DownloadError::GetError(autonomi::client::GetError::InvalidDataMap(_)) => {
+        autonomi::client::GetError::InvalidDataMap(_) => {
             // Expected error type
         }
         other => panic!("Unexpected error type: {other:?}"),
@@ -243,8 +208,8 @@ fn test_private_data_map_format_equivalence() -> Result<()> {
     let new_data_bytes = serialize_to_bytes(&new_data_map)?;
     let old_data_bytes = serialize_to_bytes(&data_map_level)?;
 
-    let new_result = deserialize_data_map(&new_data_bytes).unwrap();
-    let old_result = deserialize_data_map(&old_data_bytes).unwrap();
+    let new_result = Client::deserialize_data_map(&new_data_bytes).unwrap();
+    let old_result = Client::deserialize_data_map(&old_data_bytes).unwrap();
 
     // Both should produce identical results
     assert_chunk_info_eq(&new_result.infos(), &old_result.infos());
@@ -263,7 +228,7 @@ fn test_public_data_map_new_format() -> Result<()> {
     };
 
     let data_map_bytes = serialize_to_bytes(&new_data_map)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -282,7 +247,7 @@ fn test_public_data_map_old_format_first() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::First(old_data_map.clone());
 
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -301,7 +266,7 @@ fn test_public_data_map_old_format_additional() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::Additional(old_data_map.clone());
 
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
 
     assert!(
         result.is_ok(),
@@ -317,14 +282,14 @@ fn test_public_data_map_old_format_additional() -> Result<()> {
 #[test]
 fn test_public_data_map_invalid_data() -> Result<()> {
     let invalid_data = Bytes::from_static(b"this is not valid msgpack data");
-    let result = deserialize_data_map(&invalid_data);
+    let result = Client::deserialize_data_map(&invalid_data);
 
     assert!(
         result.is_err(),
         "Should have failed to deserialize invalid data"
     );
     match result.unwrap_err() {
-        DownloadError::GetError(autonomi::client::GetError::InvalidDataMap(_)) => {
+        autonomi::client::GetError::InvalidDataMap(_) => {
             // Expected error type
         }
         other => panic!("Unexpected error type: {other:?}"),
@@ -342,7 +307,7 @@ fn test_public_data_map_empty() -> Result<()> {
     };
     let data_map_bytes = serialize_to_bytes(&empty_new_data_map)?;
 
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
     assert!(
         result.is_ok(),
         "Failed to deserialize empty new format: {:?}",
@@ -356,7 +321,7 @@ fn test_public_data_map_empty() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::First(empty_old_data_map);
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
 
-    let result = deserialize_data_map(&data_map_bytes);
+    let result = Client::deserialize_data_map(&data_map_bytes);
     assert!(
         result.is_ok(),
         "Failed to deserialize empty old format: {:?}",
@@ -394,7 +359,7 @@ fn test_public_data_map_round_trip() -> Result<()> {
     let data_map_level = autonomi::self_encryption::DataMapLevel::First(old_data_map);
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;
 
-    let result = deserialize_data_map(&data_map_bytes).unwrap();
+    let result = Client::deserialize_data_map(&data_map_bytes).unwrap();
 
     assert_eq!(result.infos().len(), expected_chunks.len());
     for ((expected_index, expected_dst, expected_src, expected_size), actual) in

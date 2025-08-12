@@ -72,7 +72,7 @@ fn test_old_encrypt_new_decrypt() -> Result<(), Box<dyn std::error::Error>> {
 async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::error::Error>> {
     use ant_logging::LogBuilder;
     use autonomi::client::payment::PaymentOption;
-    use autonomi::{Chunk, Client};
+    use autonomi::{Chunk, Client, chunk::DataMapChunk};
     use test_utils::evm::get_funded_wallet;
 
     // Initialize logging for the test
@@ -127,7 +127,8 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
 
     // Step 6: Download the content back by calling fetch_from_data_map_chunk function
     println!("Downloading and decrypting content using backward-compatible function...");
-    let decrypted_content = client.fetch_from_data_map_chunk(&data_map_bytes).await?;
+    let data_map_chunk = DataMapChunk(Chunk::new(data_map_bytes));
+    let decrypted_content = client.fetch_from_data_map_chunk(&data_map_chunk).await?;
 
     println!(
         "Downloaded content length: {} bytes",

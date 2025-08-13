@@ -104,6 +104,12 @@ impl EncryptionStream {
                             // Chunk stream is done, check if we have the datamap
                             match datamap_receiver.try_recv() {
                                 Ok(datamap_chunk) => {
+                                    // The datamap_chunk shall be uploaded if as public
+                                    if self.is_public {
+                                        batch.push(datamap_chunk.0.clone());
+                                        progress.chunk_count += 1;
+                                    }
+
                                     // Transition to StreamDone state
                                     state_change = Some(EncryptionState::StreamDone((
                                         datamap_chunk,

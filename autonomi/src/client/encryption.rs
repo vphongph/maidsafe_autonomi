@@ -29,7 +29,7 @@ pub static IN_MEMORY_ENCRYPTION_MAX_SIZE: LazyLock<usize> = LazyLock::new(|| {
     let max_size = std::env::var("IN_MEMORY_ENCRYPTION_MAX_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100_000_000);
+        .unwrap_or(50_000_000);
     info!(
         "IN_MEMORY_ENCRYPTION_MAX_SIZE (from that threshold, the file will be encrypted in a stream): {}",
         max_size

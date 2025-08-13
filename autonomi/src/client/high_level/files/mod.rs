@@ -207,11 +207,11 @@ impl Client {
     /// Fetch multiple chunks in parallel from the network
     pub(super) async fn fetch_chunks_parallel(
         &self,
-        chunk_addresses: &[ChunkAddress],
-    ) -> Result<Vec<Bytes>, self_encryption::Error> {
+        chunk_addresses: &[(usize, ChunkAddress)],
+    ) -> Result<Vec<(usize, Bytes)>, self_encryption::Error> {
         let mut download_tasks = vec![];
 
-        for chunk_addr in chunk_addresses {
+        for (i, chunk_addr) in chunk_addresses {
             let client_clone = self.clone();
             let addr_clone = *chunk_addr;
 
@@ -219,7 +219,7 @@ impl Client {
                 client_clone
                     .chunk_get(&addr_clone)
                     .await
-                    .map(|chunk| chunk.value)
+                    .map(|chunk| (*i, chunk.value))
                     .map_err(|e| {
                         self_encryption::Error::Generic(format!(
                             "Failed to fetch chunk {addr_clone:?}: {e:?}"
@@ -234,7 +234,7 @@ impl Client {
         )
         .await
         .into_iter()
-        .collect::<Result<Vec<Bytes>, self_encryption::Error>>()?;
+        .collect::<Result<Vec<(usize, Bytes)>, self_encryption::Error>>()?;
 
         Ok(chunks)
     }

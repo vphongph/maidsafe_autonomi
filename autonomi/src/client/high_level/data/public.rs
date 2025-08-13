@@ -8,6 +8,7 @@
 
 use ant_protocol::storage::DataTypes;
 use bytes::Bytes;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::client::encryption::EncryptionStream;
@@ -31,6 +32,24 @@ impl Client {
 
         debug!("Successfully fetched a blob of data from the network");
         Ok(data)
+    }
+
+    /// Streamingly fetch a blob of data from the network
+    pub async fn streaming_data_get_public(
+        &self,
+        addr: &DataAddress,
+        to_dest: PathBuf,
+    ) -> Result<(), GetError> {
+        info!("Streaming Fetching data from Data Address: {addr:?}");
+        if let Err(e) = self.file_download_public(addr, to_dest).await {
+            error!("Failed to download file at: {addr} : {e:?}");
+            println!("Failed to download file at: {addr} : {e:?}");
+            Err(GetError::Configuration(format!("{e:?}")))
+        } else {
+            info!("Successfully downloaded file at: {addr}");
+            println!("Successfully downloaded file at: {addr}");
+            Ok(())
+        }
     }
 
     /// Upload a piece of data to the network. This data is publicly accessible.

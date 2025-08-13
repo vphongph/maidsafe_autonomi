@@ -44,6 +44,10 @@ async function computeDirSha256(dir) {
   
   // Hash all files in the directory
   const files = await getFiles(dir);
+  
+  // Sort files by path to ensure consistent ordering across different file systems
+  files.sort();
+  
   for (const file of files) {
     const fileHash = await computeSha256(file);
 
@@ -51,6 +55,70 @@ async function computeDirSha256(dir) {
   }
   
   return hash.digest('hex');
+}
+
+// Utility function to get detailed directory listing (similar to ls -l with recursive tree)
+async function getDirectoryListing(dirPath, indent = '') {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const listing = await Promise.all(entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name);
+      const stats = await fs.promises.stat(fullPath);
+      
+      if (entry.isDirectory()) {
+        const dirLine = `${indent}drwxr-xr-x ${stats.uid || 0} ${stats.gid || 0} ${stats.size} ${stats.mtime.toISOString()} ${entry.name}/`;
+        
+        // Recursively get contents of subdirectory
+        const subListing = await getDirectoryListing(fullPath, indent + '  ');
+        return [dirLine, subListing].filter(Boolean).join('\n');
+      } else {
+        const permissions = (stats.mode & 0o777).toString(8).padStart(3, '0');
+        return `${indent}-rw-r--r-- ${stats.uid || 0} ${stats.gid || 0} ${stats.size} ${stats.mtime.toISOString()} ${entry.name}`;
+      }
+    }));
+    
+    return listing.join('\n');
+  } catch (error) {
+    return `${indent}Error reading directory: ${error.message}`;
+  }
+}
+
+// Utility function to get content of a sample file for debugging
+async function getSampleFileContent(dirPath, maxSize = 1024) {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    
+    // Find the first regular file (not directory)
+    const firstFile = entries.find(entry => !entry.isDirectory());
+    
+    if (!firstFile) {
+      return 'No regular files found in directory';
+    }
+    
+    const filePath = path.join(dirPath, firstFile.name);
+    const stats = await fs.promises.stat(filePath);
+    
+    // Only read small files to avoid huge error messages
+    if (stats.size > maxSize) {
+      return `File ${firstFile.name} is too large (${stats.size} bytes). Showing first ${maxSize} bytes only.`;
+    }
+    
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    
+    // Escape special characters and limit content length
+    const escapedContent = content
+      .replace(/\\/g, '\\\\')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+    
+    return `Sample file: ${firstFile.name} (${stats.size} bytes)
+Content (escaped):
+${escapedContent}`;
+    
+  } catch (error) {
+    return `Error reading sample file: ${error.message}`;
+  }
 }
 
 test('private archive - upload and download directory', async (t) => {
@@ -82,7 +150,30 @@ test('private archive - upload and download directory', async (t) => {
   const sourceHash = await computeDirSha256(sourceDir);
   const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
-  t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
+  if (sourceHash !== destHash) {
+    // Get detailed directory listings for debugging
+    const sourceListing = await getDirectoryListing(sourceDir);
+    const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
+    
+    // Get sample file content from destination for debugging
+    const sampleContent = await getSampleFileContent(path.join(destDir, 'test_dir'));
+    
+    const errorMsg = `Source and destination directory hashes should match.
+Source hash: ${sourceHash}
+Destination hash: ${destHash}
+
+Source directory (${sourceDir}):
+${sourceListing}
+
+Destination directory (${path.join(destDir, 'test_dir')}):
+${destListing}
+
+${sampleContent}`;
+    
+    t.fail(errorMsg);
+  } else {
+    t.pass('Source and destination directory hashes match');
+  }
 });
 
 test('public archive - upload and download directory', async (t) => {
@@ -114,7 +205,30 @@ test('public archive - upload and download directory', async (t) => {
   const sourceHash = await computeDirSha256(sourceDir);
   const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
-  t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
+  if (sourceHash !== destHash) {
+    // Get detailed directory listings for debugging
+    const sourceListing = await getDirectoryListing(sourceDir);
+    const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
+    
+    // Get sample file content from destination for debugging
+    const sampleContent = await getSampleFileContent(path.join(destDir, 'test_dir'));
+    
+    const errorMsg = `Source and destination directory hashes should match.
+Source hash: ${sourceHash}
+Destination hash: ${destHash}
+
+Source directory (${sourceDir}):
+${sourceListing}
+
+Destination directory (${path.join(destDir, 'test_dir')}):
+${destListing}
+
+${sampleContent}`;
+    
+    t.fail(errorMsg);
+  } else {
+    t.pass('Source and destination directory hashes match');
+  }
 });
 
 test('archive advanced use', async (t) => {

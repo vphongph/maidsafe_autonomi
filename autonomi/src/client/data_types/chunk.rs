@@ -634,7 +634,7 @@ impl Client {
     }
 
     /// Fetch and decrypt all chunks in the data map.
-    async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
+    pub async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
         println!("Fetching {total_chunks} encrypted data chunks from network.");

@@ -30,7 +30,7 @@ impl Client {
             debug!("Created parent directories for {to_dest:?}");
         }
 
-        self.download_chunks_streamly_to_file(data_access, &to_dest)
+        self.stream_download_chunks_to_file(data_access, &to_dest)
             .await?;
 
         debug!("Downloaded file to {to_dest:?}");
@@ -54,7 +54,7 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
+    /// The datamaps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
     pub async fn dir_content_upload(
         &self,
         dir_path: PathBuf,
@@ -99,7 +99,7 @@ impl Client {
             let datamap = match file.data_map_chunk() {
                 Some(datamap) => datamap,
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

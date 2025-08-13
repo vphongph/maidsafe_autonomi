@@ -97,11 +97,11 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
     let (old_data_map, old_encrypted_chunks) = old_encrypt(content_bytes.clone())?;
 
     println!("Generated {} encrypted chunks", old_encrypted_chunks.len());
-    println!("Data map generated: {old_data_map:?}");
+    println!("Old datamap generated: {old_data_map:?}");
 
     // Step 3: Pack the generated data_map using old methods to create data_map_bytes
     let data_map_bytes = wrap_data_map_old(&DataMapLevel::First(old_data_map))?;
-    println!("Data map bytes length: {} bytes", data_map_bytes.len());
+    println!("Old datamap bytes length: {} bytes", data_map_bytes.len());
 
     // Step 4: Upload all generated chunks to network (like test_analyze_chunk)
     let chunks: Vec<Chunk> = old_encrypted_chunks
@@ -156,6 +156,6 @@ fn wrap_data_map_old(data_map: &DataMapLevel) -> Result<Bytes, rmp_serde::encode
     let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
     data_map
         .serialize(&mut serialiser)
-        .inspect_err(|err| error!("Failed to serialize data map: {err:?}"))?;
+        .inspect_err(|err| error!("Failed to serialize datamap: {err:?}"))?;
     Ok(bytes.into_inner().freeze())
 }

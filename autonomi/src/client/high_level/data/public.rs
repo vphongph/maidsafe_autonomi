@@ -101,7 +101,7 @@ impl Client {
         }
 
         info!(
-            "Calculating cost of storing {} chunks. Data map chunk at: {map_xor_name:?}",
+            "Calculating cost of storing {} chunks. Datamap chunk at: {map_xor_name:?}",
             content_addrs.len()
         );
 

@@ -21,25 +21,25 @@ use std::path::PathBuf;
 pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<(), ExitCodeError> {
     let try_public_address = DataAddress::from_hex(addr).ok();
     if let Some(public_address) = try_public_address {
-        println!("Input parsed as a public_address");
+        println!("Input supplied was a public address");
         return download_public(addr, public_address, dest_path, client).await;
     }
 
     let try_local_private_archive = crate::user_data::get_local_private_archive_access(addr).ok();
     if let Some(private_address) = try_local_private_archive {
-        println!("Input parsed as a private_address");
+        println!("Input supplied was a private address");
         return download_private(addr, private_address, dest_path, client).await;
     }
 
     let try_local_private_file = crate::user_data::get_local_private_file_access(addr).ok();
     if let Some(private_file_datamap) = try_local_private_file {
-        println!("Input parsed as a private_file_datamap");
+        println!("Input supplied was a private file datamap");
         return download_from_datamap(addr, private_file_datamap, dest_path, client).await;
     }
 
     let try_datamap = DataMapChunk::from_hex(addr).ok();
     if let Some(datamap) = try_datamap {
-        println!("Input parsed as a DataMapChunk");
+        println!("Input supplied was a datamap Chunk");
         return download_from_datamap(addr, datamap, dest_path, client).await;
     }
 

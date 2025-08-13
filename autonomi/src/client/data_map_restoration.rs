@@ -16,9 +16,9 @@ use self_encryption::{ChunkInfo, DataMap, get_root_data_map};
 use xor_name::XorName;
 
 impl Client {
-    /// Restore a complete data map from a DataMapChunk, handling both old and new formats
+    /// Restore a complete datamap from a DataMapChunk, handling both old and new formats
     /// This function properly handles recursive DataMapLevel schemes by traversing all levels
-    /// until it reaches the root data map containing the actual file chunks.
+    /// until it reaches the root datamap containing the actual file chunks.
     ///
     /// self_encryption now changed to always return a data_map pointing to the 3 datamap_chunks.
     /// Hence, the input data_map_bytes is actually the root_data_map pointing to that 3 datamap_chunks.
@@ -67,10 +67,8 @@ impl Client {
     fn fetch_new_data_map(&self, data_map: &DataMap) -> Result<DataMap, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
-        println!(
-            "Setting up lazy chunk fetching for {total_chunks} chunks of data_map {data_map:?}"
-        );
-        debug!("Setting up lazy chunk fetching for {total_chunks} chunks of data_map {data_map:?}");
+        println!("Using lazy chunk fetching for {total_chunks} of datamap {data_map:?}");
+        debug!("Using lazy chunk fetching for {total_chunks} of datamap {data_map:?}");
 
         // Create a closure that fetches chunks on-demand
         let client = self.clone();
@@ -86,16 +84,16 @@ impl Client {
             match fetch_result {
                 Ok(chunk) => {
                     #[cfg(feature = "loud")]
-                    println!("Successfully fetched chunk for XorName: {xor_name:?}");
-                    debug!("Successfully fetched chunk for XorName: {xor_name:?}");
+                    println!("Successfully fetched chunk at: {chunk_addr:?}");
+                    debug!("Successfully fetched chunk at: {chunk_addr:?}");
                     Ok(chunk.value)
                 }
                 Err(err) => {
                     #[cfg(feature = "loud")]
-                    println!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
-                    error!("Error fetching chunk for XorName {xor_name:?}: {err:?}");
+                    println!("Error fetching chunk at {chunk_addr:?}: {err:?}");
+                    error!("Error fetching chunk at {chunk_addr:?}: {err:?}");
                     Err(self_encryption::Error::Generic(format!(
-                        "Failed to fetch chunk for XorName {xor_name:?}: {err:?}"
+                        "Failed to fetch chunk at {chunk_addr:?}: {err:?}"
                     )))
                 }
             }
@@ -108,13 +106,13 @@ impl Client {
             })?;
 
         #[cfg(feature = "loud")]
-        println!("Successfully processed data_map with lazy chunk fetching");
-        debug!("Successfully processed data_map with lazy chunk fetching");
+        println!("Successfully processed datamap with lazy chunk fetching");
+        debug!("Successfully processed datamap with lazy chunk fetching");
 
         Ok(result_data_map)
     }
 
-    /// Deserialize data map from bytes, handling both old and new formats
+    /// Deserialize datamap from bytes, handling both old and new formats
     pub fn deserialize_data_map(data_map_bytes: &Bytes) -> Result<DataMap, GetError> {
         // Try new format first
         if let Ok(data_map) = rmp_serde::from_slice::<DataMap>(data_map_bytes) {

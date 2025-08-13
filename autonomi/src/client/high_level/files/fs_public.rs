@@ -32,13 +32,13 @@ impl Client {
             debug!("Created parent directories {parent:?} for {to_dest:?}");
         }
 
-        // Get the data map chunk from the public address
+        // Get the datamap chunk from the public address
         let data_map_chunk = DataMapChunk(
             self.chunk_get(&ChunkAddress::new(*data_addr.xorname()))
                 .await?,
         );
 
-        self.download_chunks_streamly_to_file(&data_map_chunk, &to_dest)
+        self.stream_download_chunks_to_file(&data_map_chunk, &to_dest)
             .await?;
 
         debug!("Downloaded file to {to_dest:?} from the network address {data_addr:?}");
@@ -67,9 +67,9 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the [`PublicArchive`] containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the [`PublicArchive`] containing the datamaps of the uploaded files.
     pub async fn dir_content_upload_public(
         &self,
         dir_path: PathBuf,
@@ -114,7 +114,7 @@ impl Client {
             let data_address = match file_chunk_iterator.data_map_chunk() {
                 Some(datamap) => DataAddress::new(*datamap.0.name()),
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

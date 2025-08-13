@@ -170,7 +170,7 @@ pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
 
 impl Client {
     /// Fetch
-    pub(super) async fn download_chunks_streamly_to_file(
+    pub(super) async fn stream_download_chunks_to_file(
         &self,
         data_map_chunk: &DataMapChunk,
         to_dest: &Path,
@@ -179,8 +179,8 @@ impl Client {
         let total_chunks = data_map.infos().len();
 
         #[cfg(feature = "loud")]
-        println!("Going to fetch {total_chunks} chunks ...");
-        info!("Going to fetch {total_chunks} chunks ...");
+        println!("Fetching {total_chunks} chunks ...");
+        info!("Fetching {total_chunks} chunks ...");
 
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();

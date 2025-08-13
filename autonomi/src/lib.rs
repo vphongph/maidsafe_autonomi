@@ -40,8 +40,8 @@
 //! This API gives access to two fundamental types on the network: Chunks and GraphEntry.
 //!
 //! When we upload data, it's split into chunks using self-encryption, yielding
-//! a 'data map' allowing us to reconstruct the data again. Any two people that
-//! upload the exact same data will get the same data map, as all chunks are
+//! a 'datamap' allowing us to reconstruct the data again. Any two people that
+//! upload the exact same data will get the same datamap, as all chunks are
 //! content-addressed and self-encryption is deterministic.
 //!
 //! # Features

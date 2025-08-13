@@ -322,7 +322,7 @@ impl Client {
     /// // Step 1: Encrypt your data using self-encryption
     /// let (data_map, chunks) = autonomi::self_encryption::encrypt("Hello, World!".into())?;
     ///
-    /// // Step 2: Collect all chunks (data map + content chunks)
+    /// // Step 2: Collect all chunks (datamap + content chunks)
     /// let mut all_chunks = vec![&data_map];
     /// all_chunks.extend(chunks.iter());
     ///
@@ -468,8 +468,8 @@ impl Client {
         Ok(*chunk.address())
     }
 
-    /// Generic function to unpack a wrapped data map and fetch all bytes using self-encryption.
-    /// This function automatically detects whether the data map is in the old format (DataMapLevel)
+    /// Generic function to unpack a wrapped datamap and fetch all bytes using self-encryption.
+    /// This function automatically detects whether the datamap is in the old format (DataMapLevel)
     /// or new format (DataMap) and calls the appropriate handler for backward compatibility.
     pub async fn fetch_from_data_map_chunk(
         &self,
@@ -481,12 +481,12 @@ impl Client {
         self.fetch_from_data_map(&data_map).await
     }
 
-    /// Fetch and decrypt all chunks in the data map.
+    /// Fetch and decrypt all chunks in the datamap.
     pub async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
         println!("Fetching {total_chunks} encrypted data chunks from network.");
-        debug!("Fetching {total_chunks} encrypted data chunks from data map {data_map:?}");
+        debug!("Fetching {total_chunks} encrypted data chunks from datamap {data_map:?}");
 
         let mut download_tasks = vec![];
         let chunk_addrs: Vec<ChunkAddress> = data_map

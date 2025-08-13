@@ -42,27 +42,27 @@ pub enum Analysis {
         underlying_head_pointer: PointerAddress,
         current_value: RegisterValue,
     },
-    /// A chunk containing a data map
+    /// A chunk containing a datamap
     DataMap {
         address: ChunkAddress,
         chunks: Vec<ChunkAddress>,
         points_to_a_data_map: bool,
         data: Bytes,
     },
-    /// A raw data map
+    /// A raw datamap
     RawDataMap {
         chunks: Vec<ChunkAddress>,
         points_to_a_data_map: bool,
         data: Bytes,
     },
     /// A public archive
-    /// (chunk containing a data map of a public archive)
+    /// (chunk containing a datamap of a public archive)
     PublicArchive {
         address: Option<ChunkAddress>,
         archive: PublicArchive,
     },
     /// A private archive
-    /// (a data map of a private archive)
+    /// (a datamap of a private archive)
     PrivateArchive(PrivateArchive),
 }
 
@@ -302,13 +302,13 @@ async fn analyze_chunk(
     let chunk = client.chunk_get(chunk_addr).await?;
     println_if_verbose!("Got chunk of {} bytes...", chunk.value().len());
 
-    // check if it's a data map
+    // check if it's a datamap
     if let Ok(_data_map) = rmp_serde::from_slice::<DataMap>(chunk.value()) {
         println_if_verbose!("Identified chunk content as a DataMap...");
         return analyze_datamap(Some(*chunk_addr), &chunk.into(), client, verbose).await;
     }
 
-    // check if it's an old data map
+    // check if it's an old datamap
     if let Ok(_data_map) = rmp_serde::from_slice::<DataMapLevel>(chunk.value()) {
         println_if_verbose!("Identified chunk content as an old DataMap...");
         return analyze_datamap(Some(*chunk_addr), &chunk.into(), client, verbose).await;

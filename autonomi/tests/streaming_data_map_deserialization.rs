@@ -6,9 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-//! Integration tests for data map deserialization backward compatibility
+//! Integration tests for datamap deserialization backward compatibility
 //!
-//! Tests both private and public data map deserialization methods to ensure
+//! Tests both private and public datamap deserialization methods to ensure
 //! backward compatibility between old (DataMapLevel) and new (DataMap) formats.
 
 use autonomi::client::Client;
@@ -19,7 +19,7 @@ use self_encryption_old::DataMap as OldDataMap;
 use serde::Serialize;
 use xor_name::XorName;
 
-/// Helper function to create test data maps with sample chunk info
+/// Helper function to create test datamaps with sample chunk info
 fn create_test_chunk_info(count: usize) -> Vec<self_encryption::ChunkInfo> {
     (0..count)
         .map(|i| self_encryption::ChunkInfo {
@@ -31,7 +31,7 @@ fn create_test_chunk_info(count: usize) -> Vec<self_encryption::ChunkInfo> {
         .collect()
 }
 
-/// Helper function to create old format data map
+/// Helper function to create old format datamap
 fn create_old_data_map(count: usize) -> OldDataMap {
     let chunk_infos: Vec<_> = (0..count)
         .map(|i| self_encryption_old::ChunkInfo {
@@ -80,9 +80,9 @@ fn assert_old_new_chunk_info_eq(
     }
 }
 
-// PRIVATE DATA MAP TESTS
+// PRIVATE DATAMAP TESTS
 
-/// Test that data map deserialization works with new DataMap format (private)
+/// Test that datamap deserialization works with new DataMap format (private)
 #[test]
 fn test_private_data_map_new_format() -> Result<()> {
     let chunk_identifiers = create_test_chunk_info(3);
@@ -104,7 +104,7 @@ fn test_private_data_map_new_format() -> Result<()> {
     Ok(())
 }
 
-/// Test that data map deserialization works with old DataMapLevel::First format (private)
+/// Test that datamap deserialization works with old DataMapLevel::First format (private)
 #[test]
 fn test_private_data_map_old_format_first() -> Result<()> {
     let old_data_map = create_old_data_map(4);
@@ -123,7 +123,7 @@ fn test_private_data_map_old_format_first() -> Result<()> {
     Ok(())
 }
 
-/// Test that data map deserialization works with old DataMapLevel::Additional format (private)
+/// Test that datamap deserialization works with old DataMapLevel::Additional format (private)
 #[test]
 fn test_private_data_map_old_format_additional() -> Result<()> {
     let old_data_map = create_old_data_map(6);
@@ -216,9 +216,9 @@ fn test_private_data_map_format_equivalence() -> Result<()> {
     Ok(())
 }
 
-// PUBLIC DATA MAP TESTS
+// PUBLIC DATAMAP TESTS
 
-/// Test that data map deserialization works with new DataMap format (public)
+/// Test that datamap deserialization works with new DataMap format (public)
 #[test]
 fn test_public_data_map_new_format() -> Result<()> {
     let chunk_identifiers = create_test_chunk_info(5);
@@ -240,7 +240,7 @@ fn test_public_data_map_new_format() -> Result<()> {
     Ok(())
 }
 
-/// Test that data map deserialization works with old DataMapLevel::First format (public)
+/// Test that datamap deserialization works with old DataMapLevel::First format (public)
 #[test]
 fn test_public_data_map_old_format_first() -> Result<()> {
     let old_data_map = create_old_data_map(3);
@@ -259,7 +259,7 @@ fn test_public_data_map_old_format_first() -> Result<()> {
     Ok(())
 }
 
-/// Test that data map deserialization works with old DataMapLevel::Additional format (public)
+/// Test that datamap deserialization works with old DataMapLevel::Additional format (public)
 #[test]
 fn test_public_data_map_old_format_additional() -> Result<()> {
     let old_data_map = create_old_data_map(7);
@@ -297,10 +297,10 @@ fn test_public_data_map_invalid_data() -> Result<()> {
     Ok(())
 }
 
-/// Test with empty data maps (public)
+/// Test with empty datamaps (public)
 #[test]
 fn test_public_data_map_empty() -> Result<()> {
-    // Test empty new format data map
+    // Test empty new format datamap
     let empty_new_data_map = DataMap {
         chunk_identifiers: vec![],
         child: None,
@@ -316,7 +316,7 @@ fn test_public_data_map_empty() -> Result<()> {
     let deserialized = result.unwrap();
     assert_eq!(deserialized.infos().len(), 0);
 
-    // Test empty old format data map
+    // Test empty old format datamap
     let empty_old_data_map = OldDataMap::new(vec![]);
     let data_map_level = autonomi::self_encryption::DataMapLevel::First(empty_old_data_map);
     let data_map_bytes = serialize_to_bytes(&data_map_level)?;

@@ -577,7 +577,7 @@ impl PyClient {
         })
     }
 
-    /// Fetch a private archive from the network using its data map
+    /// Fetch a private archive from the network using its datamap
     fn archive_get<'a>(
         &self,
         py: Python<'a>,
@@ -690,7 +690,7 @@ impl PyClient {
     }
 
     /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
-    /// The data maps of these (private) files are not uploaded but returned within the PrivateArchive return type.
+    /// The datamaps of these (private) files are not uploaded but returned within the PrivateArchive return type.
     fn dir_content_upload<'a>(
         &self,
         py: Python<'a>,
@@ -732,7 +732,7 @@ impl PyClient {
 
     /// Same as `dir_upload` but also uploads the archive (privately) to the network.
     ///
-    /// Returns the data map allowing the private archive to be downloaded from the network.
+    /// Returns the datamap allowing the private archive to be downloaded from the network.
     fn dir_upload<'a>(
         &self,
         py: Python<'a>,
@@ -923,9 +923,9 @@ impl PyClient {
 
     /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the `PublicArchive` containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the `PublicArchive` containing the datamaps of the uploaded files.
     fn dir_content_upload_public<'a>(
         &self,
         py: Python<'a>,
@@ -2369,7 +2369,7 @@ pub struct PyPrivateArchiveDataMap {
 
 #[pymethods]
 impl PyPrivateArchiveDataMap {
-    /// Returns the hex string representation of this private archive data map.
+    /// Returns the hex string representation of this private archive datamap.
     #[getter]
     fn hex(&self) -> String {
         self.inner.to_hex()
@@ -3477,7 +3477,7 @@ fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
         .map_err(|e| PyRuntimeError::new_err(format!("Encryption failed: {e}")))?;
 
     let data_map_bytes = rmp_serde::to_vec(&data_map)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize data map: {e}")))?;
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize datamap: {e}")))?;
 
     let chunks_bytes: Vec<Vec<u8>> = chunks
         .into_iter()
@@ -3822,7 +3822,7 @@ impl PyPrivateArchive {
             .collect()
     }
 
-    /// List all data maps of files in the archive
+    /// List all datamaps of files in the archive
     fn data_maps(&self) -> Vec<PyDataMapChunk> {
         self.inner
             .data_maps()

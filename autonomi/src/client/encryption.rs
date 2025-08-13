@@ -408,7 +408,7 @@ mod tests {
         let total_chunks = stream.total_chunks();
         assert_eq!(total_chunks, 3);
 
-        // the data map should not be available yet
+        // the datamap should not be available yet
         assert!(stream.data_map_chunk().is_none());
 
         // Try to get a batch - this should handle the streaming logic
@@ -427,7 +427,7 @@ mod tests {
         // State should be StreamDone
         assert!(matches!(stream.state, EncryptionState::StreamDone(_)));
 
-        // we should have the data map now
+        // we should have the datamap now
         let data_map_chunk = stream.data_map_chunk();
         assert!(data_map_chunk.is_some());
     }

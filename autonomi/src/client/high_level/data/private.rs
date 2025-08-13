@@ -34,10 +34,10 @@ impl Client {
     /// ```
     pub async fn data_get(&self, data_map: &DataMapChunk) -> Result<Bytes, GetError> {
         info!(
-            "Fetching private data from Data Map {:?}",
+            "Fetching private data from datamap {:?}",
             data_map.0.address()
         );
-        let data = self.fetch_from_data_map_chunk(data_map.0.value()).await?;
+        let data = self.fetch_from_data_map_chunk(data_map).await?;
 
         debug!("Successfully fetched a blob of private data from the network");
         Ok(data)

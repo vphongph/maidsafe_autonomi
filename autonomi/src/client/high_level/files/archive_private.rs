@@ -25,12 +25,12 @@ use crate::{
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-/// Private archive data map, allowing access to the [`PrivateArchive`] data.
+/// Private archive datamap, allowing access to the [`PrivateArchive`] data.
 pub type PrivateArchiveDataMap = DataMapChunk;
 
-/// Directory structure mapping filepaths to their data maps and metadata.
+/// Directory structure mapping filepaths to their datamaps and metadata.
 ///
-/// The data maps are stored within this structure instead of uploading them to the network, keeping the data private.
+/// The datamaps are stored within this structure instead of uploading them to the network, keeping the data private.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PrivateArchive {
     ///           Path of the file in the directory

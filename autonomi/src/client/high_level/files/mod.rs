@@ -15,10 +15,13 @@ use std::{
 use thiserror::Error;
 
 use crate::Client;
+use crate::chunk::DataMapChunk;
 use crate::client::data_types::chunk::ChunkAddress;
 use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::client::{GetError, PutError, quote::CostError};
 use bytes::Bytes;
+use self_encryption::streaming_decrypt_from_storage;
+use xor_name::XorName;
 
 pub mod archive_private;
 pub mod archive_public;
@@ -166,48 +169,57 @@ pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
 }
 
 impl Client {
-    /// Deserialize data map from bytes, handling both old and new formats
-    pub(super) fn deserialize_data_map(
+    /// Fetch
+    pub(super) async fn stream_download_chunks_to_file(
         &self,
-        data_map_bytes: &Bytes,
-    ) -> Result<self_encryption::DataMap, DownloadError> {
-        // Try new format first
-        if let Ok(data_map) = rmp_serde::from_slice::<self_encryption::DataMap>(data_map_bytes) {
-            return Ok(data_map);
-        }
+        data_map_chunk: &DataMapChunk,
+        to_dest: &Path,
+    ) -> Result<(), DownloadError> {
+        let data_map = self.restore_data_map_from_chunk(data_map_chunk).await?;
+        let total_chunks = data_map.infos().len();
 
-        // Fall back to old format and convert
-        let data_map_level =
-            rmp_serde::from_slice::<crate::self_encryption::DataMapLevel>(data_map_bytes)
-                .map_err(|e| DownloadError::GetError(GetError::InvalidDataMap(e)))?;
+        #[cfg(feature = "loud")]
+        println!("Fetching {total_chunks} chunks ...");
+        info!("Fetching {total_chunks} chunks ...");
 
-        let old_data_map = match &data_map_level {
-            crate::self_encryption::DataMapLevel::First(map) => map,
-            crate::self_encryption::DataMapLevel::Additional(map) => map,
+        // Create parallel chunk fetcher for streaming decryption
+        let client_clone = self.clone();
+        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
+            Vec<(usize, Bytes)>,
+            self_encryption::Error,
+        > {
+            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
+                .iter()
+                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
+                .collect();
+
+            // Use tokio::task::block_in_place to handle async in sync context
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    client_clone
+                        .fetch_chunks_parallel(&chunk_addresses, total_chunks)
+                        .await
+                })
+            })
         };
 
-        // Convert to new format
-        let chunk_identifiers: Vec<self_encryption::ChunkInfo> = old_data_map
-            .infos()
-            .iter()
-            .map(|ck_info| self_encryption::ChunkInfo {
-                index: ck_info.index,
-                dst_hash: ck_info.dst_hash,
-                src_hash: ck_info.src_hash,
-                src_size: ck_info.src_size,
-            })
-            .collect();
+        // Stream decrypt directly to file
+        streaming_decrypt_from_storage(&data_map, to_dest, parallel_chunk_fetcher).map_err(
+            |e| {
+                DownloadError::GetError(crate::client::GetError::Decryption(
+                    crate::self_encryption::Error::SelfEncryption(e),
+                ))
+            },
+        )?;
 
-        Ok(self_encryption::DataMap {
-            chunk_identifiers,
-            child: None,
-        })
+        Ok(())
     }
 
     /// Fetch multiple chunks in parallel from the network
     pub(super) async fn fetch_chunks_parallel(
         &self,
         chunk_addresses: &[(usize, ChunkAddress)],
+        total_chunks: usize,
     ) -> Result<Vec<(usize, Bytes)>, self_encryption::Error> {
         let mut download_tasks = vec![];
 
@@ -216,7 +228,10 @@ impl Client {
             let addr_clone = *chunk_addr;
 
             download_tasks.push(async move {
-                client_clone
+                #[cfg(feature = "loud")]
+                println!("Fetching chunk {i}/{total_chunks} ...");
+                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?})");
+                let result = client_clone
                     .chunk_get(&addr_clone)
                     .await
                     .map(|chunk| (*i, chunk.value))
@@ -224,7 +239,11 @@ impl Client {
                         self_encryption::Error::Generic(format!(
                             "Failed to fetch chunk {addr_clone:?}: {e:?}"
                         ))
-                    })
+                    });
+                #[cfg(feature = "loud")]
+                println!("Fetching chunk {i}/{total_chunks} [DONE]");
+                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?}) [DONE]");
+                result
             });
         }
 

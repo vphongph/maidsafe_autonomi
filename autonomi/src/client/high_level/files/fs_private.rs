@@ -9,13 +9,11 @@
 use super::archive_private::{PrivateArchive, PrivateArchiveDataMap};
 use super::{DownloadError, UploadError};
 
-use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
+use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::payment::PaymentOption;
 use crate::{AttoTokens, Client};
 use bytes::Bytes;
-use self_encryption::streaming_decrypt_from_storage;
 use std::path::PathBuf;
-use xor_name::XorName;
 
 impl Client {
     /// Download a private file from network to local file system
@@ -32,36 +30,8 @@ impl Client {
             debug!("Created parent directories for {to_dest:?}");
         }
 
-        // Deserialize the data map from the chunk
-        let data_map_bytes = data_access.0.value();
-        let data_map = self.deserialize_data_map(data_map_bytes)?;
-
-        // Create parallel chunk fetcher for streaming decryption
-        let client_clone = self.clone();
-        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
-            Vec<(usize, Bytes)>,
-            self_encryption::Error,
-        > {
-            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
-                .iter()
-                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
-                .collect();
-
-            // Use tokio::task::block_in_place to handle async in sync context
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { client_clone.fetch_chunks_parallel(&chunk_addresses).await })
-            })
-        };
-
-        // Stream decrypt directly to file
-        streaming_decrypt_from_storage(&data_map, &to_dest, parallel_chunk_fetcher).map_err(
-            |e| {
-                DownloadError::GetError(crate::client::GetError::Decryption(
-                    crate::self_encryption::Error::SelfEncryption(e),
-                ))
-            },
-        )?;
+        self.stream_download_chunks_to_file(data_access, &to_dest)
+            .await?;
 
         debug!("Downloaded file to {to_dest:?}");
         Ok(())
@@ -84,7 +54,7 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
+    /// The datamaps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
     pub async fn dir_content_upload(
         &self,
         dir_path: PathBuf,
@@ -129,7 +99,7 @@ impl Client {
             let datamap = match file.data_map_chunk() {
                 Some(datamap) => datamap,
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

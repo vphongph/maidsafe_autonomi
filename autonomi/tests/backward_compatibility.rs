@@ -72,7 +72,7 @@ fn test_old_encrypt_new_decrypt() -> Result<(), Box<dyn std::error::Error>> {
 async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::error::Error>> {
     use ant_logging::LogBuilder;
     use autonomi::client::payment::PaymentOption;
-    use autonomi::{Chunk, Client};
+    use autonomi::{Chunk, Client, chunk::DataMapChunk};
     use test_utils::evm::get_funded_wallet;
 
     // Initialize logging for the test
@@ -97,11 +97,11 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
     let (old_data_map, old_encrypted_chunks) = old_encrypt(content_bytes.clone())?;
 
     println!("Generated {} encrypted chunks", old_encrypted_chunks.len());
-    println!("Data map generated: {old_data_map:?}");
+    println!("Old datamap generated: {old_data_map:?}");
 
     // Step 3: Pack the generated data_map using old methods to create data_map_bytes
     let data_map_bytes = wrap_data_map_old(&DataMapLevel::First(old_data_map))?;
-    println!("Data map bytes length: {} bytes", data_map_bytes.len());
+    println!("Old datamap bytes length: {} bytes", data_map_bytes.len());
 
     // Step 4: Upload all generated chunks to network (like test_analyze_chunk)
     let chunks: Vec<Chunk> = old_encrypted_chunks
@@ -127,7 +127,8 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
 
     // Step 6: Download the content back by calling fetch_from_data_map_chunk function
     println!("Downloading and decrypting content using backward-compatible function...");
-    let decrypted_content = client.fetch_from_data_map_chunk(&data_map_bytes).await?;
+    let data_map_chunk = DataMapChunk(Chunk::new(data_map_bytes));
+    let decrypted_content = client.fetch_from_data_map_chunk(&data_map_chunk).await?;
 
     println!(
         "Downloaded content length: {} bytes",
@@ -155,6 +156,6 @@ fn wrap_data_map_old(data_map: &DataMapLevel) -> Result<Bytes, rmp_serde::encode
     let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
     data_map
         .serialize(&mut serialiser)
-        .inspect_err(|err| error!("Failed to serialize data map: {err:?}"))?;
+        .inspect_err(|err| error!("Failed to serialize datamap: {err:?}"))?;
     Ok(bytes.into_inner().freeze())
 }

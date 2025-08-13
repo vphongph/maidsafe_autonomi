@@ -10,14 +10,12 @@ use super::archive_public::{ArchiveAddress, PublicArchive};
 use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::AttoTokens;
 use crate::client::Client;
-use crate::client::data_types::chunk::ChunkAddress;
+use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use bytes::Bytes;
-use self_encryption::streaming_decrypt_from_storage;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-use xor_name::XorName;
 
 impl Client {
     /// Download file from network to local file system
@@ -34,40 +32,14 @@ impl Client {
             debug!("Created parent directories {parent:?} for {to_dest:?}");
         }
 
-        // Get the data map chunk from the public address
-        let data_map_chunk = self
-            .chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+        // Get the datamap chunk from the public address
+        let data_map_chunk = DataMapChunk(
+            self.chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+                .await?,
+        );
+
+        self.stream_download_chunks_to_file(&data_map_chunk, &to_dest)
             .await?;
-        let data_map = self.deserialize_data_map(data_map_chunk.value())?;
-
-        info!("Trying to download {:?} chunks.", data_map.infos().len());
-
-        // Create parallel chunk fetcher for streaming decryption
-        let client_clone = self.clone();
-        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
-            Vec<(usize, Bytes)>,
-            self_encryption::Error,
-        > {
-            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
-                .iter()
-                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
-                .collect();
-
-            // Use tokio::task::block_in_place to handle async in sync context
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { client_clone.fetch_chunks_parallel(&chunk_addresses).await })
-            })
-        };
-
-        // Stream decrypt directly to file
-        streaming_decrypt_from_storage(&data_map, &to_dest, parallel_chunk_fetcher).map_err(
-            |e| {
-                DownloadError::GetError(crate::client::GetError::Decryption(
-                    crate::self_encryption::Error::SelfEncryption(e),
-                ))
-            },
-        )?;
 
         debug!("Downloaded file to {to_dest:?} from the network address {data_addr:?}");
         Ok(())
@@ -95,9 +67,9 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the [`PublicArchive`] containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the [`PublicArchive`] containing the datamaps of the uploaded files.
     pub async fn dir_content_upload_public(
         &self,
         dir_path: PathBuf,
@@ -142,7 +114,7 @@ impl Client {
             let data_address = match file_chunk_iterator.data_map_chunk() {
                 Some(datamap) => DataAddress::new(*datamap.0.name()),
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

@@ -629,7 +629,7 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these (private) files are not uploaded but returned within
+    /// The datamaps of these (private) files are not uploaded but returned within
     /// the PrivateArchive return type.
 
     #[napi]
@@ -720,9 +720,9 @@ impl Client {
 
     /// Upload the content of all files in a directory to the network. The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the PublicArchive containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the PublicArchive containing the datamaps of the uploaded files.
     #[napi]
     pub async fn dir_content_upload_public(
         &self,
@@ -2134,7 +2134,7 @@ impl PrivateArchive {
             .collect()
     }
 
-    /// List all data maps of the files in the archive
+    /// List all datamaps of the files in the archive
     #[napi]
     pub fn data_maps(&self) -> Vec<DataMapChunk> {
         self.0.data_maps().into_iter().map(DataMapChunk).collect()

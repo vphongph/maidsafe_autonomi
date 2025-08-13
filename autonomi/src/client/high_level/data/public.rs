@@ -15,7 +15,11 @@ use crate::client::encryption::EncryptionStream;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::{GetError, PutError};
-use crate::{Client, chunk::ChunkAddress, self_encryption::encrypt};
+use crate::{
+    Client,
+    chunk::{ChunkAddress, DataMapChunk},
+    self_encryption::encrypt,
+};
 use ant_evm::{Amount, AttoTokens};
 use xor_name::XorName;
 
@@ -27,7 +31,7 @@ impl Client {
         info!("Fetching data from Data Address: {addr:?}");
         let data_map_chunk = self.chunk_get(&ChunkAddress::new(*addr.xorname())).await?;
         let data = self
-            .fetch_from_data_map_chunk(data_map_chunk.value())
+            .fetch_from_data_map_chunk(&DataMapChunk(data_map_chunk))
             .await?;
 
         debug!("Successfully fetched a blob of data from the network");
@@ -97,7 +101,7 @@ impl Client {
         }
 
         info!(
-            "Calculating cost of storing {} chunks. Data map chunk at: {map_xor_name:?}",
+            "Calculating cost of storing {} chunks. Datamap chunk at: {map_xor_name:?}",
             content_addrs.len()
         );
 

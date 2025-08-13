@@ -24,11 +24,11 @@ pub enum Error {
 
 #[derive(Serialize, Deserialize)]
 pub enum DataMapLevel {
-    // Holds the data map to the source data.
+    // Holds the datamap to the source data.
     First(OldDataMap),
-    // Holds the data map of an _additional_ level of chunks
-    // resulting from chunking up a previous level data map.
-    // This happens when that previous level data map was too big to fit in a chunk itself.
+    // Holds the datamap of an _additional_ level of chunks
+    // resulting from chunking up a previous level datamap.
+    // This happens when that previous level datamap was too big to fit in a chunk itself.
     Additional(OldDataMap),
 }
 
@@ -59,6 +59,6 @@ fn wrap_data_map(data_map: &DataMap) -> Result<Bytes, rmp_serde::encode::Error> 
     let mut serialiser = rmp_serde::Serializer::new(&mut bytes);
     data_map
         .serialize(&mut serialiser)
-        .inspect_err(|err| error!("Failed to serialize data map: {err:?}"))?;
+        .inspect_err(|err| error!("Failed to serialize datamap: {err:?}"))?;
     Ok(bytes.into_inner().freeze())
 }

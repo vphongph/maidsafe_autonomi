@@ -83,42 +83,138 @@ async function getDirectoryListing(dirPath, indent = '') {
   }
 }
 
-// Utility function to get content of a sample file for debugging
-async function getSampleFileContent(dirPath, maxSize = 1024) {
+// Utility function to get content of mismatched files for debugging
+async function getMismatchedFileContents(sourceDir, destDir, maxSize = 1024) {
   try {
-    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const sourceFiles = await getAllFiles(sourceDir);
+    const destFiles = await getAllFiles(destDir);
     
-    // Find the first regular file (not directory)
-    const firstFile = entries.find(entry => !entry.isDirectory());
+    const mismatchedFiles = [];
     
-    if (!firstFile) {
-      return 'No regular files found in directory';
+    // Compare files that exist in both directories
+    for (const sourceFile of sourceFiles) {
+      const relativePath = path.relative(sourceDir, sourceFile);
+      const destFile = path.join(destDir, relativePath);
+      
+      if (fs.existsSync(destFile)) {
+        const sourceHash = await computeSha256(sourceFile);
+        const destHash = await computeSha256(destFile);
+        
+        if (sourceHash !== destHash) {
+          mismatchedFiles.push({
+            relativePath,
+            sourceHash,
+            destHash,
+            sourceFile,
+            destFile
+          });
+        }
+      }
     }
     
-    const filePath = path.join(dirPath, firstFile.name);
-    const stats = await fs.promises.stat(filePath);
-    
-    // Only read small files to avoid huge error messages
-    if (stats.size > maxSize) {
-      return `File ${firstFile.name} is too large (${stats.size} bytes). Showing first ${maxSize} bytes only.`;
+    if (mismatchedFiles.length === 0) {
+      return 'No mismatched files found (all existing files have matching hashes)';
     }
     
-    const content = await fs.promises.readFile(filePath, 'utf8');
+    let result = `Found ${mismatchedFiles.length} file(s) with mismatched hashes:\n`;
     
-    // Escape special characters and limit content length
-    const escapedContent = content
-      .replace(/\\/g, '\\\\')
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
-      .replace(/\t/g, '\\t');
+    for (const file of mismatchedFiles) {
+      const sourceStats = await fs.promises.stat(file.sourceFile);
+      const destStats = await fs.promises.stat(file.destFile);
+      
+      result += `\nFile: ${file.relativePath}\n`;
+      result += `Source hash: ${file.sourceHash}\n`;
+      result += `Dest hash: ${file.destHash}\n`;
+      result += `Source size: ${sourceStats.size} bytes\n`;
+      result += `Dest size: ${destStats.size} bytes\n`;
+      
+      // Show content of both source and destination files for comparison
+      const sourceSize = sourceStats.size;
+      const destSize = destStats.size;
+      
+      if (sourceSize <= maxSize && destSize <= maxSize) {
+        try {
+          const sourceContent = await fs.promises.readFile(file.sourceFile, 'utf8');
+          const destContent = await fs.promises.readFile(file.destFile, 'utf8');
+          
+          const escapedSourceContent = sourceContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          const escapedDestContent = destContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content:\n${escapedSourceContent}\n`;
+          result += `Destination content:\n${escapedDestContent}\n`;
+        } catch (error) {
+          result += `Error reading content: ${error.message}\n`;
+        }
+      } else if (sourceSize <= maxSize) {
+        try {
+          const sourceContent = await fs.promises.readFile(file.sourceFile, 'utf8');
+          const escapedSourceContent = sourceContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content:\n${escapedSourceContent}\n`;
+          result += `Destination content: File too large (${destSize} bytes) to show\n`;
+        } catch (error) {
+          result += `Error reading source content: ${error.message}\n`;
+        }
+      } else if (destSize <= maxSize) {
+        try {
+          const destContent = await fs.promises.readFile(file.destFile, 'utf8');
+          const escapedDestContent = destContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content: File too large (${sourceSize} bytes) to show\n`;
+          result += `Destination content:\n${escapedDestContent}\n`;
+        } catch (error) {
+          result += `Error reading destination content: ${error.message}\n`;
+        }
+      } else {
+        result += `Source content: File too large (${sourceSize} bytes) to show\n`;
+        result += `Destination content: File too large (${destSize} bytes) to show\n`;
+      }
+    }
     
-    return `Sample file: ${firstFile.name} (${stats.size} bytes)
-Content (escaped):
-${escapedContent}`;
+    return result;
     
   } catch (error) {
-    return `Error reading sample file: ${error.message}`;
+    return `Error analyzing mismatched files: ${error.message}`;
   }
+}
+
+// Helper function to get all files recursively
+async function getAllFiles(dirPath) {
+  const files = [];
+  
+  async function collectFiles(currentPath) {
+    const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(currentPath, entry.name);
+      
+      if (entry.isDirectory()) {
+        await collectFiles(fullPath);
+      } else {
+        files.push(fullPath);
+      }
+    }
+  }
+  
+  await collectFiles(dirPath);
+  return files.sort(); // Sort for consistent ordering
 }
 
 test('private archive - upload and download directory', async (t) => {
@@ -155,8 +251,8 @@ test('private archive - upload and download directory', async (t) => {
     const sourceListing = await getDirectoryListing(sourceDir);
     const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
     
-    // Get sample file content from destination for debugging
-    const sampleContent = await getSampleFileContent(path.join(destDir, 'test_dir'));
+    // Get content of mismatched files for debugging
+    const mismatchedContent = await getMismatchedFileContents(sourceDir, path.join(destDir, 'test_dir'));
     
     const errorMsg = `Source and destination directory hashes should match.
 Source hash: ${sourceHash}
@@ -168,7 +264,7 @@ ${sourceListing}
 Destination directory (${path.join(destDir, 'test_dir')}):
 ${destListing}
 
-${sampleContent}`;
+${mismatchedContent}`;
     
     t.fail(errorMsg);
   } else {
@@ -210,8 +306,8 @@ test('public archive - upload and download directory', async (t) => {
     const sourceListing = await getDirectoryListing(sourceDir);
     const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
     
-    // Get sample file content from destination for debugging
-    const sampleContent = await getSampleFileContent(path.join(destDir, 'test_dir'));
+    // Get content of mismatched files for debugging
+    const mismatchedContent = await getMismatchedFileContents(sourceDir, path.join(destDir, 'test_dir'));
     
     const errorMsg = `Source and destination directory hashes should match.
 Source hash: ${sourceHash}
@@ -223,7 +319,7 @@ ${sourceListing}
 Destination directory (${path.join(destDir, 'test_dir')}):
 ${destListing}
 
-${sampleContent}`;
+${mismatchedContent}`;
     
     t.fail(errorMsg);
   } else {

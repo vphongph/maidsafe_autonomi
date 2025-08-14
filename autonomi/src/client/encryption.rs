@@ -29,7 +29,7 @@ pub static IN_MEMORY_ENCRYPTION_MAX_SIZE: LazyLock<usize> = LazyLock::new(|| {
     let max_size = std::env::var("IN_MEMORY_ENCRYPTION_MAX_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100_000_000);
+        .unwrap_or(50_000_000);
     info!(
         "IN_MEMORY_ENCRYPTION_MAX_SIZE (from that threshold, the file will be encrypted in a stream): {}",
         max_size
@@ -104,6 +104,12 @@ impl EncryptionStream {
                             // Chunk stream is done, check if we have the datamap
                             match datamap_receiver.try_recv() {
                                 Ok(datamap_chunk) => {
+                                    // The datamap_chunk shall be uploaded if as public
+                                    if self.is_public {
+                                        batch.push(datamap_chunk.0.clone());
+                                        progress.chunk_count += 1;
+                                    }
+
                                     // Transition to StreamDone state
                                     state_change = Some(EncryptionState::StreamDone((
                                         datamap_chunk,

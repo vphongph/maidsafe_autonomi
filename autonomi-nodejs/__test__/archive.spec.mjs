@@ -225,7 +225,10 @@ test('private archive - upload and download directory', async (t) => {
   
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
-  const destDir = path.join(os.tmpdir());
+  // `os.tmpdir()` generates the same folder within private archive and public archive tests.
+  // To avoid streaming_decryptor flushing to the same file which pollutes the result,
+  // make them using individual destDir. 
+  const destDir = path.join(os.tmpdir(), 'private_archive');
   
   // Upload directory content
   const { cost, archive } = await client.dirContentUpload(sourceDir, paymentOption);
@@ -280,7 +283,10 @@ test('public archive - upload and download directory', async (t) => {
   
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
-  const destDir = os.tmpdir();
+  // `os.tmpdir()` generates the same folder within private archive and public archive tests.
+  // To avoid streaming_decryptor flushing to the same file which pollutes the result,
+  // make them using individual destDir. 
+  const destDir = path.join(os.tmpdir(), 'public_archive');
   
   // Upload directory content as public
   const { cost, addr: archive } = await client.dirContentUploadPublic(sourceDir, paymentOption);

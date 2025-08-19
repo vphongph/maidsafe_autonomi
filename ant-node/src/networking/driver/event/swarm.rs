@@ -182,18 +182,7 @@ impl SwarmDriver {
                         // all addresses are effectively external here...
                         // this is needed for Kad Mode::Server
                         self.swarm.add_external_address(address.clone());
-
-                        // If we are local, add our own address(es) to cache
-                        if let Some(bootstrap_cache) = self.bootstrap_cache.as_ref() {
-                            info!("Adding listen address to bootstrap cache (local): {address:?}");
-                            let bootstrap_cache = bootstrap_cache.clone();
-                            let address_clone = address.clone();
-                            #[allow(clippy::let_underscore_future)]
-                            let _ = tokio::spawn(async move {
-                                bootstrap_cache.add_addr(address_clone).await;
-                            });
-                        }
-                        if let Err(err) = self.sync_and_flush_cache() {
+                        if let Err(err) = self.add_sync_and_flush_cache(address.clone()) {
                             warn!("Failed to sync and flush cache during NewListenAddr: {err:?}");
                         }
                     } else if let Some(external_address_manager) =

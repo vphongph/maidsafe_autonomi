@@ -755,7 +755,6 @@ jobs:
           fi
 
   verify_data_location_routing_table:
-    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     name: Verify data location and Routing Table
     runs-on: ${{ matrix.os }}
     strategy:

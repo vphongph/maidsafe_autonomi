@@ -8,11 +8,8 @@ permissions:
 on:
   # allow workflow to be used as part of other workflow
   workflow_call:
-  # tests must run for a PR to be valid and pass merge queue muster
-  # on main, we want to know that all commits are passing at a glance, any deviation should help bisecting errors
-  # the merge run checks should show on master and enable this clear test/passing history
   merge_group:
-    branches: [main, alpha*, beta*, rc*]
+    branches: [main]
   pull_request:
     branches: ["*"]
 defaults:

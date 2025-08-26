@@ -170,6 +170,8 @@ pub enum GetError {
     Configuration(String),
     #[error("Unable to recogonize the so claimed DataMap: {0}")]
     UnrecognizedDataMap(String),
+    #[error("DataMap pointing to a large file, shall not be handled in memory")]
+    TooLargeForMemory,
 }
 
 impl Client {

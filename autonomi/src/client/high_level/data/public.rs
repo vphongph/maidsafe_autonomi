@@ -38,6 +38,21 @@ impl Client {
         Ok(data)
     }
 
+    /// shall be used to replace the current data_get_public
+    ///
+    /// steaming_download will only be used when: `to_dest` is provided AND `target size is big enough (chunks.len()> 20)`
+    /// `Bytes` will only be returned when streaming_download not got used
+    pub async fn data_fetch_public(
+        &self,
+        addr: &DataAddress,
+        to_dest: Option<PathBuf>,
+    ) -> Result<Option<Bytes>, GetError> {
+        info!("Fetching data from Data Address: {addr:?}");
+        let datamap_chunk =
+            DataMapChunk(self.chunk_get(&ChunkAddress::new(*addr.xorname())).await?);
+        self.fetch_with_stream_opt(&datamap_chunk, to_dest).await
+    }
+
     /// Streamingly fetch a blob of data from the network
     pub async fn streaming_data_get_public(
         &self,

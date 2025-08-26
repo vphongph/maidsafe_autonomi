@@ -84,7 +84,7 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
     let payment_option = PaymentOption::from(&wallet);
 
     // Step 2: Generate test data and encrypt using old self_encryption way
-    let content_size: usize = 20 * MAX_CHUNK_SIZE + 100;
+    let content_size: usize = 15 * MAX_CHUNK_SIZE + 100;
     let mut content = vec![0u8; content_size];
     for (i, c) in content.iter_mut().enumerate().take(content_size) {
         *c = (i % 17) as u8;

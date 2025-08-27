@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
+    path::PathBuf,
     sync::LazyLock,
 };
 
@@ -476,9 +477,46 @@ impl Client {
         data_map_chunk: &DataMapChunk,
     ) -> Result<Bytes, GetError> {
         let mut data_map = self.restore_data_map_from_chunk(data_map_chunk).await?;
+        if data_map.infos().len() > 20 {
+            info!(
+                "Restored datamap pointing to a file ({} chunks) too large for in-memory fetch: \n{data_map:?}",
+                data_map.infos().len()
+            );
+            return Err(GetError::TooLargeForMemory);
+        }
         info!("Fetching from data_map of : \n{data_map:?}");
         data_map.child = None;
         self.fetch_from_data_map(&data_map).await
+    }
+
+    /// shall be used to replace the current fetch_from_data_map_chunk (i.e. all in-memory fetch)
+    ///
+    /// steaming_download will only be used when: `to_dest` is provided AND `target size is big enough (chunks.len()> 20)`
+    /// `Bytes` will only be returned when streaming_download not got used
+    pub async fn fetch_with_stream_opt(
+        &self,
+        datamap_chunk: &DataMapChunk,
+        to_dest: Option<PathBuf>,
+    ) -> Result<Option<Bytes>, GetError> {
+        let mut datamap = self.restore_data_map_from_chunk(datamap_chunk).await?;
+        info!("Fetching from data_map of : \n{datamap:?}");
+        datamap.child = None;
+
+        if let Some(dest_path) = to_dest
+            && datamap.infos().len() > 20
+        {
+            self.stream_download_from_datamap(datamap, &dest_path)
+                .map_err(|e| GetError::Configuration(format!("{e:?}")))?;
+            info!(
+                "Streaming fetch completed, with downloaded content flushed to {:?}",
+                dest_path
+            );
+            Ok(None)
+        } else {
+            let bytes = self.fetch_from_data_map(&datamap).await?;
+            info!("In-memory fetch completed with bytes of {}", bytes.len());
+            Ok(Some(bytes))
+        }
     }
 
     /// Fetch and decrypt all chunks in the datamap.

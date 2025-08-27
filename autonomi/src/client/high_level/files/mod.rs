@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use self_encryption::DataMap;
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -172,15 +173,23 @@ impl Client {
     /// Fetch
     pub(super) async fn stream_download_chunks_to_file(
         &self,
-        data_map_chunk: &DataMapChunk,
+        datamap_chunk: &DataMapChunk,
         to_dest: &Path,
     ) -> Result<(), DownloadError> {
-        let data_map = self.restore_data_map_from_chunk(data_map_chunk).await?;
+        let datamap = self.restore_data_map_from_chunk(datamap_chunk).await?;
+        self.stream_download_from_datamap(datamap, to_dest)
+    }
+
+    pub(crate) fn stream_download_from_datamap(
+        &self,
+        data_map: DataMap,
+        to_dest: &Path,
+    ) -> Result<(), DownloadError> {
         let total_chunks = data_map.infos().len();
 
         #[cfg(feature = "loud")]
-        println!("Fetching {total_chunks} chunks ...");
-        info!("Fetching {total_chunks} chunks ...");
+        println!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
+        info!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
 
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();

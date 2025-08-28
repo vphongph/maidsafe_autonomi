@@ -11,7 +11,7 @@ use crate::exit_code::{self, ExitCodeError, INVALID_INPUT_EXIT_CODE, IO_ERROR};
 use autonomi::{
     Client,
     chunk::DataMapChunk,
-    client::{analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
+    client::{GetError, analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
     data::DataAddress,
     files::{PrivateArchive, PublicArchive},
 };
@@ -88,19 +88,12 @@ async fn download_priv_archive_to_disk(
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-        match client
-            .fetch_with_stream_opt(access, Some(path.clone()))
-            .await
-        {
-            Ok(Some(bytes)) => std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?,
-            Ok(None) => {}
-            Err(e) => {
-                let err = format!("Failed to fetch file {path:?}: {e}");
-                all_errs.push(err);
-                last_error = Some(e);
-                continue;
-            }
-        };
+        if let Err(e) = client.file_download(access, path.clone()).await {
+            let err = format!("Failed to fetch file {path:?}: {e}");
+            all_errs.push(err);
+            last_error = Some(e);
+            continue;
+        }
 
         if let Some(progress_bar) = &progress_bar {
             progress_bar.inc(1);
@@ -112,7 +105,7 @@ async fn download_priv_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading private data with local address: {addr}");
             eprintln!("{all_errs:#?}");
@@ -140,9 +133,24 @@ async fn download_public(
     let parent = path.parent().unwrap_or_else(|| &here);
     std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-    let data = match client.data_fetch_public(&address, Some(path.clone())).await {
-        Ok(Some(data)) => data,
-        Ok(None) => return Ok(()),
+    let data = match client.data_get_public(&address).await {
+        Ok(data) => data,
+        Err(GetError::TooLargeForMemory) => {
+            println!("Detected large file at: {addr}, downloading via streaming");
+            info!("Detected large file at: {addr}, downloading via streaming");
+            client
+                .file_download_public(&address, path)
+                .await
+                .map_err(|e| {
+                    let exit_code = exit_code::get_download_error_exit_code(&e);
+                    (
+                        eyre!(e).wrap_err("Failed to fetch data from address"),
+                        exit_code,
+                    )
+                })?;
+            println!("Successfully downloaded file at: {addr}");
+            return Ok(());
+        }
         Err(e) => {
             let exit_code = exit_code::get_error_exit_code(&e);
             return Err((
@@ -191,7 +199,7 @@ async fn download_pub_archive_to_disk(
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-        if let Err(e) = client.streaming_data_get_public(addr, path.clone()).await {
+        if let Err(e) = client.file_download_public(addr, path.clone()).await {
             let err = format!("Failed to fetch file {path:?}: {e}");
             all_errs.push(err);
             last_error = Some(e);
@@ -208,7 +216,7 @@ async fn download_pub_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading data at: {addr}");
             eprintln!("{all_errs:#?}");
@@ -244,8 +252,8 @@ async fn download_from_datamap(
 
             if let Some(data) = data {
                 std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
-            } else if let Err(e) = client.fetch_with_stream_opt(&datamap, Some(path)).await {
-                let exit_code = exit_code::get_error_exit_code(&e);
+            } else if let Err(e) = client.file_download(&datamap, path).await {
+                let exit_code = exit_code::get_download_error_exit_code(&e);
                 return Err((
                     eyre!("Errors while downloading from {datamap_addr:?}"),
                     exit_code,

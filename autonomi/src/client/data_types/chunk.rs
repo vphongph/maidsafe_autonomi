@@ -9,6 +9,7 @@
 use crate::client::chunk_cache::{
     default_cache_dir, delete_chunks, is_chunk_cached, load_chunk, store_chunk,
 };
+use crate::client::config::{CHUNK_DOWNLOAD_BATCH_SIZE, CHUNK_UPLOAD_BATCH_SIZE};
 use crate::networking::PeerInfo;
 use crate::{
     Client,
@@ -32,33 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    path::PathBuf,
-    sync::LazyLock,
 };
-
-/// Number of chunks to upload in parallel.
-///
-/// Can be overridden by the `CHUNK_UPLOAD_BATCH_SIZE` environment variable.
-pub(crate) static CHUNK_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("CHUNK_UPLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("Chunk upload batch size: {}", batch_size);
-    batch_size
-});
-
-/// Number of chunks to download in parallel.
-///
-/// Can be overridden by the `CHUNK_DOWNLOAD_BATCH_SIZE` environment variable.
-pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("CHUNK_DOWNLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("Chunk download batch size: {}", batch_size);
-    batch_size
-});
 
 /// Private data on the network can be accessed with this
 /// Uploading this data in a chunk makes it publicly accessible from the address of that Chunk
@@ -469,58 +444,8 @@ impl Client {
         Ok(*chunk.address())
     }
 
-    /// Generic function to unpack a wrapped datamap and fetch all bytes using self-encryption.
-    /// This function automatically detects whether the datamap is in the old format (DataMapLevel)
-    /// or new format (DataMap) and calls the appropriate handler for backward compatibility.
-    pub async fn fetch_from_data_map_chunk(
-        &self,
-        data_map_chunk: &DataMapChunk,
-    ) -> Result<Bytes, GetError> {
-        let mut data_map = self.restore_data_map_from_chunk(data_map_chunk).await?;
-        if data_map.infos().len() > 20 {
-            info!(
-                "Restored datamap pointing to a file ({} chunks) too large for in-memory fetch: \n{data_map:?}",
-                data_map.infos().len()
-            );
-            return Err(GetError::TooLargeForMemory);
-        }
-        info!("Fetching from data_map of : \n{data_map:?}");
-        data_map.child = None;
-        self.fetch_from_data_map(&data_map).await
-    }
-
-    /// shall be used to replace the current fetch_from_data_map_chunk (i.e. all in-memory fetch)
-    ///
-    /// steaming_download will only be used when: `to_dest` is provided AND `target size is big enough (chunks.len()> 20)`
-    /// `Bytes` will only be returned when streaming_download not got used
-    pub async fn fetch_with_stream_opt(
-        &self,
-        datamap_chunk: &DataMapChunk,
-        to_dest: Option<PathBuf>,
-    ) -> Result<Option<Bytes>, GetError> {
-        let mut datamap = self.restore_data_map_from_chunk(datamap_chunk).await?;
-        info!("Fetching from data_map of : \n{datamap:?}");
-        datamap.child = None;
-
-        if let Some(dest_path) = to_dest
-            && datamap.infos().len() > 20
-        {
-            self.stream_download_from_datamap(datamap, &dest_path)
-                .map_err(|e| GetError::Configuration(format!("{e:?}")))?;
-            info!(
-                "Streaming fetch completed, with downloaded content flushed to {:?}",
-                dest_path
-            );
-            Ok(None)
-        } else {
-            let bytes = self.fetch_from_data_map(&datamap).await?;
-            info!("In-memory fetch completed with bytes of {}", bytes.len());
-            Ok(Some(bytes))
-        }
-    }
-
     /// Fetch and decrypt all chunks in the datamap.
-    pub async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
+    pub(crate) async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
         println!("Fetching {total_chunks} encrypted data chunks from network.");

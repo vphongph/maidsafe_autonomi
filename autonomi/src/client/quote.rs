@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::Client;
-use crate::client::data_types::chunk::CHUNK_UPLOAD_BATCH_SIZE;
+use crate::client::config::CHUNK_UPLOAD_BATCH_SIZE;
 use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::networking::Network;
 use crate::networking::common::Addresses;

@@ -12,8 +12,8 @@ pub mod user_data;
 pub use key::{VaultSecretKey, derive_vault_key};
 pub use user_data::UserData;
 
+use crate::client::config::FILE_UPLOAD_BATCH_SIZE;
 use crate::client::data_types::scratchpad::ScratchpadError;
-use crate::client::high_level::files::FILE_UPLOAD_BATCH_SIZE;
 use crate::client::key_derivation::{DerivationIndex, MainSecretKey};
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;

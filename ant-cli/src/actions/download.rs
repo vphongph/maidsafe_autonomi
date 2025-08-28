@@ -88,19 +88,17 @@ async fn download_priv_archive_to_disk(
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-        match client
-            .fetch_with_stream_opt(access, Some(path.clone()))
-            .await
-        {
-            Ok(Some(bytes)) => std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?,
-            Ok(None) => {}
-            Err(e) => {
-                let err = format!("Failed to fetch file {path:?}: {e}");
-                all_errs.push(err);
-                last_error = Some(e);
-                continue;
-            }
-        };
+        if let Err(e) = client.file_download(access, path.clone()).await {
+            let err = format!("Failed to fetch file {path:?}: {e}");
+            all_errs.push(err);
+            last_error = Some(match e {
+                autonomi::files::DownloadError::GetError(ge) => ge,
+                autonomi::files::DownloadError::IoError(io_err) => {
+                    autonomi::client::GetError::Configuration(format!("IO Error: {io_err}"))
+                }
+            });
+            continue;
+        }
 
         if let Some(progress_bar) = &progress_bar {
             progress_bar.inc(1);
@@ -140,9 +138,8 @@ async fn download_public(
     let parent = path.parent().unwrap_or_else(|| &here);
     std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-    let data = match client.data_fetch_public(&address, Some(path.clone())).await {
-        Ok(Some(data)) => data,
-        Ok(None) => return Ok(()),
+    let data = match client.data_get_public(&address).await {
+        Ok(data) => data,
         Err(e) => {
             let exit_code = exit_code::get_error_exit_code(&e);
             return Err((
@@ -191,10 +188,15 @@ async fn download_pub_archive_to_disk(
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
 
-        if let Err(e) = client.streaming_data_get_public(addr, path.clone()).await {
+        if let Err(e) = client.file_download_public(addr, path.clone()).await {
             let err = format!("Failed to fetch file {path:?}: {e}");
             all_errs.push(err);
-            last_error = Some(e);
+            last_error = Some(match e {
+                autonomi::files::DownloadError::GetError(ge) => ge,
+                autonomi::files::DownloadError::IoError(io_err) => {
+                    autonomi::client::GetError::Configuration(format!("IO Error: {io_err}"))
+                }
+            });
             continue;
         };
 
@@ -244,8 +246,8 @@ async fn download_from_datamap(
 
             if let Some(data) = data {
                 std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
-            } else if let Err(e) = client.fetch_with_stream_opt(&datamap, Some(path)).await {
-                let exit_code = exit_code::get_error_exit_code(&e);
+            } else if let Err(e) = client.file_download(&datamap, path).await {
+                let exit_code = exit_code::get_download_error_exit_code(&e);
                 return Err((
                     eyre!("Errors while downloading from {datamap_addr:?}"),
                     exit_code,

@@ -170,7 +170,11 @@ pub enum GetError {
     Configuration(String),
     #[error("Unable to recogonize the so claimed DataMap: {0}")]
     UnrecognizedDataMap(String),
-    #[error("DataMap pointing to a large file, shall not be handled in memory")]
+    /// When trying to download a file that is too large to be handled in memory
+    /// you can increase the [`crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE`] env var or use the streaming API.
+    #[error(
+        "DataMap points to a file too large to be handled in memory, you can increase the MAX_IN_MEMORY_DOWNLOAD_SIZE env var or use streaming to avoid this error."
+    )]
     TooLargeForMemory,
 }
 

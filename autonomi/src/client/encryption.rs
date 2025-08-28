@@ -14,28 +14,11 @@ use ant_protocol::storage::Chunk;
 use bytes::Bytes;
 use self_encryption::MAX_CHUNK_SIZE;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use std::time::Instant;
 use tokio::sync::oneshot;
 
 use super::data::DataAddress;
-use super::files::FILE_ENCRYPT_BATCH_SIZE;
-
-/// Maximum size of a file to be encrypted in memory.
-///
-/// Can be overridden by the [`IN_MEMORY_ENCRYPTION_MAX_SIZE`] environment variable.
-/// The default is 100MB.
-pub static IN_MEMORY_ENCRYPTION_MAX_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let max_size = std::env::var("IN_MEMORY_ENCRYPTION_MAX_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(50_000_000);
-    info!(
-        "IN_MEMORY_ENCRYPTION_MAX_SIZE (from that threshold, the file will be encrypted in a stream): {}",
-        max_size
-    );
-    max_size
-});
+use crate::client::config::{FILE_ENCRYPT_BATCH_SIZE, IN_MEMORY_ENCRYPTION_MAX_SIZE};
 
 const STREAM_CHUNK_CHANNEL_CAPACITY: usize = 100;
 

@@ -69,6 +69,7 @@ self_encryption = { version = "0.33.0" }
 self_encryption_old = { package = "self_encryption", version = "0.30.0" }
 serde = { version = "1.0.133", features = ["derive", "rc"] }
 sha2 = "0.10.6"
+tempfile = "3.12.0"
 thiserror = "1.0.23"
 tokio = { version = "1.43.1", features = ["sync", "fs"] }
 tracing = { version = "~0.1.26" }

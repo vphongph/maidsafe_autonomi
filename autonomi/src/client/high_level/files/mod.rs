@@ -10,13 +10,11 @@ use self_encryption::DataMap;
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
-    sync::LazyLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
 
 use crate::Client;
-use crate::chunk::DataMapChunk;
 use crate::client::data_types::chunk::ChunkAddress;
 use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::client::{GetError, PutError, quote::CostError};
@@ -31,35 +29,6 @@ pub mod fs_public;
 
 pub use archive_private::PrivateArchive;
 pub use archive_public::PublicArchive;
-
-/// Number of files to upload in parallel.
-///
-/// Can be overridden by the `FILE_UPLOAD_BATCH_SIZE` environment variable.
-pub static FILE_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("FILE_UPLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("File upload batch size: {}", batch_size);
-    batch_size
-});
-
-/// Number of files to encrypt in parallel.
-///
-/// Can be overridden by the `FILE_ENCRYPT_BATCH_SIZE` environment variable.
-pub static FILE_ENCRYPT_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("FILE_ENCRYPT_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-                * 8,
-        );
-    info!("File encryption batch size: {}", batch_size);
-    batch_size
-});
 
 /// Metadata for a file in an archive. Time values are UNIX timestamps (UTC).
 ///
@@ -170,16 +139,6 @@ pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
 }
 
 impl Client {
-    /// Fetch
-    pub(super) async fn stream_download_chunks_to_file(
-        &self,
-        datamap_chunk: &DataMapChunk,
-        to_dest: &Path,
-    ) -> Result<(), DownloadError> {
-        let datamap = self.restore_data_map_from_chunk(datamap_chunk).await?;
-        self.stream_download_from_datamap(datamap, to_dest)
-    }
-
     pub(crate) fn stream_download_from_datamap(
         &self,
         data_map: DataMap,
@@ -258,7 +217,7 @@ impl Client {
 
         let chunks = process_tasks_with_max_concurrency(
             download_tasks,
-            *crate::client::data_types::chunk::CHUNK_DOWNLOAD_BATCH_SIZE,
+            *crate::client::config::CHUNK_DOWNLOAD_BATCH_SIZE,
         )
         .await
         .into_iter()

@@ -18,7 +18,8 @@ pub use crate::Bytes;
 pub use crate::client::data_types::chunk::DataMapChunk;
 
 impl Client {
-    /// Fetch a blob of (private) data from the network
+    /// Fetch a blob of (private) data from the network. In-memory only - fails for large files.
+    /// Use file_download for large files that need streaming.
     ///
     /// # Example
     ///
@@ -37,9 +38,20 @@ impl Client {
             "Fetching private data from datamap {:?}",
             data_map.0.address()
         );
-        let data = self.fetch_from_data_map_chunk(data_map).await?;
 
-        debug!("Successfully fetched a blob of private data from the network");
+        let mut datamap = self.restore_data_map_from_chunk(data_map).await?;
+        let chunk_count = datamap.infos().len();
+
+        if chunk_count > *crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE {
+            return Err(GetError::TooLargeForMemory);
+        }
+
+        datamap.child = None;
+        let data = self.fetch_from_data_map(&datamap).await?;
+        debug!(
+            "Successfully fetched private data ({} chunks) in-memory",
+            chunk_count
+        );
         Ok(data)
     }
 

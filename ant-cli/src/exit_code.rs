@@ -64,6 +64,13 @@ pub(crate) fn get_error_exit_code(err: &GetError) -> i32 {
     }
 }
 
+pub(crate) fn get_download_error_exit_code(err: &autonomi::files::DownloadError) -> i32 {
+    match err {
+        autonomi::files::DownloadError::GetError(ge) => get_error_exit_code(ge),
+        autonomi::files::DownloadError::IoError(_) => IO_ERROR,
+    }
+}
+
 pub(crate) fn analysis_exit_code(err: &AnalysisError) -> i32 {
     match err {
         AnalysisError::UnrecognizedInput => 36,

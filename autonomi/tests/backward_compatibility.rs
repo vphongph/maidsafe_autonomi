@@ -125,10 +125,10 @@ async fn test_backward_compatibility_e2e_network() -> Result<(), Box<dyn std::er
     println!("Waiting for data replication...");
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    // Step 6: Download the content back by calling fetch_from_data_map_chunk function
+    // Step 6: Download the content back by calling data_get function
     println!("Downloading and decrypting content using backward-compatible function...");
     let data_map_chunk = DataMapChunk(Chunk::new(data_map_bytes));
-    let decrypted_content = client.fetch_from_data_map_chunk(&data_map_chunk).await?;
+    let decrypted_content = client.data_get(&data_map_chunk).await?;
 
     println!(
         "Downloaded content length: {} bytes",

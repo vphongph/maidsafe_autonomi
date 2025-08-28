@@ -11,7 +11,7 @@ use crate::exit_code::{self, ExitCodeError, INVALID_INPUT_EXIT_CODE, IO_ERROR};
 use autonomi::{
     Client,
     chunk::DataMapChunk,
-    client::{analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
+    client::{GetError, analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
     data::DataAddress,
     files::{PrivateArchive, PublicArchive},
 };
@@ -91,12 +91,7 @@ async fn download_priv_archive_to_disk(
         if let Err(e) = client.file_download(access, path.clone()).await {
             let err = format!("Failed to fetch file {path:?}: {e}");
             all_errs.push(err);
-            last_error = Some(match e {
-                autonomi::files::DownloadError::GetError(ge) => ge,
-                autonomi::files::DownloadError::IoError(io_err) => {
-                    autonomi::client::GetError::Configuration(format!("IO Error: {io_err}"))
-                }
-            });
+            last_error = Some(e);
             continue;
         }
 
@@ -110,7 +105,7 @@ async fn download_priv_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading private data with local address: {addr}");
             eprintln!("{all_errs:#?}");
@@ -140,6 +135,22 @@ async fn download_public(
 
     let data = match client.data_get_public(&address).await {
         Ok(data) => data,
+        Err(GetError::TooLargeForMemory) => {
+            println!("Detected large file at: {addr}, downloading via streaming");
+            info!("Detected large file at: {addr}, downloading via streaming");
+            client
+                .file_download_public(&address, path)
+                .await
+                .map_err(|e| {
+                    let exit_code = exit_code::get_download_error_exit_code(&e);
+                    (
+                        eyre!(e).wrap_err("Failed to fetch data from address"),
+                        exit_code,
+                    )
+                })?;
+            println!("Successfully downloaded file at: {addr}");
+            return Ok(());
+        }
         Err(e) => {
             let exit_code = exit_code::get_error_exit_code(&e);
             return Err((
@@ -191,12 +202,7 @@ async fn download_pub_archive_to_disk(
         if let Err(e) = client.file_download_public(addr, path.clone()).await {
             let err = format!("Failed to fetch file {path:?}: {e}");
             all_errs.push(err);
-            last_error = Some(match e {
-                autonomi::files::DownloadError::GetError(ge) => ge,
-                autonomi::files::DownloadError::IoError(io_err) => {
-                    autonomi::client::GetError::Configuration(format!("IO Error: {io_err}"))
-                }
-            });
+            last_error = Some(e);
             continue;
         };
 
@@ -210,7 +216,7 @@ async fn download_pub_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading data at: {addr}");
             eprintln!("{all_errs:#?}");

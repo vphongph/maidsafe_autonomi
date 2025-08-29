@@ -7,6 +7,163 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-09-02
+
+### API
+
+#### Added
+
+- `chunk_batch_upload` function is now public, allowing developers to upload multiple chunks in
+  batches with custom receipt handling.
+- `deserialize_data_map` function in `DataMapChunk` for backward compatibility with old data map
+  schemes.
+- `pointer_update_from` async method for updating pointers from specific sources.
+- `scratchpad_update_from` async method for updating scratchpads from specific sources.
+- `EncryptionStream` struct with methods:
+  - `total_chunks()` to get the total number of chunks
+  - `next_batch()` to retrieve the next batch of chunks for processing
+  - `data_map_chunk()` to get the associated data map chunk
+  - `data_address()` to retrieve the data address
+  - `new_in_memory_with()`, `new_in_memory()`, and `new_stream_from_file()` constructors for
+    different encryption modes
+- Streaming download functionality in high-level file operations through
+  `stream_download_from_datamap` and `fetch_chunks_parallel`.
+
+#### Changed
+
+- `DataMapChunk` field visibility changed from `pub(crate)` to `pub`, making the inner `Chunk`
+  publicly accessible.
+- Enhanced error handling and retry mechanisms for chunk upload operations through improved helper
+  functions.
+- File upload workflow now uses the same approach as directory uploads for consistency.
+- Improved streaming encryption support with updated self-encryption dependency integration.
+- Enhanced language usage in user-facing messages for better clarity across client operations.
+- Unified approach for `Pointer` and `Scratchpad` split resolution through `resolve_split_records`
+  function.
+- Reduced `IN_MEMORY_ENCRYPTION_MAX_SIZE` threshold to 50MB for improved memory management during
+  encryption operations.
+- Previously, the file downloading functions required access to RAM in proportion to the size of the
+  file being downloaded, making it prohibitive to download large files. The functions have now been
+  changed to utilise new streaming features that keep memory usage low and consistent, so larger files
+  can be downloaded without issue.
+
+#### Fixed
+
+- Single large file download issues through improved streaming implementation.
+- Datamap chunks now properly uploaded when using stream encryption for public data operations.
+- Enhanced support for recursive data map handling in download operations.
+- Vault operations now properly support single file uploads and access.
+- Retry mechanism for failed chunks from final upload batches through improved error handling.
+- Deduplication logic for fetched scratchpads with identical highest counter values.
+
+### Language Bindings
+
+#### Added
+
+**Python:**
+- `AttoTokens` class with methods: `zero()`, `is_zero()`, `from_atto()`, `from_u64()`, `from_u128()`, `as_atto()`, `checked_add()`, `checked_sub()`, `as_bytes()`, `from_str()`, `__str__()`, `__repr__()`
+- `ClientOperatingStrategy` class with getters: `get_chunks()`, `get_graph_entry()`, `get_pointer()`, `get_scratchpad()`
+- `BootstrapCacheConfig` class with configuration methods: `new()`, `empty()`, `with_addr_expiry_duration()`, `with_cache_dir()`, `with_max_peers()`, `with_addrs_per_peer()`, `with_disable_cache_writing()`
+- `InitialPeersConfig` class with peer management methods: `new()`, getters/setters for `first`, `addrs`, `network_contacts_url`, `local`, `ignore_cache`, `bootstrap_cache_dir`, `get_bootstrap_addr()`, `read_bootstrap_addr_from_env()`
+- `MainPubkey` class with methods: `new()`, `verify()`, `derive_key()`, `as_bytes()`, `as_hex()`, `from_hex()`, `__str__()`, `__repr__()`
+- `MainSecretKey` class with methods: `new()`, `public_key()`, `sign()`, `derive_key()`, `to_bytes()`, `random()`, `random_derived_key()`, `__repr__()`
+- `Signature` class with methods: `parity()`, `from_bytes()`, `to_bytes()`, `__str__()`, `__repr__()`
+- `StoreQuote` class with methods: `price()`, `len()`, `is_empty()`, `payments()`
+- `RetryStrategy` class with methods: `none()`, `quick()`, `balanced()`, `persistent()`, `default()`, `attempts()`, `backoff()`, `__str__()`, `__repr__()`
+- `Quorum` class with string representation methods
+- `Strategy` class with getters: `get_put_quorum()`, `get_put_retry()`, `get_verification_quorum()`, `get_get_quorum()`, `get_get_retry()`
+- `QuoteForAddress` class with `price()` method
+- `RegisterAddress` class with methods: `new()`, `owner()`, `as_underlying_graph_root()`, `as_underlying_head_pointer()`, `as_hex()`, `from_hex()`
+- `DerivationIndex`, `DerivedPubkey`, `DerivedSecretKey` classes for key derivation functionality
+- Enhanced `ChunkAddress` class with `xorname()` and `from_hex()` methods
+- Enhanced `TransactionConfig` class with `new()` constructor and `max_fee_per_gas` getter
+
+**Node.js:**
+- Complete ant-node package with network spawning capabilities
+- `NetworkSpawner` class for managing network instances
+- `EvmNetwork` enum support for different EVM networks  
+- Swarm state management functionality
+
+#### Fixed
+
+- Python `get_bootstrap_addr()` method updated to match original Rust API changes
+- Python `cache_save_scaling_factor` return type corrected from u64 to u32 to match Rust API
+- Python `PyTransactionConfig` class fixes for proper configuration handling
+
+### Network
+
+#### Added
+
+- New metrics: `antnode_branch`
+- Enhanced protocol validation to block peers that do not support mandatory protocols, improving
+  network stability. This is the node-side equivalent of what was previously implemented for the
+  client in #3129. See changelog entry for `2025-07-31`.
+- Improved logging for query response types to aid in network debugging and monitoring. This will
+  help us measure the success of the next node upgrade.
+
+#### Changed
+
+- Bootstrap cache mechanism enhanced to prevent overwriting new peers with filesystem cache entries
+  during startup.
+- Network discovery and peer management improvements to reduce race conditions during network
+  initialization.
+- Enhanced peer validation during network startup to prevent timing-related connection issues.
+- Improved network reliability through better peer management and more robust connection handling
+  strategies.
+
+#### Fixed
+
+- Race condition in local network startup where bootstrap cache synchronization could occur after
+  address addition, preventing proper network initialization.
+- Bootstrap cache dependencies streamlined to avoid multiple configuration conflicts during node startup.
+- Expected holder calculation now properly capped to majority of `CLOSE_GROUP_SIZE` for improved
+  consensus reliability.
+- Replication accept range expanded from 5 to 7 nodes for middle range records to improve data availability.
+
+### Antctl
+
+#### Changed
+
+- Enhanced local testnet setup with automatic EVM testnet integration.
+
+#### Fixed
+
+- Added extra wait time before launching second node in local testnet to prevent startup conflicts
+  and improve reliability.
+
+### Payments
+
+#### Added
+
+- The `evm-testnet` binary will be included in each release. This will make it easier to work with
+  local testnets and we will also use it in our CI processes.
+
+### Ant Client
+
+#### Changed
+
+- Previously, the `file download` command required access to RAM in proportion to the size of the
+  file being downloaded, making it prohibitive to download large files. The command has now been
+  changed to utilise new streaming features that keep memory usage low and consistent, so larger
+  files can be downloaded without issue.
+
+#### Fixed
+
+- Logging is restored for events in the `ant` binary after it was inadvertently disabled.
+
+### General
+
+#### Changed
+
+- Upgraded all crates to Rust edition 2024, enabling access to the latest language features and
+  improvements.
+- Removed CI formatting enforcement and standardized Rust lints across workspace for improved
+  developer experience.
+- Enhanced test infrastructure with comprehensive logging and clean separation between unit,
+  integration, and full tests.
+- Improved Clippy lint configuration with appropriate exceptions for test code while maintaining
+  strict production code standards.
+
 ## 2025-07-31
 
 ### API

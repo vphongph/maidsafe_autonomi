@@ -812,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "ant-bootstrap"
-version = "0.2.7-rc.1"
+version = "0.2.7-rc.2"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.4.6-rc.1"
+version = "0.4.6-rc.2"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "ant-evm"
-version = "0.1.17-rc.1"
+version = "0.1.17-rc.2"
 dependencies = [
  "custom_debug",
  "evmlib",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "ant-logging"
-version = "0.2.52-rc.1"
+version = "0.2.52-rc.2"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.4.4-rc.1"
+version = "0.4.4-rc.2"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-manager"
-version = "0.13.3-rc.1"
+version = "0.13.3-rc.2"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-nodejs"
-version = "0.1.5-rc.1"
+version = "0.1.5-rc.2"
 dependencies = [
  "ant-node",
  "hex",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "1.0.8-rc.1"
+version = "1.0.8-rc.2"
 dependencies = [
  "ant-build-info",
  "ant-evm",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "ant-service-management"
-version = "0.4.16-rc.1"
+version = "0.4.16-rc.2"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",
@@ -1588,7 +1588,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "autonomi"
-version = "0.6.0-rc.1"
+version = "0.6.0-rc.2"
 dependencies = [
  "alloy",
  "ant-bootstrap",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "autonomi-nodejs"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "autonomi",
  "bytes",
@@ -3272,7 +3272,7 @@ dependencies = [
 
 [[package]]
 name = "evm-testnet"
-version = "0.1.16-rc.1"
+version = "0.1.16-rc.2"
 dependencies = [
  "ant-evm",
  "clap",
@@ -3283,7 +3283,7 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.4.3-rc.1"
+version = "0.4.3-rc.2"
 dependencies = [
  "alloy",
  "rand 0.8.5",
@@ -9188,7 +9188,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "test-utils"
-version = "0.4.21-rc.1"
+version = "0.4.21-rc.2"
 dependencies = [
  "bytes",
  "color-eyre",

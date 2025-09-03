@@ -123,7 +123,7 @@ impl Client {
         Ok(())
     }
 
-    fn cleanup_cached_chunks(&self, chunk_addrs: &[ChunkAddress]) {
+    pub(crate) fn cleanup_cached_chunks(&self, chunk_addrs: &[ChunkAddress]) {
         if self.config.chunk_cache_enabled
             && let Ok(cache_dir) = self.get_chunk_cache_dir()
         {

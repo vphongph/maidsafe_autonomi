@@ -180,6 +180,14 @@ impl Client {
             },
         )?;
 
+        // Cleanup the chunk_cache
+        let chunk_addrs: Vec<ChunkAddress> = data_map
+            .infos()
+            .iter()
+            .map(|info| ChunkAddress::new(info.dst_hash))
+            .collect();
+        self.cleanup_cached_chunks(&chunk_addrs);
+
         Ok(())
     }
 

@@ -10,11 +10,11 @@ use crate::connection_mode::ConnectionMode;
 use crate::system::get_primary_mount_point;
 use crate::{action::Action, mode::Scene};
 use ant_node_manager::config::is_running_as_root;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use derive_deref::{Deref, DerefMut};
 use ratatui::style::{Color, Modifier, Style};
-use serde::{de::Deserializer, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -41,7 +41,10 @@ pub fn get_launchpad_nodes_data_dir_path(
             #[cfg(unix)]
             {
                 let default_data_dir_path = PathBuf::from("/var/antctl/services");
-                debug!("Running as root; using default path {:?} for nodes data directory instead of primary mount point", default_data_dir_path);
+                debug!(
+                    "Running as root; using default path {:?} for nodes data directory instead of primary mount point",
+                    default_data_dir_path
+                );
                 default_data_dir_path
             }
             #[cfg(windows)]
@@ -424,8 +427,7 @@ pub fn parse_key_sequence(raw: &str) -> Result<Vec<KeyEvent>, String> {
     }
     let raw = if !raw.contains("><") {
         let raw = raw.strip_prefix('<').unwrap_or(raw);
-        let raw = raw.strip_prefix('>').unwrap_or(raw);
-        raw
+        raw.strip_prefix('>').unwrap_or(raw)
     } else {
         raw
     };

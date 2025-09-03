@@ -8,11 +8,12 @@
 
 use crate::utils::get_root_dir_and_keypair;
 use crate::{NodeBuilder, RunningNode};
-use ant_evm::{EvmNetwork, RewardsAddress};
-use libp2p::Multiaddr;
+pub use ant_evm::{EvmNetwork, RewardsAddress};
+pub use libp2p::Multiaddr;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone)]
 pub struct NodeSpawner {
     /// The socket address where the node will listen.
     socket_addr: SocketAddr,
@@ -168,10 +169,10 @@ async fn spawn_node(
 
     let listen_addrs: Vec<Multiaddr> = loop {
         // Wait till we have at least 1 listen addrs
-        if let Ok(listen_addrs) = running_node.get_listen_addrs().await {
-            if !listen_addrs.is_empty() {
-                break Ok(listen_addrs);
-            }
+        if let Ok(listen_addrs) = running_node.get_listen_addrs().await
+            && !listen_addrs.is_empty()
+        {
+            break Ok(listen_addrs);
         }
 
         if retries >= 3 {

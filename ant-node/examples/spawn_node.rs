@@ -6,6 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect/panic usage in examples
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use ant_bootstrap::InitialPeersConfig;
 use ant_node::spawn::node_spawner::NodeSpawner;
 
@@ -13,7 +17,7 @@ use ant_node::spawn::node_spawner::NodeSpawner;
 async fn main() {
     let args = InitialPeersConfig::default();
     let bootstrap_addrs = args
-        .get_bootstrap_addr(None, Some(5))
+        .get_bootstrap_addr(Some(5))
         .await
         .expect("Failed to get bootstrap addrs");
 

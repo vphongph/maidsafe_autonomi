@@ -6,20 +6,20 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use ant_protocol::storage::DataTypes;
 use std::time::Instant;
 
-use crate::client::payment::PaymentOption;
-use crate::client::{ClientEvent, GetError, PutError, UploadSummary};
-use crate::Amount;
 use crate::AttoTokens;
-use crate::{self_encryption::encrypt, Client};
+use crate::Client;
+use crate::client::encryption::EncryptionStream;
+use crate::client::payment::PaymentOption;
+use crate::client::{GetError, PutError};
 
-pub use crate::client::data_types::chunk::DataMapChunk;
 pub use crate::Bytes;
+pub use crate::client::data_types::chunk::DataMapChunk;
 
 impl Client {
-    /// Fetch a blob of (private) data from the network
+    /// Fetch a blob of (private) data from the network. In-memory only - fails for large files.
+    /// Use file_download for large files that need streaming.
     ///
     /// # Example
     ///
@@ -35,12 +35,23 @@ impl Client {
     /// ```
     pub async fn data_get(&self, data_map: &DataMapChunk) -> Result<Bytes, GetError> {
         info!(
-            "Fetching private data from Data Map {:?}",
+            "Fetching private data from datamap {:?}",
             data_map.0.address()
         );
-        let data = self.fetch_from_data_map_chunk(data_map.0.value()).await?;
 
-        debug!("Successfully fetched a blob of private data from the network");
+        let mut datamap = self.restore_data_map_from_chunk(data_map).await?;
+        let chunk_count = datamap.infos().len();
+
+        if chunk_count > *crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE {
+            return Err(GetError::TooLargeForMemory);
+        }
+
+        datamap.child = None;
+        let data = self.fetch_from_data_map(&datamap).await?;
+        debug!(
+            "Successfully fetched private data ({} chunks) in-memory",
+            chunk_count
+        );
         Ok(data)
     }
 
@@ -70,47 +81,15 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataMapChunk), PutError> {
         let now = Instant::now();
-        let (data_map_chunk, chunks) = encrypt(data)?;
+
+        let (chunk_stream, data_map_chunk) = EncryptionStream::new_in_memory(data, false)?;
         debug!("Encryption took: {:.2?}", now.elapsed());
 
-        // Pay for all chunks
-        let xor_names: Vec<_> = chunks
-            .iter()
-            .map(|chunk| (*chunk.name(), chunk.size()))
-            .collect();
-        info!("Paying for {} addresses", xor_names.len());
-        let (receipt, skipped_payments) = self
-            .pay_for_content_addrs(DataTypes::Chunk, xor_names.into_iter(), payment_option)
+        // Note within the `pay_and_upload`, UploadSummary will be sent to client via event_channel.
+        let mut chunk_streams = vec![chunk_stream];
+        self.pay_and_upload(payment_option, &mut chunk_streams)
             .await
-            .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
-
-        // Upload the chunks with the payments
-        debug!("Uploading {} chunks", chunks.len());
-
-        self.chunk_batch_upload(chunks.iter().collect(), &receipt)
-            .await?;
-
-        let record_count = chunks.len().saturating_sub(skipped_payments);
-
-        let tokens_spent = receipt
-            .values()
-            .map(|(_, cost)| cost.as_atto())
-            .sum::<Amount>();
-        let total_cost = AttoTokens::from_atto(tokens_spent);
-
-        // Reporting
-        if let Some(channel) = self.client_event_sender.as_ref() {
-            let summary = UploadSummary {
-                records_paid: record_count,
-                records_already_paid: skipped_payments,
-                tokens_spent,
-            };
-            if let Err(err) = channel.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send client event: {err:?}");
-            }
-        }
-
-        Ok((total_cost, DataMapChunk(data_map_chunk)))
+            .map(|total_cost| (total_cost, data_map_chunk))
     }
 }
 

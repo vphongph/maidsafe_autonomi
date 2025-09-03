@@ -6,6 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect usage in logging initialization
+#![allow(clippy::expect_used)]
+// Allow enum variant names that end with Error as they come from external derives
+#![allow(clippy::enum_variant_names)]
+
 mod appender;
 mod error;
 mod layers;
@@ -52,7 +57,7 @@ impl LogOutputDest {
                     None => {
                         return Err(Error::LoggingConfiguration(
                             "could not obtain data directory path".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(LogOutputDest::Path(dir))
@@ -171,9 +176,9 @@ impl LogBuilder {
             match std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
                 Ok(_) => layers.otlp_layer(self.default_logging_targets)?,
                 Err(_) => println!(
-                "The OTLP feature is enabled but the OTEL_EXPORTER_OTLP_ENDPOINT variable is not \
+                    "The OTLP feature is enabled but the OTEL_EXPORTER_OTLP_ENDPOINT variable is not \
                 set, so traces will not be submitted."
-            ),
+                ),
             }
         }
 
@@ -294,7 +299,13 @@ impl LogBuilder {
 
         println!("Setting ANT_LOG to: {log_pattern}");
 
-        std::env::set_var("ANT_LOG", log_pattern);
+        // SAFETY: This is called during test initialization before any other threads
+        // are spawned, so there's no risk of data races. Setting ANT_LOG is necessary
+        // to configure logging levels for test execution.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("ANT_LOG", log_pattern);
+        }
 
         let output_dest = match dirs_next::data_dir() {
             Some(dir) => {
@@ -325,16 +336,16 @@ impl LogBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::{layers::LogFormatter, ReloadHandle};
+    use crate::{ReloadHandle, layers::LogFormatter};
     use color_eyre::Result;
-    use tracing::{trace, warn, Level};
+    use tracing::{Level, trace, warn};
     use tracing_subscriber::{
+        Layer, Registry,
         filter::Targets,
         fmt as tracing_fmt,
         layer::{Filter, SubscriberExt},
         reload,
         util::SubscriberInitExt,
-        Layer, Registry,
     };
     use tracing_test::internal::global_buf;
 

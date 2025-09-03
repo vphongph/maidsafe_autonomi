@@ -37,7 +37,7 @@ def demonstrate_encryption():
     # Encrypt it
     data_map, chunks = encrypt(test_data)
     print(f"Original data size: {len(test_data)} bytes")
-    print(f"Data map size: {len(data_map)} bytes")
+    print(f"Datamap size: {len(data_map)} bytes")
     print(f"Number of chunks: {len(chunks)}")
     print(f"Total chunks size: {sum(len(c) for c in chunks)} bytes")
 

@@ -6,27 +6,30 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#![allow(clippy::expect_used)]
+
 mod common;
 
 use ant_logging::LogBuilder;
 use ant_node::sort_peers_by_key;
 use ant_protocol::{
+    CLOSE_GROUP_SIZE, NetworkAddress, PrettyPrintRecordKey,
     antnode_proto::{NodeInfoRequest, RecordAddressesRequest},
-    NetworkAddress, PrettyPrintRecordKey, CLOSE_GROUP_SIZE,
 };
 use autonomi::Client;
 use bytes::Bytes;
 use common::{
+    NodeRestart,
     client::{get_all_rpc_addresses, get_client_and_funded_wallet},
-    get_all_peer_ids, get_antnode_rpc_client, NodeRestart,
+    get_all_peer_ids, get_antnode_rpc_client,
 };
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use itertools::Itertools;
 use libp2p::{
-    kad::{KBucketKey, RecordKey},
     PeerId,
+    kad::{KBucketKey, RecordKey},
 };
-use rand::{rngs::OsRng, Rng};
+use rand::{Rng, rngs::OsRng};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     net::SocketAddr,
@@ -79,11 +82,11 @@ async fn verify_data_location() -> Result<()> {
     };
     println!(
         "Performing data location verification with a churn count of {churn_count} and n_chunks {chunk_count}\nIt will take approx {:?}",
-        VERIFICATION_DELAY*churn_count as u32
+        VERIFICATION_DELAY * churn_count as u32
     );
     info!(
         "Performing data location verification with a churn count of {churn_count} and n_chunks {chunk_count}\nIt will take approx {:?}",
-        VERIFICATION_DELAY*churn_count as u32
+        VERIFICATION_DELAY * churn_count as u32
     );
     let node_rpc_address = get_all_rpc_addresses(true).await?;
     let mut all_peers = get_all_peer_ids(&node_rpc_address).await?;
@@ -298,8 +301,12 @@ async fn verify_location(all_peers: &Vec<PeerId>, node_rpc_addresses: &[SocketAd
                 .enumerate()
                 .for_each(|(idx, peer)| info!("{idx} : {peer:?}"));
             verification_attempts += 1;
-            println!("Sleeping before retrying verification. {verification_attempts}/{VERIFICATION_ATTEMPTS}");
-            info!("Sleeping before retrying verification. {verification_attempts}/{VERIFICATION_ATTEMPTS}");
+            println!(
+                "Sleeping before retrying verification. {verification_attempts}/{VERIFICATION_ATTEMPTS}"
+            );
+            info!(
+                "Sleeping before retrying verification. {verification_attempts}/{VERIFICATION_ATTEMPTS}"
+            );
             if verification_attempts < VERIFICATION_ATTEMPTS {
                 tokio::time::sleep(REVERIFICATION_DELAY).await;
             }
@@ -349,7 +356,7 @@ async fn store_chunks(
         }
 
         let random_bytes: Vec<u8> = ::std::iter::repeat(())
-            .map(|()| rng.gen::<u8>())
+            .map(|()| rng.r#gen::<u8>())
             .take(CHUNK_SIZE)
             .collect();
 

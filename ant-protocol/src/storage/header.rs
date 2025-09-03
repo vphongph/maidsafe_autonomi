@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::error::Error;
 use crate::PrettyPrintRecordKey;
+use crate::error::Error;
 use bytes::{BufMut, Bytes, BytesMut};
 use libp2p::kad::Record;
 use prometheus_client::encoding::EncodeLabelValue;
@@ -78,8 +78,8 @@ impl Serialize for RecordKind {
         S: serde::Serializer,
     {
         let index = match self {
-            Self::DataOnly(ref data_types) => data_types.get_index(),
-            Self::DataWithPayment(ref data_types) => {
+            Self::DataOnly(data_types) => data_types.get_index(),
+            Self::DataWithPayment(data_types) => {
                 RECORD_KIND_PAYMENT_STARTING_INDEX + data_types.get_index()
             }
         };

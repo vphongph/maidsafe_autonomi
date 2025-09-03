@@ -13,13 +13,14 @@ use ant_bootstrap::InitialPeersConfig;
 use ant_evm::RewardsAddress;
 use ant_logging::{LogBuilder, LogFormat};
 use ant_node_manager::{
+    DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S, VerbosityLevel,
     add_services::config::PortRange,
     cmd::{self},
-    config, VerbosityLevel, DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
+    config,
 };
 use ant_service_management::NodeRegistryManager;
 use clap::{Parser, Subcommand};
-use color_eyre::{eyre::eyre, Result};
+use color_eyre::{Result, eyre::eyre};
 use libp2p::Multiaddr;
 use std::{net::Ipv4Addr, path::PathBuf};
 use tracing::Level;
@@ -920,11 +921,10 @@ async fn main() -> Result<()> {
                 evm_network,
                 skip_validation: _,
             } => {
-                let evm_network = if let Some(evm_network) = evm_network {
-                    Some(evm_network.try_into()?)
-                } else {
-                    None
-                };
+                let evm_network = evm_network
+                    .unwrap_or(EvmNetworkCommand::EvmLocal)
+                    .try_into()?;
+
                 cmd::local::join(
                     build,
                     count,
@@ -963,11 +963,10 @@ async fn main() -> Result<()> {
                 evm_network,
                 skip_validation: _,
             } => {
-                let evm_network = if let Some(evm_network) = evm_network {
-                    Some(evm_network.try_into()?)
-                } else {
-                    None
-                };
+                let evm_network = evm_network
+                    .unwrap_or(EvmNetworkCommand::EvmLocal)
+                    .try_into()?;
+
                 cmd::local::run(
                     build,
                     clean,
@@ -1129,6 +1128,7 @@ async fn configure_winsw(verbosity: VerbosityLevel) -> Result<()> {
 }
 
 #[cfg(not(windows))]
+#[allow(clippy::unused_async)]
 async fn configure_winsw(_verbosity: VerbosityLevel) -> Result<()> {
     Ok(())
 }

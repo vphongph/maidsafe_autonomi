@@ -1,7 +1,7 @@
-use crate::client::quote::DataTypes;
-use crate::client::PutError;
-use crate::self_encryption::encrypt;
 use crate::Client;
+use crate::client::PutError;
+use crate::client::quote::DataTypes;
+use crate::self_encryption::encrypt;
 use ant_evm::QuotePayment;
 use ant_protocol::storage::Chunk;
 use bytes::Bytes;
@@ -48,7 +48,7 @@ impl Client {
 
 /// Encrypts data as chunks.
 ///
-/// Returns the data map chunk and file chunks.
+/// Returns the datamap chunk and file chunks.
 pub fn encrypt_data(data: Bytes) -> Result<(Chunk, Vec<Chunk>), crate::self_encryption::Error> {
     let now = Instant::now();
     let result = encrypt(data)?;

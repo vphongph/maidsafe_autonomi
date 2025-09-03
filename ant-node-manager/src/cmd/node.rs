@@ -10,25 +10,26 @@
 
 use super::{download_and_get_upgrade_bin_path, print_upgrade_summary};
 use crate::{
+    ServiceManager, VerbosityLevel,
     add_services::{
         add_node,
         config::{AddNodeServiceOptions, PortRange},
     },
     config::{self, is_running_as_root},
     helpers::{download_and_extract_release, get_bin_version},
-    print_banner, refresh_node_registry, status_report, ServiceManager, VerbosityLevel,
+    print_banner, refresh_node_registry, status_report,
 };
 use ant_bootstrap::InitialPeersConfig;
 use ant_evm::{EvmNetwork, RewardsAddress};
 use ant_logging::LogFormat;
 use ant_releases::{AntReleaseRepoActions, ReleaseType};
 use ant_service_management::{
-    control::{ServiceControl, ServiceController},
-    rpc::RpcClient,
     NodeRegistryManager, NodeService, NodeServiceData, ServiceStateActions, ServiceStatus,
     UpgradeOptions, UpgradeResult,
+    control::{ServiceControl, ServiceController},
+    rpc::RpcClient,
 };
-use color_eyre::{eyre::eyre, Help, Result};
+use color_eyre::{Help, Result, eyre::eyre};
 use colored::Colorize;
 use libp2p_identity::PeerId;
 use semver::Version;
@@ -207,7 +208,9 @@ pub async fn remove(
     if verbosity != VerbosityLevel::Minimal {
         print_banner("Remove Antnode Services");
     }
-    info!("Removing antnode services with keep_dirs=({keep_directories}) for: {peer_ids:?}, {service_names:?}");
+    info!(
+        "Removing antnode services with keep_dirs=({keep_directories}) for: {peer_ids:?}, {service_names:?}"
+    );
 
     refresh_node_registry(
         node_registry.clone(),
@@ -232,7 +235,7 @@ pub async fn remove(
     for node in &services_for_ops {
         let service_name = node.read().await.service_name.clone();
         let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
-        let service = NodeService::new(node.clone(), Box::new(rpc_client));
+        let service = NodeService::new(Arc::clone(node), Box::new(rpc_client));
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
         match service_manager.remove(keep_directories).await {
@@ -324,7 +327,7 @@ pub async fn start(
         let service_name = node.read().await.service_name.clone();
 
         let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
-        let service = NodeService::new(node.clone(), Box::new(rpc_client));
+        let service = NodeService::new(Arc::clone(node), Box::new(rpc_client));
 
         // set dynamic startup delay if fixed_interval is not set
         let service = if fixed_interval.is_none() {
@@ -420,15 +423,15 @@ pub async fn stop(
     for node in services_for_ops.iter() {
         let service_name = node.read().await.service_name.clone();
         let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
-        let service = NodeService::new(node.clone(), Box::new(rpc_client));
+        let service = NodeService::new(Arc::clone(node), Box::new(rpc_client));
         let mut service_manager =
             ServiceManager::new(service, Box::new(ServiceController {}), verbosity);
 
-        if service_manager.service.status().await == ServiceStatus::Running {
-            if let Some(interval) = interval {
-                debug!("Sleeping for {} milliseconds", interval);
-                std::thread::sleep(std::time::Duration::from_millis(interval));
-            }
+        if service_manager.service.status().await == ServiceStatus::Running
+            && let Some(interval) = interval
+        {
+            debug!("Sleeping for {} milliseconds", interval);
+            std::thread::sleep(std::time::Duration::from_millis(interval));
         }
         match service_manager.stop().await {
             Ok(()) => {
@@ -539,7 +542,7 @@ pub async fn upgrade(
         let service_name = node.read().await.service_name.clone();
 
         let rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
-        let service = NodeService::new(node.clone(), Box::new(rpc_client));
+        let service = NodeService::new(Arc::clone(node), Box::new(rpc_client));
         // set dynamic startup delay if fixed_interval is not set
         let service = if fixed_interval.is_none() {
             service.with_connection_timeout(Duration::from_secs(connection_timeout_s))
@@ -787,7 +790,9 @@ pub async fn maintain_n_running_nodes(
     }
 
     if final_running_count != target_count {
-        warn!("Failed to reach target node count. Expected {target_count}, but got {final_running_count}");
+        warn!(
+            "Failed to reach target node count. Expected {target_count}, but got {final_running_count}"
+        );
     }
 
     Ok(())
@@ -803,7 +808,7 @@ async fn get_services_for_ops(
     if service_names.is_empty() && peer_ids.is_empty() {
         for node in node_registry.nodes.read().await.iter() {
             if node.read().await.status != ServiceStatus::Removed {
-                services.push(node.clone());
+                services.push(Arc::clone(node));
             }
         }
     } else {
@@ -813,7 +818,7 @@ async fn get_services_for_ops(
                 let node_read = node.read().await;
                 if node_read.service_name == *name && node_read.status != ServiceStatus::Removed {
                     {
-                        services.push(node.clone());
+                        services.push(Arc::clone(node));
                         found_service_with_name = true;
                         break;
                     }
@@ -832,12 +837,13 @@ async fn get_services_for_ops(
                 .map_err(|_| eyre!(format!("Error parsing PeerId: '{peer_id_str}'")))?;
             for node in node_registry.nodes.read().await.iter() {
                 let node_read = node.read().await;
-                if let Some(peer_id) = node_read.peer_id {
-                    if peer_id == given_peer_id && node_read.status != ServiceStatus::Removed {
-                        services.push(node.clone());
-                        found_service_with_peer_id = true;
-                        break;
-                    }
+                if let Some(peer_id) = node_read.peer_id
+                    && peer_id == given_peer_id
+                    && node_read.status != ServiceStatus::Removed
+                {
+                    services.push(Arc::clone(node));
+                    found_service_with_peer_id = true;
+                    break;
                 }
             }
             if !found_service_with_peer_id {

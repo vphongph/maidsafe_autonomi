@@ -6,6 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect and panic in binaries - to be refactored
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 #[macro_use]
 extern crate tracing;
 
@@ -16,7 +20,7 @@ mod subcommands;
 use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
 use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, InitialPeersConfig};
-use ant_evm::{get_evm_network, EvmNetwork, RewardsAddress};
+use ant_evm::{EvmNetwork, RewardsAddress, get_evm_network};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
 use ant_node::utils::{get_antnode_root_dir, get_root_dir_and_keypair};
@@ -25,8 +29,8 @@ use ant_protocol::{
     node_rpc::{NodeCtrl, StopResult},
     version,
 };
-use clap::{command, Parser};
-use color_eyre::{eyre::eyre, Result};
+use clap::{Parser, command};
+use color_eyre::{Result, eyre::eyre};
 use const_hex::traits::FromHex;
 use libp2p::PeerId;
 use std::{
@@ -287,14 +291,19 @@ fn main() -> Result<()> {
     let (log_output_dest, log_reload_handle, _log_appender_guard) =
         init_logging(&opt, keypair.public().to_peer_id())?;
 
+    // Create a tokio runtime per `run_node` attempt, this ensures
+    // any spawned tasks are closed before we would attempt to run
+    // another process with these args.
     let rt = Runtime::new()?;
 
-    let mut bootstrap_config = BootstrapCacheConfig::new(opt.peers.local)?;
+    let mut bootstrap_config = BootstrapCacheConfig::try_from(&opt.peers)?;
     bootstrap_config.backwards_compatible_writes = opt.write_older_cache_files;
-    let bootstrap_cache = rt.block_on(BootstrapCacheStore::new_from_initial_peers_config(
-        &opt.peers,
-        Some(bootstrap_config),
-    ))?;
+    let bootstrap_cache = BootstrapCacheStore::new(bootstrap_config)?;
+
+    if opt.peers.first {
+        info!("First node in network, writing empty cache to disk");
+        rt.block_on(bootstrap_cache.write())?;
+    }
 
     let msg = format!(
         "Running {} v{}",
@@ -309,13 +318,10 @@ fn main() -> Result<()> {
         ant_build_info::git_info()
     );
 
-    // Create a tokio runtime per `run_node` attempt, this ensures
-    // any spawned tasks are closed before we would attempt to run
-    // another process with these args.
     if opt.peers.local {
         rt.spawn(init_metrics(std::process::id()));
     }
-    let initial_peers = rt.block_on(opt.peers.get_bootstrap_addr(None, Some(100)))?;
+    let initial_peers = rt.block_on(opt.peers.get_bootstrap_addr(Some(100)))?;
     info!("Initial peers len: {:?}", initial_peers.len());
     let restart_options = rt.block_on(async move {
         let mut node_builder = NodeBuilder::new(
@@ -601,7 +607,9 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
         Some(s) => {
             // remove "(deleted)" string from current exe path
             if s.contains(" (deleted)") {
-                warn!("The current executable path contains ' (deleted)', which may lead to unexpected behavior. This has been removed from the exe location string");
+                warn!(
+                    "The current executable path contains ' (deleted)', which may lead to unexpected behavior. This has been removed from the exe location string"
+                );
                 s.replace(" (deleted)", "")
             } else {
                 s.to_string()

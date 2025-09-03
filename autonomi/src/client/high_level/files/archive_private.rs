@@ -16,21 +16,21 @@ use std::{
 use super::Metadata;
 use crate::files::normalize_path;
 use crate::{
-    client::{
-        data_types::chunk::DataMapChunk, high_level::files::RenameError, payment::PaymentOption,
-        GetError, PutError,
-    },
     Client,
+    client::{
+        GetError, PutError, data_types::chunk::DataMapChunk, high_level::files::RenameError,
+        payment::PaymentOption,
+    },
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-/// Private archive data map, allowing access to the [`PrivateArchive`] data.
+/// Private archive datamap, allowing access to the [`PrivateArchive`] data.
 pub type PrivateArchiveDataMap = DataMapChunk;
 
-/// Directory structure mapping filepaths to their data maps and metadata.
+/// Directory structure mapping filepaths to their datamaps and metadata.
 ///
-/// The data maps are stored within this structure instead of uploading them to the network, keeping the data private.
+/// The datamaps are stored within this structure instead of uploading them to the network, keeping the data private.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PrivateArchive {
     ///           Path of the file in the directory
@@ -71,7 +71,9 @@ impl PrivateArchive {
             .as_secs();
         meta.modified = now;
         self.map.insert(new_path.to_path_buf(), (data_addr, meta));
-        debug!("Renamed file successfully in the private archive, old path: {old_path:?} new_path: {new_path:?}");
+        debug!(
+            "Renamed file successfully in the private archive, old path: {old_path:?} new_path: {new_path:?}"
+        );
         Ok(())
     }
 

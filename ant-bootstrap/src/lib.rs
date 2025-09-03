@@ -6,6 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect usage and enum variant names (comes from thiserror derives)
+#![allow(clippy::expect_used)]
+#![allow(clippy::enum_variant_names)]
+
 //! Bootstrap Cache for the Autonomous Network
 //!
 //! This crate provides a decentralized peer discovery and caching system for the Autonomi Network.
@@ -28,14 +32,14 @@ pub mod error;
 mod initial_peers;
 
 use ant_protocol::version::{get_network_id_str, get_truncate_version_str};
-use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use thiserror::Error;
 
 pub use cache_store::BootstrapCacheStore;
 pub use config::BootstrapCacheConfig;
 pub use contacts::ContactsFetcher;
 pub use error::{Error, Result};
-pub use initial_peers::{InitialPeersConfig, ANT_PEERS_ENV};
+pub use initial_peers::{ANT_PEERS_ENV, InitialPeersConfig};
 
 /// Craft a proper address to avoid any ill formed addresses
 ///

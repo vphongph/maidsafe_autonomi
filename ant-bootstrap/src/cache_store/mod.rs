@@ -9,8 +9,8 @@
 pub mod cache_data_v0;
 pub mod cache_data_v1;
 
-use crate::{craft_valid_multiaddr, BootstrapCacheConfig, Error, InitialPeersConfig, Result};
-use libp2p::{multiaddr::Protocol, Multiaddr, PeerId};
+use crate::{BootstrapCacheConfig, Error, Result, craft_valid_multiaddr};
+use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use rand::Rng;
 use std::{fs, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
@@ -56,39 +56,6 @@ impl BootstrapCacheStore {
         Ok(store)
     }
 
-    /// Create an empty CacheStore from the given Initial Peers Configuration.
-    /// This also modifies the `BootstrapCacheConfig` if provided based on the `InitialPeersConfig`.
-    /// And also performs some actions based on the `InitialPeersConfig`.
-    ///
-    /// `InitialPeersConfig::bootstrap_cache_dir` will take precedence over the path provided inside `config`.
-    pub async fn new_from_initial_peers_config(
-        init_peers_config: &InitialPeersConfig,
-        config: Option<BootstrapCacheConfig>,
-    ) -> Result<Self> {
-        let mut config = if let Some(cfg) = config {
-            cfg
-        } else {
-            BootstrapCacheConfig::new(init_peers_config.local)?
-        };
-
-        if let Some(cache_dir) = &init_peers_config.bootstrap_cache_dir {
-            config.cache_dir = cache_dir.clone();
-        }
-
-        let store = Self::new(config)?;
-
-        // If it is the first node, clear the cache.
-        if init_peers_config.first {
-            info!("First node in network, writing empty cache to disk");
-            store.write().await?;
-        } else {
-            info!("Flushing cache to disk on init.");
-            store.sync_and_flush_to_disk().await?;
-        }
-
-        Ok(store)
-    }
-
     pub async fn peer_count(&self) -> usize {
         self.data.read().await.peers.len()
     }
@@ -106,8 +73,13 @@ impl BootstrapCacheStore {
             .retain(|(id, _)| id != peer_id);
     }
 
-    /// Add an address to the cache
+    /// Add an address to the cache. Note that the address must have a valid peer ID.
+    ///
+    /// We do not write P2pCircuit addresses to the cache.
     pub async fn add_addr(&self, addr: Multiaddr) {
+        if addr.iter().any(|p| matches!(p, Protocol::P2pCircuit)) {
+            return;
+        }
         let Some(addr) = craft_valid_multiaddr(&addr, false) else {
             return;
         };
@@ -115,9 +87,6 @@ impl BootstrapCacheStore {
             Some(Protocol::P2p(id)) => id,
             _ => return,
         };
-        if addr.iter().any(|p| matches!(p, Protocol::P2pCircuit)) {
-            return;
-        }
 
         debug!("Adding addr to bootstrap cache: {addr}");
 

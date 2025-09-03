@@ -1,13 +1,13 @@
 [package]
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "Logging utilities for crates in the Autonomi repository"
-edition = "2021"
+edition = "2024"
 homepage = "https://maidsafe.net"
 license = "GPL-3.0"
 name = "ant-logging"
 readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
-version = "0.2.51"
+version = "0.2.52"
 
 [dependencies]
 chrono = "~0.4.19"

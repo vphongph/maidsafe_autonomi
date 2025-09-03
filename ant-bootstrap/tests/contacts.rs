@@ -7,16 +7,16 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_bootstrap::{
+    ANT_PEERS_ENV, ContactsFetcher, InitialPeersConfig,
     cache_store::{cache_data_v0, cache_data_v1},
-    ContactsFetcher, InitialPeersConfig, ANT_PEERS_ENV,
 };
 use ant_logging::LogBuilder;
 use color_eyre::Result;
 use libp2p::{Multiaddr, PeerId};
 use std::{sync::atomic::Ordering, time::SystemTime};
 use wiremock::{
-    matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{method, path},
 };
 
 #[tokio::test]
@@ -137,17 +137,21 @@ async fn test_network_contacts_retries() -> Result<()> {
 #[tokio::test]
 async fn test_env_variable_parsing() -> Result<()> {
     let _guard = LogBuilder::init_single_threaded_tokio_test();
-    // Set ANT_PEERS environment variable
-    std::env::set_var(
-        ANT_PEERS_ENV,
-        "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE,/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
-    );
 
-    // Read from environment
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var(
+            ANT_PEERS_ENV,
+            "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE,/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5",
+        );
+    }
+
     let addrs = InitialPeersConfig::read_bootstrap_addr_from_env();
 
-    // Cleanup
-    std::env::remove_var(ANT_PEERS_ENV);
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::remove_var(ANT_PEERS_ENV);
+    }
 
     assert_eq!(addrs.len(), 2, "Should parse both addresses from env var");
 

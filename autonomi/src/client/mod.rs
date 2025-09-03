@@ -40,6 +40,8 @@ pub mod external_signer;
 
 // private module with utility functions
 mod chunk_cache;
+mod data_map_restoration;
+mod encryption;
 mod network;
 mod put_error_state;
 mod utils;
@@ -47,7 +49,7 @@ mod utils;
 use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 
-use ant_bootstrap::{contacts::ALPHANET_CONTACTS, InitialPeersConfig};
+use ant_bootstrap::{InitialPeersConfig, contacts::ALPHANET_CONTACTS};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use config::ClientConfig;
@@ -63,9 +65,9 @@ const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
 use crate::client::config::ClientOperatingStrategy;
-use crate::networking::{multiaddr_is_global, Multiaddr, Network, NetworkAddress, NetworkError};
-use ant_protocol::storage::RecordKind;
+use crate::networking::{Multiaddr, Network, NetworkAddress, NetworkError, multiaddr_is_global};
 pub use ant_protocol::CLOSE_GROUP_SIZE;
+use ant_protocol::storage::RecordKind;
 
 /// Represents a client for the Autonomi network.
 ///
@@ -166,6 +168,14 @@ pub enum GetError {
     RecordKindMismatch(RecordKind),
     #[error("Configuration error: {0}")]
     Configuration(String),
+    #[error("Unable to recogonize the so claimed DataMap: {0}")]
+    UnrecognizedDataMap(String),
+    /// When trying to download a file that is too large to be handled in memory
+    /// you can increase the [`crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE`] env var or use the streaming API.
+    #[error(
+        "DataMap points to a file too large to be handled in memory, you can increase the MAX_IN_MEMORY_DOWNLOAD_SIZE env var or use streaming to avoid this error."
+    )]
+    TooLargeForMemory,
 }
 
 impl Client {
@@ -290,11 +300,7 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let initial_peers = match config
-            .init_peers_config
-            .get_bootstrap_addr(None, Some(50))
-            .await
-        {
+        let initial_peers = match config.init_peers_config.get_bootstrap_addr(Some(50)).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };

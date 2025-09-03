@@ -6,13 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::spawn::node_spawner::NodeSpawner;
 use crate::RunningNode;
+use crate::spawn::node_spawner::NodeSpawner;
 use ant_evm::{EvmNetwork, RewardsAddress};
 use libp2p::Multiaddr;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone)]
 pub struct NetworkSpawner {
     /// The EVM network to which the spawned nodes will connect.
     evm_network: EvmNetwork,

@@ -8,10 +8,6 @@ on:
         type: number
         required: false
 
-# The key variables also need to be passed to `cross`, which runs in a container and does not
-# inherit variables from the parent environment. The `cross` tool is used in the `build`
-# job. If any keys are added, the `build-release-artifacts` target in the Justfile must
-# also be updated.
 env:
   WORKFLOW_URL: https://github.com/maidsafe/autonomi/actions/runs
 
@@ -23,12 +19,6 @@ jobs:
       }}
     name: build
     environment: ${{ github.ref == 'refs/heads/stable' && 'stable' || 'release-candidate' }}
-    env:
-      FOUNDATION_PK: ${{ vars.FOUNDATION_PK }}
-      GENESIS_PK: ${{ vars.GENESIS_PK }}
-      GENESIS_SK: ${{ secrets.GENESIS_SK }}
-      NETWORK_ROYALTIES_PK: ${{ vars.NETWORK_ROYALTIES_PK }}
-      PAYMENT_FORWARD_PK: ${{ vars.PAYMENT_FORWARD_PK }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -48,7 +38,7 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
       - shell: bash
@@ -93,7 +83,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_DEPLOY_AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: eu-west-2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@master
         with:
           name: autonomi-x86_64-pc-windows-msvc
@@ -153,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ build ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@master
         with:
           name: autonomi-x86_64-pc-windows-msvc
@@ -247,7 +237,7 @@ jobs:
   #   needs: [ build, s3-release ]
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v5
   #       with:
   #         fetch-depth: "0"
   #         token: ${{ secrets.AUTONOMI_PAT }}

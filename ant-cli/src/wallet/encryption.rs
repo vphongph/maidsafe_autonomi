@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use color_eyre::eyre::eyre;
 use color_eyre::Result;
+use color_eyre::eyre::eyre;
 use rand::Rng;
 use ring::aead::{BoundKey, Nonce, NonceSequence};
 use ring::error::Unspecified;
@@ -18,8 +18,10 @@ const SALT_LENGTH: usize = 8;
 const NONCE_LENGTH: usize = 12;
 
 /// Number of iterations for pbkdf2.
-static ITERATIONS: LazyLock<NonZeroU32> =
-    LazyLock::new(|| NonZeroU32::new(100_000).expect("Infallible"));
+static ITERATIONS: LazyLock<NonZeroU32> = LazyLock::new(|| {
+    #[allow(clippy::expect_used)] // NonZeroU32::new(100_000) is infallible
+    NonZeroU32::new(100_000).expect("Infallible")
+});
 
 struct NonceSeq([u8; 12]);
 

@@ -6,6 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow enum variant names that end with Error as they come from thiserror derives
+#![allow(clippy::enum_variant_names)]
+// Allow the to_* methods on Copy types (used for byte conversions)
+#![allow(clippy::wrong_self_convention)]
+// Allow expect/panic usage temporarily
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 #[macro_use]
 extern crate tracing;
 
@@ -37,9 +45,9 @@ use self::storage::{ChunkAddress, GraphEntryAddress, PointerAddress, ScratchpadA
 pub use bytes::Bytes;
 
 use libp2p::{
+    Multiaddr, PeerId,
     kad::{KBucketDistance as Distance, KBucketKey as Key, RecordKey},
     multiaddr::Protocol,
-    Multiaddr, PeerId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
@@ -101,10 +109,10 @@ impl NetworkAddress {
 
     /// Try to return the represented `PeerId`.
     pub fn as_peer_id(&self) -> Option<PeerId> {
-        if let NetworkAddress::PeerId(bytes) = self {
-            if let Ok(peer_id) = PeerId::from_bytes(bytes) {
-                return Some(peer_id);
-            }
+        if let NetworkAddress::PeerId(bytes) = self
+            && let Ok(peer_id) = PeerId::from_bytes(bytes)
+        {
+            return Some(peer_id);
         }
         None
     }
@@ -384,9 +392,9 @@ impl std::fmt::Debug for PrettyPrintRecordKey<'_> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        NetworkAddress, PeerId,
         messages::{Nonce, Query},
         storage::GraphEntryAddress,
-        NetworkAddress, PeerId,
     };
     use serde::{Deserialize, Serialize};
 

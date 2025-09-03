@@ -6,9 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#![allow(clippy::unused_async)]
+
 use ant_service_management::StatusSummary;
 use assert_cmd::{assert::OutputAssertExt, cargo::CommandCargoExt};
-use color_eyre::{eyre::eyre, Result};
+use color_eyre::{Result, eyre::eyre};
 use std::process::Command;
 
 pub async fn get_service_status() -> Result<StatusSummary> {

@@ -9,11 +9,12 @@
 use ant_logging::ReloadHandle;
 use ant_node::RunningNode;
 use ant_protocol::antnode_proto::{
-    ant_node_server::{AntNode, AntNodeServer},
-    k_buckets_response, KBucketsRequest, KBucketsResponse, NetworkInfoRequest, NetworkInfoResponse,
-    NodeEvent, NodeEventsRequest, NodeInfoRequest, NodeInfoResponse, RecordAddressesRequest,
+    KBucketsRequest, KBucketsResponse, NetworkInfoRequest, NetworkInfoResponse, NodeEvent,
+    NodeEventsRequest, NodeInfoRequest, NodeInfoResponse, RecordAddressesRequest,
     RecordAddressesResponse, RestartRequest, RestartResponse, StopRequest, StopResponse,
     UpdateLogLevelRequest, UpdateLogLevelResponse, UpdateRequest, UpdateResponse,
+    ant_node_server::{AntNode, AntNodeServer},
+    k_buckets_response,
 };
 use ant_protocol::node_rpc::{NodeCtrl, StopResult};
 use eyre::{ErrReport, Result};
@@ -26,7 +27,7 @@ use std::{
 };
 use tokio::sync::mpsc::{self, Sender};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Server, Code, Request, Response, Status};
+use tonic::{Code, Request, Response, Status, transport::Server};
 use tracing::{debug, info};
 
 // Defining a struct to hold information used by our gRPC service backend
@@ -81,11 +82,14 @@ impl AntNode for SafeNodeRpcService {
             request.get_ref()
         );
 
-        let state = self
-            .running_node
-            .get_swarm_local_state()
-            .await
-            .expect("failed to get local swarm state");
+        let state = match self.running_node.get_swarm_local_state().await {
+            Ok(state) => state,
+            Err(err) => {
+                return Err(Status::invalid_argument(format!(
+                    "Failed to get local swarm state: {err:?}"
+                )));
+            }
+        };
         let connected_peers = state.connected_peers.iter().map(|p| p.to_bytes()).collect();
         let listeners = state.listeners.iter().map(|m| m.to_string()).collect();
 
@@ -147,14 +151,14 @@ impl AntNode for SafeNodeRpcService {
             request.get_ref()
         );
 
-        let addresses = self
-            .running_node
-            .get_all_record_addresses()
-            .await
-            .expect("failed to get record addresses")
-            .into_iter()
-            .map(|addr| addr.as_bytes())
-            .collect();
+        let addresses = match self.running_node.get_all_record_addresses().await {
+            Ok(addresses) => addresses.into_iter().map(|addr| addr.as_bytes()).collect(),
+            Err(err) => {
+                return Err(Status::invalid_argument(format!(
+                    "Failed to get record addresses: {err:?}"
+                )));
+            }
+        };
 
         Ok(Response::new(RecordAddressesResponse { addresses }))
     }
@@ -169,18 +173,22 @@ impl AntNode for SafeNodeRpcService {
             request.get_ref()
         );
 
-        let kbuckets: HashMap<u32, k_buckets_response::Peers> = self
-            .running_node
-            .get_kbuckets()
-            .await
-            .expect("failed to get k-buckets")
-            .into_iter()
-            .map(|(ilog2_distance, peers)| {
-                let peers = peers.into_iter().map(|peer| peer.to_bytes()).collect();
-                let peers = k_buckets_response::Peers { peers };
-                (ilog2_distance, peers)
-            })
-            .collect();
+        let kbuckets: HashMap<u32, k_buckets_response::Peers> =
+            match self.running_node.get_kbuckets().await {
+                Ok(kbuckets) => kbuckets
+                    .into_iter()
+                    .map(|(ilog2_distance, peers)| {
+                        let peers = peers.into_iter().map(|peer| peer.to_bytes()).collect();
+                        let peers = k_buckets_response::Peers { peers };
+                        (ilog2_distance, peers)
+                    })
+                    .collect(),
+                Err(err) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Failed to get k-buckets: {err:?}"
+                    )));
+                }
+            };
 
         Ok(Response::new(KBucketsResponse { kbuckets }))
     }

@@ -26,8 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `data_address()` to retrieve the data address
   - `new_in_memory_with()`, `new_in_memory()`, and `new_stream_from_file()` constructors for
     different encryption modes
-- Streaming download functionality in high-level file operations through
-  `stream_download_from_datamap` and `fetch_chunks_parallel`.
+
 
 #### Changed
 
@@ -42,18 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function.
 - Reduced `IN_MEMORY_ENCRYPTION_MAX_SIZE` threshold to 50MB for improved memory management during
   encryption operations.
-- Previously, the file downloading functions required access to RAM in proportion to the size of the
-  file being downloaded, making it prohibitive to download large files. The functions have now been
-  changed to utilise new streaming features that keep memory usage low and consistent, so larger files
-  can be downloaded without issue.
+- Streaming download capability in high-level file operations for `file_download`,
+  `file_download_public`, `dir_download_public`, `dir_download`. Allows downloading larger files
+  without spikes in memory usage experienced previously.
+- The streaming capability results in a new datamap format that requires four extra chunks. If there
+  is an attempt to re-upload files uploaded before the streaming implementation, there will be a cost
+  for these extra chunks.
+- The new datamap format always returns a root datamap that points to three chunks. These three
+  extra chunks will now be paid for in uploads.
 
 #### Fixed
 
-- Single large file download issues through improved streaming implementation.
-- Datamap chunks now properly uploaded when using stream encryption for public data operations.
-- Enhanced support for recursive data map handling in download operations.
 - Vault operations now properly support single file uploads and access.
-- Retry mechanism for failed chunks from final upload batches through improved error handling.
+- If there were failed chunks in the final batch of an upload they were not retried. This has now
+  been fixed with improved error handling.
 - Deduplication logic for fetched scratchpads with identical highest counter values.
 
 ### Language Bindings
@@ -80,9 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Node.js:**
 - Complete ant-node package with network spawning capabilities
-- `NetworkSpawner` class for managing network instances
-- `EvmNetwork` enum support for different EVM networks  
-- Swarm state management functionality
 
 #### Fixed
 
@@ -95,41 +93,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Added
 
 - New metrics: `antnode_branch`
-- Enhanced protocol validation to block peers that do not support mandatory protocols, improving
-  network stability. This is the node-side equivalent of what was previously implemented for the
-  client in #3129. See changelog entry for `2025-07-31`.
 - Improved logging for query response types to aid in network debugging and monitoring. This will
   help us measure the success of the next node upgrade.
 
-#### Changed
-
-- Bootstrap cache mechanism enhanced to prevent overwriting new peers with filesystem cache entries
-  during startup.
-- Network discovery and peer management improvements to reduce race conditions during network
-  initialization.
-- Enhanced peer validation during network startup to prevent timing-related connection issues.
-- Improved network reliability through better peer management and more robust connection handling
-  strategies.
-
 #### Fixed
 
-- Race condition in local network startup where bootstrap cache synchronization could occur after
-  address addition, preventing proper network initialization.
-- Bootstrap cache dependencies streamlined to avoid multiple configuration conflicts during node startup.
+- Race condition in local network startup where bootstrap cache where the bootstrap cache was never
+  written with newer addresses.
+- Issue with the bootstrap cache where newer nodes were not updated when the cache became full.
 - Expected holder calculation now properly capped to majority of `CLOSE_GROUP_SIZE` for improved
   consensus reliability.
-- Replication accept range expanded from 5 to 7 nodes for middle range records to improve data availability.
+- Replication accept range expanded from 5 to 7 nodes for middle range records to improve data
+  availability.
 
 ### Antctl
 
 #### Changed
 
-- Enhanced local testnet setup with automatic EVM testnet integration.
+- The `local run` command will now automatically provide the EVM setup for a local testnet without
+  having to run the `evm-testnet` binary separately.
 
 #### Fixed
 
-- Added extra wait time before launching second node in local testnet to prevent startup conflicts
-  and improve reliability.
+- The `local run` command has extra wait time before launching a second node to prevent startup
+  conflicts and improve reliability.
 
 ### Payments
 
@@ -150,19 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Fixed
 
 - Logging is restored for events in the `ant` binary after it was inadvertently disabled.
-
-### General
-
-#### Changed
-
-- Upgraded all crates to Rust edition 2024, enabling access to the latest language features and
-  improvements.
-- Removed CI formatting enforcement and standardized Rust lints across workspace for improved
-  developer experience.
-- Enhanced test infrastructure with comprehensive logging and clean separation between unit,
-  integration, and full tests.
-- Improved Clippy lint configuration with appropriate exceptions for test code while maintaining
-  strict production code standards.
+- In some cases the chunk cache was not correctly cleared after a download.
 
 ## 2025-07-31
 

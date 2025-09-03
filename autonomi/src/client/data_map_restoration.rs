@@ -86,6 +86,10 @@ impl Client {
                     #[cfg(feature = "loud")]
                     println!("Successfully fetched chunk at: {chunk_addr:?}");
                     debug!("Successfully fetched chunk at: {chunk_addr:?}");
+
+                    // Such datamap chunks shall be cleanup from chunk_cache immediately
+                    client.cleanup_cached_chunks(&[chunk_addr]);
+
                     Ok(chunk.value)
                 }
                 Err(err) => {

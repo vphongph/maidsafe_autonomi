@@ -8,10 +8,6 @@ on:
         type: number
         required: false
 
-# The key variables also need to be passed to `cross`, which runs in a container and does not
-# inherit variables from the parent environment. The `cross` tool is used in the `build`
-# job. If any keys are added, the `build-release-artifacts` target in the Justfile must
-# also be updated.
 env:
   WORKFLOW_URL: https://github.com/maidsafe/autonomi/actions/runs
 
@@ -23,12 +19,6 @@ jobs:
       }}
     name: build
     environment: ${{ github.ref == 'refs/heads/stable' && 'stable' || 'release-candidate' }}
-    env:
-      FOUNDATION_PK: ${{ vars.FOUNDATION_PK }}
-      GENESIS_PK: ${{ vars.GENESIS_PK }}
-      GENESIS_SK: ${{ secrets.GENESIS_SK }}
-      NETWORK_ROYALTIES_PK: ${{ vars.NETWORK_ROYALTIES_PK }}
-      PAYMENT_FORWARD_PK: ${{ vars.PAYMENT_FORWARD_PK }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

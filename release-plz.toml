@@ -10,3 +10,11 @@ release = false
 [[package]]
 name = "test-utils"
 release = false
+
+[[package]]
+name = "autonomi-nodejs"
+release = false
+
+[[package]]
+name = "ant-node-nodejs"
+release = false

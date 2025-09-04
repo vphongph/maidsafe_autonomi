@@ -203,22 +203,20 @@ impl ServiceControl for ServiceController {
             );
             
             for (pid, process) in system.processes() {
-                if let Some(path) = process.exe() {
-                    if let Some(actual_name) = path.file_name() {
-                        if expected_name == actual_name {
-                            debug!(
-                                "Found process with matching executable name {} at path {}, PID: {pid}",
-                                expected_name.to_string_lossy(),
-                                path.to_string_lossy()
-                            );
-                            // Additional verification: check if this is likely an antnode process
-                            // by examining command line arguments if available
-                            if process.cmd().iter().any(|arg| arg.contains("antnode")) ||
-                               expected_name.to_string_lossy().contains("antnode") {
-                                trace!("Confirmed antnode process with name match, PID: {pid}");
-                                return Ok(pid.to_string().parse::<u32>()?);
-                            }
-                        }
+                if let Some(path) = process.exe()
+                    && let Some(actual_name) = path.file_name()
+                    && expected_name == actual_name {
+                    debug!(
+                        "Found process with matching executable name {} at path {}, PID: {pid}",
+                        expected_name.to_string_lossy(),
+                        path.to_string_lossy()
+                    );
+                    // Additional verification: check if this is likely an antnode process
+                    // by examining command line arguments if available
+                    if process.cmd().iter().any(|arg| arg.contains("antnode")) ||
+                       expected_name.to_string_lossy().contains("antnode") {
+                        trace!("Confirmed antnode process with name match, PID: {pid}");
+                        return Ok(pid.to_string().parse::<u32>()?);
                     }
                 }
             }

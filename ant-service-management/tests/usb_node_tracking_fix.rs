@@ -1,7 +1,7 @@
 // Integration test for AUTO-46: safenode-manager node tracking fix
 // Tests that nodes started from external USB are properly tracked
 
-use ant_service_management::control::{ServiceControl, ServiceController};
+use ant_service_management::control::ServiceController;
 use std::path::Path;
 
 #[test]
@@ -9,7 +9,7 @@ fn test_process_detection_with_different_paths() {
     // This test verifies that our improved process detection can handle
     // nodes started from different paths (like external USB)
     
-    let service_controller = ServiceController {};
+    let _service_controller = ServiceController {};
     
     // Test case 1: Standard service path (should work with exact matching)
     let standard_path = Path::new("/var/antctl/services/antnode1/antnode");
@@ -61,11 +61,11 @@ fn test_usb_node_scenario() {
     // 2. Nodes 21-40 are started from external USB (name match needed)
     
     let normal_nodes: Vec<_> = (1..=20)
-        .map(|i| format!("/var/antctl/services/antnode{}/antnode", i))
+        .map(|i| format!("/var/antctl/services/antnode{i}/antnode"))
         .collect();
     
     let usb_nodes: Vec<_> = (21..=40)
-        .map(|i| format!("/media/usb/batch2/antnode"))
+        .map(|_i| "/media/usb/batch2/antnode".to_string())
         .collect();
     
     // All should have the same executable name
@@ -118,15 +118,14 @@ fn test_improved_process_detection() {
     
     for process in &processes {
         let process_path = Path::new(&process.path);
-        if let Some(actual_name) = process_path.file_name() {
-            if expected_name == actual_name.to_string_lossy() {
-                // Check if it's an antnode process
-                if process.cmd_args.iter().any(|arg| arg.contains("antnode")) ||
-                   expected_name.contains("antnode") {
-                    found_usb_node = true;
-                    println!("✅ Found USB antnode at: {}", process.path);
-                    break;
-                }
+        if let Some(actual_name) = process_path.file_name()
+            && expected_name == actual_name.to_string_lossy() {
+            // Check if it's an antnode process
+            if process.cmd_args.iter().any(|arg| arg.contains("antnode")) ||
+               expected_name.contains("antnode") {
+                found_usb_node = true;
+                println!("✅ Found USB antnode at: {}", process.path);
+                break;
             }
         }
     }

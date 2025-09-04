@@ -47,24 +47,12 @@ build-release-artifacts arch nightly="false":
     echo "Overriding chunk size to $MAX_CHUNK_SIZE bytes"
   fi
 
-  echo "================"
-  echo "  Network Keys  "
-  echo "================"
-  echo "FOUNDATION_PK: $FOUNDATION_PK"
-  echo "GENESIS_PK: $GENESIS_PK"
-  echo "NETWORK_ROYALTIES_PK: $NETWORK_ROYALTIES_PK"
-  echo "PAYMENT_FORWARD_PK: $PAYMENT_FORWARD_PK"
-
-  cross_container_opts="--env \"GENESIS_PK=$GENESIS_PK\" --env \"GENESIS_SK=$GENESIS_SK\" --env \"FOUNDATION_PK=$FOUNDATION_PK\" --env \"NETWORK_ROYALTIES_PK=$NETWORK_ROYALTIES_PK\" --env \"PAYMENT_FORWARD_PK=$PAYMENT_FORWARD_PK\""
-  export CROSS_CONTAINER_OPTS=$cross_container_opts
-
   nightly_feature=""
   if [[ "$nightly" == "true" ]]; then
     nightly_feature="--features nightly"
   fi
 
   if [[ $arch == arm* || $arch == armv7* || $arch == aarch64* ]]; then
-    echo "Passing to cross CROSS_CONTAINER_OPTS=$CROSS_CONTAINER_OPTS"
     cargo binstall --no-confirm cross
     cross build --release --target $arch --bin nat-detection $nightly_feature
     cross build --release --target $arch --bin node-launchpad $nightly_feature
@@ -73,6 +61,7 @@ build-release-artifacts arch nightly="false":
     cross build --release --target $arch --bin antctl $nightly_feature
     cross build --release --target $arch --bin antctld $nightly_feature
     cross build --release --target $arch --bin antnode_rpc_client $nightly_feature
+    cross build --release --target $arch --bin evm-testnet $nightly_feature
   else
     cargo build --release --target $arch --bin nat-detection $nightly_feature
     cargo build --release --target $arch --bin node-launchpad $nightly_feature
@@ -81,6 +70,7 @@ build-release-artifacts arch nightly="false":
     cargo build --release --target $arch --bin antctl $nightly_feature
     cargo build --release --target $arch --bin antctld $nightly_feature
     cargo build --release --target $arch --bin antnode_rpc_client $nightly_feature
+    cargo build --release --target $arch --bin evm-testnet $nightly_feature
   fi
 
   find target/$arch/release -maxdepth 1 -type f -exec cp '{}' artifacts \;
@@ -120,6 +110,7 @@ package-all-bins:
   just package-bin "antctl"
   just package-bin "antctld"
   just package-bin "antnode_rpc_client"
+  just package-bin "evm-testnet"
 
 package-bin bin version="":
   #!/usr/bin/env bash
@@ -144,7 +135,8 @@ package-bin bin version="":
     "antnode" \
     "antctl" \
     "antctld" \
-    "antnode_rpc_client")
+    "antnode_rpc_client" \
+    "evm-testnet")
   crate_dir_name=""
 
   bin="{{bin}}"
@@ -169,6 +161,9 @@ package-bin bin version="":
       ;;
     antnode_rpc_client)
       crate_dir_name="ant-node-rpc-client"
+      ;;
+    evm-testnet)
+      crate_dir_name="evm-testnet"
       ;;
     *)
       echo "The $bin binary is not supported"
@@ -213,6 +208,7 @@ upload-all-packaged-bins-to-s3:
     antctl
     antnode_rpc_client
     antctld
+    evm-testnet
   )
   for binary in "${binaries[@]}"; do
     just upload-packaged-bin-to-s3 "$binary"
@@ -243,6 +239,9 @@ upload-packaged-bin-to-s3 bin_name:
       ;;
     antnode_rpc_client)
       bucket="antnode-rpc-client"
+      ;;
+    evm-testnet)
+      bucket="evm-testnet"
       ;;
     *)
       echo "The {{bin_name}} binary is not supported"
@@ -293,6 +292,9 @@ delete-s3-bin bin_name version:
       ;;
     antnode_rpc_client)
       bucket="antnode-rpc-client"
+      ;;
+    evm-testnet)
+      bucket="evm-testnet"
       ;;
     *)
       echo "The {{bin_name}} binary is not supported"
@@ -368,6 +370,7 @@ package-arch arch:
     antctl
     antnode_rpc_client
     antctld
+    evm-testnet
   )
 
   if [[ "$architecture" == *"windows"* ]]; then

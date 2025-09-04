@@ -44,6 +44,10 @@ async function computeDirSha256(dir) {
   
   // Hash all files in the directory
   const files = await getFiles(dir);
+  
+  // Sort files by path to ensure consistent ordering across different file systems
+  files.sort();
+  
   for (const file of files) {
     const fileHash = await computeSha256(file);
 
@@ -51,6 +55,166 @@ async function computeDirSha256(dir) {
   }
   
   return hash.digest('hex');
+}
+
+// Utility function to get detailed directory listing (similar to ls -l with recursive tree)
+async function getDirectoryListing(dirPath, indent = '') {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const listing = await Promise.all(entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name);
+      const stats = await fs.promises.stat(fullPath);
+      
+      if (entry.isDirectory()) {
+        const dirLine = `${indent}drwxr-xr-x ${stats.uid || 0} ${stats.gid || 0} ${stats.size} ${stats.mtime.toISOString()} ${entry.name}/`;
+        
+        // Recursively get contents of subdirectory
+        const subListing = await getDirectoryListing(fullPath, indent + '  ');
+        return [dirLine, subListing].filter(Boolean).join('\n');
+      } else {
+        const permissions = (stats.mode & 0o777).toString(8).padStart(3, '0');
+        return `${indent}-rw-r--r-- ${stats.uid || 0} ${stats.gid || 0} ${stats.size} ${stats.mtime.toISOString()} ${entry.name}`;
+      }
+    }));
+    
+    return listing.join('\n');
+  } catch (error) {
+    return `${indent}Error reading directory: ${error.message}`;
+  }
+}
+
+// Utility function to get content of mismatched files for debugging
+async function getMismatchedFileContents(sourceDir, destDir, maxSize = 1024) {
+  try {
+    const sourceFiles = await getAllFiles(sourceDir);
+    const destFiles = await getAllFiles(destDir);
+    
+    const mismatchedFiles = [];
+    
+    // Compare files that exist in both directories
+    for (const sourceFile of sourceFiles) {
+      const relativePath = path.relative(sourceDir, sourceFile);
+      const destFile = path.join(destDir, relativePath);
+      
+      if (fs.existsSync(destFile)) {
+        const sourceHash = await computeSha256(sourceFile);
+        const destHash = await computeSha256(destFile);
+        
+        if (sourceHash !== destHash) {
+          mismatchedFiles.push({
+            relativePath,
+            sourceHash,
+            destHash,
+            sourceFile,
+            destFile
+          });
+        }
+      }
+    }
+    
+    if (mismatchedFiles.length === 0) {
+      return 'No mismatched files found (all existing files have matching hashes)';
+    }
+    
+    let result = `Found ${mismatchedFiles.length} file(s) with mismatched hashes:\n`;
+    
+    for (const file of mismatchedFiles) {
+      const sourceStats = await fs.promises.stat(file.sourceFile);
+      const destStats = await fs.promises.stat(file.destFile);
+      
+      result += `\nFile: ${file.relativePath}\n`;
+      result += `Source hash: ${file.sourceHash}\n`;
+      result += `Dest hash: ${file.destHash}\n`;
+      result += `Source size: ${sourceStats.size} bytes\n`;
+      result += `Dest size: ${destStats.size} bytes\n`;
+      
+      // Show content of both source and destination files for comparison
+      const sourceSize = sourceStats.size;
+      const destSize = destStats.size;
+      
+      if (sourceSize <= maxSize && destSize <= maxSize) {
+        try {
+          const sourceContent = await fs.promises.readFile(file.sourceFile, 'utf8');
+          const destContent = await fs.promises.readFile(file.destFile, 'utf8');
+          
+          const escapedSourceContent = sourceContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          const escapedDestContent = destContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content:\n${escapedSourceContent}\n`;
+          result += `Destination content:\n${escapedDestContent}\n`;
+        } catch (error) {
+          result += `Error reading content: ${error.message}\n`;
+        }
+      } else if (sourceSize <= maxSize) {
+        try {
+          const sourceContent = await fs.promises.readFile(file.sourceFile, 'utf8');
+          const escapedSourceContent = sourceContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content:\n${escapedSourceContent}\n`;
+          result += `Destination content: File too large (${destSize} bytes) to show\n`;
+        } catch (error) {
+          result += `Error reading source content: ${error.message}\n`;
+        }
+      } else if (destSize <= maxSize) {
+        try {
+          const destContent = await fs.promises.readFile(file.destFile, 'utf8');
+          const escapedDestContent = destContent
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          
+          result += `Source content: File too large (${sourceSize} bytes) to show\n`;
+          result += `Destination content:\n${escapedDestContent}\n`;
+        } catch (error) {
+          result += `Error reading destination content: ${error.message}\n`;
+        }
+      } else {
+        result += `Source content: File too large (${sourceSize} bytes) to show\n`;
+        result += `Destination content: File too large (${destSize} bytes) to show\n`;
+      }
+    }
+    
+    return result;
+    
+  } catch (error) {
+    return `Error analyzing mismatched files: ${error.message}`;
+  }
+}
+
+// Helper function to get all files recursively
+async function getAllFiles(dirPath) {
+  const files = [];
+  
+  async function collectFiles(currentPath) {
+    const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(currentPath, entry.name);
+      
+      if (entry.isDirectory()) {
+        await collectFiles(fullPath);
+      } else {
+        files.push(fullPath);
+      }
+    }
+  }
+  
+  await collectFiles(dirPath);
+  return files.sort(); // Sort for consistent ordering
 }
 
 test('private archive - upload and download directory', async (t) => {
@@ -61,7 +225,10 @@ test('private archive - upload and download directory', async (t) => {
   
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
-  const destDir = path.join(os.tmpdir());
+  // `os.tmpdir()` generates the same folder within private archive and public archive tests.
+  // To avoid streaming_decryptor flushing to the same file which pollutes the result,
+  // make them using individual destDir. 
+  const destDir = path.join(os.tmpdir(), 'private_archive');
   
   // Upload directory content
   const { cost, archive } = await client.dirContentUpload(sourceDir, paymentOption);
@@ -82,7 +249,30 @@ test('private archive - upload and download directory', async (t) => {
   const sourceHash = await computeDirSha256(sourceDir);
   const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
-  t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
+  if (sourceHash !== destHash) {
+    // Get detailed directory listings for debugging
+    const sourceListing = await getDirectoryListing(sourceDir);
+    const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
+    
+    // Get content of mismatched files for debugging
+    const mismatchedContent = await getMismatchedFileContents(sourceDir, path.join(destDir, 'test_dir'));
+    
+    const errorMsg = `Source and destination directory hashes should match.
+Source hash: ${sourceHash}
+Destination hash: ${destHash}
+
+Source directory (${sourceDir}):
+${sourceListing}
+
+Destination directory (${path.join(destDir, 'test_dir')}):
+${destListing}
+
+${mismatchedContent}`;
+    
+    t.fail(errorMsg);
+  } else {
+    t.pass('Source and destination directory hashes match');
+  }
 });
 
 test('public archive - upload and download directory', async (t) => {
@@ -93,7 +283,10 @@ test('public archive - upload and download directory', async (t) => {
   
   // Define source and destination directories
   const sourceDir = path.join('../autonomi', 'tests', 'file', 'test_dir');
-  const destDir = os.tmpdir();
+  // `os.tmpdir()` generates the same folder within private archive and public archive tests.
+  // To avoid streaming_decryptor flushing to the same file which pollutes the result,
+  // make them using individual destDir. 
+  const destDir = path.join(os.tmpdir(), 'public_archive');
   
   // Upload directory content as public
   const { cost, addr: archive } = await client.dirContentUploadPublic(sourceDir, paymentOption);
@@ -114,7 +307,30 @@ test('public archive - upload and download directory', async (t) => {
   const sourceHash = await computeDirSha256(sourceDir);
   const destHash = await computeDirSha256(path.join(destDir, 'test_dir'));
   
-  t.is(sourceHash, destHash, 'Source and destination directory hashes should match');
+  if (sourceHash !== destHash) {
+    // Get detailed directory listings for debugging
+    const sourceListing = await getDirectoryListing(sourceDir);
+    const destListing = await getDirectoryListing(path.join(destDir, 'test_dir'));
+    
+    // Get content of mismatched files for debugging
+    const mismatchedContent = await getMismatchedFileContents(sourceDir, path.join(destDir, 'test_dir'));
+    
+    const errorMsg = `Source and destination directory hashes should match.
+Source hash: ${sourceHash}
+Destination hash: ${destHash}
+
+Source directory (${sourceDir}):
+${sourceListing}
+
+Destination directory (${path.join(destDir, 'test_dir')}):
+${destListing}
+
+${mismatchedContent}`;
+    
+    t.fail(errorMsg);
+  } else {
+    t.pass('Source and destination directory hashes match');
+  }
 });
 
 test('archive advanced use', async (t) => {

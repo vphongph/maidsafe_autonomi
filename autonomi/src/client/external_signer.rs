@@ -48,7 +48,7 @@ impl Client {
 
 /// Encrypts data as chunks.
 ///
-/// Returns the data map chunk and file chunks.
+/// Returns the datamap chunk and file chunks.
 pub fn encrypt_data(data: Bytes) -> Result<(Chunk, Vec<Chunk>), crate::self_encryption::Error> {
     let now = Instant::now();
     let result = encrypt(data)?;

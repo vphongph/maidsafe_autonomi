@@ -270,20 +270,20 @@ impl InitialBootstrap {
             return;
         }
 
-        if let ConnectedPoint::Dialer { address, .. } = endpoint {
-            if !self.ongoing_dials.remove(address) {
-                // try to remove via peer Id, to not block the bootstrap process.
-                // The only concern with the following removal is that we might increase the number of
-                // dials/concurrent dials, which is fine.
-                if let Some(peer_id) = multiaddr_get_p2p(address) {
-                    self.ongoing_dials.retain(|addr| {
-                        if let Some(id) = multiaddr_get_p2p(addr) {
-                            id != peer_id
-                        } else {
-                            true
-                        }
-                    });
-                }
+        if let ConnectedPoint::Dialer { address, .. } = endpoint
+            && !self.ongoing_dials.remove(address)
+        {
+            // try to remove via peer Id, to not block the bootstrap process.
+            // The only concern with the following removal is that we might increase the number of
+            // dials/concurrent dials, which is fine.
+            if let Some(peer_id) = multiaddr_get_p2p(address) {
+                self.ongoing_dials.retain(|addr| {
+                    if let Some(id) = multiaddr_get_p2p(addr) {
+                        id != peer_id
+                    } else {
+                        true
+                    }
+                });
             }
         }
 

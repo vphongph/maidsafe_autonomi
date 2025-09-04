@@ -40,6 +40,7 @@ pub mod external_signer;
 
 // private module with utility functions
 mod chunk_cache;
+mod data_map_restoration;
 mod encryption;
 mod network;
 mod put_error_state;
@@ -167,6 +168,14 @@ pub enum GetError {
     RecordKindMismatch(RecordKind),
     #[error("Configuration error: {0}")]
     Configuration(String),
+    #[error("Unable to recogonize the so claimed DataMap: {0}")]
+    UnrecognizedDataMap(String),
+    /// When trying to download a file that is too large to be handled in memory
+    /// you can increase the [`crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE`] env var or use the streaming API.
+    #[error(
+        "DataMap points to a file too large to be handled in memory, you can increase the MAX_IN_MEMORY_DOWNLOAD_SIZE env var or use streaming to avoid this error."
+    )]
+    TooLargeForMemory,
 }
 
 impl Client {
@@ -298,6 +307,9 @@ impl Client {
 
         let network = Network::new(initial_peers, config.bootstrap_cache_config)?;
 
+        // Wait for the network to be ready with enough peers
+        network.wait_for_connectivity().await?;
+
         Ok(Self {
             network,
             client_event_sender: None,
@@ -350,4 +362,30 @@ pub struct UploadSummary {
     pub records_already_paid: usize,
     /// Total cost of the upload
     pub tokens_spent: Amount,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ant_logging::LogBuilder;
+
+    #[tokio::test]
+    async fn test_init_fails() {
+        let _guard = LogBuilder::init_single_threaded_tokio_test();
+
+        let initial_peers = vec![
+            "/ip4/127.0.0.1/udp/1/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+                .parse()
+                .unwrap(),
+        ];
+        let network = Network::new(initial_peers, None).unwrap();
+
+        match network.wait_for_connectivity().await {
+            Err(ConnectError::TimedOut) => {} // This is the expected outcome
+            Ok(()) => panic!("Expected `ConnectError::TimedOut`, but got `Ok`"),
+            Err(err) => {
+                panic!("Expected `ConnectError::TimedOut`, but got `{err:?}`")
+            }
+        }
+    }
 }

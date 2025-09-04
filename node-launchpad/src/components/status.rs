@@ -1437,12 +1437,12 @@ impl Component for Status<'_> {
         // ===== Popups =====
 
         // Error Popup
-        if let Some(error_popup) = &self.error_popup {
-            if error_popup.is_visible() {
-                error_popup.draw_error(f, area);
+        if let Some(error_popup) = &self.error_popup
+            && error_popup.is_visible()
+        {
+            error_popup.draw_error(f, area);
 
-                return Ok(());
-            }
+            return Ok(());
         }
 
         if self.nat_detection_in_progress {
@@ -1494,11 +1494,11 @@ impl Component for Status<'_> {
 
     fn handle_key_events(&mut self, key: KeyEvent) -> Result<Vec<Action>> {
         debug!("Key received in Status: {:?}", key);
-        if let Some(error_popup) = &mut self.error_popup {
-            if error_popup.is_visible() {
-                error_popup.handle_input(key);
-                return Ok(vec![Action::SwitchInputMode(InputMode::Navigation)]);
-            }
+        if let Some(error_popup) = &mut self.error_popup
+            && error_popup.is_visible()
+        {
+            error_popup.handle_input(key);
+            return Ok(vec![Action::SwitchInputMode(InputMode::Navigation)]);
         }
         Ok(vec![])
     }
@@ -1608,7 +1608,7 @@ impl NodeItem<'_> {
         area: Rect,
         f: &mut Frame<'_>,
         is_selected: bool,
-    ) -> Row {
+    ) -> Row<'_> {
         let mut row_style = if is_selected {
             Style::default().fg(GHOST_WHITE).bg(INDIGO)
         } else {

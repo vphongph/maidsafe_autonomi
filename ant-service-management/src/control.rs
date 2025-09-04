@@ -125,14 +125,14 @@ impl ServiceControl for ServiceController {
 
         for line in output_str.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() == 2 {
-                if let Ok(id) = parts[1].parse::<u32>() {
-                    if id > max_id {
-                        max_id = id;
-                    }
-                }
+            if let Ok(id) = parts[1].parse::<u32>()
+                && id > max_id
+                && parts.len() == 2
+            {
+                max_id = id;
             }
         }
+
         let new_unique_id = max_id + 1;
 
         let commands = vec![
@@ -186,11 +186,11 @@ impl ServiceControl for ServiceController {
         
         // First, try exact path matching (existing behavior)
         for (pid, process) in system.processes() {
-            if let Some(path) = process.exe() {
-                if bin_path == path {
-                    trace!("Found process {bin_path:?} with exact path match, PID: {pid}");
-                    return Ok(pid.to_string().parse::<u32>()?);
-                }
+            if let Some(path) = process.exe()
+                && bin_path == path
+            {
+                trace!("Found process {bin_path:?} with exact path match, PID: {pid}");
+                return Ok(pid.to_string().parse::<u32>()?);
             }
         }
         

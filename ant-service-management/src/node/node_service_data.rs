@@ -96,15 +96,15 @@ impl NodeServiceData {
 
         let log_path = self.log_dir_path.join(CRITICAL_FAILURE_LOG_FILE);
 
-        if let Ok(content) = std::fs::read_to_string(log_path) {
-            if let Some((timestamp, message)) = content.split_once(']') {
-                let timestamp_trimmed = timestamp.trim_start_matches('[').trim();
-                if let Ok(datetime) = timestamp_trimmed.parse::<chrono::DateTime<chrono::Utc>>() {
-                    let message_trimmed = message
-                        .trim()
-                        .trim_start_matches("Node terminated due to: ");
-                    return Some((datetime, message_trimmed.to_string()));
-                }
+        if let Ok(content) = std::fs::read_to_string(log_path)
+            && let Some((timestamp, message)) = content.split_once(']')
+        {
+            let timestamp_trimmed = timestamp.trim_start_matches('[').trim();
+            if let Ok(datetime) = timestamp_trimmed.parse::<chrono::DateTime<chrono::Utc>>() {
+                let message_trimmed = message
+                    .trim()
+                    .trim_start_matches("Node terminated due to: ");
+                return Some((datetime, message_trimmed.to_string()));
             }
         }
 

@@ -85,7 +85,7 @@ impl PortRangePopUp {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         // layer zero
         let pop_up_border = Paragraph::new("").block(
             Block::default()
@@ -192,7 +192,7 @@ impl PortRangePopUp {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         // layer zero
         let pop_up_border = Paragraph::new("").block(
             Block::default()
@@ -284,7 +284,7 @@ impl PortRangePopUp {
         f: &mut crate::tui::Frame<'_>,
         layer_zero: Rect,
         layer_one: Rc<[Rect]>,
-    ) -> Paragraph {
+    ) -> Paragraph<'_> {
         // layer zero
         let pop_up_border = Paragraph::new("").block(
             Block::default()

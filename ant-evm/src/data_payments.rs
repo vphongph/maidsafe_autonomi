@@ -96,10 +96,10 @@ impl ProofOfPayment {
         self.peer_quotes
             .iter()
             .filter_map(|(_id, quote)| {
-                if let Ok(quote_peer_id) = quote.peer_id() {
-                    if *peer_id == quote_peer_id {
-                        return Some(quote);
-                    }
+                if let Ok(quote_peer_id) = quote.peer_id()
+                    && *peer_id == quote_peer_id
+                {
+                    return Some(quote);
                 }
                 None
             })

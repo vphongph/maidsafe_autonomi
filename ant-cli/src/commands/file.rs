@@ -145,15 +145,43 @@ pub async fn upload(
     // save archive to local user data
     if !no_archive && not_single_file {
         let writer = if public {
-            crate::user_data::write_local_public_file_archive(archive_addr, &name)
+            crate::user_data::write_local_public_file_archive(archive_addr.clone(), &name)
         } else {
-            crate::user_data::write_local_private_file_archive(archive_addr, local_addr, &name)
+            crate::user_data::write_local_private_file_archive(
+                archive_addr.clone(),
+                local_addr.clone(),
+                &name,
+            )
         };
         writer
             .wrap_err("Failed to save file to local user data")
             .with_suggestion(|| "Local user data saves the file address above to disk, without it you need to keep track of the address yourself")
             .map_err(|err| (err, IO_ERROR))?;
         info!("Saved file to local user data");
+    }
+
+    // save single private files to local user data
+    if !not_single_file && !public {
+        let writer = crate::user_data::write_local_private_file(
+            archive_addr.clone(),
+            local_addr.clone(),
+            &name,
+        );
+        writer
+            .wrap_err("Failed to save private file to local user data")
+            .with_suggestion(|| "Local user data saves the file address above to disk, without it you need to keep track of the address yourself")
+            .map_err(|err| (err, IO_ERROR))?;
+        info!("Saved private file to local user data");
+    }
+
+    // save single public files to local user data
+    if !not_single_file && public {
+        let writer = crate::user_data::write_local_public_file(local_addr.to_owned(), &name);
+        writer
+            .wrap_err("Failed to save public file to local user data")
+            .with_suggestion(|| "Local user data saves the file address above to disk, without it you need to keep track of the address yourself")
+            .map_err(|err| (err, IO_ERROR))?;
+        info!("Saved public file to local user data");
     }
 
     Ok(())
@@ -209,6 +237,14 @@ async fn upload_dir(
         if no_archive || is_single_file {
             if addrs.len() > MAX_ADDRESSES_TO_PRINT {
                 Ok(("no-archive".to_string(), "multiple addresses".to_string()))
+            } else if is_single_file && addrs.len() == 1 {
+                // For single private files, return both full hex and short address
+                if let Some((_, private_datamap, _)) = private_archive.iter().next() {
+                    Ok((private_datamap.to_hex(), private_datamap.address()))
+                } else {
+                    // This should not happen given the conditions, but handle gracefully
+                    Ok(("no-archive".to_string(), addrs.join(", ")))
+                }
             } else {
                 Ok(("no-archive".to_string(), addrs.join(", ")))
             }
@@ -300,6 +336,24 @@ pub async fn list(network_context: NetworkContext, verbose: bool) -> Result<(), 
         }
     }
 
+    // get public files
+    println!();
+    let public_files = crate::user_data::get_local_public_files()
+        .wrap_err("Failed to get local public files")
+        .map_err(|err| (err, IO_ERROR))?;
+
+    println!("✅ You have {} public file(s):", public_files.len());
+    for (addr, name) in public_files {
+        println!("{}: {}", name, addr.to_hex());
+        if let (true, Some(client)) = (verbose, maybe_client.as_ref()) {
+            if let Ok(file_bytes) = client.data_get_public(&addr).await {
+                println!("  - File size: {} bytes", file_bytes.len());
+            } else {
+                println!("  - Not found on network");
+            }
+        }
+    }
+
     // get private file archives
     println!();
     let private_file_archives = crate::user_data::get_local_private_file_archives()
@@ -319,6 +373,24 @@ pub async fn list(network_context: NetworkContext, verbose: bool) -> Result<(), 
                 for (file_path, _data_addr, _meta) in private_archive.iter() {
                     println!("  - {file_path:?}");
                 }
+            } else {
+                println!("  - Not found on network");
+            }
+        }
+    }
+
+    // get private files
+    println!();
+    let private_files = crate::user_data::get_local_private_files()
+        .wrap_err("Failed to get local private files")
+        .map_err(|err| (err, IO_ERROR))?;
+
+    println!("✅ You have {} private file(s):", private_files.len());
+    for (addr, name) in private_files {
+        println!("{}: {}", name, addr.address());
+        if let (true, Some(client)) = (verbose, maybe_client.as_ref()) {
+            if let Ok(file_bytes) = client.data_get(&addr).await {
+                println!("  - File size: {} bytes", file_bytes.len());
             } else {
                 println!("  - Not found on network");
             }

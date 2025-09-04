@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Encrypt your data using self-encryption
     let (data_map, chunks) = encrypt("Hello, World!".into())?;
 
-    // Step 2: Collect all chunks (data map + content chunks)
+    // Step 2: Collect all chunks (datamap + content chunks)
     let mut all_chunks = vec![&data_map];
     all_chunks.extend(chunks.iter());
 

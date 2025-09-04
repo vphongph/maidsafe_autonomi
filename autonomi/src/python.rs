@@ -55,6 +55,82 @@ use crate::{
     register::{RegisterAddress, RegisterHistory},
 };
 
+/// Helper function to convert ScratchpadError to appropriate Python exception
+fn scratchpad_error_to_py_err(
+    error: crate::client::data_types::scratchpad::ScratchpadError,
+) -> PyErr {
+    // Use the original Rust error message directly
+    PyRuntimeError::new_err(format!("{error}"))
+}
+
+/// Enhanced helper that can decrypt conflicting data when owner key is available
+fn scratchpad_error_to_py_err_with_owner(
+    error: crate::client::data_types::scratchpad::ScratchpadError,
+    owner_key: Option<&crate::client::data_types::scratchpad::SecretKey>,
+) -> PyErr {
+    use crate::client::data_types::scratchpad::ScratchpadError;
+
+    match error {
+        ScratchpadError::Fork(conflicting_scratchpads) => {
+            let mut message = format!("{}", ScratchpadError::Fork(conflicting_scratchpads.clone()));
+
+            // If we have the owner key, decrypt and show the actual conflicting data
+            if let Some(owner) = owner_key {
+                message.push_str("\n\nConflicting data content:");
+
+                for (i, scratchpad) in conflicting_scratchpads.iter().enumerate() {
+                    match scratchpad.decrypt_data(owner) {
+                        Ok(decrypted_bytes) => match String::from_utf8(decrypted_bytes.to_vec()) {
+                            Ok(decrypted_text) => {
+                                message.push_str(&format!(
+                                    "\n  Conflict {}: \"{}\" (Counter: {}, Hash: {})",
+                                    i + 1,
+                                    decrypted_text,
+                                    scratchpad.counter(),
+                                    hex::encode(scratchpad.encrypted_data_hash())[..16].to_string()
+                                        + "..."
+                                ));
+                            }
+                            Err(_) => {
+                                message.push_str(&format!(
+                                        "\n  Conflict {}: <binary data {} bytes> (Counter: {}, Hash: {})",
+                                        i + 1,
+                                        decrypted_bytes.len(),
+                                        scratchpad.counter(),
+                                        hex::encode(scratchpad.encrypted_data_hash())[..16].to_string() + "..."
+                                    ));
+                            }
+                        },
+                        Err(_) => {
+                            message.push_str(&format!(
+                                "\n  Conflict {}: <decryption failed> (Counter: {}, Hash: {})",
+                                i + 1,
+                                scratchpad.counter(),
+                                hex::encode(scratchpad.encrypted_data_hash())[..16].to_string()
+                                    + "..."
+                            ));
+                        }
+                    }
+                }
+
+                let max_counter = conflicting_scratchpads
+                    .iter()
+                    .map(|s| s.counter())
+                    .max()
+                    .unwrap_or(0);
+
+                message.push_str(&format!(
+                    "\n\nChoose which data to keep and update with counter: {}",
+                    max_counter + 1
+                ));
+            }
+
+            PyRuntimeError::new_err(message)
+        }
+        _ => PyRuntimeError::new_err(format!("{error}")),
+    }
+}
+
 #[pyclass(name = "AttoTokens")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PyAttoTokens {
@@ -376,7 +452,7 @@ impl PyClient {
             let scratchpad = client
                 .scratchpad_get_from_public_key(&public_key.inner)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+                .map_err(scratchpad_error_to_py_err)?;
 
             Ok(PyScratchpad { inner: scratchpad })
         })
@@ -394,7 +470,7 @@ impl PyClient {
             let scratchpad = client
                 .scratchpad_get(&addr.inner)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+                .map_err(scratchpad_error_to_py_err)?;
 
             Ok(PyScratchpad { inner: scratchpad })
         })
@@ -412,7 +488,7 @@ impl PyClient {
             let exists = client
                 .scratchpad_check_existence(&addr.inner)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to get scratchpad: {e}")))?;
+                .map_err(scratchpad_error_to_py_err)?;
 
             Ok(exists)
         })
@@ -432,7 +508,7 @@ impl PyClient {
             let (cost, addr) = client
                 .scratchpad_put(scratchpad.inner, payment)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to put scratchpad: {e}")))?;
+                .map_err(scratchpad_error_to_py_err)?;
 
             Ok((cost.to_string(), PyScratchpadAddress { inner: addr }))
         })
@@ -465,9 +541,7 @@ impl PyClient {
                     payment,
                 )
                 .await
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to create scratchpad: {e}"))
-                })?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok((cost.to_string(), PyScratchpadAddress { inner: addr }))
         })
@@ -490,9 +564,7 @@ impl PyClient {
             client
                 .scratchpad_update(&owner.inner, content_type, &Bytes::from(data))
                 .await
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to update scratchpad: {e}"))
-                })?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok(())
         })
@@ -523,9 +595,7 @@ impl PyClient {
                     &Bytes::from(data),
                 )
                 .await
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to update scratchpad: {e}"))
-                })?;
+                .map_err(|e| scratchpad_error_to_py_err_with_owner(e, Some(&owner.inner)))?;
 
             Ok(PyScratchpad {
                 inner: new_scratchpad,
@@ -556,8 +626,7 @@ impl PyClient {
     /// Verify a scratchpad
     #[staticmethod]
     fn scratchpad_verify(scratchpad: &PyScratchpad) -> PyResult<()> {
-        Client::scratchpad_verify(&scratchpad.inner)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to verify scratchpad: {e}")))
+        Client::scratchpad_verify(&scratchpad.inner).map_err(scratchpad_error_to_py_err)
     }
 
     /// Get the cost of storing an archive on the network
@@ -577,7 +646,7 @@ impl PyClient {
         })
     }
 
-    /// Fetch a private archive from the network using its data map
+    /// Fetch a private archive from the network using its datamap
     fn archive_get<'a>(
         &self,
         py: Python<'a>,
@@ -690,7 +759,7 @@ impl PyClient {
     }
 
     /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
-    /// The data maps of these (private) files are not uploaded but returned within the PrivateArchive return type.
+    /// The datamaps of these (private) files are not uploaded but returned within the PrivateArchive return type.
     fn dir_content_upload<'a>(
         &self,
         py: Python<'a>,
@@ -732,7 +801,7 @@ impl PyClient {
 
     /// Same as `dir_upload` but also uploads the archive (privately) to the network.
     ///
-    /// Returns the data map allowing the private archive to be downloaded from the network.
+    /// Returns the datamap allowing the private archive to be downloaded from the network.
     fn dir_upload<'a>(
         &self,
         py: Python<'a>,
@@ -923,9 +992,9 @@ impl PyClient {
 
     /// Upload a directory to the network. The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the `PublicArchive` containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the `PublicArchive` containing the datamaps of the uploaded files.
     fn dir_content_upload_public<'a>(
         &self,
         py: Python<'a>,
@@ -2369,7 +2438,7 @@ pub struct PyPrivateArchiveDataMap {
 
 #[pymethods]
 impl PyPrivateArchiveDataMap {
-    /// Returns the hex string representation of this private archive data map.
+    /// Returns the hex string representation of this private archive datamap.
     #[getter]
     fn hex(&self) -> String {
         self.inner.to_hex()
@@ -3477,7 +3546,7 @@ fn encrypt(data: Vec<u8>) -> PyResult<(Vec<u8>, Vec<Vec<u8>>)> {
         .map_err(|e| PyRuntimeError::new_err(format!("Encryption failed: {e}")))?;
 
     let data_map_bytes = rmp_serde::to_vec(&data_map)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize data map: {e}")))?;
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to serialize datamap: {e}")))?;
 
     let chunks_bytes: Vec<Vec<u8>> = chunks
         .into_iter()
@@ -3822,7 +3891,7 @@ impl PyPrivateArchive {
             .collect()
     }
 
-    /// List all data maps of files in the archive
+    /// List all datamaps of files in the archive
     fn data_maps(&self) -> Vec<PyDataMapChunk> {
         self.inner
             .data_maps()
@@ -4214,6 +4283,7 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRetryStrategy>()?;
     m.add_class::<PyScratchpad>()?;
     m.add_class::<PyScratchpadAddress>()?;
+
     m.add_class::<PySecretKey>()?;
     m.add_class::<PySignature>()?;
     m.add_class::<PyStoreQuote>()?;

@@ -19,13 +19,13 @@ use ant_protocol::{
     NetworkAddress,
     storage::{ChunkAddress, GraphEntry, GraphEntryAddress, PointerTarget, ScratchpadAddress},
 };
+use autonomi::self_encryption::MAX_CHUNK_SIZE;
 use autonomi::{Client, Wallet, data::DataAddress};
 use bls::{PublicKey, SecretKey};
 use bytes::Bytes;
 use common::client::transfer_to_new_wallet;
 use eyre::{ErrReport, Result, bail};
 use rand::Rng;
-use self_encryption::MAX_CHUNK_SIZE;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     fmt,
@@ -48,7 +48,7 @@ const POINTER_CREATION_RATIO_TO_CHURN: u32 = 11;
 const SCRATCHPAD_CREATION_RATIO_TO_CHURN: u32 = 9;
 const GRAPHENTRY_CREATION_RATIO_TO_CHURN: u32 = 7;
 
-static DATA_SIZE: LazyLock<usize> = LazyLock::new(|| *MAX_CHUNK_SIZE / 3);
+static DATA_SIZE: LazyLock<usize> = LazyLock::new(|| MAX_CHUNK_SIZE / 3);
 
 const CONTENT_QUERY_RATIO_TO_CHURN: u32 = 40;
 const MAX_NUM_OF_QUERY_ATTEMPTS: u8 = 5;
@@ -225,26 +225,26 @@ async fn data_availability_during_churn() -> Result<()> {
                 "Store chunks task has finished before the test duration. Probably due to an error."
             );
         }
-        if let Some(handle) = &create_pointer_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create Pointers task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_pointer_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create Pointers task has finished before the test duration. Probably due to an error."
+            );
         }
-        if let Some(handle) = &create_graph_entry_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create GraphEntry task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_graph_entry_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create GraphEntry task has finished before the test duration. Probably due to an error."
+            );
         }
-        if let Some(handle) = &create_scratchpad_handle {
-            if handle.is_finished() {
-                bail!(
-                    "Create ScratchPad task has finished before the test duration. Probably due to an error."
-                );
-            }
+        if let Some(handle) = &create_scratchpad_handle
+            && handle.is_finished()
+        {
+            bail!(
+                "Create ScratchPad task has finished before the test duration. Probably due to an error."
+            );
         }
 
         let failed = failures.read().await;

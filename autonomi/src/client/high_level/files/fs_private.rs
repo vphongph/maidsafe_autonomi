@@ -16,19 +16,23 @@ use bytes::Bytes;
 use std::path::PathBuf;
 
 impl Client {
-    /// Download a private file from network to local file system
+    /// Download private file directly to filesystem. Always uses streaming.
     pub async fn file_download(
         &self,
-        data_access: &DataMapChunk,
+        data_map: &DataMapChunk,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
-        let data = self.data_get(data_access).await?;
+        info!("Downloading private file to {to_dest:?}");
+
+        // Create parent directories if needed
         if let Some(parent) = to_dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
-            debug!("Created parent directories for {to_dest:?}");
         }
-        tokio::fs::write(to_dest.clone(), data).await?;
-        debug!("Downloaded file to {to_dest:?}");
+
+        let datamap = self.restore_data_map_from_chunk(data_map).await?;
+        self.stream_download_from_datamap(datamap, &to_dest)?;
+
+        debug!("Successfully downloaded private file to {to_dest:?}");
         Ok(())
     }
 
@@ -49,7 +53,7 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
+    /// The datamaps of these (private) files are not uploaded but returned within the [`PrivateArchive`] return type.
     pub async fn dir_content_upload(
         &self,
         dir_path: PathBuf,
@@ -94,7 +98,7 @@ impl Client {
             let datamap = match file.data_map_chunk() {
                 Some(datamap) => datamap,
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

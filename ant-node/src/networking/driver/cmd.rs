@@ -448,10 +448,10 @@ impl SwarmDriver {
                 cmd_string = "QuoteVerification";
                 for (peer_id, quote) in quotes {
                     // Do nothing if already being bad
-                    if let Some((_issues, is_bad)) = self.bad_nodes.get(&peer_id) {
-                        if *is_bad {
-                            continue;
-                        }
+                    if let Some((_issues, is_bad)) = self.bad_nodes.get(&peer_id)
+                        && *is_bad
+                    {
+                        continue;
                     }
                     self.verify_peer_quote(peer_id, quote);
                 }
@@ -664,11 +664,11 @@ impl SwarmDriver {
 
     fn try_interval_replication(&mut self) -> Result<()> {
         // Add a last_replication field to track the last time replication was performed
-        if let Some(last_replication) = self.last_replication {
-            if last_replication.elapsed() < MIN_REPLICATION_INTERVAL_S {
-                info!("Skipping replication as minimum interval hasn't elapsed");
-                return Ok(());
-            }
+        if let Some(last_replication) = self.last_replication
+            && last_replication.elapsed() < MIN_REPLICATION_INTERVAL_S
+        {
+            info!("Skipping replication as minimum interval hasn't elapsed");
+            return Ok(());
         }
         // Store the current time as the last replication time
         self.last_replication = Some(Instant::now());

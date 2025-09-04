@@ -6,15 +6,21 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use self_encryption::DataMap;
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
-    sync::LazyLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
 
+use crate::Client;
+use crate::client::data_types::chunk::ChunkAddress;
+use crate::client::utils::process_tasks_with_max_concurrency;
 use crate::client::{GetError, PutError, quote::CostError};
+use bytes::Bytes;
+use self_encryption::streaming_decrypt_from_storage;
+use xor_name::XorName;
 
 pub mod archive_private;
 pub mod archive_public;
@@ -23,35 +29,6 @@ pub mod fs_public;
 
 pub use archive_private::PrivateArchive;
 pub use archive_public::PublicArchive;
-
-/// Number of files to upload in parallel.
-///
-/// Can be overridden by the `FILE_UPLOAD_BATCH_SIZE` environment variable.
-pub static FILE_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("FILE_UPLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("File upload batch size: {}", batch_size);
-    batch_size
-});
-
-/// Number of files to encrypt in parallel.
-///
-/// Can be overridden by the `FILE_ENCRYPT_BATCH_SIZE` environment variable.
-pub static FILE_ENCRYPT_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("FILE_ENCRYPT_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-                * 8,
-        );
-    info!("File encryption batch size: {}", batch_size);
-    batch_size
-});
 
 /// Metadata for a file in an archive. Time values are UNIX timestamps (UTC).
 ///
@@ -159,6 +136,103 @@ pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
         .join("/");
 
     PathBuf::from(normalized)
+}
+
+impl Client {
+    pub(crate) fn stream_download_from_datamap(
+        &self,
+        data_map: DataMap,
+        to_dest: &Path,
+    ) -> Result<(), DownloadError> {
+        let total_chunks = data_map.infos().len();
+
+        #[cfg(feature = "loud")]
+        println!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
+        info!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
+
+        // Create parallel chunk fetcher for streaming decryption
+        let client_clone = self.clone();
+        let parallel_chunk_fetcher = move |chunk_names: &[(usize, XorName)]| -> Result<
+            Vec<(usize, Bytes)>,
+            self_encryption::Error,
+        > {
+            let chunk_addresses: Vec<(usize, ChunkAddress)> = chunk_names
+                .iter()
+                .map(|(i, name)| (*i, ChunkAddress::new(*name)))
+                .collect();
+
+            // Use tokio::task::block_in_place to handle async in sync context
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    client_clone
+                        .fetch_chunks_parallel(&chunk_addresses, total_chunks)
+                        .await
+                })
+            })
+        };
+
+        // Stream decrypt directly to file
+        streaming_decrypt_from_storage(&data_map, to_dest, parallel_chunk_fetcher).map_err(
+            |e| {
+                DownloadError::GetError(crate::client::GetError::Decryption(
+                    crate::self_encryption::Error::SelfEncryption(e),
+                ))
+            },
+        )?;
+
+        // Cleanup the chunk_cache
+        let chunk_addrs: Vec<ChunkAddress> = data_map
+            .infos()
+            .iter()
+            .map(|info| ChunkAddress::new(info.dst_hash))
+            .collect();
+        self.cleanup_cached_chunks(&chunk_addrs);
+
+        Ok(())
+    }
+
+    /// Fetch multiple chunks in parallel from the network
+    pub(super) async fn fetch_chunks_parallel(
+        &self,
+        chunk_addresses: &[(usize, ChunkAddress)],
+        total_chunks: usize,
+    ) -> Result<Vec<(usize, Bytes)>, self_encryption::Error> {
+        let mut download_tasks = vec![];
+
+        for (i, chunk_addr) in chunk_addresses {
+            let client_clone = self.clone();
+            let addr_clone = *chunk_addr;
+
+            download_tasks.push(async move {
+                #[cfg(feature = "loud")]
+                println!("Fetching chunk {i}/{total_chunks} ...");
+                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?})");
+                let result = client_clone
+                    .chunk_get(&addr_clone)
+                    .await
+                    .map(|chunk| (*i, chunk.value))
+                    .map_err(|e| {
+                        self_encryption::Error::Generic(format!(
+                            "Failed to fetch chunk {addr_clone:?}: {e:?}"
+                        ))
+                    });
+                #[cfg(feature = "loud")]
+                println!("Fetching chunk {i}/{total_chunks} [DONE]");
+                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?}) [DONE]");
+                result
+            });
+        }
+
+        let chunks = process_tasks_with_max_concurrency(
+            download_tasks,
+            *crate::client::config::CHUNK_DOWNLOAD_BATCH_SIZE,
+        )
+        .await
+        .into_iter()
+        .collect::<Result<Vec<(usize, Bytes)>, self_encryption::Error>>()?;
+
+        Ok(chunks)
+    }
 }
 
 pub(crate) fn get_relative_file_path_from_abs_file_and_folder_path(

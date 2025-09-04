@@ -7,6 +7,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-09-02
+
+### API
+
+#### Added
+
+- `chunk_batch_upload` function is now public, allowing developers to upload multiple chunks in
+  batches with custom receipt handling.
+- `deserialize_data_map` function in `DataMapChunk` for backward compatibility with old data map
+  schemes.
+- `pointer_update_from` async method for updating pointers from specific sources.
+- `scratchpad_update_from` async method for updating scratchpads from specific sources.
+- `EncryptionStream` struct with methods:
+  - `total_chunks()` to get the total number of chunks
+  - `next_batch()` to retrieve the next batch of chunks for processing
+  - `data_map_chunk()` to get the associated data map chunk
+  - `data_address()` to retrieve the data address
+  - `new_in_memory_with()`, `new_in_memory()`, and `new_stream_from_file()` constructors for
+    different encryption modes
+
+
+#### Changed
+
+- `DataMapChunk` field visibility changed from `pub(crate)` to `pub`, making the inner `Chunk`
+  publicly accessible.
+- Enhanced error handling and retry mechanisms for chunk upload operations through improved helper
+  functions.
+- File upload workflow now uses the same approach as directory uploads for consistency.
+- Improved streaming encryption support with updated self-encryption dependency integration.
+- Enhanced language usage in user-facing messages for better clarity across client operations.
+- Unified approach for `Pointer` and `Scratchpad` split resolution through `resolve_split_records`
+  function.
+- Reduced `IN_MEMORY_ENCRYPTION_MAX_SIZE` threshold to 50MB for improved memory management during
+  encryption operations.
+- Streaming download capability in high-level file operations for `file_download`,
+  `file_download_public`, `dir_download_public`, `dir_download`. Allows downloading larger files
+  without spikes in memory usage experienced previously.
+- The streaming capability results in a new datamap format that requires four extra chunks. If there
+  is an attempt to re-upload files uploaded before the streaming implementation, there will be a cost
+  for these extra chunks.
+- The new datamap format always returns a root datamap that points to three chunks. These three
+  extra chunks will now be paid for in uploads.
+
+#### Fixed
+
+- Vault operations now properly support single file uploads and access.
+- If there were failed chunks in the final batch of an upload they were not retried. This has now
+  been fixed with improved error handling.
+- Deduplication logic for fetched scratchpads with identical highest counter values.
+
+### Language Bindings
+
+#### Added
+
+**Python:**
+- `AttoTokens` class with methods: `zero()`, `is_zero()`, `from_atto()`, `from_u64()`, `from_u128()`, `as_atto()`, `checked_add()`, `checked_sub()`, `as_bytes()`, `from_str()`, `__str__()`, `__repr__()`
+- `ClientOperatingStrategy` class with getters: `get_chunks()`, `get_graph_entry()`, `get_pointer()`, `get_scratchpad()`
+- `BootstrapCacheConfig` class with configuration methods: `new()`, `empty()`, `with_addr_expiry_duration()`, `with_cache_dir()`, `with_max_peers()`, `with_addrs_per_peer()`, `with_disable_cache_writing()`
+- `InitialPeersConfig` class with peer management methods: `new()`, getters/setters for `first`, `addrs`, `network_contacts_url`, `local`, `ignore_cache`, `bootstrap_cache_dir`, `get_bootstrap_addr()`, `read_bootstrap_addr_from_env()`
+- `MainPubkey` class with methods: `new()`, `verify()`, `derive_key()`, `as_bytes()`, `as_hex()`, `from_hex()`, `__str__()`, `__repr__()`
+- `MainSecretKey` class with methods: `new()`, `public_key()`, `sign()`, `derive_key()`, `to_bytes()`, `random()`, `random_derived_key()`, `__repr__()`
+- `Signature` class with methods: `parity()`, `from_bytes()`, `to_bytes()`, `__str__()`, `__repr__()`
+- `StoreQuote` class with methods: `price()`, `len()`, `is_empty()`, `payments()`
+- `RetryStrategy` class with methods: `none()`, `quick()`, `balanced()`, `persistent()`, `default()`, `attempts()`, `backoff()`, `__str__()`, `__repr__()`
+- `Quorum` class with string representation methods
+- `Strategy` class with getters: `get_put_quorum()`, `get_put_retry()`, `get_verification_quorum()`, `get_get_quorum()`, `get_get_retry()`
+- `QuoteForAddress` class with `price()` method
+- `RegisterAddress` class with methods: `new()`, `owner()`, `as_underlying_graph_root()`, `as_underlying_head_pointer()`, `as_hex()`, `from_hex()`
+- `DerivationIndex`, `DerivedPubkey`, `DerivedSecretKey` classes for key derivation functionality
+- Enhanced `ChunkAddress` class with `xorname()` and `from_hex()` methods
+- Enhanced `TransactionConfig` class with `new()` constructor and `max_fee_per_gas` getter
+
+**Node.js:**
+- Complete ant-node package with network spawning capabilities
+
+#### Fixed
+
+- Python `get_bootstrap_addr()` method updated to match original Rust API changes
+- Python `cache_save_scaling_factor` return type corrected from u64 to u32 to match Rust API
+- Python `PyTransactionConfig` class fixes for proper configuration handling
+
+### Network
+
+#### Added
+
+- New metrics: `antnode_branch`
+- Improved logging for query response types to aid in network debugging and monitoring. This will
+  help us measure the success of the next node upgrade.
+
+#### Fixed
+
+- Race condition in local network startup where bootstrap cache where the bootstrap cache was never
+  written with newer addresses.
+- Issue with the bootstrap cache where newer nodes were not updated when the cache became full.
+- Expected holder calculation now properly capped to majority of `CLOSE_GROUP_SIZE` for improved
+  consensus reliability.
+- Replication accept range expanded from 5 to 7 nodes for middle range records to improve data
+  availability.
+
+### Antctl
+
+#### Changed
+
+- The `local run` command will now automatically provide the EVM setup for a local testnet without
+  having to run the `evm-testnet` binary separately.
+
+#### Fixed
+
+- The `local run` command has extra wait time before launching a second node to prevent startup
+  conflicts and improve reliability.
+
+### Payments
+
+#### Added
+
+- The `evm-testnet` binary will be included in each release. This will make it easier to work with
+  local testnets and we will also use it in our CI processes.
+
+### Ant Client
+
+#### Changed
+
+- Previously, the `file download` command required access to RAM in proportion to the size of the
+  file being downloaded, making it prohibitive to download large files. The command has now been
+  changed to utilise new streaming features that keep memory usage low and consistent, so larger
+  files can be downloaded without issue.
+
+#### Fixed
+
+- Logging is restored for events in the `ant` binary after it was inadvertently disabled.
+- In some cases the chunk cache was not correctly cleared after a download.
+
 ## 2025-07-31
 
 ### API

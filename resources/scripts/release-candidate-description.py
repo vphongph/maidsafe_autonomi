@@ -73,6 +73,7 @@ def main(pr_numbers):
         "ant-node": "antnode",
         "ant-node-manager": "antctl",
         "ant-cli": "ant",
+        "evm-testnet": "evm-testnet",
         "nat-detection": "nat-detection",
         "node-launchpad": "node-launchpad"
     }

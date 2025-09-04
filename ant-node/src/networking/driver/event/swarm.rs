@@ -182,18 +182,7 @@ impl SwarmDriver {
                         // all addresses are effectively external here...
                         // this is needed for Kad Mode::Server
                         self.swarm.add_external_address(address.clone());
-
-                        // If we are local, add our own address(es) to cache
-                        if let Some(bootstrap_cache) = self.bootstrap_cache.as_ref() {
-                            info!("Adding listen address to bootstrap cache (local): {address:?}");
-                            let bootstrap_cache = bootstrap_cache.clone();
-                            let address_clone = address.clone();
-                            #[allow(clippy::let_underscore_future)]
-                            let _ = tokio::spawn(async move {
-                                bootstrap_cache.add_addr(address_clone).await;
-                            });
-                        }
-                        if let Err(err) = self.sync_and_flush_cache() {
+                        if let Err(err) = self.add_sync_and_flush_cache(address.clone()) {
                             warn!("Failed to sync and flush cache during NewListenAddr: {err:?}");
                         }
                     } else if let Some(external_address_manager) =
@@ -268,11 +257,10 @@ impl SwarmDriver {
                     self.peers_in_rt,
                 );
 
-                if let Some(external_address_manager) = self.external_address_manager.as_mut() {
-                    if let ConnectedPoint::Listener { local_addr, .. } = &endpoint {
-                        external_address_manager
-                            .on_established_incoming_connection(local_addr.clone());
-                    }
+                if let Some(external_address_manager) = self.external_address_manager.as_mut()
+                    && let ConnectedPoint::Listener { local_addr, .. } = &endpoint
+                {
+                    external_address_manager.on_established_incoming_connection(local_addr.clone());
                 }
 
                 #[cfg(feature = "open-metrics")]
@@ -606,21 +594,19 @@ impl SwarmDriver {
             }
 
             // ignore if peer is present in our RT
-            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(*peer_id) {
-                if kbucket
+            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(*peer_id)
+                && kbucket
                     .iter()
                     .any(|peer_entry| *peer_id == *peer_entry.node.key.preimage())
                 {
                     return true; // retain peer
                 }
-            }
 
             // skip if the peer is a relay server that we're connected to
-            if let Some(relay_manager) = self.relay_manager.as_ref() {
-                if relay_manager.keep_alive_peer(peer_id) {
+            if let Some(relay_manager) = self.relay_manager.as_ref()
+                && relay_manager.keep_alive_peer(peer_id) {
                     return true; // retain peer
                 }
-            }
 
             // skip if the peer is a node that is being relayed through us
             if self.connected_relay_clients.contains(peer_id) {

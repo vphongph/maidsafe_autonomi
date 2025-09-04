@@ -11,7 +11,7 @@ use crate::exit_code::{self, ExitCodeError, INVALID_INPUT_EXIT_CODE, IO_ERROR};
 use autonomi::{
     Client,
     chunk::DataMapChunk,
-    client::{analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
+    client::{GetError, analyze::Analysis, files::archive_private::PrivateArchiveDataMap},
     data::DataAddress,
     files::{PrivateArchive, PublicArchive},
 };
@@ -21,16 +21,25 @@ use std::path::PathBuf;
 pub async fn download(addr: &str, dest_path: &str, client: &Client) -> Result<(), ExitCodeError> {
     let try_public_address = DataAddress::from_hex(addr).ok();
     if let Some(public_address) = try_public_address {
+        println!("Input supplied was a public address");
         return download_public(addr, public_address, dest_path, client).await;
     }
 
-    let try_private_address = crate::user_data::get_local_private_archive_access(addr).ok();
-    if let Some(private_address) = try_private_address {
+    let try_local_private_archive = crate::user_data::get_local_private_archive_access(addr).ok();
+    if let Some(private_address) = try_local_private_archive {
+        println!("Input supplied was a private address");
         return download_private(addr, private_address, dest_path, client).await;
+    }
+
+    let try_local_private_file = crate::user_data::get_local_private_file_access(addr).ok();
+    if let Some(private_file_datamap) = try_local_private_file {
+        println!("Input supplied was a private file datamap");
+        return download_from_datamap(addr, private_file_datamap, dest_path, client).await;
     }
 
     let try_datamap = DataMapChunk::from_hex(addr).ok();
     if let Some(datamap) = try_datamap {
+        println!("Input supplied was a datamap Chunk");
         return download_from_datamap(addr, datamap, dest_path, client).await;
     }
 
@@ -73,21 +82,19 @@ async fn download_priv_archive_to_disk(
         if let Some(progress_bar) = &progress_bar {
             progress_bar.println(format!("Fetching file: {path:?}..."));
         }
-        let bytes = match client.data_get(access).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = format!("Failed to fetch file {path:?}: {e}");
-                all_errs.push(err);
-                last_error = Some(e);
-                continue;
-            }
-        };
 
         let path = PathBuf::from(dest_path).join(path);
         let here = PathBuf::from(".");
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
-        std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?;
+
+        if let Err(e) = client.file_download(access, path.clone()).await {
+            let err = format!("Failed to fetch file {path:?}: {e}");
+            all_errs.push(err);
+            last_error = Some(e);
+            continue;
+        }
+
         if let Some(progress_bar) = &progress_bar {
             progress_bar.inc(1);
         }
@@ -98,7 +105,7 @@ async fn download_priv_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading private data with local address: {addr}");
             eprintln!("{all_errs:#?}");
@@ -121,9 +128,29 @@ async fn download_public(
     dest_path: &str,
     client: &Client,
 ) -> Result<(), ExitCodeError> {
-    // First try to get the raw data
+    let path = PathBuf::from(dest_path);
+    let here = PathBuf::from(".");
+    let parent = path.parent().unwrap_or_else(|| &here);
+    std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
+
     let data = match client.data_get_public(&address).await {
         Ok(data) => data,
+        Err(GetError::TooLargeForMemory) => {
+            println!("Detected large file at: {addr}, downloading via streaming");
+            info!("Detected large file at: {addr}, downloading via streaming");
+            client
+                .file_download_public(&address, path)
+                .await
+                .map_err(|e| {
+                    let exit_code = exit_code::get_download_error_exit_code(&e);
+                    (
+                        eyre!(e).wrap_err("Failed to fetch data from address"),
+                        exit_code,
+                    )
+                })?;
+            println!("Successfully downloaded file at: {addr}");
+            return Ok(());
+        }
         Err(e) => {
             let exit_code = exit_code::get_error_exit_code(&e);
             return Err((
@@ -136,6 +163,7 @@ async fn download_public(
     // Try to deserialize as archive
     match PublicArchive::from_bytes(data.clone()) {
         Ok(archive) => {
+            println!("Successfully deserialized as Public Archive at: {addr}");
             info!("Successfully deserialized as Public Archive at: {addr}");
             download_pub_archive_to_disk(addr, archive, dest_path, client).await
         }
@@ -144,10 +172,6 @@ async fn download_public(
                 "Failed to deserialize as Public Archive from address {addr}, treating as single file"
             );
             // Write the raw data as a file
-            let path = PathBuf::from(dest_path);
-            let here = PathBuf::from(".");
-            let parent = path.parent().unwrap_or_else(|| &here);
-            std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
             std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
             info!("Successfully downloaded file at: {addr}");
             println!("Successfully downloaded file at: {addr}");
@@ -169,21 +193,19 @@ async fn download_pub_archive_to_disk(
         if let Some(progress_bar) = &progress_bar {
             progress_bar.println(format!("Fetching file: {path:?}..."));
         }
-        let bytes = match client.data_get_public(addr).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = format!("Failed to fetch file {path:?}: {e}");
-                all_errs.push(err);
-                last_error = Some(e);
-                continue;
-            }
-        };
 
         let path = PathBuf::from(dest_path).join(path);
         let here = PathBuf::from(".");
         let parent = path.parent().unwrap_or_else(|| &here);
         std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
-        std::fs::write(path, bytes).map_err(|err| (err.into(), IO_ERROR))?;
+
+        if let Err(e) = client.file_download_public(addr, path.clone()).await {
+            let err = format!("Failed to fetch file {path:?}: {e}");
+            all_errs.push(err);
+            last_error = Some(e);
+            continue;
+        };
+
         if let Some(progress_bar) = &progress_bar {
             progress_bar.inc(1);
         }
@@ -194,7 +216,7 @@ async fn download_pub_archive_to_disk(
 
     match last_error {
         Some(e) => {
-            let exit_code = exit_code::get_error_exit_code(&e);
+            let exit_code = exit_code::get_download_error_exit_code(&e);
             let err_no = all_errs.len();
             eprintln!("{err_no} errors while downloading data at: {addr}");
             eprintln!("{all_errs:#?}");
@@ -217,13 +239,27 @@ async fn download_from_datamap(
     client: &Client,
 ) -> Result<(), ExitCodeError> {
     let datamap_addr = datamap.address();
-    match client.analyze_address(&datamap.to_hex(), false).await {
+
+    info!("Analyzing datamap at: {datamap_addr}");
+    println!("Analyzing datamap at: {datamap_addr}");
+
+    match client.analyze_address(&datamap.to_hex(), true).await {
         Ok(Analysis::RawDataMap { data, .. }) => {
             let path = PathBuf::from(dest_path);
             let here = PathBuf::from(".");
             let parent = path.parent().unwrap_or_else(|| &here);
             std::fs::create_dir_all(parent).map_err(|err| (err.into(), IO_ERROR))?;
-            std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
+
+            if let Some(data) = data {
+                std::fs::write(path, data).map_err(|err| (err.into(), IO_ERROR))?;
+            } else if let Err(e) = client.file_download(&datamap, path).await {
+                let exit_code = exit_code::get_download_error_exit_code(&e);
+                return Err((
+                    eyre!("Errors while downloading from {datamap_addr:?}"),
+                    exit_code,
+                ));
+            }
+
             info!("Successfully downloaded file from datamap at: {datamap_addr}");
             println!("Successfully downloaded file from datamap at: {datamap_addr}");
             Ok(())

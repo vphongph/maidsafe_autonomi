@@ -10,6 +10,7 @@ use super::archive_public::{ArchiveAddress, PublicArchive};
 use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::AttoTokens;
 use crate::client::Client;
+use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use bytes::Bytes;
@@ -23,14 +24,15 @@ impl Client {
         data_addr: &DataAddress,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
-        let data = self.data_get_public(data_addr).await?;
-        if let Some(parent) = to_dest.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-            debug!("Created parent directories {parent:?} for {to_dest:?}");
-        }
-        tokio::fs::write(to_dest.clone(), data).await?;
-        debug!("Downloaded file to {to_dest:?} from the network address {data_addr:?}");
-        Ok(())
+        info!("Downloading public file to {to_dest:?} from {data_addr:?}");
+
+        let data_map_chunk = DataMapChunk(
+            self.chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+                .await
+                .map_err(DownloadError::GetError)?,
+        );
+
+        self.file_download(&data_map_chunk, to_dest).await
     }
 
     /// Download directory from network to local file system
@@ -55,9 +57,9 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the [`PublicArchive`] containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the [`PublicArchive`] containing the datamaps of the uploaded files.
     pub async fn dir_content_upload_public(
         &self,
         dir_path: PathBuf,
@@ -102,7 +104,7 @@ impl Client {
             let data_address = match file_chunk_iterator.data_map_chunk() {
                 Some(datamap) => DataAddress::new(*datamap.0.name()),
                 None => {
-                    error!("Data map chunk not found for file: {file_path:?}, this is a BUG");
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
                     continue;
                 }
             };

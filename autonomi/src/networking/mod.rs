@@ -222,9 +222,7 @@ impl Network {
                         }
                     }
                     Err(err) => {
-                        tracing::warn!(
-                            "Failed to get connections made: {err}, retrying..."
-                        );
+                        tracing::warn!("Failed to get connections made: {err}, retrying...");
                     }
                 }
                 sleep(check_interval).await;

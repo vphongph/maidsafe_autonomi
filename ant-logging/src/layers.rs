@@ -7,25 +7,23 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    appender,
+    LogFormat, LogOutputDest, appender,
     error::{Error, Result},
-    LogFormat, LogOutputDest,
 };
 use std::collections::BTreeMap;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_core::{Event, Level, Subscriber};
 use tracing_subscriber::{
+    Layer, Registry,
     filter::Targets,
     fmt::{
-        self as tracing_fmt,
+        self as tracing_fmt, FmtContext, FormatEvent, FormatFields,
         format::Writer,
         time::{FormatTime, SystemTime},
-        FmtContext, FormatEvent, FormatFields,
     },
     layer::Filter,
     registry::LookupSpan,
     reload::{self, Handle},
-    Layer, Registry,
 };
 
 const MAX_LOG_SIZE: usize = 20 * 1024 * 1024;
@@ -190,12 +188,12 @@ impl TracingLayers {
         default_logging_targets: Vec<(String, Level)>,
     ) -> Result<()> {
         use opentelemetry::{
-            sdk::{trace, Resource},
             KeyValue,
+            sdk::{Resource, trace},
         };
         use opentelemetry_otlp::WithExportConfig;
         use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
-        use rand::{distributions::Alphanumeric, thread_rng, Rng};
+        use rand::{Rng, distributions::Alphanumeric, thread_rng};
 
         let service_name = std::env::var("OTLP_SERVICE_NAME").unwrap_or_else(|_| {
             let random_node_name: String = thread_rng()
@@ -267,7 +265,7 @@ fn get_logging_targets(logging_env_value: &str) -> Result<Vec<(String, Level)>> 
         if contains_keyword_all_sn_logs || contains_keyword_verbose_sn_logs {
             let mut t = BTreeMap::from_iter(vec![
                 // bins
-                ("autonomi_cli".to_string(), Level::TRACE),
+                ("ant".to_string(), Level::TRACE),
                 ("evm_testnet".to_string(), Level::TRACE),
                 ("antnode".to_string(), Level::TRACE),
                 ("antnode_rpc_client".to_string(), Level::TRACE),

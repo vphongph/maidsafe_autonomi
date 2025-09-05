@@ -14,6 +14,8 @@ mod interface;
 mod retries;
 mod utils;
 
+use crate::client::CONNECT_TIMEOUT_SECS;
+use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore};
 // export the utils
 pub(crate) use utils::multiaddr_is_global;
 
@@ -23,12 +25,12 @@ pub use ant_protocol::NetworkAddress;
 pub use config::{RetryStrategy, Strategy};
 pub use libp2p::kad::PeerInfo;
 pub use libp2p::{
-    kad::{Quorum, Record},
     Multiaddr, PeerId,
+    kad::{Quorum, Record},
 };
 
 // internal needs
-use ant_protocol::{PrettyPrintRecordKey, CLOSE_GROUP_SIZE};
+use ant_protocol::{CLOSE_GROUP_SIZE, PrettyPrintRecordKey};
 use driver::NetworkDriver;
 use futures::stream::{FuturesUnordered, StreamExt};
 use interface::NetworkTask;
@@ -36,8 +38,10 @@ use libp2p::kad::NoKnownPeers;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::{sleep, timeout};
 
 /// Result type for tasks responses sent by the [`crate::driver::NetworkDriver`] to the [`crate::Network`]
 pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, NetworkError>>;
@@ -95,7 +99,9 @@ pub enum NetworkError {
     GetQuoteError(String),
     #[error("Invalid quote: {0}")]
     InvalidQuote(String),
-    #[error("Failed to get enough quotes: {got_quotes}/{CLOSE_GROUP_SIZE} quotes, got {record_exists_responses} record exists responses, and {errors_len} errors: {errors:?}")]
+    #[error(
+        "Failed to get enough quotes: {got_quotes}/{CLOSE_GROUP_SIZE} quotes, got {record_exists_responses} record exists responses, and {errors_len} errors: {errors:?}"
+    )]
     InsufficientQuotes {
         got_quotes: usize,
         record_exists_responses: usize,
@@ -108,7 +114,9 @@ pub enum NetworkError {
     SplitRecord(HashMap<PeerId, Record>),
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
-    #[error("Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}")]
+    #[error(
+        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}"
+    )]
     GetRecordQuorumFailed {
         got_holders: usize,
         expected_holders: usize,
@@ -148,9 +156,37 @@ impl Network {
     /// Create a new network client
     /// This will start the network driver in a background thread, which is a long-running task that runs until the [`Network`] is dropped
     /// The [`Network`] is cheaply cloneable, prefer cloning over creating new instances to avoid creating multiple network drivers
-    pub fn new(initial_contacts: Vec<Multiaddr>) -> Result<Self, NoKnownPeers> {
+    pub fn new(
+        initial_contacts: Vec<Multiaddr>,
+        bootstrap_cache_config: Option<BootstrapCacheConfig>,
+    ) -> Result<Self, NoKnownPeers> {
         let (task_sender, task_receiver) = mpsc::channel(100);
-        let mut driver = NetworkDriver::new(task_receiver);
+        let bootstrap_cache_store = if let Some(config) = bootstrap_cache_config {
+            if config.disable_cache_writing {
+                warn!("Bootstrap cache writing is disabled, the cache will not be saved to disk");
+                None
+            } else {
+                match BootstrapCacheStore::new(config) {
+                    Ok(store) => {
+                        info!(
+                            "Bootstrap cache writing is enabled, the cache will be saved to disk"
+                        );
+                        Some(store)
+                    }
+                    Err(err) => {
+                        warn!(
+                            "Failed to create bootstrap cache store, cache will not be saved to disk: {err}"
+                        );
+                        None
+                    }
+                }
+            }
+        } else {
+            info!("Bootstrap cache config not provided, cache will not be written to disk");
+            None
+        };
+
+        let mut driver = NetworkDriver::new(bootstrap_cache_store, task_receiver);
 
         // Bootstrap here so we can early detect a failure
         driver.connect_to_peers(initial_contacts)?;
@@ -165,6 +201,38 @@ impl Network {
         };
 
         Ok(network)
+    }
+
+    /// Wait until we made [`CLOSE_GROUP_SIZE`] connections to the network.
+    pub async fn wait_for_connectivity(&self) -> Result<(), crate::client::ConnectError> {
+        let timeout_duration = Duration::from_secs(CONNECT_TIMEOUT_SECS); // Total timeout
+        let check_interval = Duration::from_millis(100); // How often to check
+
+        debug!(
+            "Waiting for connectivity with timeout of {}s, need {} peers",
+            CONNECT_TIMEOUT_SECS, CLOSE_GROUP_SIZE
+        );
+
+        match timeout(timeout_duration, async {
+            loop {
+                match self.get_connections_made().await {
+                    Ok(count) => {
+                        if count >= CLOSE_GROUP_SIZE {
+                            return Ok(());
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to get connections made: {err}, retrying...");
+                    }
+                }
+                sleep(check_interval).await;
+            }
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(crate::client::ConnectError::TimedOut),
+        }
     }
 
     /// Get a record from the network
@@ -213,7 +281,10 @@ impl Network {
         quorum: Quorum,
     ) -> Result<(), NetworkError> {
         let key = PrettyPrintRecordKey::from(&record.key);
-        let total = NonZeroUsize::new(to.len()).ok_or(NetworkError::PutRecordMissingTargets)?;
+        // For data_type like ScratchPad, it is observed the holders will be 7
+        // which result in the expected_holders to be 4, and could result in false alert.
+        let candidates = std::cmp::min(CLOSE_GROUP_SIZE, to.len());
+        let total = NonZeroUsize::new(candidates).ok_or(NetworkError::PutRecordMissingTargets)?;
         let expected_holders = expected_holders(quorum, total);
 
         trace!(
@@ -273,7 +344,9 @@ impl Network {
                         ok_res.push(peer);
                         if ok_res.len() >= expected_holders.get() {
                             let old_nodes_ok = ok_res.len() - new_nodes_ok;
-                            trace!("Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok");
+                            trace!(
+                                "Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok"
+                            );
                             return Ok(());
                         }
                     }
@@ -284,7 +357,9 @@ impl Network {
 
         // we don't have enough oks, return an error
         let ok_peers = ok_res.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-        warn!("Put record {key} failed, only the following peers stored the record: {ok_peers:?}, needed {expected_holders} peers. Errors: {err_res:?}");
+        warn!(
+            "Put record {key} failed, only the following peers stored the record: {ok_peers:?}, needed {expected_holders} peers. Errors: {err_res:?}"
+        );
 
         Err(NetworkError::PutRecordTooManyPeerFailed(ok_peers, err_res))
     }
@@ -301,8 +376,7 @@ impl Network {
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
 
-        let res = rx.await?;
-        res
+        rx.await?
     }
 
     async fn put_record_kad(
@@ -417,7 +491,7 @@ impl Network {
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self.get_closest_peers_with_retries(addr.clone()).await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-        trace!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
+        debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
 
         // get all quotes
         let mut tasks = FuturesUnordered::new();
@@ -445,11 +519,13 @@ impl Network {
             // if we have enough quotes, return them
             if quotes.len() >= minimum_quotes {
                 let peer_ids = quotes.iter().map(|(p, _)| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
+                debug!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
                 return Ok(Some(quotes));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
-                trace!("Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}");
+                debug!(
+                    "Get quotes for {addr}: got enough peers that claimed no payment is needed: {peer_ids:?}"
+                );
                 return Ok(None);
             }
         }
@@ -464,6 +540,18 @@ impl Network {
             errors_len,
             errors,
         })
+    }
+
+    /// Get information about the routing table
+    pub async fn get_connections_made(&self) -> Result<usize, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::ConnectionsMade { resp: tx };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        tracing::trace!("Waiting for connections made response");
+        rx.await?
     }
 }
 

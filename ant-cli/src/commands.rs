@@ -18,11 +18,12 @@ use crate::actions::NetworkContext;
 use crate::args::max_fee_per_gas::MaxFeePerGasParam;
 use crate::opt::{NetworkId, Opt};
 use autonomi::networking::Quorum;
-use clap::{error::ErrorKind, Args, CommandFactory as _, Subcommand};
+use clap::{Args, CommandFactory as _, Subcommand, error::ErrorKind};
 use color_eyre::Result;
-use pointer::parse_target_data_type;
 use pointer::TargetDataType;
+use pointer::parse_target_data_type;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
 pub enum SubCmd {
@@ -116,6 +117,15 @@ pub enum FileCmd {
         /// Experimental: Optionally specify the number of retries for the download.
         #[arg(short, long)]
         retries: Option<usize>,
+        /// By default, chunks will be cached to enable resuming downloads.
+        /// Set this flag to disable the cache.
+        #[arg(long)]
+        disable_cache: bool,
+        /// Custom cache directory for chunk caching.
+        /// If not specified, uses the default Autonomi client data directory.
+        /// This option only applies when cache is enabled (default).
+        #[arg(long, conflicts_with = "disable_cache")]
+        cache_dir: Option<PathBuf>,
     },
 
     /// List previous uploads
@@ -298,7 +308,11 @@ pub enum ScratchpadCmd {
     },
 
     /// List owned scratchpads
-    List,
+    List {
+        /// Verbose output. Detailed description of the scratchpads.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -365,7 +379,11 @@ pub enum PointerCmd {
     },
 
     /// List owned pointers
-    List,
+    List {
+        /// Verbose output. Detailed description of the pointers.
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -453,11 +471,27 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 dest_file,
                 quorum,
                 retries,
+                disable_cache,
+                cache_dir,
             } => {
-                if let Err((err, exit_code)) =
-                    file::download(&addr, &dest_file, network_context, quorum, retries).await
+                if let Err((err, exit_code)) = file::download(
+                    &addr,
+                    &dest_file,
+                    network_context,
+                    quorum,
+                    retries,
+                    !disable_cache, // Invert the flag - cache is enabled by default
+                    cache_dir.as_ref(),
+                )
+                .await
                 {
                     eprintln!("{err:?}");
+                    if !disable_cache {
+                        println!("Successfully downloaded chunks were cached.");
+                        println!(
+                            "Please run the command again to obtain the chunks that were not retrieved and complete the download."
+                        );
+                    }
                     std::process::exit(exit_code);
                 } else {
                     Ok(())
@@ -547,7 +581,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 secret_key,
                 data,
             } => scratchpad::edit(network_context, name, secret_key, data).await,
-            ScratchpadCmd::List => scratchpad::list(),
+            ScratchpadCmd::List { verbose } => scratchpad::list(verbose),
         },
         Some(SubCmd::Pointer { command }) => match command {
             PointerCmd::GenerateKey { overwrite } => pointer::generate_key(overwrite),
@@ -577,7 +611,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 target_data_type,
                 secret_key,
             } => pointer::edit(network_context, name, secret_key, target, target_data_type).await,
-            PointerCmd::List => pointer::list(),
+            PointerCmd::List { verbose } => pointer::list(verbose),
         },
         Some(SubCmd::Wallet { command }) => match command {
             WalletCmd::Create {

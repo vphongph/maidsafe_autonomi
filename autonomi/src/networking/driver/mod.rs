@@ -10,29 +10,32 @@
 mod swarm_events;
 mod task_handler;
 
+use std::collections::BTreeMap;
 use std::{num::NonZeroUsize, time::Duration};
 
-use crate::networking::interface::NetworkTask;
 use crate::networking::NetworkError;
-use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
+use crate::networking::interface::NetworkTask;
+use ant_bootstrap::BootstrapCacheStore;
 use ant_protocol::NetworkAddress;
+use ant_protocol::version::IDENTIFY_PROTOCOL_STR;
 use ant_protocol::{
     messages::{Query, Request, Response},
     version::REQ_RESPONSE_VERSION_STR,
 };
 use futures::future::Either;
-use libp2p::kad::store::MemoryStoreConfig;
 use libp2p::kad::NoKnownPeers;
+use libp2p::kad::store::MemoryStoreConfig;
+use libp2p::swarm::ConnectionId;
 use libp2p::{
+    Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
     core::muxing::StreamMuxerBox,
     futures::StreamExt,
     identity::Keypair,
     kad::{self, store::MemoryStore},
     multiaddr::Protocol,
     quic::tokio::Transport as QuicTransport,
-    request_response::{self, cbor::codec::Codec as CborCodec, ProtocolSupport},
+    request_response::{self, ProtocolSupport, cbor::codec::Codec as CborCodec},
     swarm::NetworkBehaviour,
-    Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
 };
 use task_handler::TaskHandler;
 use tokio::sync::mpsc;
@@ -65,6 +68,10 @@ const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
 ///
 /// Please read the doc comment above
 pub(crate) struct NetworkDriver {
+    /// The bootstrap cache store.
+    bootstrap_cache: Option<BootstrapCacheStore>,
+    /// The list of currently connected peers and their addresses.
+    live_connected_peers: BTreeMap<ConnectionId, (PeerId, Multiaddr)>,
     /// libp2p interaction through the swarm and its events
     swarm: Swarm<AutonomiClientBehaviour>,
     /// can receive tasks from the [`crate::Network`]
@@ -72,6 +79,8 @@ pub(crate) struct NetworkDriver {
     /// pending tasks currently awaiting swarm events to progress
     /// this is an opaque struct that can only be mutated by the module were [`crate::driver::task_handler::TaskHandler`] is defined
     pending_tasks: TaskHandler,
+    /// Count of connections established to peers. Can be used to determine if we are a 'connected' client.
+    connections_made: usize,
 }
 
 #[derive(NetworkBehaviour)]
@@ -80,11 +89,15 @@ pub(crate) struct AutonomiClientBehaviour {
     pub identify: libp2p::identify::Behaviour,
     pub relay_client: libp2p::relay::client::Behaviour,
     pub request_response: request_response::cbor::Behaviour<Request, Response>,
+    pub blocklist: libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
 }
 
 impl NetworkDriver {
     /// Create a new network runner
-    pub fn new(task_receiver: mpsc::Receiver<NetworkTask>) -> Self {
+    pub fn new(
+        bootstrap_cache: Option<BootstrapCacheStore>,
+        task_receiver: mpsc::Receiver<NetworkTask>,
+    ) -> Self {
         // random new client id
         let keypair = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keypair.public());
@@ -174,6 +187,7 @@ impl NetworkDriver {
             relay_client: relay_client_behaviour,
             identify,
             request_response,
+            blocklist: libp2p::allow_block_list::Behaviour::default(),
         };
 
         // create swarm
@@ -183,14 +197,22 @@ impl NetworkDriver {
         let task_handler = TaskHandler::new();
 
         Self {
+            bootstrap_cache,
+            live_connected_peers: Default::default(),
             swarm,
             task_receiver,
             pending_tasks: task_handler,
+            connections_made: 0,
         }
     }
 
     /// Run the network runner, loops forever waiting for tasks and processing them
     pub async fn run(mut self) {
+        if let Some(cache) = &self.bootstrap_cache {
+            // start the periodic cache sync and flush task
+            #[allow(clippy::let_underscore_future)]
+            let _ = cache.sync_and_flush_periodically();
+        }
         loop {
             tokio::select! {
                 // tasks sent by client
@@ -335,6 +357,12 @@ impl NetworkDriver {
                         resp,
                     },
                 );
+            }
+            NetworkTask::ConnectionsMade { resp } => {
+                // Send the current count of connections made
+                if let Err(e) = resp.send(Ok(self.connections_made)) {
+                    error!("Error sending connections made response: {e:?}");
+                }
             }
         }
     }

@@ -7,6 +7,267 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-09-02
+
+### API
+
+#### Added
+
+- `chunk_batch_upload` function is now public, allowing developers to upload multiple chunks in
+  batches with custom receipt handling.
+- `deserialize_data_map` function in `DataMapChunk` for backward compatibility with old data map
+  schemes.
+- `pointer_update_from` async method for updating pointers from specific sources.
+- `scratchpad_update_from` async method for updating scratchpads from specific sources.
+- `EncryptionStream` struct with methods:
+  - `total_chunks()` to get the total number of chunks
+  - `next_batch()` to retrieve the next batch of chunks for processing
+  - `data_map_chunk()` to get the associated data map chunk
+  - `data_address()` to retrieve the data address
+  - `new_in_memory_with()`, `new_in_memory()`, and `new_stream_from_file()` constructors for
+    different encryption modes
+
+
+#### Changed
+
+- `DataMapChunk` field visibility changed from `pub(crate)` to `pub`, making the inner `Chunk`
+  publicly accessible.
+- Enhanced error handling and retry mechanisms for chunk upload operations through improved helper
+  functions.
+- File upload workflow now uses the same approach as directory uploads for consistency.
+- Improved streaming encryption support with updated self-encryption dependency integration.
+- Enhanced language usage in user-facing messages for better clarity across client operations.
+- Unified approach for `Pointer` and `Scratchpad` split resolution through `resolve_split_records`
+  function.
+- Reduced `IN_MEMORY_ENCRYPTION_MAX_SIZE` threshold to 50MB for improved memory management during
+  encryption operations.
+- Streaming download capability in high-level file operations for `file_download`,
+  `file_download_public`, `dir_download_public`, `dir_download`. Allows downloading larger files
+  without spikes in memory usage experienced previously.
+- The streaming capability results in a new datamap format that requires four extra chunks. If there
+  is an attempt to re-upload files uploaded before the streaming implementation, there will be a cost
+  for these extra chunks.
+- The new datamap format always returns a root datamap that points to three chunks. These three
+  extra chunks will now be paid for in uploads.
+
+#### Fixed
+
+- Vault operations now properly support single file uploads and access.
+- If there were failed chunks in the final batch of an upload they were not retried. This has now
+  been fixed with improved error handling.
+- Deduplication logic for fetched scratchpads with identical highest counter values.
+
+### Language Bindings
+
+#### Added
+
+**Python:**
+- `AttoTokens` class with methods: `zero()`, `is_zero()`, `from_atto()`, `from_u64()`, `from_u128()`, `as_atto()`, `checked_add()`, `checked_sub()`, `as_bytes()`, `from_str()`, `__str__()`, `__repr__()`
+- `ClientOperatingStrategy` class with getters: `get_chunks()`, `get_graph_entry()`, `get_pointer()`, `get_scratchpad()`
+- `BootstrapCacheConfig` class with configuration methods: `new()`, `empty()`, `with_addr_expiry_duration()`, `with_cache_dir()`, `with_max_peers()`, `with_addrs_per_peer()`, `with_disable_cache_writing()`
+- `InitialPeersConfig` class with peer management methods: `new()`, getters/setters for `first`, `addrs`, `network_contacts_url`, `local`, `ignore_cache`, `bootstrap_cache_dir`, `get_bootstrap_addr()`, `read_bootstrap_addr_from_env()`
+- `MainPubkey` class with methods: `new()`, `verify()`, `derive_key()`, `as_bytes()`, `as_hex()`, `from_hex()`, `__str__()`, `__repr__()`
+- `MainSecretKey` class with methods: `new()`, `public_key()`, `sign()`, `derive_key()`, `to_bytes()`, `random()`, `random_derived_key()`, `__repr__()`
+- `Signature` class with methods: `parity()`, `from_bytes()`, `to_bytes()`, `__str__()`, `__repr__()`
+- `StoreQuote` class with methods: `price()`, `len()`, `is_empty()`, `payments()`
+- `RetryStrategy` class with methods: `none()`, `quick()`, `balanced()`, `persistent()`, `default()`, `attempts()`, `backoff()`, `__str__()`, `__repr__()`
+- `Quorum` class with string representation methods
+- `Strategy` class with getters: `get_put_quorum()`, `get_put_retry()`, `get_verification_quorum()`, `get_get_quorum()`, `get_get_retry()`
+- `QuoteForAddress` class with `price()` method
+- `RegisterAddress` class with methods: `new()`, `owner()`, `as_underlying_graph_root()`, `as_underlying_head_pointer()`, `as_hex()`, `from_hex()`
+- `DerivationIndex`, `DerivedPubkey`, `DerivedSecretKey` classes for key derivation functionality
+- Enhanced `ChunkAddress` class with `xorname()` and `from_hex()` methods
+- Enhanced `TransactionConfig` class with `new()` constructor and `max_fee_per_gas` getter
+
+**Node.js:**
+- Complete ant-node package with network spawning capabilities
+
+#### Fixed
+
+- Python `get_bootstrap_addr()` method updated to match original Rust API changes
+- Python `cache_save_scaling_factor` return type corrected from u64 to u32 to match Rust API
+- Python `PyTransactionConfig` class fixes for proper configuration handling
+
+### Network
+
+#### Added
+
+- New metrics: `antnode_branch`
+- Improved logging for query response types to aid in network debugging and monitoring. This will
+  help us measure the success of the next node upgrade.
+
+#### Fixed
+
+- Race condition in local network startup where bootstrap cache where the bootstrap cache was never
+  written with newer addresses.
+- Issue with the bootstrap cache where newer nodes were not updated when the cache became full.
+- Expected holder calculation now properly capped to majority of `CLOSE_GROUP_SIZE` for improved
+  consensus reliability.
+- Replication accept range expanded from 5 to 7 nodes for middle range records to improve data
+  availability.
+
+### Antctl
+
+#### Changed
+
+- The `local run` command will now automatically provide the EVM setup for a local testnet without
+  having to run the `evm-testnet` binary separately.
+
+#### Fixed
+
+- The `local run` command has extra wait time before launching a second node to prevent startup
+  conflicts and improve reliability.
+
+### Payments
+
+#### Added
+
+- The `evm-testnet` binary will be included in each release. This will make it easier to work with
+  local testnets and we will also use it in our CI processes.
+
+### Ant Client
+
+#### Changed
+
+- Previously, the `file download` command required access to RAM in proportion to the size of the
+  file being downloaded, making it prohibitive to download large files. The command has now been
+  changed to utilise new streaming features that keep memory usage low and consistent, so larger
+  files can be downloaded without issue.
+
+#### Fixed
+
+- Logging is restored for events in the `ant` binary after it was inadvertently disabled.
+- In some cases the chunk cache was not correctly cleared after a download.
+
+## 2025-07-31
+
+### API
+
+#### Added
+
+- New `chunk_cache` module that provides a mechanism for caching downloaded chunks.
+- Use the chunk cache for downloads to enable resuming failed downloads.
+
+#### Fixed
+
+- Public files without archives had their content downloaded twice
+
+#### Changed
+
+- For the client connection, nodes that do not identify as KAD will not be added to the routing
+  table. The client's routing table included nodes that were not upgraded, and these nodes were not
+  identifying themselves as KAD nodes. If any of those older, non-KAD nodes were returned in a query
+  for the closest peers, this resulted in no close peers being obtained. These older nodes did not
+  identify themselves as KAD due to the removal of the external address manager. Having them in the
+  routing table then had cascading effects, resulting in failed downloads and uploads. Excluding them
+  using a block list restores reliable uploads and downloads. These older nodes already constitute a
+  small percentage of the network and will eventually be filtered out with more upgrades.
+
+### Client
+
+#### Added
+
+- The `file download` command now supports resuming downloads. The command will attempt to fetch all
+  the chunks for a file, and in doing so, they will be saved to a temporary location on the local
+  disk. If there's a failure to retrieve some chunks, users can run the same command again and it
+  will only attempt to download the missing chunks. When all the chunks have been retrieved and the
+  file is reassembled, the cached chunks will be deleted.
+- The `file download` command supports a `--disable-cache` argument, if for some reason users want
+  to disable the caching behaviour that applies by default.
+- When connecting to the network, the client will now use the local bootstrap cache if it exists. If
+  it doesn't exist, the initial connection will use a set of pre-defined bootstrap servers to obtain
+  a peer list, and the cache will then be written periodically. This improves decentralization.
+
+
+## 2025-07-21
+
+### API
+
+#### Added
+
+- The `ScratchpadError` type has a new `Fork` variant. When there was a forked scratchpad with two
+  or more scratchpads at the same version, the API would only return one of them, meaning a merge
+  couldn't be performed correctly. Now when this situation occurs, the `Fork` error type is
+  returned, and along with it, all the scratchpad versions, which can then be used for merge and
+  conflict resolution.
+
+### Network
+
+#### Fixed
+
+- Reintroduce the external address manager. The removal of this component caused an issue with
+  clients whereby they sometimes couldn't communicate with nodes, though node-to-node communication
+  was fine. This resulted in problems such as randomly failing to retrieve chunks during downloads,
+  and it also affected emissions payments, because the client in the emissions service wasn't
+  communicating with certain types of nodes. It seemed that port-forwarded nodes were the most
+  affected. The removal of the external address manager was based on the assumption that addresses
+  could be obtained from the connection information, but we suspect the libp2p client doesn't have
+  that part of the code. Reintroducing the component resolves emissions for nodes configured with
+  port-forwarding and should also very significantly improve the situation with uploads and
+  downloads.
+
+## 2025-07-18
+
+### API
+
+#### Added
+
+- `RetryStrategy::N(usize)`: New retry strategy for data operations that allows specification of a
+  custom count
+
+#### Changed
+
+- Extend libp2p client substreams timeout to 30 seconds. This should allow a client with a poor
+  connection to upload larger records with a higher success rate.
+- Enhanced logging and progress tracking for chunk data operations.
+- Improved error handling and retry mechanisms for chunk operations.
+- Paths in archives now use forward slashes on all platforms for cross-platform compatibility.
+
+### Network
+
+#### Changed
+
+- The bootstrap peer cache is changed to use a simple FIFO mechanism to maintain the cache, rather
+  than attempting to track the reliability of a peer. There is a `--write-older-cache-files`
+  argument provided for backwards compatibility. This enables the peer cache servers to still
+  provide the bootstrap cache in the old format until everyone has upgraded.
+-  The `libp2p` library was upgraded from `0.55.0` to `0.56.0`. The main benefit of this was to
+  enable the request/response model for uploads on the client.
+- The `ant-networking` code was moved to a module within the `ant-node` crate, and in turn
+  `ant-networking` was removed. This enabled the refactor and simplification of network
+  initialisation and it also opens the door for further refactors. The networking code is now much
+  more maintainable.
+
+#### Removed
+
+- The node's external address manager was removed. This component was responsible for advertising a
+  node's address to others, but we now favour obtaining the address from the connection information,
+  which is more accurate and less error prone.
+
+### Client
+
+#### Added
+
+- The `file download` command supports a `--retries` argument that allows the user to specify a
+  custom retry count for pulling chunks. If you are on a slower connection, you can consider trying
+  a value like `20`, and you should see better and more consistent downloads.
+- Use a request/response model for storing records on the network. This was a feature enabled by the
+  `libp2p` upgrade and in internal testing it significantly improved the speed of uploads. This is
+  because KAD requests in `libp2p` are not as well optimised as request/response.
+
+#### Changed
+
+- The output of the `file download` command was enhanced to use text to show chunks being obtained.
+  The purpose being to provide the user with more feedback that progress is being made on the
+  download.
+
+#### Removed
+
+- The progress bar was removed from the `file download` command in favour of text output that
+  provides more informative feedback. The bar was only useful for downloads with multiple files and
+  did not make sense for single file downloads. Better progress indicators will be added as later
+  enhancements.
+
 ## 2025-06-26
 
 ### API

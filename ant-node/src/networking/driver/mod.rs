@@ -12,46 +12,46 @@ pub(crate) mod event;
 pub(crate) mod network_discovery;
 
 use event::NodeEvent;
-use network_discovery::{NetworkDiscovery, NETWORK_DISCOVER_INTERVAL};
+use network_discovery::{NETWORK_DISCOVER_INTERVAL, NetworkDiscovery};
 
 #[cfg(feature = "open-metrics")]
 use crate::networking::metrics::NetworkMetricsRecorder;
 use crate::networking::{
-    bootstrap::{InitialBootstrap, InitialBootstrapTrigger, INITIAL_BOOTSTRAP_CHECK_INTERVAL},
+    Addresses, CLOSE_GROUP_SIZE, NodeIssue, NodeRecordStore,
+    bootstrap::{INITIAL_BOOTSTRAP_CHECK_INTERVAL, InitialBootstrap, InitialBootstrapTrigger},
     circular_vec::CircularVec,
     driver::kad::U256,
     error::Result,
+    external_address::ExternalAddressManager,
     log_markers::Marker,
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
-    Addresses, NodeIssue, NodeRecordStore, CLOSE_GROUP_SIZE,
 };
 use ant_bootstrap::BootstrapCacheStore;
 use ant_evm::PaymentQuote;
 use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
-    messages::{Request, Response},
     NetworkAddress,
+    messages::{Request, Response},
 };
 use futures::StreamExt;
 use libp2p::{
-    kad::{self, KBucketDistance as Distance, QueryId, K_VALUE},
+    Multiaddr, PeerId,
+    kad::{self, K_VALUE, KBucketDistance as Distance, QueryId},
     request_response::OutboundRequestId,
     swarm::{
-        dial_opts::{DialOpts, PeerCondition},
         ConnectionId, Swarm,
+        dial_opts::{DialOpts, PeerCondition},
     },
-    Multiaddr, PeerId,
 };
 use libp2p::{
     request_response,
-    swarm::{behaviour::toggle::Toggle, NetworkBehaviour},
+    swarm::{NetworkBehaviour, behaviour::toggle::Toggle},
 };
-use rand::Rng;
-use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{interval, Duration, Interval};
+use tokio::time::{Duration, Interval, interval};
 use tracing::warn;
 
 use super::interface::{LocalSwarmCmd, NetworkEvent, NetworkSwarmCmd};
@@ -116,6 +116,7 @@ pub(crate) struct SwarmDriver {
     pub(crate) initial_bootstrap_trigger: InitialBootstrapTrigger,
     pub(crate) network_discovery: NetworkDiscovery,
     pub(crate) bootstrap_cache: Option<BootstrapCacheStore>,
+    pub(crate) external_address_manager: Option<ExternalAddressManager>,
     pub(crate) relay_manager: Option<RelayManager>,
     /// The peers that are using our relay service.
     pub(crate) connected_relay_clients: HashSet<PeerId>,
@@ -179,21 +180,10 @@ impl SwarmDriver {
         let mut dial_queue_check_interval = interval(DIAL_QUEUE_CHECK_INTERVAL);
         let _ = dial_queue_check_interval.tick().await; // first tick completes immediately
 
-        let mut bootstrap_cache_save_interval = self.bootstrap_cache.as_ref().and_then(|cache| {
-            if cache.config().disable_cache_writing {
-                None
-            } else {
-                // add a variance of 10% to the interval, to avoid all nodes writing to disk at the same time.
-                let duration = duration_with_variance(cache.config().min_cache_save_duration, 10);
-                Some(interval(duration))
-            }
-        });
-        if let Some(interval) = bootstrap_cache_save_interval.as_mut() {
-            let _ = interval.tick().await; // first tick completes immediately
-            info!(
-                "Bootstrap cache save interval is set to {:?}",
-                interval.period()
-            );
+        if let Some(cache) = &self.bootstrap_cache {
+            // start the periodic cache sync and flush task
+            #[allow(clippy::let_underscore_future)]
+            let _ = cache.sync_and_flush_periodically();
         }
 
         let mut round_robin_index = 0;
@@ -356,39 +346,6 @@ impl SwarmDriver {
                         relay_manager.try_connecting_to_relay(&mut self.swarm, &self.bad_nodes)
                     }
                 },
-                Some(()) = conditional_interval(&mut bootstrap_cache_save_interval) => {
-                    let Some(current_interval) = bootstrap_cache_save_interval.as_mut() else {
-                        continue;
-                    };
-                    let start = Instant::now();
-
-                    if  self.sync_and_flush_cache().is_err() {
-                        warn!("Failed to sync and flush bootstrap cache, skipping this interval");
-                        continue;
-                    }
-
-                    let Some(bootstrap_config) = self.bootstrap_cache.as_ref().map(|cache|cache.config()) else {
-                        continue;
-                    };
-                    if current_interval.period() >= bootstrap_config.max_cache_save_duration {
-                        continue;
-                    }
-
-                    // add a variance of 1% to the max interval to avoid all nodes writing to disk at the same time.
-                    let max_cache_save_duration =
-                        duration_with_variance(bootstrap_config.max_cache_save_duration, 1);
-
-                    // scale up the interval until we reach the max
-                    let scaled = current_interval.period().as_secs().saturating_mul(bootstrap_config.cache_save_scaling_factor);
-                    let new_duration = Duration::from_secs(std::cmp::min(scaled, max_cache_save_duration.as_secs()));
-                    info!("Scaling up the bootstrap cache save interval to {new_duration:?}");
-
-                    *current_interval = interval(new_duration);
-                    let _ = current_interval.tick().await;
-
-                    trace!("Bootstrap cache synced in {:?}", start.elapsed());
-
-                },
             }
         }
     }
@@ -481,13 +438,12 @@ impl SwarmDriver {
     fn collect_peers_info(&mut self, peers: Vec<PeerId>) -> Vec<(PeerId, Addresses)> {
         let mut peers_info = vec![];
         for peer_id in peers {
-            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id) {
-                if let Some(entry) = kbucket
+            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id)
+                && let Some(entry) = kbucket
                     .iter()
                     .find(|entry| entry.node.key.preimage() == &peer_id)
-                {
-                    peers_info.push((peer_id, Addresses(entry.node.value.clone().into_vec())));
-                }
+            {
+                peers_info.push((peer_id, Addresses(entry.node.value.clone().into_vec())));
             }
         }
 
@@ -561,10 +517,10 @@ impl SwarmDriver {
     /// Sync and flush the bootstrap cache to disk.
     ///
     /// This function creates a new cache and saves the old one to disk.
-    pub(crate) fn sync_and_flush_cache(&mut self) -> Result<()> {
+    fn add_sync_and_flush_cache(&mut self, addr: Multiaddr) -> Result<()> {
         if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
             let config = bootstrap_cache.config().clone();
-            let mut old_cache = bootstrap_cache.clone();
+            let old_cache = bootstrap_cache.clone();
 
             if let Ok(new) = BootstrapCacheStore::new(config) {
                 self.bootstrap_cache = Some(new);
@@ -572,25 +528,14 @@ impl SwarmDriver {
                 // Save cache to disk.
                 #[allow(clippy::let_underscore_future)]
                 let _ = tokio::spawn(async move {
-                    if let Err(err) = old_cache.sync_and_flush_to_disk() {
+                    old_cache.add_addr(addr).await;
+                    if let Err(err) = old_cache.sync_and_flush_to_disk().await {
                         error!("Failed to save bootstrap cache: {err}");
                     }
                 });
             }
         }
         Ok(())
-    }
-}
-
-/// Returns a new duration that is within +/- variance of the provided duration.
-fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
-    let variance = duration.as_secs() as f64 * (variance as f64 / 100.0);
-
-    let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
-    if random_adjustment.as_secs() % 2 == 0 {
-        duration - random_adjustment
-    } else {
-        duration + random_adjustment
     }
 }
 
@@ -602,27 +547,5 @@ async fn conditional_interval(i: &mut Option<Interval>) -> Option<()> {
             Some(())
         }
         None => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::duration_with_variance;
-    use std::time::Duration;
-
-    #[tokio::test]
-    async fn test_duration_variance_fn() {
-        let duration = Duration::from_secs(150);
-        let variance = 10;
-        let expected_variance = Duration::from_secs(15); // 10% of 150
-        for _ in 0..10000 {
-            let new_duration = duration_with_variance(duration, variance);
-            println!("new_duration: {new_duration:?}");
-            if new_duration < duration - expected_variance
-                || new_duration > duration + expected_variance
-            {
-                panic!("new_duration: {new_duration:?} is not within the expected range",);
-            }
-        }
     }
 }

@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 #![allow(clippy::mutable_key_type)]
+#![allow(clippy::expect_used)]
 mod common;
 
 use crate::common::{client::get_all_rpc_addresses, get_all_peer_ids, get_antnode_rpc_client};
@@ -14,8 +15,8 @@ use ant_logging::LogBuilder;
 use ant_protocol::antnode_proto::KBucketsRequest;
 use color_eyre::Result;
 use libp2p::{
-    kad::{KBucketKey, K_VALUE},
     PeerId,
+    kad::{K_VALUE, KBucketKey},
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -83,20 +84,32 @@ async fn verify_routing_table() -> Result<()> {
             match k_buckets.get(&ilog2_distance) {
                 Some(bucket) => {
                     if bucket.contains(peer) {
-                        println!("{peer:?} found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT");
+                        println!(
+                            "{peer:?} found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT"
+                        );
                         continue;
                     } else if bucket.len() == K_VALUE.get() {
-                        println!("{peer:?} should be inside the ilog2 bucket: {ilog2_distance:?} of {current_peer:?}. But skipped as the bucket is full");
-                        info!("{peer:?} should be inside the ilog2 bucket: {ilog2_distance:?} of {current_peer:?}. But skipped as the bucket is full");
+                        println!(
+                            "{peer:?} should be inside the ilog2 bucket: {ilog2_distance:?} of {current_peer:?}. But skipped as the bucket is full"
+                        );
+                        info!(
+                            "{peer:?} should be inside the ilog2 bucket: {ilog2_distance:?} of {current_peer:?}. But skipped as the bucket is full"
+                        );
                         continue;
                     } else {
-                        println!("{peer:?} not found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT");
-                        error!("{peer:?} not found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT");
+                        println!(
+                            "{peer:?} not found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT"
+                        );
+                        error!(
+                            "{peer:?} not found inside the kbucket with ilog2 {ilog2_distance:?} of {current_peer:?} RT"
+                        );
                         failed_list.push(*peer);
                     }
                 }
                 None => {
-                    info!("Current peer {current_peer:?} should be {ilog2_distance} ilog2 distance away from {peer:?}, but that kbucket is not present for current_peer.");
+                    info!(
+                        "Current peer {current_peer:?} should be {ilog2_distance} ilog2 distance away from {peer:?}, but that kbucket is not present for current_peer."
+                    );
                     failed_list.push(*peer);
                 }
             }

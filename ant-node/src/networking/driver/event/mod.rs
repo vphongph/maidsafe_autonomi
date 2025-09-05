@@ -13,17 +13,17 @@ mod swarm;
 
 use crate::networking::NetworkEvent;
 use crate::networking::{
-    driver::SwarmDriver, error::Result, relay_manager::is_a_relayed_peer, Addresses,
+    Addresses, driver::SwarmDriver, error::Result, relay_manager::is_a_relayed_peer,
 };
 use ant_protocol::messages::ConnectionInfo;
 use custom_debug::Debug as CustomDebug;
 use libp2p::kad::K_VALUE;
-use libp2p::{request_response::ResponseChannel as PeerResponseChannel, PeerId};
+use libp2p::{PeerId, request_response::ResponseChannel as PeerResponseChannel};
 
 use ant_protocol::CLOSE_GROUP_SIZE;
 use ant_protocol::{
-    messages::{Request, Response},
     NetworkAddress,
+    messages::{Request, Response},
 };
 #[cfg(feature = "open-metrics")]
 use std::collections::HashSet;
@@ -161,8 +161,11 @@ impl SwarmDriver {
         let distance =
             NetworkAddress::from(self.self_peer_id).distance(&NetworkAddress::from(added_peer));
         // ELK logging. Do not update without proper testing.
-        info!("Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.",
-        self.self_peer_id, distance.ilog2());
+        info!(
+            "Node {:?} added new peer into routing table: {added_peer:?}. It has a {:?} distance to us.",
+            self.self_peer_id,
+            distance.ilog2()
+        );
 
         #[cfg(feature = "loud")]
         println!(
@@ -172,10 +175,14 @@ impl SwarmDriver {
 
         kbucket_status.log();
 
-        if let Some(bootstrap_cache) = &mut self.bootstrap_cache {
-            for addr in addresses.0.iter() {
-                bootstrap_cache.add_addr(addr.clone());
-            }
+        if let Some(bootstrap_cache) = &self.bootstrap_cache {
+            let bootstrap_cache = bootstrap_cache.clone();
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                for addr in addresses.0.into_iter() {
+                    bootstrap_cache.add_addr(addr).await
+                }
+            });
         }
 
         self.send_event(NetworkEvent::PeerAdded(added_peer, self.peers_in_rt));
@@ -200,13 +207,19 @@ impl SwarmDriver {
         // ELK logging. Do not update without proper testing.
         info!(
             "Peer removed from routing table: {removed_peer:?}. We now have #{} connected peers. It has a {:?} distance to us.",
-            self.peers_in_rt, distance.ilog2()
+            self.peers_in_rt,
+            distance.ilog2()
         );
 
         self.send_event(NetworkEvent::PeerRemoved(removed_peer, self.peers_in_rt));
 
-        if let Some(bootstrap_cache) = &mut self.bootstrap_cache {
-            bootstrap_cache.remove_peer(&removed_peer);
+        if let Some(bootstrap_cache) = &self.bootstrap_cache {
+            let removed_peer_clone = removed_peer;
+            let bootstrap_cache = bootstrap_cache.clone();
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                bootstrap_cache.remove_peer(&removed_peer_clone).await;
+            });
         }
 
         kbucket_status.log();

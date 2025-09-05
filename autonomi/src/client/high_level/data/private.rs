@@ -8,17 +8,18 @@
 
 use std::time::Instant;
 
+use crate::AttoTokens;
+use crate::Client;
+use crate::client::encryption::EncryptionStream;
 use crate::client::payment::PaymentOption;
 use crate::client::{GetError, PutError};
-use crate::data::DataAddress;
-use crate::AttoTokens;
-use crate::{self_encryption::encrypt, Client};
 
-pub use crate::client::data_types::chunk::DataMapChunk;
 pub use crate::Bytes;
+pub use crate::client::data_types::chunk::DataMapChunk;
 
 impl Client {
-    /// Fetch a blob of (private) data from the network
+    /// Fetch a blob of (private) data from the network. In-memory only - fails for large files.
+    /// Use file_download for large files that need streaming.
     ///
     /// # Example
     ///
@@ -34,12 +35,23 @@ impl Client {
     /// ```
     pub async fn data_get(&self, data_map: &DataMapChunk) -> Result<Bytes, GetError> {
         info!(
-            "Fetching private data from Data Map {:?}",
+            "Fetching private data from datamap {:?}",
             data_map.0.address()
         );
-        let data = self.fetch_from_data_map_chunk(data_map.0.value()).await?;
 
-        debug!("Successfully fetched a blob of private data from the network");
+        let mut datamap = self.restore_data_map_from_chunk(data_map).await?;
+        let chunk_count = datamap.infos().len();
+
+        if chunk_count > *crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE {
+            return Err(GetError::TooLargeForMemory);
+        }
+
+        datamap.child = None;
+        let data = self.fetch_from_data_map(&datamap).await?;
+        debug!(
+            "Successfully fetched private data ({} chunks) in-memory",
+            chunk_count
+        );
         Ok(data)
     }
 
@@ -69,19 +81,15 @@ impl Client {
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataMapChunk), PutError> {
         let now = Instant::now();
-        let (data_map_chunk, chunks) = encrypt(data)?;
+
+        let (chunk_stream, data_map_chunk) = EncryptionStream::new_in_memory(data, false)?;
         debug!("Encryption took: {:.2?}", now.elapsed());
 
-        let data_address = DataAddress::new(*data_map_chunk.address().xorname());
-        let combined_chunks = vec![(
-            (format!("Private Data {data_address:?}"), Some(data_address)),
-            chunks,
-        )];
-
-        // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
-        self.pay_and_upload(payment_option, combined_chunks)
+        // Note within the `pay_and_upload`, UploadSummary will be sent to client via event_channel.
+        let mut chunk_streams = vec![chunk_stream];
+        self.pay_and_upload(payment_option, &mut chunk_streams)
             .await
-            .map(|total_cost| (total_cost, DataMapChunk(data_map_chunk)))
+            .map(|total_cost| (total_cost, data_map_chunk))
     }
 }
 

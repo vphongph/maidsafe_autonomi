@@ -1,23 +1,24 @@
 [package]
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "Bootstrap functionality for Autonomi"
-edition = "2021"
+edition = "2024"
 homepage = "https://maidsafe.net"
 license = "GPL-3.0"
 name = "ant-bootstrap"
 readme = "README.md"
 repository = "https://github.com/maidsafe/autonomi"
-version = "0.2.5"
+version = "0.2.7"
 
 [dependencies]
-ant-logging = { path = "../ant-logging", version = "0.2.51" }
-ant-protocol = { path = "../ant-protocol", version = "1.0.7" }
+ant-logging = { path = "../ant-logging", version = "0.2.52" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.8" }
 atomic-write-file = "0.2.2"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.2.1", features = ["derive", "env"] }
 dirs-next = "~2.0.0"
 futures = "0.3.30"
 libp2p = { version = "0.56.0", features = ["serde"] }
+rand = { version = "~0.8.5", features = ["small_rng"] }
 reqwest = { version = "0.12.2", default-features = false, features = [
     "rustls-tls-manual-roots",
 ] }
@@ -27,6 +28,9 @@ thiserror = "1.0"
 tokio = { version = "1.43", features = ["time"] }
 tracing = "0.1"
 url = "2.4.0"
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 color-eyre = "0.6.3"

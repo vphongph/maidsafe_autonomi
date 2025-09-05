@@ -8,11 +8,11 @@
 
 use super::archive_public::{ArchiveAddress, PublicArchive};
 use super::{DownloadError, FileCostError, Metadata, UploadError};
+use crate::AttoTokens;
+use crate::client::Client;
+use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
-use crate::client::Client;
-use crate::data::CombinedChunks;
-use crate::AttoTokens;
 use bytes::Bytes;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -24,14 +24,15 @@ impl Client {
         data_addr: &DataAddress,
         to_dest: PathBuf,
     ) -> Result<(), DownloadError> {
-        let data = self.data_get_public(data_addr).await?;
-        if let Some(parent) = to_dest.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-            debug!("Created parent directories {parent:?} for {to_dest:?}");
-        }
-        tokio::fs::write(to_dest.clone(), data).await?;
-        debug!("Downloaded file to {to_dest:?} from the network address {data_addr:?}");
-        Ok(())
+        info!("Downloading public file to {to_dest:?} from {data_addr:?}");
+
+        let data_map_chunk = DataMapChunk(
+            self.chunk_get(&ChunkAddress::new(*data_addr.xorname()))
+                .await
+                .map_err(DownloadError::GetError)?,
+        );
+
+        self.file_download(&data_map_chunk, to_dest).await
     }
 
     /// Download directory from network to local file system
@@ -56,9 +57,9 @@ impl Client {
     /// Upload the content of all files in a directory to the network.
     /// The directory is recursively walked and each file is uploaded to the network.
     ///
-    /// The data maps of these files are uploaded on the network, making the individual files publicly available.
+    /// The datamaps of these files are uploaded on the network, making the individual files publicly available.
     ///
-    /// This returns, but does not upload (!),the [`PublicArchive`] containing the data maps of the uploaded files.
+    /// This returns, but does not upload (!),the [`PublicArchive`] containing the datamaps of the uploaded files.
     pub async fn dir_content_upload_public(
         &self,
         dir_path: PathBuf,
@@ -66,21 +67,20 @@ impl Client {
     ) -> Result<(AttoTokens, PublicArchive), UploadError> {
         info!("Uploading directory: {dir_path:?}");
 
-        let encryption_results = self.encrypt_directory_files_public(dir_path).await?;
-
-        let mut combined_chunks: CombinedChunks = vec![];
-        let mut public_archive = PublicArchive::new();
-
+        // encrypt
+        let encryption_results = self
+            .encrypt_directory_files_in_memory(dir_path, true)
+            .await?;
+        let mut chunk_iterators = vec![];
         for encryption_result in encryption_results {
             match encryption_result {
-                Ok((file_path, chunks, file_data)) => {
+                Ok(file_chunk_iterator) => {
+                    let file_path = file_chunk_iterator.file_path.clone();
                     info!("Successfully encrypted file: {file_path:?}");
                     #[cfg(feature = "loud")]
                     println!("Successfully encrypted file: {file_path:?}");
 
-                    let (relative_path, data_address, file_metadata) = file_data;
-                    combined_chunks.push(((file_path, Some(data_address)), chunks));
-                    public_archive.add_file(relative_path, data_address, file_metadata);
+                    chunk_iterators.push(file_chunk_iterator);
                 }
                 Err(err_msg) => {
                     error!("Error during file encryption: {err_msg}");
@@ -90,7 +90,26 @@ impl Client {
             }
         }
 
-        let total_cost = self.pay_and_upload(payment_option, combined_chunks).await?;
+        // pay and upload
+        let total_cost = self
+            .pay_and_upload(payment_option, &mut chunk_iterators)
+            .await?;
+
+        // create an archive
+        let mut public_archive = PublicArchive::new();
+        for file_chunk_iterator in chunk_iterators {
+            let file_path = file_chunk_iterator.file_path.clone();
+            let relative_path = file_chunk_iterator.relative_path.clone();
+            let file_metadata = file_chunk_iterator.metadata.clone();
+            let data_address = match file_chunk_iterator.data_map_chunk() {
+                Some(datamap) => DataAddress::new(*datamap.0.name()),
+                None => {
+                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
+                    continue;
+                }
+            };
+            public_archive.add_file(relative_path, data_address, file_metadata);
+        }
 
         for (file_path, data_addr, _meta) in public_archive.iter() {
             info!("Uploaded file: {file_path:?} to: {data_addr}");

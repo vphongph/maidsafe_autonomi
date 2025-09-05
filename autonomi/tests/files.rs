@@ -6,9 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#![allow(clippy::expect_used)]
+
 use ant_logging::LogBuilder;
-use autonomi::client::payment::PaymentOption;
 use autonomi::Client;
+use autonomi::client::payment::PaymentOption;
 use eyre::Result;
 use serial_test::serial;
 use sha2::{Digest, Sha256};
@@ -21,7 +23,7 @@ use walkdir::WalkDir;
 
 // With a local evm network, and local network, run:
 // EVM_NETWORK=local cargo test --package autonomi --test fs
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial]
 async fn dir_upload_download() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test();
@@ -112,7 +114,7 @@ async fn file_into_vault() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial]
 async fn file_advanced_use() -> Result<()> {
     let _log_appender_guard = LogBuilder::init_single_threaded_tokio_test();

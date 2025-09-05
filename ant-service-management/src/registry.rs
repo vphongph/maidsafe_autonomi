@@ -65,6 +65,7 @@ impl NodeRegistryManager {
 
     /// Loads the node registry from the specified path.
     /// If the file does not exist, it returns a default `NodeRegistryManager` with an empty state.
+    #[allow(clippy::unused_async)]
     pub async fn load(path: &Path) -> Result<Self> {
         let registry = NodeRegistry::load(path)?;
         let manager = NodeRegistryManager::from(registry);
@@ -88,15 +89,13 @@ impl NodeRegistryManager {
                 daemon = Some(d.read().await.clone());
             }
         }
-        let registry = NodeRegistry {
+        NodeRegistry {
             daemon,
             environment_variables: self.environment_variables.read().await.clone(),
             nat_status: self.nat_status.read().await.clone(),
             nodes,
             save_path: self.save_path.clone(),
-        };
-
-        registry
+        }
     }
 
     /// Converts the current state of the `NodeRegistryManager` to a `StatusSummary`.

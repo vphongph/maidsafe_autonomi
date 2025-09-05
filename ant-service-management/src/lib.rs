@@ -6,6 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow unwrap/expect usage temporarily
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 pub mod control;
 pub mod daemon;
 pub mod error;
@@ -17,6 +21,7 @@ pub mod rpc;
 extern crate tracing;
 
 pub mod antctl_proto {
+    #![allow(clippy::clone_on_ref_ptr)]
     tonic::include_proto!("antctl_proto");
 }
 
@@ -30,7 +35,7 @@ use service_manager::ServiceInstallCtx;
 pub use daemon::{DaemonService, DaemonServiceData};
 pub use error::{Error, Result};
 pub use node::{NodeService, NodeServiceData};
-pub use registry::{get_local_node_registry_path, NodeRegistryManager, StatusSummary};
+pub use registry::{NodeRegistryManager, StatusSummary, get_local_node_registry_path};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ServiceStatus {

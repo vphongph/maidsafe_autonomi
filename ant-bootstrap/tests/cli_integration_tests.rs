@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use ant_bootstrap::{
-    cache_store::cache_data_v1, BootstrapCacheConfig, BootstrapCacheStore, InitialPeersConfig,
+    BootstrapCacheConfig, BootstrapCacheStore, InitialPeersConfig, cache_store::cache_data_v1,
 };
 use ant_logging::LogBuilder;
 use color_eyre::Result;
@@ -33,20 +33,20 @@ async fn test_concurrent_cache_access() -> Result<()> {
 
         let handle = tokio::spawn(async move {
             // Create a new cache store (simulating a different process)
-            let mut cache_store = BootstrapCacheStore::new(config_clone)?;
+            let cache_store = BootstrapCacheStore::new(config_clone)?;
 
             // Add a unique addr for this "process"
             let addr: Multiaddr = format!(
                 "/ip4/127.0.0.{}/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{}",
                 i + 1, i + 1
             ).parse().unwrap();
-            cache_store.add_addr(addr);
+            cache_store.add_addr(addr).await;
 
             // Sleep a bit to increase chances of concurrent access
             sleep(Duration::from_millis(10)).await;
 
             // Write to the cache and flush
-            cache_store.sync_and_flush_to_disk()
+            cache_store.sync_and_flush_to_disk().await
         });
 
         handles.push(handle);
@@ -72,13 +72,12 @@ async fn test_cli_arguments_precedence() -> Result<()> {
     let _guard = LogBuilder::init_single_threaded_tokio_test();
     let temp_dir = TempDir::new()?;
 
-    // Create config
-    let config = BootstrapCacheConfig::empty().with_cache_dir(temp_dir.path());
-
     let env_addr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE";
-    // Set environment variable
-    std::env::set_var(ant_bootstrap::ANT_PEERS_ENV, env_addr);
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var(ant_bootstrap::ANT_PEERS_ENV, env_addr);
+    }
 
     let args = InitialPeersConfig {
         first: false,
@@ -90,7 +89,7 @@ async fn test_cli_arguments_precedence() -> Result<()> {
     };
 
     // Get bootstrap addresses
-    let addrs = args.get_bootstrap_addr(Some(config), None).await?;
+    let addrs = args.get_bootstrap_addr(None).await?;
 
     // Environment variables should take precedence
     assert_eq!(addrs.len(), 1, "Should only use one address source");
@@ -100,8 +99,10 @@ async fn test_cli_arguments_precedence() -> Result<()> {
         "CLI argument should be used"
     );
 
-    // Cleanup
-    std::env::remove_var(ant_bootstrap::ANT_PEERS_ENV);
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::remove_var(ant_bootstrap::ANT_PEERS_ENV);
+    }
 
     Ok(())
 }
@@ -116,12 +117,12 @@ async fn test_cache_sync_functionality() -> Result<()> {
     let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
 
     // Create and populate first cache
-    let mut first_store = BootstrapCacheStore::new(config.clone())?;
+    let first_store = BootstrapCacheStore::new(config.clone())?;
     let addr1: Multiaddr =
         "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()?;
-    first_store.add_addr(addr1.clone());
-    first_store.write()?;
+    first_store.add_addr(addr1.clone()).await;
+    first_store.write().await?;
 
     // debug by printing the cache file content
     let cache_file = BootstrapCacheStore::cache_file_name(false);
@@ -131,14 +132,14 @@ async fn test_cache_sync_functionality() -> Result<()> {
     info!("Cache file content after first write:\n{cache_content}");
 
     // Create second cache with different peer
-    let mut second_store = BootstrapCacheStore::new(config.clone())?;
+    let second_store = BootstrapCacheStore::new(config.clone())?;
     let addr2: Multiaddr =
         "/ip4/127.0.0.2/udp/8080/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
             .parse()?;
-    second_store.add_addr(addr2.clone());
+    second_store.add_addr(addr2.clone()).await;
 
     // Sync and flush - should merge with existing cache
-    second_store.sync_and_flush_to_disk()?;
+    second_store.sync_and_flush_to_disk().await?;
 
     let cache_file = BootstrapCacheStore::cache_file_name(false);
     let cache_path = cache_data_v1::CacheData::cache_file_path(cache_dir, &cache_file);

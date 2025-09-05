@@ -13,8 +13,8 @@ use color_eyre::Result;
 use libp2p::Multiaddr;
 use tempfile::TempDir;
 use wiremock::{
-    matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{method, path},
 };
 
 #[tokio::test]
@@ -52,22 +52,22 @@ async fn test_full_bootstrap_flow() -> Result<()> {
         .with_max_peers(10);
 
     // Get bootstrap addresses (should be empty)
-    let addrs = args.get_bootstrap_addr(Some(config.clone()), None).await?;
+    let addrs = args.get_bootstrap_addr(None).await?;
     assert!(
         addrs.is_empty(),
         "First node should have no bootstrap addresses"
     );
 
     // 2. Add some known peers
-    let mut cache = BootstrapCacheStore::new(config.clone())?;
+    let cache = BootstrapCacheStore::new(config.clone())?;
     let addr1: Multiaddr = "/ip4/192.168.1.1/udp/8080/quic-v1/p2p/12D3KooWEHbMXSPvGCQAHjSTYWRKz1PcizQYdq5vMDqV2wLiXyJ9".parse()?;
     let addr2: Multiaddr =
         "/ip4/192.168.1.2/tcp/8080/ws/p2p/12D3KooWQF3NMWHRmMQBY8GVdpQh1V6TFYuQqZkKKvYE7yCS6fYK"
             .parse()?;
 
-    cache.add_addr(addr1.clone());
-    cache.add_addr(addr2.clone());
-    cache.write()?;
+    cache.add_addr(addr1.clone()).await;
+    cache.add_addr(addr2.clone()).await;
+    cache.write().await?;
 
     // 3. Try to get bootstrap addresses from cache
     let cache_args = InitialPeersConfig {
@@ -79,9 +79,7 @@ async fn test_full_bootstrap_flow() -> Result<()> {
         bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
     };
 
-    let cache_addrs = cache_args
-        .get_bootstrap_addr(Some(config.clone()), None)
-        .await?;
+    let cache_addrs = cache_args.get_bootstrap_addr(None).await?;
     assert_eq!(cache_addrs.len(), 2, "Should get addresses from cache");
 
     // 4. Try to get addresses from network contacts
@@ -94,9 +92,7 @@ async fn test_full_bootstrap_flow() -> Result<()> {
         bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
     };
 
-    let network_addrs = network_args
-        .get_bootstrap_addr(Some(config.clone()), None)
-        .await?;
+    let network_addrs = network_args.get_bootstrap_addr(None).await?;
     assert_eq!(
         network_addrs.len(),
         2,
@@ -113,7 +109,7 @@ async fn test_full_bootstrap_flow() -> Result<()> {
         bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
     };
 
-    let combined_addrs = combined_args.get_bootstrap_addr(Some(config), None).await?;
+    let combined_addrs = combined_args.get_bootstrap_addr(None).await?;
     assert!(
         combined_addrs.len() >= 3,
         "Should combine addresses from multiple sources"
@@ -161,7 +157,7 @@ async fn test_multiple_network_contacts() -> Result<()> {
     };
 
     // Should fetch from both endpoints
-    let addrs = args.get_bootstrap_addr(None, None).await?;
+    let addrs = args.get_bootstrap_addr(None).await?;
 
     assert_eq!(addrs.len(), 2, "Should fetch from both endpoints");
 

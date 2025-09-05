@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{client::payment::PaymentOption, AttoTokens};
+use crate::{AttoTokens, client::payment::PaymentOption};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,19 +18,20 @@ use std::{
 use super::Metadata;
 use crate::files::normalize_path;
 use crate::{
+    Client,
     client::{
+        GetError, PutError,
         high_level::{data::DataAddress, files::RenameError},
         quote::CostError,
-        GetError, PutError,
     },
-    Client,
 };
 
 /// The address of a public archive on the network. Points to an [`PublicArchive`].
 pub type ArchiveAddress = DataAddress;
 
-/// Public variant of [`crate::client::files::archive_private::PrivateArchive`]. Differs in that data maps of files are uploaded
-/// to the network, of which the addresses are stored in this archive.
+/// Public variant of [`crate::client::files::archive_private::PrivateArchive`].
+/// Differs in that datamaps of files are uploaded to the network,
+/// of which the addresses are stored in this archive.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PublicArchive {
     ///           Path of the file in the directory
@@ -71,7 +72,9 @@ impl PublicArchive {
             .as_secs();
         meta.modified = now;
         self.map.insert(new_path.to_path_buf(), (data_addr, meta));
-        debug!("Renamed file successfully in the archive, old path: {old_path:?} new_path: {new_path:?}");
+        debug!(
+            "Renamed file successfully in the archive, old path: {old_path:?} new_path: {new_path:?}"
+        );
         Ok(())
     }
 

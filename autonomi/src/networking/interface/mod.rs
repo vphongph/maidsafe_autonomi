@@ -10,8 +10,8 @@ use crate::networking::OneShotTaskResult;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
 use libp2p::{
-    kad::{PeerInfo, Quorum, Record},
     PeerId,
+    kad::{PeerInfo, Quorum, Record},
 };
 use std::num::NonZeroUsize;
 
@@ -66,5 +66,10 @@ pub(super) enum NetworkTask {
         data_size: usize,
         #[debug(skip)]
         resp: OneShotTaskResult<Option<(PeerInfo, PaymentQuote)>>,
+    },
+    /// Get information about the amount of connections made
+    ConnectionsMade {
+        #[debug(skip)]
+        resp: OneShotTaskResult<usize>,
     },
 }

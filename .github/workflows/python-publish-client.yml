@@ -18,8 +18,8 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Build wheels
@@ -46,8 +46,8 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
         target: [x64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.target }}
@@ -74,8 +74,8 @@ jobs:
         target: [x86_64]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
@@ -112,8 +112,8 @@ jobs:
           - armv7-unknown-linux-musleabihf
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
@@ -144,7 +144,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Prepare standalone package
         run: |
           # Create build directory structure
@@ -170,7 +170,6 @@ jobs:
               "ant-evm",
               "ant-logging",
               "ant-metrics",
-              "ant-networking",
               "ant-node",
               "ant-node-manager",
               "ant-node-rpc-client",
@@ -243,7 +242,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           pattern: wheels-*
           path: dist

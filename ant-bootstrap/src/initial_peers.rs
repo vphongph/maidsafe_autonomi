@@ -7,11 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    craft_valid_multiaddr, craft_valid_multiaddr_from_str,
+    BootstrapCacheConfig, BootstrapCacheStore, ContactsFetcher, craft_valid_multiaddr,
+    craft_valid_multiaddr_from_str,
     error::{Error, Result},
-    BootstrapCacheConfig, BootstrapCacheStore, ContactsFetcher,
 };
-use ant_protocol::version::{get_network_id, ALPHANET_ID, MAINNET_ID};
+use ant_protocol::version::{ALPHANET_ID, MAINNET_ID, get_network_id};
 use clap::Args;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -74,11 +74,7 @@ pub struct InitialPeersConfig {
 
 impl InitialPeersConfig {
     /// Get bootstrap peers
-    pub async fn get_bootstrap_addr(
-        &self,
-        config: Option<BootstrapCacheConfig>,
-        count: Option<usize>,
-    ) -> Result<Vec<Multiaddr>> {
+    pub async fn get_bootstrap_addr(&self, count: Option<usize>) -> Result<Vec<Multiaddr>> {
         // If this is the first node, return an empty list
         if self.first {
             info!("First node in network, no initial bootstrap peers");
@@ -108,43 +104,42 @@ impl InitialPeersConfig {
             }
         }
 
-        if let Some(count) = count {
-            if bootstrap_addresses.len() >= count {
-                bootstrap_addresses.truncate(count);
-                info!(
-                    "Found {} bootstrap addresses. Returning early.",
-                    bootstrap_addresses.len()
-                );
-                return Ok(bootstrap_addresses);
-            }
+        if let Some(count) = count
+            && bootstrap_addresses.len() >= count
+        {
+            bootstrap_addresses.truncate(count);
+            info!(
+                "Found {} bootstrap addresses. Returning early.",
+                bootstrap_addresses.len()
+            );
+            return Ok(bootstrap_addresses);
         }
 
         // load from cache if present
         if !self.ignore_cache {
-            let cfg = if let Some(config) = config {
-                Some(config)
-            } else {
-                BootstrapCacheConfig::new(self.local)
-                    .inspect_err(|err| {
-                        error!("Failed to create cache config: {err}",);
-                    })
-                    .ok()
-            };
+            let cfg = BootstrapCacheConfig::try_from(self)
+                .inspect_err(|err| {
+                    error!("Failed to create bootstrap cache config: {err}");
+                })
+                .ok();
+
             if let Some(cfg) = cfg {
                 if let Ok(data) = BootstrapCacheStore::load_cache_data(&cfg) {
                     bootstrap_addresses.extend(data.get_all_addrs().cloned());
 
-                    if let Some(count) = count {
-                        if bootstrap_addresses.len() >= count {
-                            bootstrap_addresses.truncate(count);
-                            info!(
-                                "Found {} bootstrap addresses. Returning early.",
-                                bootstrap_addresses.len()
-                            );
-                            return Ok(bootstrap_addresses);
-                        }
+                    if let Some(count) = count
+                        && bootstrap_addresses.len() >= count
+                    {
+                        bootstrap_addresses.truncate(count);
+                        info!(
+                            "Found {} bootstrap addresses. Returning early.",
+                            bootstrap_addresses.len()
+                        );
+                        return Ok(bootstrap_addresses);
                     }
                 }
+            } else {
+                info!("Bootstrap cache config could not be created, skipping cache loading");
             }
         } else {
             info!("Ignoring cache, not loading bootstrap addresses from cache");
@@ -168,15 +163,15 @@ impl InitialPeersConfig {
             let addrs = contacts_fetcher.fetch_bootstrap_addresses().await?;
             bootstrap_addresses.extend(addrs);
 
-            if let Some(count) = count {
-                if bootstrap_addresses.len() >= count {
-                    bootstrap_addresses.truncate(count);
-                    info!(
-                        "Found {} bootstrap addresses. Returning early.",
-                        bootstrap_addresses.len()
-                    );
-                    return Ok(bootstrap_addresses);
-                }
+            if let Some(count) = count
+                && bootstrap_addresses.len() >= count
+            {
+                bootstrap_addresses.truncate(count);
+                info!(
+                    "Found {} bootstrap addresses. Returning early.",
+                    bootstrap_addresses.len()
+                );
+                return Ok(bootstrap_addresses);
             }
         }
 

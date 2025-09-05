@@ -11,7 +11,7 @@ use color_eyre::eyre::{Context, Result};
 use tracing::error;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{
-    self, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
+    self, Layer, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 pub fn initialize_panic_handler() -> Result<()> {
@@ -26,15 +26,15 @@ pub fn initialize_panic_handler() -> Result<()> {
         .into_hooks();
     eyre_hook.install()?;
     std::panic::set_hook(Box::new(move |panic_info| {
-        if let Ok(mut t) = crate::tui::Tui::new() {
-            if let Err(r) = t.exit() {
-                error!("Unable to exit Terminal: {:?}", r);
-            }
+        if let Ok(mut t) = crate::tui::Tui::new()
+            && let Err(r) = t.exit()
+        {
+            error!("Unable to exit Terminal: {:?}", r);
         }
 
         #[cfg(not(debug_assertions))]
         {
-            use human_panic::{handle_dump, print_msg, Metadata};
+            use human_panic::{Metadata, handle_dump, print_msg};
             let meta = Metadata {
                 version: env!("CARGO_PKG_VERSION").into(),
                 name: env!("CARGO_PKG_NAME").into(),
@@ -79,15 +79,22 @@ pub fn initialize_logging() -> Result<()> {
     std::fs::create_dir_all(&log_path)?;
     let log_file = std::fs::File::create(log_path.join(format!("launchpad_{timestamp}.log")))
         .context(format!("Failed to create file {log_path:?}"))?;
-    std::env::set_var(
-        "RUST_LOG",
-        std::env::var("RUST_LOG").unwrap_or_else(|_| {
-            format!(
-                "{}=trace,ant_node_manager=trace,ant_service_management=trace,ant_bootstrap=debug",
-                env!("CARGO_CRATE_NAME")
-            )
-        }),
-    );
+
+    // SAFETY: This is called during application initialization before any other threads
+    // are spawned, so there's no risk of data races. Setting RUST_LOG is necessary
+    // to configure logging levels for the application.
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var(
+            "RUST_LOG",
+            std::env::var("RUST_LOG").unwrap_or_else(|_| {
+                format!(
+                    "{}=trace,ant_node_manager=trace,ant_service_management=trace,ant_bootstrap=debug",
+                    env!("CARGO_CRATE_NAME")
+                )
+            }),
+        );
+    }
     let file_subscriber = tracing_subscriber::fmt::layer()
         .with_file(true)
         .with_line_number(true)

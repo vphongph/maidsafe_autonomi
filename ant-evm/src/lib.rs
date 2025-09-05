@@ -6,9 +6,17 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+// Allow expect/panic in this crate temporarily until proper error handling is implemented
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+// Allow the to_bytes_le method name
+#![allow(clippy::wrong_self_convention)]
+
 #[macro_use]
 extern crate tracing;
 
+pub use evmlib::CustomNetwork;
+pub use evmlib::Network as EvmNetwork;
 pub use evmlib::common::Address as RewardsAddress;
 pub use evmlib::common::Address as EvmAddress;
 pub use evmlib::common::QuotePayment;
@@ -24,8 +32,6 @@ pub use evmlib::utils::get_evm_network;
 pub use evmlib::utils::{DATA_PAYMENTS_ADDRESS, PAYMENT_TOKEN_ADDRESS, RPC_URL};
 pub use evmlib::wallet::Error as EvmWalletError;
 pub use evmlib::wallet::Wallet as EvmWallet;
-pub use evmlib::CustomNetwork;
-pub use evmlib::Network as EvmNetwork;
 
 mod amount;
 mod data_payments;

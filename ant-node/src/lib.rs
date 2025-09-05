@@ -15,10 +15,14 @@
     html_favicon_url = "https://maidsafe.net/img/favicon.ico",
     test(attr(deny(warnings)))
 )]
-// Turn on some additional warnings to encourage good style.
-#![warn(missing_docs, unreachable_pub, unused_results, clippy::unwrap_used)]
+// Additional warnings and allows specific to this crate
+// missing_docs and unwrap_used are already covered by workspace lints
+#![warn(unreachable_pub, unused_results)]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::result_large_err)]
+// Allow expect and panic usage - to be refactored
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
 
 #[macro_use]
 extern crate tracing;
@@ -51,9 +55,9 @@ pub use self::{
 use crate::error::Result;
 
 use crate::networking::Network;
-use crate::networking::SwarmLocalState;
+pub use crate::networking::SwarmLocalState;
 use ant_evm::RewardsAddress;
-use ant_protocol::{get_port_from_multiaddr, NetworkAddress};
+use ant_protocol::{NetworkAddress, get_port_from_multiaddr};
 use libp2p::{Multiaddr, PeerId};
 use std::{
     collections::{BTreeMap, HashSet},

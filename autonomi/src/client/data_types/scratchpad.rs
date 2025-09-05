@@ -6,18 +6,24 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::client::payment::{PayError, PaymentOption};
-use crate::{client::quote::CostError, Client};
-use crate::{Amount, AttoTokens};
-use ant_protocol::storage::{try_serialize_record, RecordKind};
+use super::resolve_split_records;
+
+use crate::{
+    Amount, AttoTokens, Client,
+    client::{
+        GetError, PutError,
+        payment::{PayError, PaymentOption},
+        quote::CostError,
+    },
+    networking::{NetworkError, PeerInfo},
+};
+
 use ant_protocol::{
-    storage::{try_deserialize_record, DataTypes},
     NetworkAddress,
+    storage::{DataTypes, RecordKind, try_deserialize_record, try_serialize_record},
 };
 use libp2p::kad::Record;
 
-use crate::client::{GetError, PutError};
-use crate::networking::{NetworkError, PeerInfo};
 pub use crate::Bytes;
 pub use ant_protocol::storage::{Scratchpad, ScratchpadAddress};
 pub use bls::{PublicKey, SecretKey, Signature};
@@ -39,12 +45,18 @@ pub enum ScratchpadError {
     Serialization,
     #[error("Scratchpad already exists at this address: {0:?}")]
     ScratchpadAlreadyExists(ScratchpadAddress),
-    #[error("Scratchpad cannot be updated as it does not exist, please create it first or wait for it to be created")]
+    #[error(
+        "Scratchpad cannot be updated as it does not exist, please create it first or wait for it to be created"
+    )]
     CannotUpdateNewScratchpad,
     #[error("Scratchpad size is too big: {0} > {SCRATCHPAD_MAX_SIZE}")]
     ScratchpadTooBig(usize),
     #[error("Scratchpad signature is not valid")]
     BadSignature,
+    #[error(
+        "Got multiple conflicting scratchpads with the latest version, the fork can be resolved by putting a new scratchpad with a higher counter"
+    )]
+    Fork(Vec<Scratchpad>),
 }
 
 impl Client {
@@ -80,36 +92,21 @@ impl Client {
             }
             Err(NetworkError::SplitRecord(result_map)) => {
                 debug!("Got multiple scratchpads for {scratch_key:?}");
-                let mut pads = result_map
-                    .values()
-                    .map(try_deserialize_record::<Scratchpad>)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| ScratchpadError::Corrupt(*address))?;
-
-                // take the latest versions
-                pads.sort_by_key(|s| s.counter());
-                let max_version = pads.last().map(|p| p.counter()).unwrap_or_else(|| {
-                    error!("Got empty scratchpad vector for {scratch_key:?}");
-                    u64::MAX
-                });
-                let latest_pads: Vec<_> = pads
-                    .into_iter()
-                    .filter(|s| s.counter() == max_version)
-                    .collect();
-
-                // make sure we only have one of latest version
-                let pad = match &latest_pads[..] {
-                    [one] => one,
-                    [multi, ..] => {
-                        error!("Got multiple conflicting scratchpads for {scratch_key:?} with the latest version, returning the first one");
-                        multi
-                    }
-                    [] => {
-                        error!("Got no valid scratchpads for {scratch_key:?}");
-                        return Err(ScratchpadError::Corrupt(*address));
-                    }
-                };
-                pad.to_owned()
+                resolve_split_records(
+                    result_map,
+                    network_address.clone(),
+                    |r| {
+                        try_deserialize_record::<Scratchpad>(&r)
+                            .map_err(|_| ScratchpadError::Corrupt(*address))
+                    },
+                    |s: &Scratchpad| s.counter(),
+                    |a: &Scratchpad, b: &Scratchpad| {
+                        a.data_encoding() == b.data_encoding()
+                            && a.encrypted_data() == b.encrypted_data()
+                    },
+                    |latest: Vec<Scratchpad>| ScratchpadError::Fork(latest),
+                    || ScratchpadError::Corrupt(*address),
+                )?
             }
             Err(e) => {
                 warn!("Failed to fetch scratchpad {network_address:?} from network: {e}");
@@ -306,13 +303,37 @@ impl Client {
             }
         };
 
-        let scratchpad = if let Some(p) = current {
-            let version = p.counter() + 1;
-            Scratchpad::new(owner, content_type, data, version)
+        if let Some(p) = current {
+            let _new = self
+                .scratchpad_update_from(&p, owner, content_type, data)
+                .await?;
+            Ok(())
         } else {
-            warn!("Scratchpad at address {address:?} cannot be updated as it does not exist, please create it first or wait for it to be created");
-            return Err(ScratchpadError::CannotUpdateNewScratchpad);
-        };
+            warn!(
+                "Scratchpad at address {address:?} cannot be updated as it does not exist, please create it first or wait for it to be created"
+            );
+            Err(ScratchpadError::CannotUpdateNewScratchpad)
+        }
+    }
+
+    /// Update an existing scratchpad from a specific scratchpad
+    ///
+    /// This will increment the counter of the scratchpad and update the content
+    /// This function is used internally by [`Client::scratchpad_update`] after the scratchpad has been retrieved from the network.
+    /// To skip the retrieval step if you already have the scratchpad, use this function directly
+    /// This function will return the new scratchpad after it has been updated
+    pub async fn scratchpad_update_from(
+        &self,
+        current: &Scratchpad,
+        owner: &SecretKey,
+        content_type: u64,
+        data: &Bytes,
+    ) -> Result<Scratchpad, ScratchpadError> {
+        // prepare the new scratchpad to be stored
+        let address = ScratchpadAddress::new(owner.public_key());
+        let new_counter = current.counter() + 1;
+        info!("Updating scratchpad at address {address:?} to version {new_counter}");
+        let scratchpad = Scratchpad::new(owner, content_type, data, new_counter);
 
         // make sure the scratchpad is valid
         Self::scratchpad_verify(&scratchpad)?;
@@ -357,7 +378,7 @@ impl Client {
                 })
             })?;
 
-        Ok(())
+        Ok(scratchpad)
     }
 
     /// Get the cost of creating a new Scratchpad

@@ -10,26 +10,28 @@ use ant_protocol::storage::DataTypes;
 use bytes::Bytes;
 use std::time::Instant;
 
+use crate::client::encryption::EncryptionStream;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::CostError;
 use crate::client::{GetError, PutError};
-use crate::{chunk::ChunkAddress, self_encryption::encrypt, Client};
+use crate::{
+    Client,
+    chunk::{ChunkAddress, DataMapChunk},
+    self_encryption::encrypt,
+};
 use ant_evm::{Amount, AttoTokens};
 use xor_name::XorName;
 
 use super::DataAddress;
 
 impl Client {
-    /// Fetch a blob of data from the network
+    /// Fetch a blob of public data from the network. In-memory only - fails for large files.
+    /// Use file_download_public for large files that need streaming.
     pub async fn data_get_public(&self, addr: &DataAddress) -> Result<Bytes, GetError> {
-        info!("Fetching data from Data Address: {addr:?}");
-        let data_map_chunk = self.chunk_get(&ChunkAddress::new(*addr.xorname())).await?;
-        let data = self
-            .fetch_from_data_map_chunk(data_map_chunk.value())
-            .await?;
-
-        debug!("Successfully fetched a blob of data from the network");
-        Ok(data)
+        info!("Fetching public data from Data Address: {addr:?}");
+        let datamap_chunk =
+            DataMapChunk(self.chunk_get(&ChunkAddress::new(*addr.xorname())).await?);
+        self.data_get(&datamap_chunk).await
     }
 
     /// Upload a piece of data to the network. This data is publicly accessible.
@@ -40,23 +42,15 @@ impl Client {
         data: Bytes,
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataAddress), PutError> {
-        let now = Instant::now();
-        let (data_map_chunk, mut chunks) = encrypt(data)?;
-        let data_map_addr = *data_map_chunk.address();
-        debug!("Encryption took: {:.2?}", now.elapsed());
+        let (chunk_stream, data_map_chunk) = EncryptionStream::new_in_memory(data, true)?;
+
+        let data_map_addr = *data_map_chunk.0.address();
         info!("Uploading datamap chunk to the network at: {data_map_addr:?}");
-
-        // `data_map_chunks` shall be included as well.
-        chunks.push(data_map_chunk);
-
         let data_address = DataAddress::new(*data_map_addr.xorname());
-        let combined_chunks = vec![(
-            (format!("Public Data {data_address:?}"), Some(data_address)),
-            chunks,
-        )];
 
-        // Note within the `pay_and_upload`, UploadSummary will be sent to cli via event_channel.
-        self.pay_and_upload(payment_option, combined_chunks)
+        // Note within the `pay_and_upload`, UploadSummary will be sent to client via event_channel.
+        let mut chunk_streams = vec![chunk_stream];
+        self.pay_and_upload(payment_option, &mut chunk_streams)
             .await
             .map(|total_cost| (total_cost, data_address))
     }
@@ -85,7 +79,7 @@ impl Client {
         }
 
         info!(
-            "Calculating cost of storing {} chunks. Data map chunk at: {map_xor_name:?}",
+            "Calculating cost of storing {} chunks. Datamap chunk at: {map_xor_name:?}",
             content_addrs.len()
         );
 

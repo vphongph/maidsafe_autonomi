@@ -7,26 +7,125 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::{Quorum, RetryStrategy, Strategy};
-pub use ant_bootstrap::{error::Error as BootstrapError, InitialPeersConfig};
+pub use ant_bootstrap::{BootstrapCacheConfig, InitialPeersConfig, error::Error as BootstrapError};
 use ant_evm::EvmNetwork;
-use std::num::NonZero;
+use evmlib::contract::payment_vault::MAX_TRANSFERS_PER_TRANSACTION;
+use std::{num::NonZero, sync::LazyLock};
+
+/// Number of chunks to upload in parallel.
+///
+/// Can be overridden by the `CHUNK_UPLOAD_BATCH_SIZE` environment variable.
+pub(crate) static CHUNK_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let batch_size = std::env::var("CHUNK_UPLOAD_BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    info!("Chunk upload batch size: {}", batch_size);
+    batch_size
+});
+
+/// Number of chunks to download in parallel.
+///
+/// Can be overridden by the `CHUNK_DOWNLOAD_BATCH_SIZE` environment variable.
+pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let batch_size = std::env::var("CHUNK_DOWNLOAD_BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    info!("Chunk download batch size: {}", batch_size);
+    batch_size
+});
+
+/// Maximum number of chunks that we allow to download from a datamap in memory.
+/// This affects the maximum size of data downloaded with APIs such as [`crate::Client::data_get`]
+///
+/// Can be overridden by the `MAX_IN_MEMORY_DOWNLOAD_SIZE ` environment variable.
+pub static MAX_IN_MEMORY_DOWNLOAD_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let size = std::env::var("MAX_IN_MEMORY_DOWNLOAD_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
+    info!("Max in memory download size: {}", size);
+    size
+});
+
+/// Number of files to upload in parallel.
+///
+/// Can be overridden by the `FILE_UPLOAD_BATCH_SIZE` environment variable.
+pub static FILE_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let batch_size = std::env::var("FILE_UPLOAD_BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    info!("File upload batch size: {}", batch_size);
+    batch_size
+});
+
+/// Number of files to encrypt in parallel.
+///
+/// Can be overridden by the `FILE_ENCRYPT_BATCH_SIZE` environment variable.
+pub static FILE_ENCRYPT_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let batch_size = std::env::var("FILE_ENCRYPT_BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+                * 8,
+        );
+    info!("File encryption batch size: {}", batch_size);
+    batch_size
+});
+
+/// Maximum size of a file to be encrypted in memory.
+///
+/// Can be overridden by the [`IN_MEMORY_ENCRYPTION_MAX_SIZE`] environment variable.
+/// The default is 100MB.
+pub static IN_MEMORY_ENCRYPTION_MAX_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let max_size = std::env::var("IN_MEMORY_ENCRYPTION_MAX_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50_000_000);
+    info!(
+        "IN_MEMORY_ENCRYPTION_MAX_SIZE (from that threshold, the file will be encrypted in a stream): {}",
+        max_size
+    );
+    max_size
+});
+
+/// Number of batch size of an entire quote-pay-upload flow to process.
+/// Suggested to be multiples of `MAX_TRANSFERS_PER_TRANSACTION  / 3` (records-payouts-per-transaction).
+///
+/// Can be overridden by the `UPLOAD_FLOW_BATCH_SIZE` environment variable.
+pub(crate) static UPLOAD_FLOW_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
+    let batch_size = std::env::var("UPLOAD_FLOW_BATCH_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(MAX_TRANSFERS_PER_TRANSACTION / 3);
+    info!("Upload flow batch size: {}", batch_size);
+    batch_size
+});
 
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
-    /// Configurations to fetch the initial peers which is used to bootstrap the network.
-    /// Also contains the configurations to the bootstrap cache.
-    pub init_peers_config: InitialPeersConfig,
+    /// Configuration for the Bootstrap Cache.
+    pub bootstrap_cache_config: Option<BootstrapCacheConfig>,
 
     /// EVM network to use for quotations and payments.
     pub evm_network: EvmNetwork,
 
-    /// Strategy for data operations by the client.
-    pub strategy: ClientOperatingStrategy,
+    /// Configurations to fetch the initial peers which is used to bootstrap the network.
+    /// Also contains the configurations to the bootstrap cache.
+    pub init_peers_config: InitialPeersConfig,
 
     /// The network ID to use for the client.
     /// This is used to differentiate between different networks.
     pub network_id: Option<u8>,
+
+    /// Strategy for data operations by the client.
+    pub strategy: ClientOperatingStrategy,
 }
 
 /// Strategy configuration for data operations by the client.
@@ -38,6 +137,10 @@ pub struct ClientOperatingStrategy {
     pub graph_entry: Strategy,
     pub pointer: Strategy,
     pub scratchpad: Strategy,
+    /// Enable chunk caching for faster retrieval
+    pub chunk_cache_enabled: bool,
+    /// Custom chunk cache directory (if None, uses default)
+    pub chunk_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl ClientOperatingStrategy {
@@ -82,6 +185,8 @@ impl Default for ClientOperatingStrategy {
                 get_quorum: Quorum::Majority, // majority to catch possible differences in versions
                 get_retry: RetryStrategy::Quick,
             },
+            chunk_cache_enabled: true,
+            chunk_cache_dir: None,
         }
     }
 }

@@ -125,14 +125,14 @@ impl ServiceControl for ServiceController {
 
         for line in output_str.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() == 2 {
-                if let Ok(id) = parts[1].parse::<u32>() {
-                    if id > max_id {
-                        max_id = id;
-                    }
-                }
+            if let Ok(id) = parts[1].parse::<u32>()
+                && id > max_id
+                && parts.len() == 2
+            {
+                max_id = id;
             }
         }
+
         let new_unique_id = max_id + 1;
 
         let commands = vec![
@@ -183,18 +183,47 @@ impl ServiceControl for ServiceController {
             bin_path.to_string_lossy()
         );
         let system = System::new_all();
+        
+        // First, try exact path matching (existing behavior)
         for (pid, process) in system.processes() {
-            if let Some(path) = process.exe() {
-                if bin_path == path {
-                    // There does not seem to be any easy way to get the process ID from the `Pid`
-                    // type. Probably something to do with representing it in a cross-platform way.
-                    trace!("Found process {bin_path:?} with PID: {pid}");
-                    return Ok(pid.to_string().parse::<u32>()?);
+            if let Some(path) = process.exe()
+                && bin_path == path
+            {
+                trace!("Found process {bin_path:?} with exact path match, PID: {pid}");
+                return Ok(pid.to_string().parse::<u32>()?);
+            }
+        }
+        
+        // If exact path matching fails, try matching by executable name
+        // This handles cases where nodes are started from external USB or different paths
+        if let Some(expected_name) = bin_path.file_name() {
+            debug!(
+                "Exact path match failed, trying executable name matching for: {}",
+                expected_name.to_string_lossy()
+            );
+            
+            for (pid, process) in system.processes() {
+                if let Some(path) = process.exe()
+                    && let Some(actual_name) = path.file_name()
+                    && expected_name == actual_name {
+                    debug!(
+                        "Found process with matching executable name {} at path {}, PID: {pid}",
+                        expected_name.to_string_lossy(),
+                        path.to_string_lossy()
+                    );
+                    // Additional verification: check if this is likely an antnode process
+                    // by examining command line arguments if available
+                    if process.cmd().iter().any(|arg| arg.contains("antnode")) ||
+                       expected_name.to_string_lossy().contains("antnode") {
+                        trace!("Confirmed antnode process with name match, PID: {pid}");
+                        return Ok(pid.to_string().parse::<u32>()?);
+                    }
                 }
             }
         }
+        
         error!(
-            "No process was located with a path at {}",
+            "No process was located with a path at {} or matching executable name",
             bin_path.to_string_lossy()
         );
         Err(Error::ServiceProcessNotFound(
@@ -265,7 +294,9 @@ impl ServiceControl for ServiceController {
             Ok(()) => Ok(()),
             Err(err) => {
                 if std::io::ErrorKind::NotFound == err.kind() {
-                    error!("Error while uninstall service, service file might have been removed manually: {service_name}");
+                    error!(
+                        "Error while uninstall service, service file might have been removed manually: {service_name}"
+                    );
                     // In this case the user has removed the service definition file manually,
                     // which the service manager crate treats as an error. We can propagate the
                     // it to the caller and they can decide how to handle it.

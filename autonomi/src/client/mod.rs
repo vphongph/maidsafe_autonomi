@@ -39,6 +39,9 @@ pub mod quote;
 pub mod external_signer;
 
 // private module with utility functions
+mod chunk_cache;
+mod data_map_restoration;
+mod encryption;
 mod network;
 mod put_error_state;
 mod utils;
@@ -46,7 +49,7 @@ mod utils;
 use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 
-use ant_bootstrap::{contacts::ALPHANET_CONTACTS, InitialPeersConfig};
+use ant_bootstrap::{InitialPeersConfig, contacts::ALPHANET_CONTACTS};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use config::ClientConfig;
@@ -62,9 +65,9 @@ const CLIENT_EVENT_CHANNEL_SIZE: usize = 100;
 
 // Amount of peers to confirm into our routing table before we consider the client ready.
 use crate::client::config::ClientOperatingStrategy;
-use crate::networking::{multiaddr_is_global, Multiaddr, Network, NetworkAddress, NetworkError};
-use ant_protocol::storage::RecordKind;
+use crate::networking::{Multiaddr, Network, NetworkAddress, NetworkError, multiaddr_is_global};
 pub use ant_protocol::CLOSE_GROUP_SIZE;
+use ant_protocol::storage::RecordKind;
 
 /// Represents a client for the Autonomi network.
 ///
@@ -163,6 +166,16 @@ pub enum GetError {
     // The RecordKind that was obtained did not match with the expected one
     #[error("The RecordKind obtained from the Record did not match with the expected kind: {0}")]
     RecordKindMismatch(RecordKind),
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+    #[error("Unable to recogonize the so claimed DataMap: {0}")]
+    UnrecognizedDataMap(String),
+    /// When trying to download a file that is too large to be handled in memory
+    /// you can increase the [`crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE`] env var or use the streaming API.
+    #[error(
+        "DataMap points to a file too large to be handled in memory, you can increase the MAX_IN_MEMORY_DOWNLOAD_SIZE env var or use streaming to avoid this error."
+    )]
+    TooLargeForMemory,
 }
 
 impl Client {
@@ -170,13 +183,28 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init() -> Result<Self, ConnectError> {
-        Self::init_with_config(Default::default()).await
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+        Self::init_with_config(ClientConfig {
+            bootstrap_cache_config,
+            ..Default::default()
+        })
+        .await
     }
 
     /// Initialize a client that is configured to be local.
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local: true,
@@ -186,12 +214,19 @@ impl Client {
                 .map_err(|e| ConnectError::EvmNetworkError(e.to_string()))?,
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         let client_config = ClientConfig {
             init_peers_config: InitialPeersConfig {
                 first: false,
@@ -204,6 +239,7 @@ impl Client {
             evm_network: EvmNetwork::ArbitrumSepoliaTest,
             strategy: Default::default(),
             network_id: Some(2),
+            bootstrap_cache_config,
         };
         Self::init_with_config(client_config).await
     }
@@ -225,6 +261,12 @@ impl Client {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
 
+        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local)
+            .inspect_err(|errr| {
+                warn!("Failed to create bootstrap cache config: {errr}");
+            })
+            .ok();
+
         Self::init_with_config(ClientConfig {
             init_peers_config: InitialPeersConfig {
                 local,
@@ -234,6 +276,7 @@ impl Client {
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
             strategy: Default::default(),
             network_id: None,
+            bootstrap_cache_config,
         })
         .await
     }
@@ -257,16 +300,15 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let initial_peers = match config
-            .init_peers_config
-            .get_bootstrap_addr(None, None)
-            .await
-        {
+        let initial_peers = match config.init_peers_config.get_bootstrap_addr(Some(50)).await {
             Ok(peers) => peers,
             Err(e) => return Err(e.into()),
         };
 
-        let network = Network::new(initial_peers)?;
+        let network = Network::new(initial_peers, config.bootstrap_cache_config)?;
+
+        // Wait for the network to be ready with enough peers
+        network.wait_for_connectivity().await?;
 
         Ok(Self {
             network,
@@ -320,4 +362,30 @@ pub struct UploadSummary {
     pub records_already_paid: usize,
     /// Total cost of the upload
     pub tokens_spent: Amount,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ant_logging::LogBuilder;
+
+    #[tokio::test]
+    async fn test_init_fails() {
+        let _guard = LogBuilder::init_single_threaded_tokio_test();
+
+        let initial_peers = vec![
+            "/ip4/127.0.0.1/udp/1/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+                .parse()
+                .unwrap(),
+        ];
+        let network = Network::new(initial_peers, None).unwrap();
+
+        match network.wait_for_connectivity().await {
+            Err(ConnectError::TimedOut) => {} // This is the expected outcome
+            Ok(()) => panic!("Expected `ConnectError::TimedOut`, but got `Ok`"),
+            Err(err) => {
+                panic!("Expected `ConnectError::TimedOut`, but got `{err:?}`")
+            }
+        }
+    }
 }

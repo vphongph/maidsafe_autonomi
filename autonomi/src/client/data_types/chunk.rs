@@ -6,61 +6,39 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::client::chunk_cache::{
+    default_cache_dir, delete_chunks, is_chunk_cached, load_chunk, store_chunk,
+};
+use crate::client::config::{CHUNK_DOWNLOAD_BATCH_SIZE, CHUNK_UPLOAD_BATCH_SIZE};
 use crate::networking::PeerInfo;
 use crate::{
+    Client,
     client::{
+        ChunkBatchUploadState, GetError, PutError,
         payment::{PaymentOption, Receipt},
         quote::CostError,
         utils::process_tasks_with_max_concurrency,
-        ChunkBatchUploadState, GetError, PutError,
     },
-    self_encryption::DataMapLevel,
-    Client,
 };
 use ant_evm::{Amount, AttoTokens, ClientProofOfPayment};
 pub use ant_protocol::storage::{Chunk, ChunkAddress};
 use ant_protocol::{
-    storage::{try_deserialize_record, try_serialize_record, DataTypes, RecordHeader, RecordKind},
     NetworkAddress,
+    storage::{DataTypes, RecordHeader, RecordKind, try_deserialize_record, try_serialize_record},
 };
 use bytes::Bytes;
 use libp2p::kad::Record;
-use self_encryption::{decrypt_full_set, DataMap, EncryptedChunk};
+use self_encryption::{DataMap, EncryptedChunk, decrypt};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    sync::LazyLock,
 };
-
-/// Number of chunks to upload in parallel.
-///
-/// Can be overridden by the `CHUNK_UPLOAD_BATCH_SIZE` environment variable.
-pub(crate) static CHUNK_UPLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("CHUNK_UPLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("Chunk upload batch size: {}", batch_size);
-    batch_size
-});
-
-/// Number of chunks to download in parallel.
-///
-/// Can be overridden by the `CHUNK_DOWNLOAD_BATCH_SIZE` environment variable.
-pub static CHUNK_DOWNLOAD_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
-    let batch_size = std::env::var("CHUNK_DOWNLOAD_BATCH_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    info!("Chunk download batch size: {}", batch_size);
-    batch_size
-});
 
 /// Private data on the network can be accessed with this
 /// Uploading this data in a chunk makes it publicly accessible from the address of that Chunk
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DataMapChunk(pub(crate) Chunk);
+pub struct DataMapChunk(pub Chunk);
 
 impl DataMapChunk {
     /// Convert the chunk to a hex string.
@@ -106,12 +84,62 @@ fn hash_to_short_string(input: &str) -> String {
 }
 
 impl Client {
-    /// Get a chunk from the network.
-    pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
-        info!("Getting chunk: {addr:?}");
+    fn get_chunk_cache_dir(&self) -> Result<std::path::PathBuf, GetError> {
+        match &self.config.chunk_cache_dir {
+            Some(dir) => Ok(dir.clone()),
+            None => {
+                default_cache_dir().map_err(|_| {
+                    GetError::Configuration(
+                        "Chunk caching is enabled but no cache directory is specified. \
+                         Please set a cache directory in the client config or disable chunk caching.".to_string()
+                    )
+                })
+            }
+        }
+    }
 
+    fn try_load_chunk_from_cache(&self, addr: &ChunkAddress) -> Result<Option<Chunk>, GetError> {
+        if !self.config.chunk_cache_enabled {
+            return Ok(None);
+        }
+
+        let cache_dir = self.get_chunk_cache_dir()?;
+        if is_chunk_cached(cache_dir.clone(), addr)
+            && let Ok(Some(cached_chunk)) = load_chunk(cache_dir, addr)
+        {
+            debug!("Loaded chunk from cache: {addr:?}");
+            return Ok(Some(cached_chunk));
+        }
+        Ok(None)
+    }
+
+    fn try_cache_chunk(&self, addr: &ChunkAddress, chunk: &Chunk) -> Result<(), GetError> {
+        if self.config.chunk_cache_enabled {
+            let cache_dir = self.get_chunk_cache_dir()?;
+            if let Err(e) = store_chunk(cache_dir, addr, chunk) {
+                warn!("Failed to cache chunk {}: {}", addr.to_hex(), e);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cleanup_cached_chunks(&self, chunk_addrs: &[ChunkAddress]) {
+        if self.config.chunk_cache_enabled
+            && let Ok(cache_dir) = self.get_chunk_cache_dir()
+        {
+            if let Err(e) = delete_chunks(cache_dir, chunk_addrs) {
+                warn!("Failed to delete cached chunks after download: {e}");
+            } else {
+                debug!(
+                    "Deleted {} cached chunks after successful download",
+                    chunk_addrs.len()
+                );
+            }
+        }
+    }
+
+    async fn fetch_chunk_from_network(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         let key = NetworkAddress::from(*addr);
-
         debug!("Fetching chunk from network at: {key:?}");
 
         let record = self
@@ -123,7 +151,7 @@ impl Client {
 
         let header = RecordHeader::from_record(&record)?;
 
-        if let Ok(true) = RecordHeader::is_record_of_type_chunk(&record) {
+        if RecordHeader::is_record_of_type_chunk(&record)? {
             let chunk: Chunk = try_deserialize_record(&record)?;
             Ok(chunk)
         } else {
@@ -135,6 +163,19 @@ impl Client {
                 DataTypes::Chunk,
             )))
         }
+    }
+
+    /// Get a chunk from the network.
+    pub async fn chunk_get(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
+        info!("Getting chunk: {addr:?}");
+
+        if let Some(cached_chunk) = self.try_load_chunk_from_cache(addr)? {
+            return Ok(cached_chunk);
+        }
+
+        let chunk = self.fetch_chunk_from_network(addr).await?;
+        self.try_cache_chunk(addr, &chunk)?;
+        Ok(chunk)
     }
 
     /// Manually upload a chunk to the network.
@@ -236,8 +277,47 @@ impl Client {
         Ok(total_cost)
     }
 
-    /// Upload chunks in batches
-    pub(crate) async fn chunk_batch_upload(
+    /// Upload chunks in batches to the network. This is useful for pre-calculated payment proofs,
+    /// in case of manual encryption or re-uploading certain chunks that were already paid for.
+    ///
+    /// This method requires a vector of chunks to be uploaded and the payment receipt. It returns a `PutError` for
+    /// failures and `Ok(())` for successful uploads.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use ant_protocol::storage::DataTypes;
+    /// # use autonomi::{Client, Wallet};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Client::init_local().await?;
+    /// # let wallet = Wallet::new_from_private_key(
+    /// #     client.evm_network().clone(),
+    /// #     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    /// # )?;
+    ///
+    /// // Step 1: Encrypt your data using self-encryption
+    /// let (data_map, chunks) = autonomi::self_encryption::encrypt("Hello, World!".into())?;
+    ///
+    /// // Step 2: Collect all chunks (datamap + content chunks)
+    /// let mut all_chunks = vec![&data_map];
+    /// all_chunks.extend(chunks.iter());
+    ///
+    /// // Step 3: Get storage quotes for all chunks
+    /// let quote = client.get_store_quotes(
+    ///     DataTypes::Chunk,
+    ///     all_chunks.iter().map(|chunk| (*chunk.address().xorname(), chunk.size())),
+    /// ).await?;
+    ///
+    /// // Step 4: Pay for all chunks at once and get receipt
+    /// wallet.pay_for_quotes(quote.payments()).await.map_err(|err| err.0)?;
+    /// let receipt = autonomi::client::payment::receipt_from_store_quotes(quote);
+    ///
+    /// // Step 5: Upload all chunks with the payment receipt
+    /// client.chunk_batch_upload(all_chunks, &receipt).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn chunk_batch_upload(
         &self,
         chunks: Vec<&Chunk>,
         receipt: &Receipt,
@@ -364,43 +444,20 @@ impl Client {
         Ok(*chunk.address())
     }
 
-    /// Unpack a wrapped data map and fetch all bytes using self-encryption.
-    pub(crate) async fn fetch_from_data_map_chunk(
-        &self,
-        data_map_bytes: &Bytes,
-    ) -> Result<Bytes, GetError> {
-        let mut data_map_level: DataMapLevel = rmp_serde::from_slice(data_map_bytes)
-            .map_err(GetError::InvalidDataMap)
-            .inspect_err(|err| error!("Error deserializing data map: {err:?}"))?;
-
-        loop {
-            let data_map = match &data_map_level {
-                DataMapLevel::First(map) => map,
-                DataMapLevel::Additional(map) => map,
-            };
-            let data = self.fetch_from_data_map(data_map).await?;
-
-            match &data_map_level {
-                DataMapLevel::First(_) => break Ok(data),
-                DataMapLevel::Additional(_) => {
-                    data_map_level = rmp_serde::from_slice(&data).map_err(|err| {
-                        error!("Error deserializing data map: {err:?}");
-                        GetError::InvalidDataMap(err)
-                    })?;
-                    continue;
-                }
-            };
-        }
-    }
-
-    /// Fetch and decrypt all chunks in the data map.
+    /// Fetch and decrypt all chunks in the datamap.
     pub(crate) async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
         #[cfg(feature = "loud")]
         println!("Fetching {total_chunks} encrypted data chunks from network.");
-        debug!("Fetching {total_chunks} encrypted data chunks from data map {data_map:?}");
+        debug!("Fetching {total_chunks} encrypted data chunks from datamap {data_map:?}");
 
         let mut download_tasks = vec![];
+        let chunk_addrs: Vec<ChunkAddress> = data_map
+            .infos()
+            .iter()
+            .map(|info| ChunkAddress::new(info.dst_hash))
+            .collect();
+
         for (i, info) in data_map.infos().into_iter().enumerate() {
             download_tasks.push(async move {
                 let idx = i + 1;
@@ -416,7 +473,6 @@ impl Client {
                         println!("Fetching chunk {idx}/{total_chunks} [DONE]");
                         info!("Successfully fetched chunk {idx}/{total_chunks}({chunk_addr:?})");
                         Ok(EncryptedChunk {
-                            index: info.index,
                             content: chunk.value,
                         })
                     }
@@ -440,13 +496,16 @@ impl Client {
         println!("Successfully fetched all {total_chunks} encrypted chunks");
         debug!("Successfully fetched all {total_chunks} encrypted chunks");
 
-        let data = decrypt_full_set(data_map, &encrypted_chunks).map_err(|e| {
+        let data = decrypt(data_map, &encrypted_chunks).map_err(|e| {
             error!("Error decrypting encrypted_chunks: {e:?}");
             GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e))
         })?;
         #[cfg(feature = "loud")]
         println!("Successfully decrypted all {total_chunks} chunks");
         debug!("Successfully decrypted all {total_chunks} chunks");
+
+        self.cleanup_cached_chunks(&chunk_addrs);
+
         Ok(data)
     }
 }

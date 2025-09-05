@@ -39,17 +39,17 @@ impl From<u8> for VerbosityLevel {
 }
 
 use crate::error::{Error, Result};
-use ant_service_management::rpc::RpcActions;
 use ant_service_management::NodeRegistryManager;
+use ant_service_management::rpc::RpcActions;
 use ant_service_management::{
-    control::ServiceControl, error::Error as ServiceError, rpc::RpcClient, NodeService,
-    ServiceStateActions, ServiceStatus, UpgradeOptions, UpgradeResult,
+    NodeService, ServiceStateActions, ServiceStatus, UpgradeOptions, UpgradeResult,
+    control::ServiceControl, error::Error as ServiceError, rpc::RpcClient,
 };
 use colored::Colorize;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use semver::Version;
-
+use std::sync::Arc;
 use tracing::debug;
 
 pub const DAEMON_DEFAULT_PORT: u16 = 12500;
@@ -126,7 +126,9 @@ impl<T: ServiceStateActions + Send> ServiceManager<T> {
                 info!("Service {service_name} has been started successfully");
             }
             Err(ant_service_management::error::Error::ServiceProcessNotFound(_)) => {
-                error!("The '{service_name}' service has failed to start because ServiceProcessNotFound when fetching PID");
+                error!(
+                    "The '{service_name}' service has failed to start because ServiceProcessNotFound when fetching PID"
+                );
                 return Err(Error::PidNotFoundAfterStarting);
             }
             Err(err) => {
@@ -233,8 +235,8 @@ impl<T: ServiceStateActions + Send> ServiceManager<T> {
                 // check why it may have failed before removing everything.
                 self.service.on_stop().await?;
                 error!(
-                "The service: {service_name} was marked as running but it had actually stopped. You may want to check the logs for errors before removing it. To remove the service, run the command again."
-            );
+                    "The service: {service_name} was marked as running but it had actually stopped. You may want to check the logs for errors before removing it. To remove the service, run the command again."
+                );
                 return Err(Error::ServiceStatusMismatch {
                     expected: ServiceStatus::Running,
                 });
@@ -250,7 +252,9 @@ impl<T: ServiceStateActions + Send> ServiceManager<T> {
             }
             Err(err) => match err {
                 ServiceError::ServiceRemovedManually(name) => {
-                    warn!("The user appears to have removed the {name} service manually. Skipping the error.",);
+                    warn!(
+                        "The user appears to have removed the {name} service manually. Skipping the error.",
+                    );
                     // The user has deleted the service definition file, which the service manager
                     // crate treats as an error. We then return our own error type, which allows us
                     // to handle it here and just proceed with removing the service from the
@@ -260,7 +264,9 @@ impl<T: ServiceStateActions + Send> ServiceManager<T> {
                     }
                 }
                 ServiceError::ServiceDoesNotExists(name) => {
-                    warn!("The service {name} has most probably been removed already, it does not exists. Skipping the error.");
+                    warn!(
+                        "The service {name} has most probably been removed already, it does not exists. Skipping the error."
+                    );
                 }
                 _ => {
                     error!("Error uninstalling the service: {err}");
@@ -399,13 +405,13 @@ pub async fn status_report(
                 "PID: {}",
                 node.pid.map_or("-".to_string(), |p| p.to_string())
             );
-            if node.status == ServiceStatus::Stopped {
-                if let Some(failure_reason) = node.get_critical_failure() {
-                    println!(
-                        "Failure reason: [{}] {}",
-                        failure_reason.0, failure_reason.1
-                    );
-                }
+            if node.status == ServiceStatus::Stopped
+                && let Some(failure_reason) = node.get_critical_failure()
+            {
+                println!(
+                    "Failure reason: [{}] {}",
+                    failure_reason.0, failure_reason.1
+                );
             }
             println!("Data path: {}", node.data_dir_path.to_string_lossy());
             println!("Log path: {}", node.log_dir_path.to_string_lossy());
@@ -557,7 +563,7 @@ pub async fn refresh_node_registry(
 
         let mut rpc_client = RpcClient::from_socket_addr(node.read().await.rpc_socket_addr);
         rpc_client.set_max_attempts(1);
-        let service = NodeService::new(node.clone(), Box::new(rpc_client.clone()));
+        let service = NodeService::new(Arc::clone(node), Box::new(rpc_client.clone()));
         let service_name = service.service_data.read().await.service_name.clone();
 
         if is_local_network {
@@ -655,10 +661,10 @@ mod tests {
     use ant_evm::{AttoTokens, CustomNetwork, EvmNetwork, RewardsAddress};
     use ant_logging::LogFormat;
     use ant_service_management::{
-        error::{Error as ServiceControlError, Result as ServiceControlResult},
-        node::{NodeService, NodeServiceData, NODE_SERVICE_DATA_SCHEMA_LATEST},
-        rpc::{NetworkInfo, NodeInfo, RecordAddress, RpcActions},
         UpgradeOptions, UpgradeResult,
+        error::{Error as ServiceControlError, Result as ServiceControlResult},
+        node::{NODE_SERVICE_DATA_SCHEMA_LATEST, NodeService, NodeServiceData},
+        rpc::{NetworkInfo, NodeInfo, RecordAddress, RpcActions},
     };
     use assert_fs::prelude::*;
     use assert_matches::assert_matches;
@@ -795,7 +801,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -912,7 +918,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -992,7 +998,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -1112,7 +1118,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -1203,7 +1209,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1308,7 +1314,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -1412,7 +1418,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client))
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client))
             .with_connection_timeout(Duration::from_secs(
                 DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
             ));
@@ -1488,7 +1494,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1550,7 +1556,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1568,8 +1574,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stop_should_return_ok_when_attempting_to_stop_service_that_was_already_stopped(
-    ) -> Result<()> {
+    async fn stop_should_return_ok_when_attempting_to_stop_service_that_was_already_stopped()
+    -> Result<()> {
         let service_data = NodeServiceData {
             alpha: false,
             auto_restart: false,
@@ -1616,7 +1622,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1681,7 +1687,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(MockServiceControl::new()),
@@ -1761,7 +1767,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -1902,7 +1908,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -2004,7 +2010,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2153,7 +2159,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2312,7 +2318,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2463,7 +2469,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -2619,7 +2625,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2807,7 +2813,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -2985,7 +2991,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3152,7 +3158,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3325,7 +3331,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3502,7 +3508,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3678,7 +3684,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -3854,7 +3860,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4025,7 +4031,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4192,7 +4198,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4359,7 +4365,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4526,7 +4532,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4693,7 +4699,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -4860,7 +4866,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5027,7 +5033,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5194,7 +5200,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5361,7 +5367,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5529,7 +5535,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5709,7 +5715,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -5889,7 +5895,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -6057,7 +6063,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client))
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client))
             .with_connection_timeout(Duration::from_secs(
                 DEFAULT_NODE_STARTUP_CONNECTION_TIMEOUT_S,
             ));
@@ -6225,7 +6231,7 @@ mod tests {
             write_older_cache_files: true,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,
@@ -6311,7 +6317,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6383,7 +6389,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6403,8 +6409,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_should_return_an_error_for_a_node_that_was_marked_running_but_was_not_actually_running(
-    ) -> Result<()> {
+    async fn remove_should_return_an_error_for_a_node_that_was_marked_running_but_was_not_actually_running()
+    -> Result<()> {
         let temp_dir = assert_fs::TempDir::new()?;
         let log_dir = temp_dir.child("antnode1-logs");
         log_dir.create_dir_all()?;
@@ -6470,7 +6476,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6550,7 +6556,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6628,7 +6634,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(MockRpcClient::new()));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(MockRpcClient::new()));
         let mut service_manager = ServiceManager::new(
             service,
             Box::new(mock_service_control),
@@ -6793,7 +6799,7 @@ mod tests {
             write_older_cache_files: false,
         };
         let service_data = Arc::new(RwLock::new(service_data));
-        let service = NodeService::new(service_data.clone(), Box::new(mock_rpc_client));
+        let service = NodeService::new(Arc::clone(&service_data), Box::new(mock_rpc_client));
 
         let mut service_manager = ServiceManager::new(
             service,

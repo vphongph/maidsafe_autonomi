@@ -1,7 +1,7 @@
 [package]
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
 description = "RPC client for the Autonomi node"
-edition = "2021"
+edition = "2024"
 homepage = "https://maidsafe.net"
 license = "GPL-3.0"
 name = "ant-node-rpc-client"
@@ -18,10 +18,10 @@ nightly = []
 
 [dependencies]
 ant-build-info = { path = "../ant-build-info", version = "0.1.29" }
-ant-logging = { path = "../ant-logging", version = "0.2.51" }
-ant-protocol = { path = "../ant-protocol", version = "1.0.7", features=["rpc"] }
-ant-node = { path = "../ant-node", version = "0.4.2" }
-ant-service-management = { path = "../ant-service-management", version = "0.4.15" }
+ant-logging = { path = "../ant-logging", version = "0.2.52" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.8", features=["rpc"] }
+ant-node = { path = "../ant-node", version = "0.4.4" }
+ant-service-management = { path = "../ant-service-management", version = "0.4.16" }
 async-trait = "0.1"
 bls = { package = "blsttc", version = "8.0.1" }
 clap = { version = "4.2.1", features = ["derive"] }

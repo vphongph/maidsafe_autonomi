@@ -13,6 +13,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
+use tracing::info;
 
 use crate::Client;
 use crate::client::data_types::chunk::ChunkAddress;
@@ -144,6 +145,24 @@ impl Client {
         data_map: DataMap,
         to_dest: &Path,
     ) -> Result<(), DownloadError> {
+        // Verify that the destination path can be used to create a file.
+        if let Err(e) = std::fs::File::create(to_dest) {
+            #[cfg(feature = "loud")]
+            println!("Input destination path {to_dest:?} cannot be used for streaming disk flushing: {e}");
+            #[cfg(feature = "loud")]
+            println!("This file may have been uploaded without a metadata archive. A file name must be provided to download and save it.");
+            info!("Input destination path {to_dest:?} cannot be used for streaming disk flushing: {e}");
+            return Err(DownloadError::IoError(e));
+        }
+        
+        // Clean up the temporary verification file
+        if let Err(cleanup_err) = std::fs::remove_file(to_dest) {
+            #[cfg(feature = "loud")]
+            println!("Warning: Failed to clean up temporary verification file {to_dest:?}: {cleanup_err}");
+            info!("Warning: Failed to clean up temporary verification file {to_dest:?}: {cleanup_err}");
+            return Err(DownloadError::IoError(cleanup_err));
+        }
+
         let total_chunks = data_map.infos().len();
 
         #[cfg(feature = "loud")]

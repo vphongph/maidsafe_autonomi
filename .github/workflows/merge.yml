@@ -987,6 +987,23 @@ jobs:
           echo "UPLOAD_ADDRESS=$UPLOAD_ADDRESS" >> $GITHUB_ENV
         shell: bash
 
+      - name: File Download Error Check
+        run: ./target/release/ant --log-output-dest data-dir --local file download ${{ env.UPLOAD_ADDRESS }} . > ./error_output 2>&1
+        env:
+          ANT_LOG: "v"
+        timeout-minutes: 5
+        continue-on-error: true
+
+      - name: Verify expected error message
+        run: |
+          cat ./error_output
+          if ! grep -q "cannot be used for streaming disk flushing" ./error_output; then
+            echo "Expected error message 'cannot be used for streaming disk flushing' not found in output"
+            exit 1
+          fi
+          echo "Expected error message found in output"
+        shell: bash
+
       - name: File Download
         run: ./target/release/ant --log-output-dest data-dir --local file download ${{ env.UPLOAD_ADDRESS }} ./downloaded_resources/downloaded_file > ./download_output 2>&1
         env:

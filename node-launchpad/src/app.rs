@@ -211,7 +211,10 @@ impl App {
                                     info!("Got action: {action:?}");
                                     action_tx.send(action.clone())?;
                                 } else {
-                                    debug!("Key {:?} not found in keymap for scene {:?}", key, self.scene);
+                                    debug!(
+                                        "Key {:?} not found in keymap for scene {:?}",
+                                        key, self.scene
+                                    );
                                     // If the key was not handled as a single key action,
                                     // then consider it for multi-key combinations.
                                     self.last_tick_key_events.push(key);
@@ -221,7 +224,10 @@ impl App {
                                         info!("Got action: {action:?}");
                                         action_tx.send(action.clone())?;
                                     } else if self.last_tick_key_events.len() > 1 {
-                                        debug!("Multi-key combination {:?} not found in keymap", self.last_tick_key_events);
+                                        debug!(
+                                            "Multi-key combination {:?} not found in keymap",
+                                            self.last_tick_key_events
+                                        );
                                     }
                                 }
                             };

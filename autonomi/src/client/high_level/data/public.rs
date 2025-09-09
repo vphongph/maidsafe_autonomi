@@ -35,7 +35,7 @@ impl Client {
     }
 
     /// Stream a blob of public data from the network. Returns an Iterator that yields chunks progressively.
-    /// Use this for large files to avoid loading everything into memory.
+    /// Use this for large blobs of data like videos to avoid loading everything into memory.
     ///
     /// # Example
     ///

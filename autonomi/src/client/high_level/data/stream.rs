@@ -1,4 +1,4 @@
-// Copyright 2024 MaidSafe.net limited.
+// Copyright 2025 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
 // Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
@@ -18,7 +18,6 @@ type ChunkFetcher =
 
 pub struct DataStream {
     streaming_decrypt: self_encryption::DecryptionStream<ChunkFetcher>,
-    finished: bool,
 }
 
 impl DataStream {
@@ -46,10 +45,7 @@ impl DataStream {
         let streaming_decrypt = self_encryption::streaming_decrypt(&datamap, chunk_fetcher)
             .map_err(|e| GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e)))?;
 
-        Ok(Self {
-            streaming_decrypt,
-            finished: false,
-        })
+        Ok(Self { streaming_decrypt })
     }
 }
 
@@ -57,10 +53,6 @@ impl Iterator for DataStream {
     type Item = Result<Bytes, GetError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
-        }
-
         // Get the next chunk from the streaming decrypt iterator
         match self.streaming_decrypt.next() {
             Some(Ok(chunk_bytes)) => {
@@ -69,14 +61,12 @@ impl Iterator for DataStream {
             }
             Some(Err(e)) => {
                 // Error during decryption
-                self.finished = true;
                 Some(Err(GetError::Decryption(
                     crate::self_encryption::Error::SelfEncryption(e),
                 )))
             }
             None => {
                 // Stream is exhausted
-                self.finished = true;
                 None
             }
         }

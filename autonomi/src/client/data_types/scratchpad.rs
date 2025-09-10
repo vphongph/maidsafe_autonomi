@@ -292,11 +292,15 @@ impl Client {
         let current = match self.scratchpad_get(&address).await {
             Ok(scratchpad) => Some(scratchpad),
             Err(ScratchpadError::GetError(GetError::RecordNotFound)) => None,
+            // forks should not stop updates as updates are here to resolve forks, hence the max_by_key
             Err(ScratchpadError::GetError(GetError::Network(NetworkError::SplitRecord(
                 result_map,
             )))) => result_map
                 .values()
                 .filter_map(|record| try_deserialize_record::<Scratchpad>(record).ok())
+                .max_by_key(|scratchpad: &Scratchpad| scratchpad.counter()),
+            Err(ScratchpadError::Fork(scratchpads)) => scratchpads
+                .into_iter()
                 .max_by_key(|scratchpad: &Scratchpad| scratchpad.counter()),
             Err(err) => {
                 return Err(err);
@@ -335,11 +339,29 @@ impl Client {
         info!("Updating scratchpad at address {address:?} to version {new_counter}");
         let scratchpad = Scratchpad::new(owner, content_type, data, new_counter);
 
-        // make sure the scratchpad is valid
+        // store the scratchpad on the network
+        self.scratchpad_put_update(scratchpad.clone()).await?;
+
+        Ok(scratchpad)
+    }
+
+    /// Store a fully formed, pre-signed scratchpad verbatim after verification.
+    /// This method is intended for updates and does not require payment.
+    ///
+    /// Preconditions:
+    /// - The scratchpad must already exist on the network
+    /// - The scratchpad signature must be valid (checked by scratchpad_verify)
+    ///
+    /// The scratchpad is stored as-is with no counter increment, re-encryption, or re-signing.
+    pub async fn scratchpad_put_update(
+        &self,
+        scratchpad: Scratchpad,
+    ) -> Result<(), ScratchpadError> {
+        let address = scratchpad.address();
         Self::scratchpad_verify(&scratchpad)?;
 
         // prepare the record to be stored
-        let net_addr = NetworkAddress::from(address);
+        let net_addr = NetworkAddress::from(*address);
         let record = Record {
             key: net_addr.to_record_key(),
             value: try_serialize_record(&scratchpad, RecordKind::DataOnly(DataTypes::Scratchpad))
@@ -372,13 +394,13 @@ impl Client {
             })
             .map_err(|err| {
                 ScratchpadError::PutError(PutError::Network {
-                    address: Box::new(NetworkAddress::from(address)),
+                    address: Box::new(NetworkAddress::from(*address)),
                     network_error: err,
                     payment: None,
                 })
             })?;
 
-        Ok(scratchpad)
+        Ok(())
     }
 
     /// Get the cost of creating a new Scratchpad

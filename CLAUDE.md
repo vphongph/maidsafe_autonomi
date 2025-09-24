@@ -135,3 +135,16 @@ All data operations require EVM payments. When developing:
 - Use Conventional Commits specification for commit messages
 - Release process is automated via CI/CD
 - Building for production should use the `stable` branch
+
+# Good coding practice
+- Always compile after writing Rust code. If there are errors, fix them! If there are warnings, fix them!
+
+- Always compile after writing code for the Python bindings written in Rust. But in this case the compilation process is different. Use uv and maturin, you must activate the venv (source autonomi/.venv/bin/activate) and compile using maturin develop --uv.
+
+- Always play safe, investigate the proofs and read carefully the code you need to have the best context, no assumptions out of nowhere!
+
+- Don't be a DUMB SHIT!
+
+- Produce production code, no unnecessary comments or emojis to talk to me when we are developping or explaination between us. If you put a comment it's for everyone to understand, devs and users.
+
+- Do simple code, code should have maximum 3 indentations, 1 for the function, 1 for a loop or a if, an other one for an additionnal loop or if. You can put more indentations if it's absolutely neccessary but it this case you have to tell it to me and explain it to me, then I will decide if I keep it or find an other solution.

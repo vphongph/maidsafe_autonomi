@@ -76,6 +76,7 @@ impl NetworkDriver {
                     connection_id,
                     (peer_id, endpoint.get_remote_address().clone()),
                 );
+                self.connections_made += 1;
                 Ok(())
             }
             SwarmEvent::ConnectionClosed {
@@ -157,7 +158,7 @@ impl NetworkDriver {
         request_id: OutboundRequestId,
         response: Response,
     ) -> Result<(), NetworkDriverError> {
-        trace!("Request response event: {:?}", response);
+        trace!("Request response event({request_id:?}): {:?}", response);
 
         // skip unknown or completed queries
         if !self.pending_tasks.contains_query(&request_id) {
@@ -184,7 +185,11 @@ impl NetworkDriver {
             }
 
             _ => {
-                trace!("Other request response event: {response:?}");
+                info!("Other request response event({request_id:?}): {response:?}");
+                // Unrecoganized req/rsp DM indicates peer is in an incorrect version
+                // For such case, it shall be counted as a failure.
+                // Using ranodom id as place holder.
+                self.pending_tasks.terminate_query(request_id, PeerId::random(), OutboundFailure::UnsupportedProtocols)?;
             }
         }
 

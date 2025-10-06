@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.4.7"
+version = "0.4.8-rc.1"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -1657,7 +1657,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "autonomi"
-version = "0.6.1"
+version = "0.6.2-rc.1"
 dependencies = [
  "alloy",
  "ant-bootstrap",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.4.4"
+version = "0.4.5-rc.1"
 dependencies = [
  "alloy",
  "rand 0.8.5",

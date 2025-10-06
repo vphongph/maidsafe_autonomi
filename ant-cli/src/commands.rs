@@ -79,9 +79,11 @@ pub enum FileCmd {
     Cost {
         /// The file to estimate cost for.
         file: String,
-        /// Use single node payment mode for cost estimation.
-        #[arg(long, short = 's')]
-        single_node_payment: bool,
+        /// Disable single-node payment mode. By default, single-node payment pays only the highest
+        /// priced node with 3x that amount. This flag switches to paying 3 nodes individually,
+        /// which costs more in gas fees but less in upload tokens.
+        #[arg(long)]
+        disable_single_node_payment: bool,
     },
 
     /// Upload a file and pay for it. Data on the Network is private by default.
@@ -102,11 +104,11 @@ pub enum FileCmd {
         #[arg(long)]
         #[clap(default_value = "0")]
         retry_failed: u64,
-        /// Use single node payment mode. Pay only the highest priced node with 3x that amount instead of paying 3 nodes.
-        /// Data is still stored on 5 nodes.
-        /// This saves on gas fees but increases upload token cost.
-        #[arg(long, short = 's')]
-        single_node_payment: bool,
+        /// Disable single-node payment mode. By default, single-node payment pays only the highest
+        /// priced node with 3x that amount. Data is still stored on 5 nodes. This flag switches to
+        /// paying 3 nodes individually, which costs more in gas fees but less in upload tokens.
+        #[arg(long)]
+        disable_single_node_payment: bool,
         #[command(flatten)]
         transaction_opt: TransactionOpt,
     },
@@ -452,14 +454,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         Some(SubCmd::File { command }) => match command {
             FileCmd::Cost {
                 file,
-                single_node_payment,
-            } => file::cost(&file, network_context, single_node_payment).await,
+                disable_single_node_payment,
+            } => file::cost(&file, network_context, !disable_single_node_payment).await,
             FileCmd::Upload {
                 file,
                 public,
                 no_archive,
                 retry_failed,
-                single_node_payment,
+                disable_single_node_payment,
                 transaction_opt,
             } => {
                 if let Err((err, exit_code)) = file::upload(
@@ -469,7 +471,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     network_context,
                     transaction_opt.max_fee_per_gas,
                     retry_failed,
-                    single_node_payment,
+                    !disable_single_node_payment,
                 )
                 .await
                 {

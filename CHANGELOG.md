@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Added
 
 - Introduce a new payment mode: single node. This reduces gas fees by making a single transaction to
-  the highest-priced node with 3x the quote amount, rather than 3 separate transactions to 3
-  different nodes.
+  the median-priced node with 3x the quote amount, rather than 3 separate transactions to 3
+  highest nodes.
 - `PaymentMode` enum for controlling upload payment strategy with `Standard` (pay 3 nodes) and
   `SingleNode` (pay 1 node with 3x amount) variants.
 - `Client::with_payment_mode()` method for setting the payment mode on the client.
@@ -34,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Payment vault smart contract upgraded from V2 to V6. This upgrade supports the new single-node
   payment verification logic while maintaining backward compatibility.
-- Payment verification now returns a fixed-size array of 3 verification results for compatibility
-  with single-node payment mode.
 
 ### Ant Client
 
@@ -45,13 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default single-node payment mode to the multi-node payment mode.
 - The `file upload` command provides a `--disable-single-node-payment` flag to switch from the
   default single-node payment mode to the multi-node payment mode.
+- The `analyze` command now has an `analyse` alias for British English spelling preference.
+- The `analyze` command now supports a `--closest-nodes` flag argument that will display the closest 
+  nodes to the address being analysed.
 
 #### Changed
 
 - Single-node payment is now enabled by default for both the `file cost` and `file upload` commands,
   reducing gas fees for users. The previous behaviour can be restored using the
   `--disable-single-node-payment` flag.
-- The `analyze` command now has an `analyse` alias for British English spelling preference.
 
 ### General
 

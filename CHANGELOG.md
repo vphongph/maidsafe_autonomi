@@ -55,11 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### General
 
-#### Added
-
-- Windows binaries are now digitally signed using DigiCert KeyLocker. This should hopefully improve
-  the situation with the binaries being flagged by anti-virus products.
-
 #### Changed
 
 - Various nightly CI workflows have been removed as they were not being actively used.

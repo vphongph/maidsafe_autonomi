@@ -6,10 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
-    InitialPeersConfig,
-    error::{Error, Result},
-};
+use crate::error::{Error, Result};
+use clap::Args;
+use libp2p::Multiaddr;
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -29,6 +29,57 @@ const MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 // Max time until we save the bootstrap cache to disk. 3 hours
 const MAX_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// Configurations to fetch the initial peers which is used to bootstrap the network.
+/// This could optionally also be used as a command line argument struct.
+#[derive(Args, Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InitialPeersConfig {
+    /// Set to indicate this is the first node in a new network
+    ///
+    /// If this argument is used, any others will be ignored because they do not apply to the first
+    /// node.
+    #[clap(long, default_value = "false")]
+    pub first: bool,
+    /// Addr(s) to use for bootstrap, in a 'multiaddr' format containing the peer ID.
+    ///
+    /// A multiaddr looks like
+    /// '/ip4/1.2.3.4/tcp/1200/tcp/p2p/12D3KooWRi6wF7yxWLuPSNskXc6kQ5cJ6eaymeMbCRdTnMesPgFx' where
+    /// `1.2.3.4` is the IP, `1200` is the port and the (optional) last part is the peer ID.
+    ///
+    /// This argument can be provided multiple times to connect to multiple peers.
+    ///
+    /// Alternatively, the `ANT_PEERS` environment variable can provide a comma-separated peer
+    /// list.
+    #[clap(
+        long = "peer",
+        value_name = "multiaddr",
+        value_delimiter = ',',
+        conflicts_with = "first"
+    )]
+    pub addrs: Vec<Multiaddr>,
+    /// Specify the URL to fetch the network contacts from.
+    ///
+    /// The URL can point to a text file containing Multiaddresses separated by newline character, or
+    /// a bootstrap cache JSON file.
+    #[clap(long, conflicts_with = "first", value_delimiter = ',')]
+    pub network_contacts_url: Vec<String>,
+    /// Set to indicate this is a local network.
+    #[clap(long, conflicts_with = "network_contacts_url", default_value = "false")]
+    pub local: bool,
+    /// Set to not load the bootstrap addresses from the local cache.
+    #[clap(long, default_value = "false")]
+    pub ignore_cache: bool,
+    /// The directory to load and store the bootstrap cache. If not provided, the default path will be used.
+    ///
+    /// The JSON filename will be derived automatically from the network ID
+    ///
+    /// The default location is platform specific:
+    ///  - Linux: $HOME/.local/share/autonomi/bootstrap_cache/bootstrap_cache_<network_id>.json
+    ///  - macOS: $HOME/Library/Application Support/autonomi/bootstrap_cache/bootstrap_cache_<network_id>.json
+    ///  - Windows: C:\Users\<username>\AppData\Roaming\autonomi\bootstrap_cache\bootstrap_cache_<network_id>.json
+    #[clap(long)]
+    pub bootstrap_cache_dir: Option<PathBuf>,
+}
 
 /// Configuration for the bootstrap cache
 #[derive(Clone, Debug)]

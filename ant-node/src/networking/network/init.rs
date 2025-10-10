@@ -10,9 +10,10 @@ use ant_protocol::constants::{KAD_STREAM_PROTOCOL_ID, MAX_PACKET_SIZE, REPLICATI
 
 use crate::networking::{
     CLOSE_GROUP_SIZE, NetworkEvent,
-    bootstrap::InitialBootstrapTrigger,
     circular_vec::CircularVec,
-    driver::{NodeBehaviour, SwarmDriver, network_discovery::NetworkDiscovery},
+    driver::{
+        InitialBootstrapTrigger, NodeBehaviour, SwarmDriver, network_discovery::NetworkDiscovery,
+    },
     error::{NetworkError, Result},
     external_address::ExternalAddressManager,
     record_store::{NodeRecordStore, NodeRecordStoreConfig},

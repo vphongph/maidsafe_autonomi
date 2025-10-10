@@ -15,7 +15,7 @@ use std::{
 };
 
 // External dependencies
-use ant_bootstrap::BootstrapCacheConfig;
+use ant_bootstrap::{Bootstrap, BootstrapCacheConfig};
 use ant_evm::{PaymentQuote, QuotingMetrics, RewardsAddress};
 use ant_protocol::storage::DataTypes;
 use bls::{PK_SIZE, PublicKey, SecretKey};
@@ -2187,32 +2187,10 @@ impl PyInitialPeersConfig {
         self.inner.bootstrap_cache_dir = dir;
     }
 
-    /// Get bootstrap addresses
-    #[pyo3(signature = (count=None))]
-    fn get_bootstrap_addr<'a>(
-        &self,
-        py: Python<'a>,
-        count: Option<usize>,
-    ) -> PyResult<Bound<'a, PyAny>> {
-        let inner_config = self.inner.clone();
-
-        future_into_py(py, async move {
-            match inner_config.get_bootstrap_addr(count).await {
-                Ok(addrs) => Ok(addrs
-                    .into_iter()
-                    .map(|addr| addr.to_string())
-                    .collect::<Vec<String>>()),
-                Err(e) => Err(PyRuntimeError::new_err(format!(
-                    "Failed to get bootstrap addresses: {e}"
-                ))),
-            }
-        })
-    }
-
     /// Read bootstrap addresses from the ANT_PEERS environment variable
     #[staticmethod]
     fn read_bootstrap_addr_from_env() -> Vec<String> {
-        InitialPeersConfig::read_bootstrap_addr_from_env()
+        Bootstrap::fetch_from_env()
             .into_iter()
             .map(|addr| addr.to_string())
             .collect()

@@ -48,7 +48,9 @@ use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 use quote::PaymentMode;
 
-use ant_bootstrap::{InitialPeersConfig, bootstrap::Bootstrap, contacts::ALPHANET_CONTACTS};
+use ant_bootstrap::{
+    InitialPeersConfig, bootstrap::Bootstrap, contacts_fetcher::ALPHANET_CONTACTS,
+};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use config::ClientConfig;

@@ -9,7 +9,6 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::result_large_err)]
 
-mod bootstrap;
 mod circular_vec;
 mod driver;
 mod error;

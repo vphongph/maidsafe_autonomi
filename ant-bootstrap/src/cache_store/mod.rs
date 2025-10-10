@@ -255,8 +255,18 @@ fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::duration_with_variance;
-    use std::time::Duration;
+    use super::*;
+    use crate::{
+        cache_store::{cache_data_v0, cache_data_v1},
+        multiaddr_get_peer_id,
+    };
+    use libp2p::{Multiaddr, PeerId};
+    use std::{collections::HashSet, time::SystemTime};
+    use tempfile::TempDir;
+    use tokio::{
+        task,
+        time::{Duration, sleep},
+    };
 
     #[tokio::test]
     async fn test_duration_variance_fn() {
@@ -272,5 +282,440 @@ mod tests {
                 panic!("new_duration: {new_duration:?} is not within the expected range",);
             }
         }
+    }
+
+    fn temp_config(dir: &TempDir) -> BootstrapCacheConfig {
+        BootstrapCacheConfig::empty().with_cache_dir(dir.path())
+    }
+
+    #[tokio::test]
+    async fn test_empty_cache() {
+        let dir = TempDir::new().expect("temp dir");
+        let config = temp_config(&dir);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        cache.write().await.expect("write empty cache");
+        let loaded = BootstrapCacheStore::load_cache_data(&config).expect("load cache");
+        assert!(loaded.peers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_max_peer_limit_enforcement() {
+        let dir = TempDir::new().expect("temp dir");
+        let config = BootstrapCacheConfig::empty()
+            .with_cache_dir(dir.path())
+            .with_max_peers(3);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        let samples = [
+            "/ip4/127.0.0.1/udp/1200/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE",
+            "/ip4/127.0.0.2/udp/1201/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5",
+            "/ip4/127.0.0.3/udp/1202/quic-v1/p2p/12D3KooWHehYgXKLxsXjzFzDqMLKhcAVc4LaktnT7Zei1G2zcpJB",
+            "/ip4/127.0.0.4/udp/1203/quic-v1/p2p/12D3KooWQF3NMWHRmMQBY8GVdpQh1V6TFYuQqZkKKvYE7yCS6fYK",
+            "/ip4/127.0.0.5/udp/1204/quic-v1/p2p/12D3KooWRi6wF7yxWLuPSNskXc6kQ5cJ6eaymeMbCRdTnMesPgFx",
+        ];
+
+        let mut recorded = Vec::new();
+        for addr_str in samples {
+            let addr: Multiaddr = addr_str.parse().unwrap();
+            recorded.push(addr.clone());
+            cache.add_addr(addr).await;
+            sleep(Duration::from_millis(5)).await;
+        }
+
+        let current = cache.get_all_addrs().await;
+        assert_eq!(current.len(), 3);
+        assert!(current.iter().all(|addr| recorded[2..].contains(addr)));
+
+        cache.write().await.expect("persist cache");
+        let persisted = BootstrapCacheStore::load_cache_data(&config)
+            .expect("load persisted")
+            .get_all_addrs()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(persisted.len(), 3);
+        assert!(persisted.iter().all(|addr| recorded[2..].contains(addr)));
+    }
+
+    #[tokio::test]
+    async fn test_peer_removal() {
+        let dir = TempDir::new().expect("temp dir");
+        let config = temp_config(&dir);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        let addr: Multiaddr = "/ip4/127.0.0.6/udp/1205/quic-v1/p2p/12D3KooWQnE7zXkVUEGBnJtNfR88Ujz4ezgm6bVnkvxHCzhF7S5S"
+            .parse()
+            .unwrap();
+        cache.add_addr(addr.clone()).await;
+        let peer_id = multiaddr_get_peer_id(&addr).expect("peer id");
+        cache.remove_peer(&peer_id).await;
+        assert!(
+            cache.get_all_addrs().await.is_empty(),
+            "peer should be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_peer_removal_keeps_disk_copy() {
+        let dir = TempDir::new().expect("temp dir");
+        let config = temp_config(&dir);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+            .parse()
+            .unwrap();
+        cache.add_addr(addr.clone()).await;
+        cache.sync_and_flush_to_disk().await.expect("flush cache");
+
+        let peer_id = multiaddr_get_peer_id(&addr).expect("peer id");
+        cache.remove_peer(&peer_id).await;
+        assert!(
+            cache.get_all_addrs().await.is_empty(),
+            "peer should be removed in memory"
+        );
+
+        cache.sync_and_flush_to_disk().await.expect("flush again");
+        let loaded = BootstrapCacheStore::load_cache_data(&config).expect("load cache data");
+        let persisted: Vec<_> = loaded.get_all_addrs().cloned().collect();
+        assert_eq!(persisted.len(), 1, "disk cache should retain the peer");
+        assert_eq!(persisted[0], addr);
+    }
+
+    #[tokio::test]
+    async fn test_cache_file_corruption() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path();
+        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+            .parse()
+            .unwrap();
+        cache.add_addr(addr).await;
+        cache.write().await.expect("write cache");
+
+        let corrupted_path = cache_dir
+            .join(format!(
+                "version_{}",
+                cache_data_v1::CacheData::CACHE_DATA_VERSION
+            ))
+            .join(BootstrapCacheStore::cache_file_name(false));
+        std::fs::write(&corrupted_path, "{not valid json}").expect("corrupt file");
+
+        let load_err = BootstrapCacheStore::load_cache_data(&config);
+        assert!(load_err.is_err(), "loading corrupted cache should error");
+
+        let new_store =
+            BootstrapCacheStore::new(config.clone()).expect("create store after corruption");
+        assert_eq!(
+            new_store.peer_count().await,
+            0,
+            "new cache should start empty after corruption"
+        );
+        new_store.write().await.expect("write clean cache");
+
+        let reloaded = BootstrapCacheStore::load_cache_data(&config).expect("reload cache");
+        assert!(
+            reloaded.peers.is_empty(),
+            "cache data should be empty after regeneration"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_max_addrs_per_peer() {
+        let dir = TempDir::new().expect("temp dir");
+        let config = BootstrapCacheConfig::empty()
+            .with_cache_dir(dir.path())
+            .with_addrs_per_peer(2);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+
+        let peer_id = "12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE";
+        for octet in 1..=4 {
+            let addr: Multiaddr = format!("/ip4/127.0.0.{octet}/udp/8080/quic-v1/p2p/{peer_id}")
+                .parse()
+                .unwrap();
+            cache.add_addr(addr).await;
+        }
+
+        cache.write().await.expect("write cache");
+        let reloaded = BootstrapCacheStore::load_cache_data(&config).expect("load cache");
+        let collected: Vec<_> = reloaded.get_all_addrs().cloned().collect();
+        assert!(
+            collected.len() <= 2,
+            "should honor max_addrs_per_peer limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_cache_access() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path().to_path_buf();
+        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir.clone());
+
+        let mut handles = Vec::new();
+        for idx in 0..5 {
+            let config_clone = config.clone();
+            handles.push(task::spawn(async move {
+                let store = BootstrapCacheStore::new(config_clone)?;
+                let addr: Multiaddr = format!(
+                    "/ip4/127.0.0.{}/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{}",
+                    idx + 1,
+                    idx + 1
+                )
+                .parse()
+                .unwrap();
+                store.add_addr(addr).await;
+                sleep(Duration::from_millis(10)).await;
+                store.sync_and_flush_to_disk().await
+            }));
+        }
+
+        for handle in handles {
+            let result = handle.await.expect("task join");
+            result.expect("task result");
+        }
+
+        let final_store = BootstrapCacheStore::new(config).expect("create final store");
+        let loaded = BootstrapCacheStore::load_cache_data(final_store.config()).expect("load");
+        assert_eq!(loaded.peers.len(), 5, "should persist peers from all tasks");
+    }
+
+    #[tokio::test]
+    async fn test_cache_sync_functionality() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path();
+
+        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let first_store = BootstrapCacheStore::new(config.clone()).expect("create cache");
+        let addr1: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+            .parse()
+            .unwrap();
+        first_store.add_addr(addr1.clone()).await;
+        first_store.write().await.expect("write first cache");
+
+        let second_store = BootstrapCacheStore::new(config.clone()).expect("create cache");
+        let addr2: Multiaddr = "/ip4/127.0.0.2/udp/8080/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
+            .parse()
+            .unwrap();
+        second_store.add_addr(addr2.clone()).await;
+        second_store
+            .sync_and_flush_to_disk()
+            .await
+            .expect("sync cache");
+
+        let file_name = BootstrapCacheStore::cache_file_name(false);
+        let cache_path = cache_data_v1::CacheData::cache_file_path(cache_dir, &file_name);
+        let cache_content = std::fs::read_to_string(&cache_path).expect("read cache file");
+        assert!(
+            cache_content.contains(&addr1.to_string())
+                && cache_content.contains(&addr2.to_string()),
+            "cache content should include both addresses"
+        );
+
+        let check_store = BootstrapCacheStore::new(config).expect("create verifying store");
+        let loaded = BootstrapCacheStore::load_cache_data(check_store.config()).expect("load");
+        let addrs: Vec<_> = loaded.get_all_addrs().cloned().collect();
+        assert!(
+            addrs
+                .iter()
+                .any(|addr| addr.to_string() == addr1.to_string())
+                && addrs
+                    .iter()
+                    .any(|addr| addr.to_string() == addr2.to_string()),
+            "both addresses should be present after sync"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sync_duplicates_overlapping_peers() {
+        let mut cache1 = CacheDataLatest::default();
+        let mut cache2 = CacheDataLatest::default();
+
+        let peers: Vec<PeerId> = (0..3).map(|_| PeerId::random()).collect();
+        let addr1: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+            .parse()
+            .unwrap();
+        let addr2: Multiaddr = "/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
+            .parse()
+            .unwrap();
+        let addr3: Multiaddr = "/ip4/127.0.0.3/udp/8082/quic-v1/p2p/12D3KooWCKCeqLPSgMnDjyFsJuWqREDtKNHx1JEBiwxME7Zdw68n"
+            .parse()
+            .unwrap();
+
+        cache1.add_peer(peers[0], [addr1.clone()].iter(), 10, 10);
+        cache1.add_peer(peers[1], [addr2.clone()].iter(), 10, 10);
+        cache2.add_peer(peers[1], [addr2.clone()].iter(), 10, 10);
+        cache2.add_peer(peers[2], [addr3.clone()].iter(), 10, 10);
+
+        cache1.sync(&cache2, 10, 10);
+        let result: HashSet<_> = cache1
+            .get_all_addrs()
+            .cloned()
+            .map(|addr| addr.to_string())
+            .collect();
+        assert_eq!(result.len(), 3, "should merge and deduplicate addresses");
+        assert!(result.contains(&addr1.to_string()));
+        assert!(result.contains(&addr2.to_string()));
+        assert!(result.contains(&addr3.to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_sync_at_limit_overwrites_unique_peers() {
+        let mut cache1 = CacheDataLatest::default();
+        let mut cache2 = CacheDataLatest::default();
+
+        let addrs: Vec<Multiaddr> = (1..=7)
+            .map(|i| {
+                format!(
+                    "/ip4/127.0.0.1/udp/808{i}/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{i}"
+                )
+                .parse()
+                .unwrap()
+            })
+            .collect();
+        let peers: Vec<_> = addrs
+            .iter()
+            .map(|addr| match multiaddr_get_peer_id(addr) {
+                Some(peer) => peer,
+                None => panic!("address missing peer id"),
+            })
+            .collect();
+
+        for idx in 0..5 {
+            cache1.add_peer(peers[idx], [addrs[idx].clone()].iter(), 10, 5);
+        }
+        for idx in 2..7 {
+            cache2.add_peer(peers[idx], [addrs[idx].clone()].iter(), 10, 5);
+        }
+
+        cache1.sync(&cache2, 10, 5);
+        let after: HashSet<_> = cache1.peers.iter().map(|(peer_id, _)| *peer_id).collect();
+        assert_eq!(cache1.peers.len(), 5, "should respect max peers");
+        assert!(after.contains(&peers[0]));
+        assert!(after.contains(&peers[1]));
+    }
+
+    #[tokio::test]
+    async fn test_sync_other_at_limit_self_below_limit() {
+        let mut cache1 = CacheDataLatest::default();
+        let mut cache2 = CacheDataLatest::default();
+
+        let addrs: Vec<Multiaddr> = (1..=7)
+            .map(|i| {
+                format!(
+                    "/ip4/127.0.0.1/udp/908{i}/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UER{i}"
+                )
+                .parse()
+                .unwrap()
+            })
+            .collect();
+        let peers: Vec<_> = addrs
+            .iter()
+            .map(|addr| multiaddr_get_peer_id(addr).expect("peer id"))
+            .collect();
+
+        for idx in 0..2 {
+            cache1.add_peer(peers[idx], [addrs[idx].clone()].iter(), 10, 5);
+        }
+        for idx in 2..7 {
+            cache2.add_peer(peers[idx], [addrs[idx].clone()].iter(), 10, 5);
+        }
+
+        cache1.sync(&cache2, 10, 5);
+        let after: HashSet<_> = cache1.peers.iter().map(|(peer_id, _)| *peer_id).collect();
+        assert_eq!(cache1.peers.len(), 5);
+        assert!(after.contains(&peers[0]));
+        assert!(after.contains(&peers[1]));
+    }
+
+    #[tokio::test]
+    async fn test_cache_version_upgrade() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path();
+
+        let mut v0_data = cache_data_v0::CacheData {
+            peers: Default::default(),
+            last_updated: SystemTime::now(),
+            network_version: crate::get_network_version(),
+        };
+        let peer_id = PeerId::random();
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1"
+            .parse()
+            .expect("parse addr");
+        let boot_addr = cache_data_v0::BootstrapAddr {
+            addr: addr.clone(),
+            success_count: 1,
+            failure_count: 0,
+            last_seen: SystemTime::now(),
+        };
+        v0_data
+            .peers
+            .insert(peer_id, cache_data_v0::BootstrapAddresses(vec![boot_addr]));
+
+        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let filename = BootstrapCacheStore::cache_file_name(false);
+        v0_data
+            .write_to_file(cache_dir, &filename)
+            .expect("write v0 cache");
+
+        let upgraded = BootstrapCacheStore::load_cache_data(&config).expect("load cache");
+        assert!(
+            !upgraded.peers.is_empty(),
+            "peers should carry over after upgrade"
+        );
+        assert!(
+            upgraded.get_all_addrs().next().is_some(),
+            "addresses should be preserved after upgrade"
+        );
+        assert_eq!(
+            upgraded.cache_version,
+            cache_data_v1::CacheData::CACHE_DATA_VERSION.to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backwards_compatible_writes() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path();
+
+        let config = BootstrapCacheConfig::empty()
+            .with_cache_dir(cache_dir)
+            .with_backwards_compatible_writes(true);
+        let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+            .parse()
+            .unwrap();
+        cache.add_addr(addr).await;
+        cache.write().await.expect("write cache");
+
+        let filename = BootstrapCacheStore::cache_file_name(false);
+        let v0_data =
+            cache_data_v0::CacheData::read_from_file(cache_dir, &filename).expect("read v0");
+        let v1_data =
+            cache_data_v1::CacheData::read_from_file(cache_dir, &filename).expect("read v1");
+        assert!(!v0_data.peers.is_empty(), "v0 data should be populated");
+        assert!(!v1_data.peers.is_empty(), "v1 data should be populated");
+    }
+
+    #[tokio::test]
+    async fn test_version_specific_file_paths() {
+        let dir = TempDir::new().expect("temp dir");
+        let cache_dir = dir.path();
+
+        let filename = BootstrapCacheStore::cache_file_name(false);
+        let v0_path = cache_data_v0::CacheData::cache_file_path(cache_dir, &filename);
+        let v1_path = cache_data_v1::CacheData::cache_file_path(cache_dir, &filename);
+
+        assert!(
+            v1_path.to_string_lossy().contains(&format!(
+                "version_{}",
+                cache_data_v1::CacheData::CACHE_DATA_VERSION
+            )),
+            "v1 path should include version directory"
+        );
+        assert!(
+            !v0_path.to_string_lossy().contains("version_"),
+            "v0 path should not include version segment"
+        );
     }
 }

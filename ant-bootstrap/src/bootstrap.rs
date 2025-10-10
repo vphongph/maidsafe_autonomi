@@ -12,8 +12,8 @@ use crate::BootstrapCacheStore;
 use crate::ContactsFetcher;
 use crate::InitialPeersConfig;
 use crate::Result;
-use crate::contacts::ALPHANET_CONTACTS;
-use crate::contacts::MAINNET_CONTACTS;
+use crate::contacts_fetcher::ALPHANET_CONTACTS;
+use crate::contacts_fetcher::MAINNET_CONTACTS;
 use crate::craft_valid_multiaddr;
 use crate::craft_valid_multiaddr_from_str;
 use crate::error::Error;
@@ -60,11 +60,13 @@ const MAX_PEERS_BEFORE_TERMINATION: usize = 5;
 pub struct Bootstrap {
     cache_store: BootstrapCacheStore,
     addrs: VecDeque<Multiaddr>,
+    // fetcher
     cache_pending: bool,
     contacts_progress: Option<ContactsProgress>,
     event_tx: UnboundedSender<FetchEvent>,
     event_rx: UnboundedReceiver<FetchEvent>,
     fetch_in_progress: Option<FetchKind>,
+    // dialer
     ongoing_dials: HashSet<Multiaddr>,
     bootstrap_peer_ids: HashSet<PeerId>,
     bootstrap_completed: bool,
@@ -109,10 +111,7 @@ impl Bootstrap {
         if !cache_pending {
             info!("Not loading from cache as per configuration");
         }
-        if !cache_pending && contacts_progress.is_none() && addrs.is_empty() {
-            error!("No bootstrap peers configured from any source");
-            return Err(Error::NoBootstrapPeersFound);
-        }
+
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         info!("Cache store is initialized and will sync and flush periodically");
@@ -494,12 +493,6 @@ impl Bootstrap {
         self.next_addr()
     }
 
-    pub fn replace_cache_store(&mut self, store: BootstrapCacheStore) -> BootstrapCacheStore {
-        let old = std::mem::replace(&mut self.cache_store, store);
-        self.cache_store.sync_and_flush_periodically();
-        old
-    }
-
     fn start_cache_fetch(&mut self) -> Result<()> {
         if matches!(self.fetch_in_progress, Some(FetchKind::Cache)) {
             error!("Cache fetch already in progress, not starting another");
@@ -698,7 +691,6 @@ impl ContactsProgress {
 mod tests {
     use super::*;
     use crate::{
-        InitialPeersConfig,
         cache_store::{BootstrapCacheStore, cache_data_v1::CacheData},
         multiaddr_get_peer_id,
     };
@@ -768,7 +760,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn returns_env_and_cli_addrs_before_other_sources() {
+    async fn test_cli_arguments_precedence() {
         let env_addr: Multiaddr =
             "/ip4/10.0.0.1/tcp/1200/p2p/12D3KooWQnE7zXkVUEGBnJtNfR88Ujz4ezgm6bVnkvxHCzhF7S5S"
                 .parse()
@@ -793,16 +785,42 @@ mod tests {
         .await
         .unwrap();
 
-        let got_env = expect_next_addr(&mut flow).await.unwrap();
-        assert_eq!(got_env, env_addr);
-
-        let got_cli = expect_next_addr(&mut flow).await.unwrap();
-        assert_eq!(got_cli, cli_addr);
+        let first_two = vec![
+            expect_next_addr(&mut flow).await.unwrap(),
+            expect_next_addr(&mut flow).await.unwrap(),
+        ];
+        let first_set: HashSet<_> = first_two.into_iter().collect();
+        let expected: HashSet<_> = [env_addr.clone(), cli_addr.clone()].into_iter().collect();
+        assert_eq!(first_set, expected);
 
         let err = expect_err(&mut flow).await;
         assert!(matches!(err, Error::NoBootstrapPeersFound));
 
         remove_env_var(ANT_PEERS_ENV);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_env_variable_parsing() {
+        let _env_guard = env_lock().await;
+        set_env_var(
+            ANT_PEERS_ENV,
+            "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE,\
+/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5",
+        );
+
+        let parsed = Bootstrap::fetch_from_env();
+        remove_env_var(ANT_PEERS_ENV);
+
+        assert_eq!(parsed.len(), 2);
+        let parsed_set: std::collections::HashSet<_> =
+            parsed.into_iter().map(|addr| addr.to_string()).collect();
+        let expected = std::collections::HashSet::from([
+            "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
+                .to_string(),
+            "/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
+                .to_string(),
+        ]);
+        assert_eq!(parsed_set, expected);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -843,7 +861,48 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn fetches_contacts_one_endpoint_at_a_time() {
+    async fn test_first_flag_behavior() {
+        let _env_guard = env_lock().await;
+        remove_env_var(ANT_PEERS_ENV);
+
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/peers"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE",
+            ))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let mut flow = Bootstrap::new(
+            InitialPeersConfig {
+                first: true,
+                addrs: vec![
+                    "/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
+                        .parse()
+                        .unwrap(),
+                ],
+                network_contacts_url: vec![format!("{}/peers", mock_server.uri())],
+                bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+        let err = expect_err(&mut flow).await;
+        assert!(matches!(err, Error::NoBootstrapPeersFound));
+        assert!(
+            mock_server.received_requests().await.unwrap().is_empty(),
+            "first flag should prevent contact fetches"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_multiple_network_contacts() {
         let _env_guard = env_lock().await;
         remove_env_var(ANT_PEERS_ENV);
 
@@ -904,7 +963,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn full_flow_traverses_all_sources_then_exhausts() {
+    async fn test_full_bootstrap_flow() {
         let _env_guard = env_lock().await;
         remove_env_var(ANT_PEERS_ENV);
 

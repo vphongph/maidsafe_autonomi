@@ -351,10 +351,13 @@ mod tests {
                 .parse()
                 .unwrap(),
         ];
-        let bootstrap =
-            Bootstrap::new(BootstrapConfig::default().with_initial_peers(initial_peers))
-                .await
-                .unwrap();
+        let bootstrap = Bootstrap::new(
+            BootstrapConfig::default()
+                .with_initial_peers(initial_peers)
+                .with_disable_cache_reading(true),
+        )
+        .await
+        .unwrap();
         let network = Network::new(bootstrap).unwrap();
 
         match network.wait_for_connectivity().await {

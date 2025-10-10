@@ -445,6 +445,8 @@ impl Bootstrap {
                 });
             }
             None => {
+                // we are left with no option but to remove all the addresses from the ongoing dials that
+                // do not have a peer ID.
                 self.ongoing_dials
                     .retain(|addr| multiaddr_get_peer_id(addr).is_some());
             }

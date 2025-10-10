@@ -108,6 +108,11 @@ impl CacheData {
         }
     }
 
+    /// Remove a peer from the cache. This does not update the cache on disk.
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.peers.retain(|(id, _)| id != peer_id);
+    }
+
     pub fn get_all_addrs(&self) -> impl Iterator<Item = &Multiaddr> {
         self.peers
             .iter()
@@ -180,6 +185,8 @@ impl CacheData {
             fs::create_dir_all(parent)?;
         }
 
+        // todo: setting truncate(true) causes the test to fail, fix it.
+        #[allow(clippy::suspicious_open_options)]
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -302,7 +309,7 @@ mod tests {
                             rng.gen_range(1000..2000),
                         ))
                         .expect("construct multiaddr");
-                        let addrs = vec![addr];
+                        let addrs = [addr];
                         data.add_peer(peer, addrs.iter(), 5, 10);
                         data.write_to_file(cache_dir.as_path(), file_name)
                             .expect("concurrent write should succeed");

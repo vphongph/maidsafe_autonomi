@@ -12,7 +12,7 @@ pub mod cache_data_v1;
 use crate::{BootstrapConfig, Error, Result, craft_valid_multiaddr};
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use rand::Rng;
-use std::{fs, sync::Arc, time::Duration};
+use std::{collections::HashSet, fs, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
@@ -21,8 +21,12 @@ pub const CACHE_DATA_VERSION_LATEST: u32 = cache_data_v1::CacheData::CACHE_DATA_
 
 #[derive(Clone, Debug)]
 pub struct BootstrapCacheStore {
+    /// Configuration for the cache store
     pub(crate) config: Arc<BootstrapConfig>,
+    /// In-memory cache data
     pub(crate) data: Arc<RwLock<CacheDataLatest>>,
+    /// List of peers to remove from the fs cache, would be done during the next sync_and_flush_to_disk call
+    pub(crate) to_remove: Arc<RwLock<HashSet<PeerId>>>,
 }
 
 impl BootstrapCacheStore {
@@ -51,6 +55,7 @@ impl BootstrapCacheStore {
         let store = Self {
             config: Arc::new(config),
             data: Arc::new(RwLock::new(CacheDataLatest::default())),
+            to_remove: Arc::new(RwLock::new(HashSet::new())),
         };
 
         Ok(store)
@@ -64,13 +69,9 @@ impl BootstrapCacheStore {
         self.data.read().await.get_all_addrs().cloned().collect()
     }
 
-    /// Remove a peer from the cache. This does not update the cache on disk.
-    pub async fn remove_peer(&self, peer_id: &PeerId) {
-        self.data
-            .write()
-            .await
-            .peers
-            .retain(|(id, _)| id != peer_id);
+    /// Queue a peer for removal from the cache. The actual removal will happen during the next sync_and_flush_to_disk call.
+    pub async fn queue_remove_peer(&self, peer_id: &PeerId) {
+        self.to_remove.write().await.insert(*peer_id);
     }
 
     /// Add an address to the cache. Note that the address must have a valid peer ID.
@@ -165,6 +166,17 @@ impl BootstrapCacheStore {
             );
         } else {
             warn!("Failed to load cache data from file, overwriting with new data");
+        }
+
+        // Remove queued peers
+        let to_remove: Vec<PeerId> = self.to_remove.write().await.drain().collect();
+        if !to_remove.is_empty() {
+            info!("Removing {} peers from cache", to_remove.len());
+            for peer_id in to_remove {
+                self.data.write().await.remove_peer(&peer_id);
+            }
+        } else {
+            debug!("No peers queued for removal from cache");
         }
 
         self.write().await.inspect_err(|e| {
@@ -346,7 +358,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_removal() {
+    async fn test_queued_peer_not_removed_until_flush() {
         let dir = TempDir::new().expect("temp dir");
         let config = temp_config(&dir);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
@@ -355,16 +367,46 @@ mod tests {
             .parse()
             .unwrap();
         cache.add_addr(addr.clone()).await;
+        cache.write().await.expect("persist initial cache state");
         let peer_id = multiaddr_get_peer_id(&addr).expect("peer id");
-        cache.remove_peer(&peer_id).await;
+        cache.queue_remove_peer(&peer_id).await;
+        let addrs_before_flush = cache.get_all_addrs().await;
+        assert_eq!(
+            addrs_before_flush.len(),
+            1,
+            "peer should remain available before flush"
+        );
+        assert_eq!(
+            addrs_before_flush[0], addr,
+            "cached address should match the inserted peer"
+        );
+
+        let persisted_before_flush =
+            BootstrapCacheStore::load_cache_data(&config).expect("load persisted cache");
+        let persisted_before_flush: Vec<_> =
+            persisted_before_flush.get_all_addrs().cloned().collect();
         assert!(
-            cache.get_all_addrs().await.is_empty(),
-            "peer should be removed"
+            persisted_before_flush.iter().any(|stored| stored == &addr),
+            "queued removal must not affect persisted cache before flush"
+        );
+
+        cache
+            .sync_and_flush_to_disk()
+            .await
+            .expect("flush cache to disk");
+
+        let persisted_after_flush =
+            BootstrapCacheStore::load_cache_data(&config).expect("load persisted cache");
+        let persisted_after_flush: Vec<_> =
+            persisted_after_flush.get_all_addrs().cloned().collect();
+        assert!(
+            persisted_after_flush.iter().all(|stored| stored != &addr),
+            "peer should be absent from persisted cache after flush"
         );
     }
 
     #[tokio::test]
-    async fn test_peer_removal_keeps_disk_copy() {
+    async fn test_queued_peer_removal_queue_drained_after_flush() {
         let dir = TempDir::new().expect("temp dir");
         let config = temp_config(&dir);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
@@ -373,20 +415,40 @@ mod tests {
             .parse()
             .unwrap();
         cache.add_addr(addr.clone()).await;
-        cache.sync_and_flush_to_disk().await.expect("flush cache");
+        cache.write().await.expect("persist initial cache state");
 
         let peer_id = multiaddr_get_peer_id(&addr).expect("peer id");
-        cache.remove_peer(&peer_id).await;
+        cache.queue_remove_peer(&peer_id).await;
+        cache
+            .sync_and_flush_to_disk()
+            .await
+            .expect("flush queued removals");
+        let persisted_after_removal =
+            BootstrapCacheStore::load_cache_data(&config).expect("load cache data");
         assert!(
-            cache.get_all_addrs().await.is_empty(),
-            "peer should be removed in memory"
+            persisted_after_removal.get_all_addrs().next().is_none(),
+            "peer should be removed from persisted cache after flush"
         );
 
-        cache.sync_and_flush_to_disk().await.expect("flush again");
-        let loaded = BootstrapCacheStore::load_cache_data(&config).expect("load cache data");
-        let persisted: Vec<_> = loaded.get_all_addrs().cloned().collect();
-        assert_eq!(persisted.len(), 1, "disk cache should retain the peer");
-        assert_eq!(persisted[0], addr);
+        cache.add_addr(addr.clone()).await;
+
+        cache
+            .sync_and_flush_to_disk()
+            .await
+            .expect("flush cache after re-adding peer");
+        let persisted_after_re_add =
+            BootstrapCacheStore::load_cache_data(&config).expect("load cache data");
+        let persisted_after_re_add: Vec<_> =
+            persisted_after_re_add.get_all_addrs().cloned().collect();
+        assert_eq!(
+            persisted_after_re_add.len(),
+            1,
+            "re-added peer should persist after subsequent flush"
+        );
+        assert_eq!(
+            persisted_after_re_add[0], addr,
+            "persisted address should match the re-added peer"
+        );
     }
 
     #[tokio::test]

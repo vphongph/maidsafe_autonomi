@@ -215,7 +215,7 @@ impl SwarmDriver {
         let removed_peer_clone = removed_peer;
         #[allow(clippy::let_underscore_future)]
         let _ = tokio::spawn(async move {
-            cache_store.remove_peer(&removed_peer_clone).await;
+            cache_store.queue_remove_peer(&removed_peer_clone).await;
         });
 
         kbucket_status.log();

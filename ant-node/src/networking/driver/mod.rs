@@ -514,6 +514,7 @@ impl SwarmDriver {
         // Save cache to disk.
         #[allow(clippy::let_underscore_future)]
         let _ = tokio::spawn(async move {
+            info!("Adding address to bootstrap cache and sync,flush to disk: {addr:?}");
             cache.add_addr(addr).await;
             if let Err(err) = cache.sync_and_flush_to_disk().await {
                 error!("Failed to save bootstrap cache: {err}");

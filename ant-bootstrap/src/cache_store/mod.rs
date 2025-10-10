@@ -145,6 +145,11 @@ impl BootstrapCacheStore {
             return Ok(());
         }
 
+        if self.data.read().await.peers.is_empty() {
+            info!("Cache is empty, skipping sync and flush to disk");
+            return Ok(());
+        }
+
         info!(
             "Flushing cache to disk, with data containing: {} peers",
             self.data.read().await.peers.len(),

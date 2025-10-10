@@ -29,7 +29,6 @@ use libp2p::{
         dial_opts::{DialOpts, PeerCondition},
     },
 };
-use rand::seq::SliceRandom;
 use std::collections::{HashSet, VecDeque};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -91,7 +90,6 @@ impl Bootstrap {
                 }
             }
         }
-        Self::shuffle_addrs(&mut addrs_queue);
 
         let cache_pending = !config.first && !config.disable_cache_reading;
         if !cache_pending {
@@ -100,14 +98,8 @@ impl Bootstrap {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let cache_store = BootstrapCacheStore::new(config.clone())?;
-        if config.first {
-            info!("First node in network; clearing any existing cache");
-            cache_store.write().await?;
-        }
-        info!("Cache store is initialized and will sync and flush periodically");
-        cache_store.sync_and_flush_periodically();
 
-        Ok(Self {
+        let mut bootstrap = Self {
             cache_store,
             addrs: addrs_queue,
             cache_pending,
@@ -118,7 +110,53 @@ impl Bootstrap {
             ongoing_dials: HashSet::new(),
             bootstrap_peer_ids,
             bootstrap_completed: config.first,
-        })
+        };
+
+        info!("Cache store is initialized and will sync and flush periodically");
+        bootstrap.cache_store.sync_and_flush_periodically();
+
+        if config.first {
+            info!("First node in network; clearing any existing cache");
+            bootstrap.cache_store.write().await?;
+            return Ok(bootstrap);
+        }
+
+        // ensure the initial queue is not empty by fetching from cache/contacts if needed
+        //
+        // not required for 'first' node
+        if bootstrap.addrs.is_empty() {
+            info!("Initial address queue is empty; fetching from cache/contacts");
+            let now = std::time::Instant::now();
+            loop {
+                match bootstrap.next_addr() {
+                    Ok(Some(addr)) => {
+                        bootstrap.addrs.push_front(addr);
+                        info!(
+                            "We now have {} initial address(es) to dial",
+                            bootstrap.addrs.len()
+                        );
+                        break;
+                    }
+                    Ok(None) => {
+                        debug!(
+                            "No immediate address available; waiting for async fetch to complete"
+                        );
+                    }
+                    Err(err) => {
+                        warn!("Failed to fetch initial address: {err}");
+                        return Err(err);
+                    }
+                }
+
+                if now.elapsed() > std::time::Duration::from_secs(30) {
+                    error!("Timed out waiting for initial addresses. ");
+                    return Err(Error::NoBootstrapPeersFound);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+
+        Ok(bootstrap)
     }
 
     /// Returns the next address to try for bootstrapping.
@@ -176,9 +214,7 @@ impl Bootstrap {
                         count = addrs.len(),
                         "process_events received contacts batch"
                     );
-                    if !addrs.is_empty() {
-                        self.extend_with_addrs(addrs);
-                    }
+                    self.extend_with_addrs(addrs);
                     if self
                         .contacts_progress
                         .as_ref()
@@ -200,7 +236,6 @@ impl Bootstrap {
         for addr in addrs {
             Self::push_addr(&mut self.addrs, &mut self.bootstrap_peer_ids, addr);
         }
-        Self::shuffle_addrs(&mut self.addrs);
     }
 
     fn push_addr(queue: &mut VecDeque<Multiaddr>, peer_ids: &mut HashSet<PeerId>, addr: Multiaddr) {
@@ -208,13 +243,6 @@ impl Bootstrap {
             peer_ids.insert(peer_id);
         }
         queue.push_back(addr);
-    }
-
-    fn shuffle_addrs(queue: &mut VecDeque<Multiaddr>) {
-        let mut tmp: Vec<Multiaddr> = queue.drain(..).collect();
-        let mut rng = rand::thread_rng();
-        tmp.shuffle(&mut rng);
-        queue.extend(tmp);
     }
 
     fn pop_p2p(addr: &mut Multiaddr) -> Option<PeerId> {
@@ -238,13 +266,9 @@ impl Bootstrap {
         }
     }
 
-    fn should_continue_bootstrapping(&mut self, peers_in_rt: usize, verbose: bool) -> bool {
+    fn should_continue_bootstrapping(&mut self, peers_in_rt: usize) -> bool {
         if self.bootstrap_completed {
-            if verbose {
-                info!("Initial bootstrap process has already completed successfully.");
-            } else {
-                trace!("Initial bootstrap process has already completed successfully.");
-            }
+            info!("Initial bootstrap process has already completed successfully.");
             return false;
         }
 
@@ -253,30 +277,19 @@ impl Bootstrap {
             self.addrs.clear();
             self.ongoing_dials.clear();
 
-            if verbose {
-                info!(
-                    "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
-                );
-            } else {
-                trace!(
-                    "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
-                );
-            }
+            info!(
+                "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
+            );
+
             return false;
         }
 
         if self.ongoing_dials.len() >= CONCURRENT_DIALS {
-            if verbose {
-                info!(
-                    "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
-                    self.ongoing_dials.len()
-                );
-            } else {
-                debug!(
-                    "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
-                    self.ongoing_dials.len()
-                );
-            }
+            info!(
+                "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
+                self.ongoing_dials.len()
+            );
+
             return false;
         }
 
@@ -285,23 +298,12 @@ impl Bootstrap {
                 || self.contacts_progress.is_some()
                 || self.fetch_in_progress.is_some()
             {
-                if verbose {
-                    info!("Initial bootstrap is awaiting additional addresses to arrive.");
-                } else {
-                    debug!("Initial bootstrap is awaiting additional addresses to arrive.");
-                }
+                info!("Initial bootstrap is awaiting additional addresses to arrive.");
                 return false;
             }
-
-            if verbose {
-                info!(
-                    "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
-                );
-            } else {
-                debug!(
-                    "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
-                );
-            }
+            info!(
+                "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
+            );
 
             self.bootstrap_completed = true;
             return false;
@@ -310,37 +312,12 @@ impl Bootstrap {
         true
     }
 
-    fn handle_successful_connection<B: NetworkBehaviour>(
-        &mut self,
-        peer_id: &PeerId,
-        endpoint: &ConnectedPoint,
-        swarm: &mut Swarm<B>,
-        peers_in_rt: usize,
-    ) {
-        if self.bootstrap_completed {
-            return;
-        }
-
-        if let ConnectedPoint::Dialer { address, .. } = endpoint
-            && !self.ongoing_dials.remove(address)
-        {
-            self.ongoing_dials
-                .retain(|addr| match multiaddr_get_peer_id(addr) {
-                    Some(id) => id != *peer_id,
-                    None => true,
-                });
-        }
-
-        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, false);
-    }
-
-    fn trigger_bootstrapping_process_internal<B: NetworkBehaviour>(
+    pub fn trigger_bootstrapping_process<B: NetworkBehaviour>(
         &mut self,
         swarm: &mut Swarm<B>,
         peers_in_rt: usize,
-        verbose: bool,
     ) {
-        if !self.should_continue_bootstrapping(peers_in_rt, verbose) {
+        if !self.should_continue_bootstrapping(peers_in_rt) {
             return;
         }
 
@@ -423,14 +400,6 @@ impl Bootstrap {
         }
     }
 
-    pub fn trigger_bootstrapping_process<B: NetworkBehaviour>(
-        &mut self,
-        swarm: &mut Swarm<B>,
-        peers_in_rt: usize,
-    ) {
-        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, true);
-    }
-
     pub fn on_connection_established<B: NetworkBehaviour>(
         &mut self,
         peer_id: &PeerId,
@@ -438,7 +407,21 @@ impl Bootstrap {
         swarm: &mut Swarm<B>,
         peers_in_rt: usize,
     ) {
-        self.handle_successful_connection(peer_id, endpoint, swarm, peers_in_rt);
+        if self.bootstrap_completed {
+            return;
+        }
+
+        if let ConnectedPoint::Dialer { address, .. } = endpoint
+            && !self.ongoing_dials.remove(address)
+        {
+            self.ongoing_dials
+                .retain(|addr| match multiaddr_get_peer_id(addr) {
+                    Some(id) => id != *peer_id,
+                    None => true,
+                });
+        }
+
+        self.trigger_bootstrapping_process(swarm, peers_in_rt);
     }
 
     pub fn on_outgoing_connection_error<B: NetworkBehaviour>(
@@ -467,7 +450,7 @@ impl Bootstrap {
             }
         }
 
-        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, false);
+        self.trigger_bootstrapping_process(swarm, peers_in_rt);
     }
 
     pub fn is_bootstrap_peer(&self, peer_id: &PeerId) -> bool {

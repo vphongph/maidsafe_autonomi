@@ -8,15 +8,15 @@
 
 use crate::Error;
 
-use atomic_write_file::AtomicWriteFile;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     fs::{self, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::SystemTime,
+    thread,
+    time::{Duration, SystemTime},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +114,31 @@ impl CacheData {
             .flat_map(|(_, bootstrap_addresses)| bootstrap_addresses.iter().next())
     }
 
+    fn lock_with_retry<F, L>(mut operation: F, mut log_failure: L) -> std::io::Result<()>
+    where
+        F: FnMut() -> std::io::Result<()>,
+        L: FnMut(&std::io::Error, usize, usize),
+    {
+        const MAX_ATTEMPTS: usize = 3;
+        const RETRY_DELAY_MS: u64 = 50;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match operation() {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    log_failure(&err, attempt, MAX_ATTEMPTS);
+                    if attempt == MAX_ATTEMPTS {
+                        return Err(err);
+                    }
+
+                    thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn read_from_file(cache_dir: &Path, file_name: &str) -> Result<Self, Error> {
         let file_path = Self::cache_file_path(cache_dir, file_name);
         // Try to open the file with read permissions
@@ -121,6 +146,16 @@ impl CacheData {
             .read(true)
             .open(&file_path)
             .inspect_err(|err| warn!("Failed to open cache file at {file_path:?} : {err}",))?;
+
+        debug!("Attempting to lock cache file for reading: {file_path:?}");
+        Self::lock_with_retry(
+            || file.lock_shared(),
+            |err, attempt, max_attempts| {
+                warn!(
+                    "Failed to acquire shared lock on cache file {file_path:?} (attempt {attempt}/{max_attempts}): {err}"
+                );
+            },
+        )?;
 
         // Read the file contents
         let mut contents = String::new();
@@ -145,21 +180,57 @@ impl CacheData {
             fs::create_dir_all(parent)?;
         }
 
-        let mut file = AtomicWriteFile::options()
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
             .open(&file_path)
             .inspect_err(|err| {
-                error!("Failed to open cache file at {file_path:?} using AtomicWriteFile: {err}");
+                error!("Failed to open cache file at {file_path:?}: {err}");
             })?;
+
+        debug!("Attempting to lock cache file for writing: {file_path:?}");
+        Self::lock_with_retry(
+            || file.lock(),
+            |err, attempt, max_attempts| {
+                error!(
+                    "Failed to acquire exclusive lock on cache file {file_path:?} (attempt {attempt}/{max_attempts}): {err}"
+                );
+            },
+        )?;
 
         let data = serde_json::to_string_pretty(&self).inspect_err(|err| {
             error!("Failed to serialize cache data: {err}");
         })?;
-        writeln!(file, "{data}")?;
-        file.commit().inspect_err(|err| {
-            error!("Failed to commit atomic write: {err}");
+
+        file.set_len(0).inspect_err(|err| {
+            error!("Failed to truncate cache file {file_path:?} before writing: {err}");
         })?;
 
-        info!("Cache written to disk: {:?}", file_path);
+        file.seek(SeekFrom::Start(0)).inspect_err(|err| {
+            error!("Failed to seek cache file {file_path:?} before writing: {err}");
+        })?;
+
+        file.write_all(data.as_bytes()).inspect_err(|err| {
+            error!("Failed to write cache file {file_path:?}: {err}");
+        })?;
+
+        file.write_all(b"\n").inspect_err(|err| {
+            error!("Failed to write newline to cache file {file_path:?}: {err}");
+        })?;
+
+        file.flush().inspect_err(|err| {
+            error!("Failed to flush cache file {file_path:?}: {err}");
+        })?;
+
+        file.sync_all().inspect_err(|err| {
+            error!("Failed to sync cache file {file_path:?}: {err}");
+        })?;
+
+        info!(
+            "Cache with {} peers written to disk: {file_path:?}",
+            self.peers.len()
+        );
 
         Ok(())
     }
@@ -179,5 +250,82 @@ impl Default for CacheData {
             network_version: crate::get_network_version(),
             cache_version: Self::CACHE_DATA_VERSION.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
+    use serde_json::Value;
+    use std::{
+        fs,
+        str::FromStr,
+        sync::{Arc, Barrier},
+        thread,
+    };
+
+    const THREAD_COUNT: usize = 100;
+    const ITERATIONS_PER_THREAD: usize = 25;
+
+    #[test]
+    fn cache_file_remains_valid_under_concurrent_access() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let cache_dir = Arc::new(temp_dir.path().to_path_buf());
+        let file_name = "cache.json";
+
+        CacheData::default()
+            .write_to_file(cache_dir.as_path(), file_name)
+            .expect("initial cache write");
+
+        let start_barrier = Arc::new(Barrier::new(THREAD_COUNT + 1));
+
+        let mut handles = Vec::with_capacity(THREAD_COUNT);
+        for thread_seed in 0..THREAD_COUNT {
+            let cache_dir = Arc::clone(&cache_dir);
+            let barrier = Arc::clone(&start_barrier);
+            handles.push(thread::spawn(move || {
+                let mut rng = SmallRng::seed_from_u64(thread_seed as u64 + 1);
+                barrier.wait();
+
+                for _ in 0..ITERATIONS_PER_THREAD {
+                    if rng.gen_bool(0.4) {
+                        CacheData::read_from_file(cache_dir.as_path(), file_name)
+                            .expect("concurrent read should succeed");
+                    } else {
+                        let mut data = CacheData::default();
+                        let peer = PeerId::random();
+                        let addr = Multiaddr::from_str(&format!(
+                            "/ip4/192.168.1.3/udp/{}/quic-v1/p2p/{peer}",
+                            rng.gen_range(1000..2000),
+                        ))
+                        .expect("construct multiaddr");
+                        let addrs = vec![addr];
+                        data.add_peer(peer, addrs.iter(), 5, 10);
+                        data.write_to_file(cache_dir.as_path(), file_name)
+                            .expect("concurrent write should succeed");
+                    }
+                }
+            }));
+        }
+
+        start_barrier.wait();
+
+        for handle in handles {
+            handle.join().expect("thread join");
+        }
+
+        let final_data =
+            CacheData::read_from_file(cache_dir.as_path(), file_name).expect("final read");
+        assert_eq!(
+            final_data.cache_version,
+            CacheData::CACHE_DATA_VERSION.to_string()
+        );
+
+        let cache_file = CacheData::cache_file_path(cache_dir.as_path(), file_name);
+        let contents = fs::read_to_string(&cache_file).expect("read cache file contents");
+        serde_json::from_str::<Value>(&contents).expect("cache file should contain valid JSON");
     }
 }

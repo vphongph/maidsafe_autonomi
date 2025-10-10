@@ -11,6 +11,7 @@ pub(crate) mod cmd;
 pub(crate) mod event;
 pub(crate) mod network_discovery;
 
+use ant_bootstrap::BootstrapCacheStore;
 use event::NodeEvent;
 use network_discovery::{NETWORK_DISCOVER_INTERVAL, NetworkDiscovery};
 
@@ -508,18 +509,24 @@ impl SwarmDriver {
 
     /// Sync and flush the bootstrap cache to disk.
     ///
-    /// This function creates
+    /// This function creates a new cache store to ensure that any new data added after spawning the task is not lost.
+    /// It then spawns a new asynchronous task to add the provided address to the cache and flush it to disk.
     fn add_sync_and_flush_cache(&mut self, addr: Multiaddr) -> Result<()> {
-        let cache = self.bootstrap.cache_store().clone();
-        // Save cache to disk.
-        #[allow(clippy::let_underscore_future)]
-        let _ = tokio::spawn(async move {
-            info!("Adding address to bootstrap cache and sync,flush to disk: {addr:?}");
-            cache.add_addr(addr).await;
-            if let Err(err) = cache.sync_and_flush_to_disk().await {
-                error!("Failed to save bootstrap cache: {err}");
-            }
-        });
+        let old_cache = self.bootstrap.cache_store().clone();
+        // This is important to ensure that sync_and_flush_to_disk's clear of in-memory data does not
+        // wipe out any new data added after we spawn the task.
+        if let Ok(cache) = BootstrapCacheStore::new(old_cache.config().clone()) {
+            *self.bootstrap.cache_store_mut() = cache;
+            // Save cache to disk.
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                info!("Adding address to bootstrap cache and sync,flush to disk: {addr:?}");
+                old_cache.add_addr(addr).await;
+                if let Err(err) = old_cache.sync_and_flush_to_disk().await {
+                    error!("Failed to save bootstrap cache: {err}");
+                }
+            });
+        }
 
         Ok(())
     }

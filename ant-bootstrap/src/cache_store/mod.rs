@@ -139,6 +139,8 @@ impl BootstrapCacheStore {
     }
 
     /// Flush the cache to disk after syncing with the CacheData from the file.
+    ///
+    /// Note: This clears the data in memory after writing to disk.
     pub async fn sync_and_flush_to_disk(&self) -> Result<()> {
         if self.config.disable_cache_writing {
             info!("Cache writing is disabled, skipping sync to disk");
@@ -170,6 +172,7 @@ impl BootstrapCacheStore {
         })?;
 
         // Flush after writing
+        debug!("Clearing in-memory cache data after flush to disk");
         self.data.write().await.peers.clear();
 
         Ok(())

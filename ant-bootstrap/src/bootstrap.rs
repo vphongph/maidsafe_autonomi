@@ -17,16 +17,33 @@ use crate::contacts::MAINNET_CONTACTS;
 use crate::craft_valid_multiaddr;
 use crate::craft_valid_multiaddr_from_str;
 use crate::error::Error;
+use crate::multiaddr_get_peer_id;
 use ant_protocol::version::ALPHANET_ID;
 use ant_protocol::version::MAINNET_ID;
 use ant_protocol::version::get_network_id;
-use libp2p::Multiaddr;
-use std::collections::VecDeque;
+use libp2p::{
+    Multiaddr, PeerId, Swarm,
+    core::connection::ConnectedPoint,
+    multiaddr::Protocol,
+    swarm::{
+        DialError, NetworkBehaviour,
+        dial_opts::{DialOpts, PeerCondition},
+    },
+};
+use rand::seq::SliceRandom;
+use std::collections::{HashSet, VecDeque};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use url::Url;
 
-/// Manages the flow of obtaining bootstrap peer addresses from various sources:
+/// The max number of concurrent dials to be made during the initial bootstrap process.
+const CONCURRENT_DIALS: usize = 3;
+/// The max number of peers to be added before stopping the initial bootstrap process.
+const MAX_PEERS_BEFORE_TERMINATION: usize = 5;
+
+/// Manages the flow of obtaining bootstrap peer addresses from various sources and also writes to the bootstrap cache.
+///
+/// The sources are tried in the following order while reading:
 /// 1. Environment variable `ANT_PEERS`
 /// 2. Command-line provided addresses
 /// 3. Bootstrap cache file on disk
@@ -39,6 +56,7 @@ use url::Url;
 /// If no more addresses are available from any source, `next_addr` returns an error.
 /// It is expected that the caller will retry `next_addr` later to allow
 /// for asynchronous fetches to complete.
+#[derive(Debug)]
 pub struct Bootstrap {
     cache_store: BootstrapCacheStore,
     addrs: VecDeque<Multiaddr>,
@@ -47,6 +65,9 @@ pub struct Bootstrap {
     event_tx: UnboundedSender<FetchEvent>,
     event_rx: UnboundedReceiver<FetchEvent>,
     fetch_in_progress: Option<FetchKind>,
+    ongoing_dials: HashSet<Multiaddr>,
+    bootstrap_peer_ids: HashSet<PeerId>,
+    bootstrap_completed: bool,
 }
 
 impl Bootstrap {
@@ -67,20 +88,22 @@ impl Bootstrap {
         let contacts_progress = Self::build_contacts_progress(&config)?;
 
         let mut addrs = VecDeque::new();
+        let mut bootstrap_peer_ids = HashSet::new();
         if !config.first {
             for addr in Self::fetch_from_env() {
-                addrs.push_back(addr);
+                Self::push_addr(&mut addrs, &mut bootstrap_peer_ids, addr);
             }
 
             for addr in config.addrs.drain(..) {
                 if let Some(addr) = craft_valid_multiaddr(&addr, false) {
                     info!("Adding addr from arguments: {addr}");
-                    addrs.push_back(addr);
+                    Self::push_addr(&mut addrs, &mut bootstrap_peer_ids, addr);
                 } else {
                     warn!("Invalid multiaddress format from arguments: {addr}");
                 }
             }
         }
+        Self::shuffle_addrs(&mut addrs);
 
         let cache_pending = !config.first && !config.ignore_cache;
         if !cache_pending {
@@ -92,6 +115,9 @@ impl Bootstrap {
         }
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        info!("Cache store is initialized and will sync and flush periodically");
+        cache_store.sync_and_flush_periodically();
+
         Ok(Self {
             cache_store,
             addrs,
@@ -100,13 +126,16 @@ impl Bootstrap {
             event_tx,
             event_rx,
             fetch_in_progress: None,
+            ongoing_dials: HashSet::new(),
+            bootstrap_peer_ids,
+            bootstrap_completed: config.first,
         })
     }
 
     /// Returns the next address to try for bootstrapping.
     /// None if a fetch is in progress and no address is ready yet.
     /// Error if there are no more addresses to try.
-    pub fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
+    fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
         loop {
             self.process_events();
 
@@ -150,7 +179,7 @@ impl Bootstrap {
                     if addrs.is_empty() {
                         info!("No addresses retrieved from cache");
                     } else {
-                        self.addrs.extend(addrs);
+                        self.extend_with_addrs(addrs);
                     }
                 }
                 FetchEvent::Contacts(addrs) => {
@@ -159,7 +188,7 @@ impl Bootstrap {
                         "process_events received contacts batch"
                     );
                     if !addrs.is_empty() {
-                        self.addrs.extend(addrs);
+                        self.extend_with_addrs(addrs);
                     }
                     if self
                         .contacts_progress
@@ -173,6 +202,302 @@ impl Bootstrap {
 
             self.fetch_in_progress = None;
         }
+    }
+
+    fn extend_with_addrs(&mut self, addrs: Vec<Multiaddr>) {
+        if addrs.is_empty() {
+            return;
+        }
+        for addr in addrs {
+            Self::push_addr(&mut self.addrs, &mut self.bootstrap_peer_ids, addr);
+        }
+        Self::shuffle_addrs(&mut self.addrs);
+    }
+
+    fn push_addr(queue: &mut VecDeque<Multiaddr>, peer_ids: &mut HashSet<PeerId>, addr: Multiaddr) {
+        if let Some(peer_id) = multiaddr_get_peer_id(&addr) {
+            peer_ids.insert(peer_id);
+        }
+        queue.push_back(addr);
+    }
+
+    fn shuffle_addrs(queue: &mut VecDeque<Multiaddr>) {
+        let mut tmp: Vec<Multiaddr> = queue.drain(..).collect();
+        let mut rng = rand::thread_rng();
+        tmp.shuffle(&mut rng);
+        queue.extend(tmp);
+    }
+
+    fn pop_p2p(addr: &mut Multiaddr) -> Option<PeerId> {
+        if let Some(Protocol::P2p(peer_id)) = addr.iter().last() {
+            let _ = addr.pop();
+            Some(peer_id)
+        } else {
+            None
+        }
+    }
+
+    fn try_next_dial_addr(&mut self) -> Result<Option<Multiaddr>> {
+        match self.next_addr() {
+            Ok(Some(addr)) => Ok(Some(addr)),
+            Ok(None) => Ok(None),
+            Err(Error::NoBootstrapPeersFound) => {
+                self.bootstrap_completed = true;
+                Err(Error::NoBootstrapPeersFound)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn should_continue_bootstrapping(&mut self, peers_in_rt: usize, verbose: bool) -> bool {
+        if self.bootstrap_completed {
+            if verbose {
+                info!("Initial bootstrap process has already completed successfully.");
+            } else {
+                trace!("Initial bootstrap process has already completed successfully.");
+            }
+            return false;
+        }
+
+        if peers_in_rt >= MAX_PEERS_BEFORE_TERMINATION {
+            self.bootstrap_completed = true;
+            self.addrs.clear();
+            self.ongoing_dials.clear();
+
+            if verbose {
+                info!(
+                    "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
+                );
+            } else {
+                trace!(
+                    "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
+                );
+            }
+            return false;
+        }
+
+        if self.ongoing_dials.len() >= CONCURRENT_DIALS {
+            if verbose {
+                info!(
+                    "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
+                    self.ongoing_dials.len()
+                );
+            } else {
+                debug!(
+                    "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
+                    self.ongoing_dials.len()
+                );
+            }
+            return false;
+        }
+
+        if self.addrs.is_empty() {
+            if self.cache_pending
+                || self.contacts_progress.is_some()
+                || self.fetch_in_progress.is_some()
+            {
+                if verbose {
+                    info!("Initial bootstrap is awaiting additional addresses to arrive.");
+                } else {
+                    debug!("Initial bootstrap is awaiting additional addresses to arrive.");
+                }
+                return false;
+            }
+
+            if verbose {
+                info!(
+                    "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
+                );
+            } else {
+                debug!(
+                    "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
+                );
+            }
+
+            self.bootstrap_completed = true;
+            return false;
+        }
+
+        true
+    }
+
+    fn handle_successful_connection<B: NetworkBehaviour>(
+        &mut self,
+        peer_id: &PeerId,
+        endpoint: &ConnectedPoint,
+        swarm: &mut Swarm<B>,
+        peers_in_rt: usize,
+    ) {
+        if self.bootstrap_completed {
+            return;
+        }
+
+        if let ConnectedPoint::Dialer { address, .. } = endpoint
+            && !self.ongoing_dials.remove(address)
+        {
+            self.ongoing_dials
+                .retain(|addr| match multiaddr_get_peer_id(addr) {
+                    Some(id) => id != *peer_id,
+                    None => true,
+                });
+        }
+
+        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, false);
+    }
+
+    fn trigger_bootstrapping_process_internal<B: NetworkBehaviour>(
+        &mut self,
+        swarm: &mut Swarm<B>,
+        peers_in_rt: usize,
+        verbose: bool,
+    ) {
+        if !self.should_continue_bootstrapping(peers_in_rt, verbose) {
+            return;
+        }
+
+        while self.ongoing_dials.len() < CONCURRENT_DIALS {
+            match self.try_next_dial_addr() {
+                Ok(Some(mut addr)) => {
+                    let addr_clone = addr.clone();
+                    let peer_id = Self::pop_p2p(&mut addr);
+
+                    let opts = match peer_id {
+                        Some(peer_id) => DialOpts::peer_id(peer_id)
+                            .condition(PeerCondition::NotDialing)
+                            .addresses(vec![addr])
+                            .build(),
+                        None => DialOpts::unknown_peer_id().address(addr).build(),
+                    };
+
+                    info!("Trying to dial peer with address: {addr_clone}");
+
+                    match swarm.dial(opts) {
+                        Ok(()) => {
+                            info!(
+                                "Dial attempt initiated for peer with address: {addr_clone}. Ongoing dial attempts: {}",
+                                self.ongoing_dials.len() + 1
+                            );
+                            let _ = self.ongoing_dials.insert(addr_clone);
+                        }
+                        Err(err) => match err {
+                            DialError::LocalPeerId { .. } => {
+                                warn!(
+                                    "Failed to dial peer with address: {addr_clone}. This is our own peer ID. Dialing the next peer"
+                                );
+                            }
+                            DialError::NoAddresses => {
+                                error!(
+                                    "Failed to dial peer with address: {addr_clone}. No addresses found. Dialing the next peer"
+                                );
+                            }
+                            DialError::DialPeerConditionFalse(_) => {
+                                warn!(
+                                    "We are already dialing the peer with address: {addr_clone}. Dialing the next peer. This error is harmless."
+                                );
+                            }
+                            DialError::Aborted => {
+                                error!(
+                                    "Pending connection attempt has been aborted for {addr_clone}. Dialing the next peer."
+                                );
+                            }
+                            DialError::WrongPeerId { obtained, .. } => {
+                                error!(
+                                    "The peer identity obtained on the connection did not match the one that was expected. Obtained: {obtained}. Dialing the next peer."
+                                );
+                            }
+                            DialError::Denied { cause } => {
+                                error!(
+                                    "The dialing attempt was denied by the remote peer. Cause: {cause}. Dialing the next peer."
+                                );
+                            }
+                            DialError::Transport(items) => {
+                                error!(
+                                    "Failed to dial peer with address: {addr_clone}. Transport error: {items:?}. Dialing the next peer."
+                                );
+                            }
+                        },
+                    }
+                }
+                Ok(None) => {
+                    debug!("Waiting for additional bootstrap addresses before continuing to dial");
+                    break;
+                }
+                Err(Error::NoBootstrapPeersFound) => {
+                    info!("No more bootstrap peers available to dial.");
+                    break;
+                }
+                Err(err) => {
+                    warn!("Failed to obtain next bootstrap address: {err}");
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn trigger_bootstrapping_process<B: NetworkBehaviour>(
+        &mut self,
+        swarm: &mut Swarm<B>,
+        peers_in_rt: usize,
+    ) {
+        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, true);
+    }
+
+    pub fn on_connection_established<B: NetworkBehaviour>(
+        &mut self,
+        peer_id: &PeerId,
+        endpoint: &ConnectedPoint,
+        swarm: &mut Swarm<B>,
+        peers_in_rt: usize,
+    ) {
+        self.handle_successful_connection(peer_id, endpoint, swarm, peers_in_rt);
+    }
+
+    pub fn on_outgoing_connection_error<B: NetworkBehaviour>(
+        &mut self,
+        peer_id: Option<PeerId>,
+        swarm: &mut Swarm<B>,
+        peers_in_rt: usize,
+    ) {
+        if self.bootstrap_completed {
+            return;
+        }
+
+        match peer_id {
+            Some(peer_id) => {
+                self.ongoing_dials.retain(|addr| {
+                    if let Some(id) = multiaddr_get_peer_id(addr) {
+                        id != peer_id
+                    } else {
+                        true
+                    }
+                });
+            }
+            None => {
+                self.ongoing_dials
+                    .retain(|addr| multiaddr_get_peer_id(addr).is_some());
+            }
+        }
+
+        self.trigger_bootstrapping_process_internal(swarm, peers_in_rt, false);
+    }
+
+    pub fn is_bootstrap_peer(&self, peer_id: &PeerId) -> bool {
+        self.bootstrap_peer_ids.contains(peer_id)
+    }
+
+    pub fn has_terminated(&self) -> bool {
+        self.bootstrap_completed
+    }
+
+    #[cfg(test)]
+    pub(crate) fn next_addr_for_tests(&mut self) -> Result<Option<Multiaddr>> {
+        self.next_addr()
+    }
+
+    pub fn replace_cache_store(&mut self, store: BootstrapCacheStore) -> BootstrapCacheStore {
+        let old = std::mem::replace(&mut self.cache_store, store);
+        self.cache_store.sync_and_flush_periodically();
+        old
     }
 
     fn start_cache_fetch(&mut self) -> Result<()> {
@@ -310,8 +635,17 @@ impl Bootstrap {
         }
         bootstrap_addresses
     }
+
+    pub fn cache_store_mut(&mut self) -> &mut BootstrapCacheStore {
+        &mut self.cache_store
+    }
+
+    pub fn cache_store(&self) -> &BootstrapCacheStore {
+        &self.cache_store
+    }
 }
 
+#[derive(Debug)]
 struct ContactsProgress {
     remaining: VecDeque<Url>,
 }
@@ -404,7 +738,7 @@ mod tests {
     async fn expect_next_addr(flow: &mut Bootstrap) -> Result<Multiaddr> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            match flow.next_addr() {
+            match flow.next_addr_for_tests() {
                 Ok(Some(addr)) => return Ok(addr),
                 Ok(None) => {
                     if Instant::now() >= deadline {
@@ -420,7 +754,7 @@ mod tests {
     async fn expect_err(flow: &mut Bootstrap) -> Error {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            match flow.next_addr() {
+            match flow.next_addr_for_tests() {
                 Ok(Some(addr)) => panic!("unexpected address returned: {addr}"),
                 Ok(None) => {
                     if Instant::now() >= deadline {

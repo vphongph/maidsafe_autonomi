@@ -15,14 +15,8 @@ use ant_node::spawn::node_spawner::NodeSpawner;
 
 #[tokio::main]
 async fn main() {
-    let args = InitialPeersConfig::default();
-    let bootstrap_addrs = args
-        .get_bootstrap_addr(Some(5))
-        .await
-        .expect("Failed to get bootstrap addrs");
-
     let running_node = NodeSpawner::new()
-        .with_initial_peers(bootstrap_addrs)
+        .with_initial_peers_config(InitialPeersConfig::default())
         .spawn()
         .await
         .expect("Failed to spawn node");

@@ -48,7 +48,7 @@ use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 use quote::PaymentMode;
 
-use ant_bootstrap::{InitialPeersConfig, contacts::ALPHANET_CONTACTS};
+use ant_bootstrap::{InitialPeersConfig, bootstrap::Bootstrap, contacts::ALPHANET_CONTACTS};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use config::ClientConfig;
@@ -301,12 +301,9 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let initial_peers = match config.init_peers_config.get_bootstrap_addr(Some(50)).await {
-            Ok(peers) => peers,
-            Err(e) => return Err(e.into()),
-        };
+        let bootstrap = Bootstrap::new(config.init_peers_config.clone(), false).await?;
 
-        let network = Network::new(initial_peers, config.bootstrap_cache_config)?;
+        let network = Network::new(bootstrap, config.bootstrap_cache_config.clone())?;
 
         // Wait for the network to be ready with enough peers
         network.wait_for_connectivity().await?;
@@ -386,7 +383,16 @@ mod tests {
                 .parse()
                 .unwrap(),
         ];
-        let network = Network::new(initial_peers, None).unwrap();
+        let bootstrap = Bootstrap::new(
+            InitialPeersConfig {
+                addrs: initial_peers,
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        let network = Network::new(bootstrap, None).unwrap();
 
         match network.wait_for_connectivity().await {
             Err(ConnectError::TimedOut) => {} // This is the expected outcome

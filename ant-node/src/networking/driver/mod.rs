@@ -18,7 +18,7 @@ use network_discovery::{NETWORK_DISCOVER_INTERVAL, NetworkDiscovery};
 use crate::networking::metrics::NetworkMetricsRecorder;
 use crate::networking::{
     Addresses, CLOSE_GROUP_SIZE, NodeIssue, NodeRecordStore,
-    bootstrap::{INITIAL_BOOTSTRAP_CHECK_INTERVAL, InitialBootstrap, InitialBootstrapTrigger},
+    bootstrap::{INITIAL_BOOTSTRAP_CHECK_INTERVAL, InitialBootstrapTrigger},
     circular_vec::CircularVec,
     driver::kad::U256,
     error::Result,
@@ -27,7 +27,7 @@ use crate::networking::{
     relay_manager::RelayManager,
     replication_fetcher::ReplicationFetcher,
 };
-use ant_bootstrap::BootstrapCacheStore;
+use ant_bootstrap::{BootstrapCacheStore, bootstrap::Bootstrap};
 use ant_evm::PaymentQuote;
 use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
@@ -112,10 +112,9 @@ pub(crate) struct SwarmDriver {
     #[cfg(feature = "open-metrics")]
     pub(crate) close_group: Vec<PeerId>,
     pub(crate) peers_in_rt: usize,
-    pub(crate) initial_bootstrap: InitialBootstrap,
     pub(crate) initial_bootstrap_trigger: InitialBootstrapTrigger,
     pub(crate) network_discovery: NetworkDiscovery,
-    pub(crate) bootstrap_cache: Option<BootstrapCacheStore>,
+    pub(crate) bootstrap: Bootstrap,
     pub(crate) external_address_manager: Option<ExternalAddressManager>,
     pub(crate) relay_manager: Option<RelayManager>,
     /// The peers that are using our relay service.
@@ -179,12 +178,6 @@ impl SwarmDriver {
             Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
         let mut dial_queue_check_interval = interval(DIAL_QUEUE_CHECK_INTERVAL);
         let _ = dial_queue_check_interval.tick().await; // first tick completes immediately
-
-        if let Some(cache) = &self.bootstrap_cache {
-            // start the periodic cache sync and flush task
-            #[allow(clippy::let_underscore_future)]
-            let _ = cache.sync_and_flush_periodically();
-        }
 
         let mut round_robin_index = 0;
         loop {
@@ -262,7 +255,7 @@ impl SwarmDriver {
                 Some(()) = conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
                     if self.initial_bootstrap_trigger.should_trigger_initial_bootstrap() {
                         info!("Triggering initial bootstrap process. This is a one-time operation.");
-                        self.initial_bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
+                        self.bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
                         // we will not call this loop anymore, once the initial bootstrap is triggered.
                         // It should run on its own and complete.
                         initial_bootstrap_trigger_check_interval = None;
@@ -518,23 +511,22 @@ impl SwarmDriver {
     ///
     /// This function creates a new cache and saves the old one to disk.
     fn add_sync_and_flush_cache(&mut self, addr: Multiaddr) -> Result<()> {
-        if let Some(bootstrap_cache) = self.bootstrap_cache.as_mut() {
-            let config = bootstrap_cache.config().clone();
-            let old_cache = bootstrap_cache.clone();
+        let old_cache = self.bootstrap.cache_store().clone();
+        let config = old_cache.config().clone();
 
-            if let Ok(new) = BootstrapCacheStore::new(config) {
-                self.bootstrap_cache = Some(new);
+        if let Ok(new) = BootstrapCacheStore::new(config) {
+            let old_cache = self.bootstrap.replace_cache_store(new);
 
-                // Save cache to disk.
-                #[allow(clippy::let_underscore_future)]
-                let _ = tokio::spawn(async move {
-                    old_cache.add_addr(addr).await;
-                    if let Err(err) = old_cache.sync_and_flush_to_disk().await {
-                        error!("Failed to save bootstrap cache: {err}");
-                    }
-                });
-            }
+            // Save cache to disk.
+            #[allow(clippy::let_underscore_future)]
+            let _ = tokio::spawn(async move {
+                old_cache.add_addr(addr).await;
+                if let Err(err) = old_cache.sync_and_flush_to_disk().await {
+                    error!("Failed to save bootstrap cache: {err}");
+                }
+            });
         }
+
         Ok(())
     }
 }

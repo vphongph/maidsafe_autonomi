@@ -1,3 +1,13 @@
+// Copyright 2025 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
+//! Implementation of the Node in SAFE Network.
+
 use crate::{
     NodeBuilder, RunningNode,
     spawn::{
@@ -6,6 +16,7 @@ use crate::{
     },
     utils::get_antnode_root_dir,
 };
+use ant_bootstrap::{InitialPeersConfig, bootstrap::Bootstrap};
 use ant_evm::{EvmNetwork, RewardsAddress};
 use ant_protocol::{NetworkAddress, storage::ChunkAddress};
 use const_hex::FromHex;
@@ -74,9 +85,20 @@ impl PyAntNode {
         let keypair = Keypair::generate_ed25519();
 
         future_into_py(py, async move {
+            let bootstrap = Bootstrap::new(
+                InitialPeersConfig {
+                    addrs: initial_peers,
+                    local,
+                    ..Default::default()
+                },
+                false,
+            )
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to initialise bootstrap: {e}")))?;
+
             let mut node_builder = NodeBuilder::new(
                 keypair,
-                initial_peers,
+                bootstrap,
                 rewards_address,
                 evm_network.0,
                 node_socket_addr,
@@ -369,7 +391,7 @@ impl PyNodeSpawner {
         Ok(())
     }
 
-    /// Set the initial peers for the node.
+    /// Set explicit bootstrap peers for the node.
     pub fn with_initial_peers(&mut self, initial_peers: Vec<String>) -> PyResult<()> {
         if let Some(self_) = self.0.take() {
             let initial_peers = initial_peers
@@ -378,16 +400,6 @@ impl PyNodeSpawner {
                 .collect::<Result<_, _>>()
                 .map_err(|e| PyValueError::new_err(format!("Invalid peer address: {e}")))?;
             self.0 = Some(self_.with_initial_peers(initial_peers));
-        } else {
-            return Err(PyRuntimeError::new_err("NodeSpawner inner error"));
-        }
-        Ok(())
-    }
-
-    /// Set the local mode flag for the node, indicating whether the node should run in local mode.
-    pub fn with_local(&mut self, local: bool) -> PyResult<()> {
-        if let Some(self_) = self.0.take() {
-            self.0 = Some(self_.with_local(local));
         } else {
             return Err(PyRuntimeError::new_err("NodeSpawner inner error"));
         }

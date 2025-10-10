@@ -3,6 +3,7 @@
 //! This library provides Node.js bindings for the ant-node library, which
 //! provides network spawning capabilities and convergent encryption on file-based data.
 
+use ant_node::InitialPeersConfig;
 use ant_node::spawn::node_spawner::Multiaddr;
 use napi::bindgen_prelude::*;
 use napi::tokio::sync::Mutex;
@@ -302,23 +303,25 @@ impl NodeSpawner {
                 );
             }
             if let Some(initial_peers) = args.initial_peers {
-                spawner = spawner.with_initial_peers(
-                    initial_peers
-                        .iter()
-                        .map(|peer| {
-                            peer.parse::<Multiaddr>().map_err(|_| {
-                                napi::Error::new(
-                                    Status::InvalidArg,
-                                    "Invalid initial peer address format",
-                                )
-                            })
+                let initial_peers = initial_peers
+                    .iter()
+                    .map(|peer| {
+                        peer.parse::<Multiaddr>().map_err(|_| {
+                            napi::Error::new(
+                                Status::InvalidArg,
+                                "Invalid initial peer address format",
+                            )
                         })
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let peers_config = InitialPeersConfig {
+                    addrs: initial_peers,
+                    local: args.local.unwrap_or(false),
+                    ..Default::default()
+                };
+                spawner = spawner.with_initial_peers_config(peers_config);
             }
-            if let Some(local) = args.local {
-                spawner = spawner.with_local(local);
-            }
+
             if let Some(no_upnp) = args.no_upnp {
                 spawner = spawner.with_no_upnp(no_upnp);
             }

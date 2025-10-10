@@ -8,6 +8,7 @@
 
 use crate::RunningNode;
 use crate::spawn::node_spawner::NodeSpawner;
+use ant_bootstrap::InitialPeersConfig;
 use ant_evm::{EvmNetwork, RewardsAddress};
 use libp2p::Multiaddr;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -195,13 +196,17 @@ async fn spawn_network(
                 initial_peers.extend(listen_addrs_with_peer_id);
             }
         }
+        let initial_peers_config = InitialPeersConfig {
+            addrs: initial_peers,
+            local,
+            ..Default::default()
+        };
 
         let node = NodeSpawner::new()
             .with_socket_addr(socket_addr)
             .with_evm_network(evm_network.clone())
             .with_rewards_address(rewards_address)
-            .with_initial_peers(initial_peers)
-            .with_local(local)
+            .with_initial_peers_config(initial_peers_config)
             .with_no_upnp(no_upnp)
             .with_root_dir(root_dir.clone())
             .spawn()

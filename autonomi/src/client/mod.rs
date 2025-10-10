@@ -15,6 +15,7 @@
 /// - Pointer
 /// - Scratchpad
 pub mod data_types;
+use ant_bootstrap::BootstrapConfig;
 pub use data_types::chunk;
 pub use data_types::graph;
 pub use data_types::pointer;
@@ -48,9 +49,7 @@ use payment::Receipt;
 pub use put_error_state::ChunkBatchUploadState;
 use quote::PaymentMode;
 
-use ant_bootstrap::{
-    InitialPeersConfig, bootstrap::Bootstrap, contacts_fetcher::ALPHANET_CONTACTS,
-};
+use ant_bootstrap::{bootstrap::Bootstrap, contacts_fetcher::ALPHANET_CONTACTS};
 pub use ant_evm::Amount;
 use ant_evm::EvmNetwork;
 use config::ClientConfig;
@@ -186,13 +185,8 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
-            .inspect_err(|errr| {
-                warn!("Failed to create bootstrap cache config: {errr}");
-            })
-            .ok();
         Self::init_with_config(ClientConfig {
-            bootstrap_cache_config,
+            bootstrap_config: BootstrapConfig::new(false),
             ..Default::default()
         })
         .await
@@ -202,47 +196,26 @@ impl Client {
     ///
     /// See [`Client::init_with_config`].
     pub async fn init_local() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(true)
-            .inspect_err(|errr| {
-                warn!("Failed to create bootstrap cache config: {errr}");
-            })
-            .ok();
-
         Self::init_with_config(ClientConfig {
-            init_peers_config: InitialPeersConfig {
-                local: true,
-                ..Default::default()
-            },
             evm_network: EvmNetwork::new(true)
                 .map_err(|e| ConnectError::EvmNetworkError(e.to_string()))?,
             strategy: Default::default(),
             network_id: None,
-            bootstrap_cache_config,
+            bootstrap_config: BootstrapConfig::new(true),
         })
         .await
     }
 
     /// Initialize a client that is configured to be connected to the the alpha network (Impossible Futures).
     pub async fn init_alpha() -> Result<Self, ConnectError> {
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(false)
-            .inspect_err(|errr| {
-                warn!("Failed to create bootstrap cache config: {errr}");
-            })
-            .ok();
-
         let client_config = ClientConfig {
-            init_peers_config: InitialPeersConfig {
-                first: false,
-                addrs: vec![],
+            bootstrap_config: BootstrapConfig {
                 network_contacts_url: ALPHANET_CONTACTS.iter().map(|s| s.to_string()).collect(),
-                local: false,
-                ignore_cache: false,
-                bootstrap_cache_dir: None,
+                ..Default::default()
             },
             evm_network: EvmNetwork::ArbitrumSepoliaTest,
             strategy: Default::default(),
             network_id: Some(2),
-            bootstrap_cache_config,
         };
         Self::init_with_config(client_config).await
     }
@@ -263,23 +236,17 @@ impl Client {
     pub async fn init_with_peers(peers: Vec<Multiaddr>) -> Result<Self, ConnectError> {
         // Any global address makes the client non-local
         let local = !peers.iter().any(multiaddr_is_global);
-
-        let bootstrap_cache_config = crate::BootstrapCacheConfig::new(local)
-            .inspect_err(|errr| {
-                warn!("Failed to create bootstrap cache config: {errr}");
-            })
-            .ok();
+        let bootstrap_config = BootstrapConfig {
+            local,
+            initial_peers: peers.clone(),
+            ..Default::default()
+        };
 
         Self::init_with_config(ClientConfig {
-            init_peers_config: InitialPeersConfig {
-                local,
-                addrs: peers,
-                ..Default::default()
-            },
+            bootstrap_config,
             evm_network: EvmNetwork::new(local).unwrap_or_default(),
             strategy: Default::default(),
             network_id: None,
-            bootstrap_cache_config,
         })
         .await
     }
@@ -303,9 +270,8 @@ impl Client {
             ant_protocol::version::set_network_id(network_id);
         }
 
-        let bootstrap = Bootstrap::new(config.init_peers_config.clone(), false).await?;
-
-        let network = Network::new(bootstrap, config.bootstrap_cache_config.clone())?;
+        let bootstrap = Bootstrap::new(config.bootstrap_config.clone()).await?;
+        let network = Network::new(bootstrap)?;
 
         // Wait for the network to be ready with enough peers
         network.wait_for_connectivity().await?;
@@ -385,16 +351,11 @@ mod tests {
                 .parse()
                 .unwrap(),
         ];
-        let bootstrap = Bootstrap::new(
-            InitialPeersConfig {
-                addrs: initial_peers,
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
-        let network = Network::new(bootstrap, None).unwrap();
+        let bootstrap =
+            Bootstrap::new(BootstrapConfig::default().with_initial_peers(initial_peers))
+                .await
+                .unwrap();
+        let network = Network::new(bootstrap).unwrap();
 
         match network.wait_for_connectivity().await {
             Err(ConnectError::TimedOut) => {} // This is the expected outcome

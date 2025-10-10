@@ -16,7 +16,7 @@ use crate::{
     },
     utils::get_antnode_root_dir,
 };
-use ant_bootstrap::{InitialPeersConfig, bootstrap::Bootstrap};
+use ant_bootstrap::{BootstrapConfig, bootstrap::Bootstrap};
 use ant_evm::{EvmNetwork, RewardsAddress};
 use ant_protocol::{NetworkAddress, storage::ChunkAddress};
 use const_hex::FromHex;
@@ -85,14 +85,11 @@ impl PyAntNode {
         let keypair = Keypair::generate_ed25519();
 
         future_into_py(py, async move {
-            let bootstrap = Bootstrap::new(
-                InitialPeersConfig {
-                    addrs: initial_peers,
-                    local,
-                    ..Default::default()
-                },
-                false,
-            )
+            let bootstrap = Bootstrap::new(BootstrapConfig {
+                initial_peers,
+                local,
+                ..Default::default()
+            })
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to initialise bootstrap: {e}")))?;
 

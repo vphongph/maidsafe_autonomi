@@ -37,7 +37,7 @@ use thiserror::Error;
 
 pub use bootstrap::Bootstrap;
 pub use cache_store::BootstrapCacheStore;
-pub use config::BootstrapCacheConfig;
+pub use config::BootstrapConfig;
 pub use config::InitialPeersConfig;
 pub use contacts_fetcher::ContactsFetcher;
 pub use error::{Error, Result};

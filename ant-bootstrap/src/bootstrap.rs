@@ -7,10 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::ANT_PEERS_ENV;
-use crate::BootstrapCacheConfig;
 use crate::BootstrapCacheStore;
+use crate::BootstrapConfig;
 use crate::ContactsFetcher;
-use crate::InitialPeersConfig;
 use crate::Result;
 use crate::contacts_fetcher::ALPHANET_CONTACTS;
 use crate::contacts_fetcher::MAINNET_CONTACTS;
@@ -73,53 +72,44 @@ pub struct Bootstrap {
 }
 
 impl Bootstrap {
-    pub async fn new(
-        mut config: InitialPeersConfig,
-        write_older_cache_files: bool,
-    ) -> Result<Self> {
-        let mut bootstrap_config = BootstrapCacheConfig::try_from(&config)?;
-        bootstrap_config.backwards_compatible_writes = write_older_cache_files;
-
-        let cache_store = BootstrapCacheStore::new(bootstrap_config)?;
-
-        if config.first {
-            info!("First node in network; clearing any existing cache");
-            cache_store.write().await?;
-        }
-
+    pub async fn new(mut config: BootstrapConfig) -> Result<Self> {
         let contacts_progress = Self::build_contacts_progress(&config)?;
 
-        let mut addrs = VecDeque::new();
+        let mut addrs_queue = VecDeque::new();
         let mut bootstrap_peer_ids = HashSet::new();
         if !config.first {
             for addr in Self::fetch_from_env() {
-                Self::push_addr(&mut addrs, &mut bootstrap_peer_ids, addr);
+                Self::push_addr(&mut addrs_queue, &mut bootstrap_peer_ids, addr);
             }
 
-            for addr in config.addrs.drain(..) {
+            for addr in config.initial_peers.drain(..) {
                 if let Some(addr) = craft_valid_multiaddr(&addr, false) {
                     info!("Adding addr from arguments: {addr}");
-                    Self::push_addr(&mut addrs, &mut bootstrap_peer_ids, addr);
+                    Self::push_addr(&mut addrs_queue, &mut bootstrap_peer_ids, addr);
                 } else {
                     warn!("Invalid multiaddress format from arguments: {addr}");
                 }
             }
         }
-        Self::shuffle_addrs(&mut addrs);
+        Self::shuffle_addrs(&mut addrs_queue);
 
-        let cache_pending = !config.first && !config.ignore_cache;
+        let cache_pending = !config.first && !config.disable_cache_reading;
         if !cache_pending {
             info!("Not loading from cache as per configuration");
         }
-
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let cache_store = BootstrapCacheStore::new(config.clone())?;
+        if config.first {
+            info!("First node in network; clearing any existing cache");
+            cache_store.write().await?;
+        }
         info!("Cache store is initialized and will sync and flush periodically");
         cache_store.sync_and_flush_periodically();
 
         Ok(Self {
             cache_store,
-            addrs,
+            addrs: addrs_queue,
             cache_pending,
             contacts_progress,
             event_tx,
@@ -578,7 +568,7 @@ impl Bootstrap {
         Ok(())
     }
 
-    fn build_contacts_progress(config: &InitialPeersConfig) -> Result<Option<ContactsProgress>> {
+    fn build_contacts_progress(config: &BootstrapConfig) -> Result<Option<ContactsProgress>> {
         if config.first {
             info!("First node in network; not fetching contacts");
             return Ok(None);
@@ -691,6 +681,7 @@ impl ContactsProgress {
 mod tests {
     use super::*;
     use crate::{
+        InitialPeersConfig,
         cache_store::{BootstrapCacheStore, cache_data_v1::CacheData},
         multiaddr_get_peer_id,
     };
@@ -773,17 +764,17 @@ mod tests {
         let _env_guard = env_lock().await;
         set_env_var(ANT_PEERS_ENV, &env_addr.to_string());
 
-        let mut flow = Bootstrap::new(
-            InitialPeersConfig {
-                addrs: vec![cli_addr.clone()],
-                ignore_cache: true,
-                local: true,
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            ignore_cache: true,
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            addrs: vec![cli_addr.clone()],
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let mut flow = Bootstrap::new(config).await.unwrap();
 
         let first_two = vec![
             expect_next_addr(&mut flow).await.unwrap(),
@@ -842,16 +833,13 @@ mod tests {
             .write_to_file(temp_dir.path(), &file_name)
             .unwrap();
 
-        let mut flow = Bootstrap::new(
-            InitialPeersConfig {
-                local: true,
-                bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
+        let config = InitialPeersConfig {
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let mut flow = Bootstrap::new(config).await.unwrap();
 
         let got = expect_next_addr(&mut flow).await.unwrap();
         assert_eq!(got, cache_addr);
@@ -876,22 +864,19 @@ mod tests {
             .await;
 
         let temp_dir = TempDir::new().unwrap();
-        let mut flow = Bootstrap::new(
-            InitialPeersConfig {
+        let config = InitialPeersConfig {
                 first: true,
                 addrs: vec![
-                    "/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
-                        .parse()
-                        .unwrap(),
+                "/ip4/127.0.0.2/udp/8081/quic-v1/p2p/12D3KooWD2aV1f3qkhggzEFaJ24CEFYkSdZF5RKoMLpU6CwExYV5"
+                    .parse()
+                    .unwrap(),
                 ],
                 network_contacts_url: vec![format!("{}/peers", mock_server.uri())],
                 bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
                 ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
+            };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let mut flow = Bootstrap::new(config).await.unwrap();
 
         let err = expect_err(&mut flow).await;
         assert!(matches!(err, Error::NoBootstrapPeersFound));
@@ -931,19 +916,16 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let mut flow = Bootstrap::new(
-            InitialPeersConfig {
-                ignore_cache: true,
-                network_contacts_url: vec![
-                    format!("{}/first", mock_server.uri()),
-                    format!("{}/second", mock_server.uri()),
-                ],
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
+        let config = InitialPeersConfig {
+            ignore_cache: true,
+            network_contacts_url: vec![
+                format!("{}/first", mock_server.uri()),
+                format!("{}/second", mock_server.uri()),
+            ],
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let mut flow = Bootstrap::new(config).await.unwrap();
 
         let first = expect_next_addr(&mut flow).await.unwrap();
         assert_eq!(first, contact_one);
@@ -1044,20 +1026,17 @@ mod tests {
             "environment variable should yield the configured address"
         );
 
-        let mut flow = Bootstrap::new(
-            InitialPeersConfig {
-                addrs: vec![cli_addr.clone()],
-                bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
-                network_contacts_url: vec![
-                    format!("{}/contacts_one", mock_server.uri()),
-                    format!("{}/contacts_two", mock_server.uri()),
-                ],
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
+        let config = InitialPeersConfig {
+            addrs: vec![cli_addr.clone()],
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            network_contacts_url: vec![
+                format!("{}/contacts_one", mock_server.uri()),
+                format!("{}/contacts_two", mock_server.uri()),
+            ],
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let mut flow = Bootstrap::new(config).await.unwrap();
 
         let initial_results = vec![
             expect_next_addr(&mut flow).await.unwrap(),

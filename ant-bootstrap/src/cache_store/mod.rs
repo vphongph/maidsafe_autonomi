@@ -9,7 +9,7 @@
 pub mod cache_data_v0;
 pub mod cache_data_v1;
 
-use crate::{BootstrapCacheConfig, Error, Result, craft_valid_multiaddr};
+use crate::{BootstrapConfig, Error, Result, craft_valid_multiaddr};
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use rand::Rng;
 use std::{fs, sync::Arc, time::Duration};
@@ -21,17 +21,17 @@ pub const CACHE_DATA_VERSION_LATEST: u32 = cache_data_v1::CacheData::CACHE_DATA_
 
 #[derive(Clone, Debug)]
 pub struct BootstrapCacheStore {
-    pub(crate) config: Arc<BootstrapCacheConfig>,
+    pub(crate) config: Arc<BootstrapConfig>,
     pub(crate) data: Arc<RwLock<CacheDataLatest>>,
 }
 
 impl BootstrapCacheStore {
-    pub fn config(&self) -> &BootstrapCacheConfig {
+    pub fn config(&self) -> &BootstrapConfig {
         &self.config
     }
 
     /// Create an empty CacheStore with the given configuration
-    pub fn new(config: BootstrapCacheConfig) -> Result<Self> {
+    pub fn new(config: BootstrapConfig) -> Result<Self> {
         info!("Creating new CacheStore with config: {:?}", config);
 
         // Create cache directory if it doesn't exist
@@ -100,7 +100,7 @@ impl BootstrapCacheStore {
 
     /// Load cache data from disk
     /// Make sure to have clean addrs inside the cache as we don't call craft_valid_multiaddr
-    pub fn load_cache_data(cfg: &BootstrapCacheConfig) -> Result<CacheDataLatest> {
+    pub fn load_cache_data(cfg: &BootstrapConfig) -> Result<CacheDataLatest> {
         // try loading latest first
         match cache_data_v1::CacheData::read_from_file(
             &cfg.cache_dir,
@@ -284,8 +284,8 @@ mod tests {
         }
     }
 
-    fn temp_config(dir: &TempDir) -> BootstrapCacheConfig {
-        BootstrapCacheConfig::empty().with_cache_dir(dir.path())
+    fn temp_config(dir: &TempDir) -> BootstrapConfig {
+        BootstrapConfig::default().with_cache_dir(dir.path())
     }
 
     #[tokio::test]
@@ -302,7 +302,7 @@ mod tests {
     #[tokio::test]
     async fn test_max_peer_limit_enforcement() {
         let dir = TempDir::new().expect("temp dir");
-        let config = BootstrapCacheConfig::empty()
+        let config = BootstrapConfig::default()
             .with_cache_dir(dir.path())
             .with_max_peers(3);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
@@ -385,7 +385,7 @@ mod tests {
     async fn test_cache_file_corruption() {
         let dir = TempDir::new().expect("temp dir");
         let cache_dir = dir.path();
-        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let config = BootstrapConfig::default().with_cache_dir(cache_dir);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
 
         let addr: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
@@ -424,7 +424,7 @@ mod tests {
     #[tokio::test]
     async fn test_max_addrs_per_peer() {
         let dir = TempDir::new().expect("temp dir");
-        let config = BootstrapCacheConfig::empty()
+        let config = BootstrapConfig::default()
             .with_cache_dir(dir.path())
             .with_addrs_per_peer(2);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
@@ -450,7 +450,7 @@ mod tests {
     async fn test_concurrent_cache_access() {
         let dir = TempDir::new().expect("temp dir");
         let cache_dir = dir.path().to_path_buf();
-        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir.clone());
+        let config = BootstrapConfig::default().with_cache_dir(cache_dir.clone());
 
         let mut handles = Vec::new();
         for idx in 0..5 {
@@ -485,7 +485,7 @@ mod tests {
         let dir = TempDir::new().expect("temp dir");
         let cache_dir = dir.path();
 
-        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let config = BootstrapConfig::default().with_cache_dir(cache_dir);
         let first_store = BootstrapCacheStore::new(config.clone()).expect("create cache");
         let addr1: Multiaddr = "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"
             .parse()
@@ -652,7 +652,7 @@ mod tests {
             .peers
             .insert(peer_id, cache_data_v0::BootstrapAddresses(vec![boot_addr]));
 
-        let config = BootstrapCacheConfig::empty().with_cache_dir(cache_dir);
+        let config = BootstrapConfig::default().with_cache_dir(cache_dir);
         let filename = BootstrapCacheStore::cache_file_name(false);
         v0_data
             .write_to_file(cache_dir, &filename)
@@ -678,7 +678,7 @@ mod tests {
         let dir = TempDir::new().expect("temp dir");
         let cache_dir = dir.path();
 
-        let config = BootstrapCacheConfig::empty()
+        let config = BootstrapConfig::default()
             .with_cache_dir(cache_dir)
             .with_backwards_compatible_writes(true);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");

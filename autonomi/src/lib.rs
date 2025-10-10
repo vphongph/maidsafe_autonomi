@@ -108,7 +108,7 @@ pub use client::{
     // Client
     Client,
     // Client Configs
-    config::BootstrapCacheConfig,
+    config::BootstrapConfig,
     config::BootstrapError,
     config::ClientConfig,
     config::ClientOperatingStrategy,

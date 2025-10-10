@@ -16,7 +16,7 @@ mod utils;
 pub mod version;
 
 use crate::client::CONNECT_TIMEOUT_SECS;
-use ant_bootstrap::{BootstrapCacheConfig, BootstrapCacheStore, bootstrap::Bootstrap};
+use ant_bootstrap::bootstrap::Bootstrap;
 // export the utils
 pub(crate) use utils::multiaddr_is_global;
 
@@ -158,35 +158,8 @@ impl Network {
     /// Create a new network client
     /// This will start the network driver in a background thread, which is a long-running task that runs until the [`Network`] is dropped
     /// The [`Network`] is cheaply cloneable, prefer cloning over creating new instances to avoid creating multiple network drivers
-    pub fn new(
-        mut bootstrap: Bootstrap,
-        bootstrap_cache_config: Option<BootstrapCacheConfig>,
-    ) -> Result<Self, NoKnownPeers> {
+    pub fn new(bootstrap: Bootstrap) -> Result<Self, NoKnownPeers> {
         let (task_sender, task_receiver) = mpsc::channel(100);
-        if let Some(config) = bootstrap_cache_config {
-            match BootstrapCacheStore::new(config) {
-                Ok(store) => {
-                    if store.config().disable_cache_writing {
-                        warn!(
-                            "Bootstrap cache writing is disabled, the cache will not be saved to disk"
-                        );
-                    } else {
-                        info!(
-                            "Bootstrap cache writing is enabled, the cache will be saved to disk"
-                        );
-                    }
-                    let _ = bootstrap.replace_cache_store(store);
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to create bootstrap cache store, cache will not be saved to disk: {err}"
-                    );
-                }
-            }
-        } else {
-            info!("Bootstrap cache config not provided, cache will not be written to disk");
-        }
-
         let driver = NetworkDriver::new(bootstrap, task_receiver);
 
         // run the network driver in a background task

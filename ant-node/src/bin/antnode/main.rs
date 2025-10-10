@@ -19,6 +19,7 @@ mod subcommands;
 
 use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
+use ant_bootstrap::BootstrapConfig;
 use ant_bootstrap::InitialPeersConfig;
 use ant_bootstrap::bootstrap::Bootstrap;
 use ant_evm::{EvmNetwork, RewardsAddress, get_evm_network};
@@ -297,10 +298,9 @@ fn main() -> Result<()> {
     // another process with these args.
     let rt = Runtime::new()?;
 
-    let bootstrap = rt.block_on(Bootstrap::new(
-        opt.peers.clone(),
-        opt.write_older_cache_files,
-    ))?;
+    let bootstrap_config = BootstrapConfig::try_from(&opt.peers)?
+        .with_backwards_compatible_writes(opt.write_older_cache_files);
+    let bootstrap = rt.block_on(Bootstrap::new(bootstrap_config))?;
 
     let msg = format!(
         "Running {} v{}",

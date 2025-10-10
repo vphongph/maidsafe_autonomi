@@ -196,9 +196,11 @@ async fn spawn_network(
                 initial_peers.extend(listen_addrs_with_peer_id);
             }
         }
+
         let initial_peers_config = InitialPeersConfig {
             addrs: initial_peers,
             local,
+            first: running_nodes.is_empty(),
             ..Default::default()
         };
 
@@ -259,7 +261,12 @@ mod tests {
                 .peers_in_routing_table;
 
             assert!(
-                peers_in_routing_table >= network_size - 2 && peers_in_routing_table < network_size
+                peers_in_routing_table >= network_size - 2 && peers_in_routing_table < network_size,
+                "Node with PeerId {} has {} peers in its routing table, expected between {} and {}",
+                node.peer_id(),
+                peers_in_routing_table,
+                network_size - 2,
+                network_size - 1
             );
         }
 

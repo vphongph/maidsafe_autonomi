@@ -59,8 +59,8 @@ impl SwarmLocalState {
     }
 
     #[napi(getter)]
-    pub fn peers_in_routing_table(&self) -> usize {
-        self.0.peers_in_routing_table
+    pub fn peers_in_routing_table(&self) -> u32 {
+        self.0.peers_in_routing_table as u32
     }
 
     #[napi(getter)]
@@ -273,6 +273,10 @@ pub struct NodeSpawnerFields {
     pub local: Option<bool>,
     pub no_upnp: Option<bool>,
     pub root_dir: Option<Option<String>>,
+    pub first: Option<bool>,
+    pub network_contacts_url: Option<Vec<String>>,
+    pub ignore_cache: Option<bool>,
+    pub bootstrap_cache_dir: Option<String>,
 }
 
 /// A spawner for creating local SAFE networks for testing and development.
@@ -290,15 +294,21 @@ impl NodeSpawner {
             }
             if let Some(socket_addr) = args.socket_addr {
                 spawner =
-                    spawner.with_socket_addr(SocketAddr::from_str(&socket_addr).map_err(|_| {
-                        napi::Error::new(Status::InvalidArg, "Invalid socket address format")
+                    spawner.with_socket_addr(SocketAddr::from_str(&socket_addr).map_err(|e| {
+                        napi::Error::new(
+                            Status::InvalidArg,
+                            format!("Invalid socket address format: {e}"),
+                        )
                     })?);
             }
             if let Some(rewards_address) = args.rewards_address {
                 spawner = spawner.with_rewards_address(
                     ant_node::spawn::node_spawner::RewardsAddress::from_str(&rewards_address)
-                        .map_err(|_| {
-                            napi::Error::new(Status::InvalidArg, "Invalid rewards address format")
+                        .map_err(|e| {
+                            napi::Error::new(
+                                Status::InvalidArg,
+                                format!("Invalid rewards address format: {e:?}"),
+                            )
                         })?,
                 );
             }
@@ -306,19 +316,31 @@ impl NodeSpawner {
                 let initial_peers = initial_peers
                     .iter()
                     .map(|peer| {
-                        peer.parse::<Multiaddr>().map_err(|_| {
+                        peer.parse::<Multiaddr>().map_err(|e| {
                             napi::Error::new(
                                 Status::InvalidArg,
-                                "Invalid initial peer address format",
+                                format!("Invalid initial peer address format: {e}"),
                             )
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let peers_config = InitialPeersConfig {
+                let mut peers_config = InitialPeersConfig {
                     addrs: initial_peers,
                     local: args.local.unwrap_or(false),
                     ..Default::default()
                 };
+                if let Some(first) = args.first {
+                    peers_config.first = first;
+                }
+                if let Some(network_contacts_url) = args.network_contacts_url {
+                    peers_config.network_contacts_url = network_contacts_url;
+                }
+                if let Some(ignore_cache) = args.ignore_cache {
+                    peers_config.ignore_cache = ignore_cache;
+                }
+                if let Some(bootstrap_cache_dir) = args.bootstrap_cache_dir {
+                    peers_config.bootstrap_cache_dir = Some(PathBuf::from(bootstrap_cache_dir));
+                }
                 spawner = spawner.with_initial_peers_config(peers_config);
             }
 

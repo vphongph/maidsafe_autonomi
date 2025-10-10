@@ -17,10 +17,14 @@ export interface NodeSpawnerFields {
   local?: boolean
   noUpnp?: boolean
   rootDir?: string | undefined | null
+  first?: boolean
+  networkContactsUrl?: Array<string>
+  ignoreCache?: boolean
+  bootstrapCacheDir?: string
 }
 export declare class SwarmLocalState {
   get connectedPeers(): Array<string>
-  get peersInRoutingTable(): bigint
+  get peersInRoutingTable(): number
   get listeners(): Array<string>
 }
 /** Once a node is started and running, the user obtains a NodeRunning object which can be used to interact with it. */

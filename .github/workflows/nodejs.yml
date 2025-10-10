@@ -142,13 +142,6 @@ jobs:
       - name: Build node
         run: cd ../ && cargo build --release --bin antnode
         timeout-minutes: 30
-      - name: Start a local network
-        uses: maidsafe/ant-local-testnet-action@main
-        with:
-          action: start
-          enable-evm-testnet: true
-          node-path: target/release/antnode
-          build: true
       - name: Download artifacts
         uses: actions/download-artifact@v5
         with:

@@ -207,6 +207,7 @@ mod tests {
             .with_evm_network(evm_network)
             .with_initial_peers_config(InitialPeersConfig {
                 local: true,
+                first: true,
                 ..Default::default()
             })
             .spawn()

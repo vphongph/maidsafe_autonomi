@@ -146,29 +146,31 @@ impl CacheData {
 
     pub fn read_from_file(cache_dir: &Path, file_name: &str) -> Result<Self, Error> {
         let file_path = Self::cache_file_path(cache_dir, file_name);
-        // Try to open the file with read permissions
-        let mut file = OpenOptions::new()
-            .read(true)
-            .open(&file_path)
-            .inspect_err(|err| warn!("Failed to open cache file at {file_path:?} : {err}",))?;
 
-        debug!("Attempting to lock cache file for reading: {file_path:?}");
-        Self::lock_with_retry(
-            || file.lock_shared(),
-            |err, attempt, max_attempts| {
-                warn!(
-                    "Failed to acquire shared lock on cache file {file_path:?} (attempt {attempt}/{max_attempts}): {err}"
-                );
-            },
-        )?;
+        let contents = {
+            let mut file = OpenOptions::new()
+                .read(true)
+                .open(&file_path)
+                .inspect_err(|err| warn!("Failed to open cache file at {file_path:?} : {err}",))?;
 
-        // Read the file contents
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).inspect_err(|err| {
-            warn!("Failed to read cache file: {err}");
-        })?;
+            debug!("Attempting to lock cache file for reading: {file_path:?}");
+            Self::lock_with_retry(
+                || file.lock_shared(),
+                |err, attempt, max_attempts| {
+                    warn!(
+                        "Failed to acquire shared lock on cache file {file_path:?} (attempt {attempt}/{max_attempts}): {err}"
+                    );
+                },
+            )?;
 
-        // Parse the cache data
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).inspect_err(|err| {
+                warn!("Failed to read cache file: {err}");
+            })?;
+
+            contents
+        };
+
         let data = serde_json::from_str::<Self>(&contents).map_err(|err| {
             warn!("Failed to parse cache data: {err}");
             Error::FailedToParseCacheData
@@ -185,7 +187,9 @@ impl CacheData {
             fs::create_dir_all(parent)?;
         }
 
-        // todo: setting truncate(true) causes the test to fail, fix it.
+        // Manual truncation after lock acquisition is required for thread-safety.
+        // Using .truncate(true) would truncate during open() before the lock is acquired,
+        // creating a race window where readers can see empty/partial file content.
         #[allow(clippy::suspicious_open_options)]
         let mut file = OpenOptions::new()
             .create(true)
@@ -274,7 +278,40 @@ mod tests {
 
     const THREAD_COUNT: usize = 100;
     const ITERATIONS_PER_THREAD: usize = 25;
+    const READ_PROBABILITY: f64 = 0.4;
 
+    fn create_test_peer_data(rng: &mut SmallRng) -> CacheData {
+        let mut data = CacheData::default();
+        let peer = PeerId::random();
+        let port = rng.gen_range(1000..2000);
+        let addr = Multiaddr::from_str(&format!("/ip4/192.168.1.3/udp/{port}/quic-v1/p2p/{peer}"))
+            .expect("valid multiaddr");
+
+        data.add_peer(peer, [addr].iter(), 5, 10);
+        data
+    }
+
+    fn perform_random_cache_operation(cache_dir: &Path, file_name: &str, rng: &mut SmallRng) {
+        if rng.gen_bool(READ_PROBABILITY) {
+            CacheData::read_from_file(cache_dir, file_name)
+                .expect("concurrent read should succeed");
+        } else {
+            let data = create_test_peer_data(rng);
+            data.write_to_file(cache_dir, file_name)
+                .expect("concurrent write should succeed");
+        }
+    }
+
+    /// Validates that concurrent reads and writes maintain file integrity.
+    ///
+    /// This test ensures that the lock-then-truncate approach prevents readers
+    /// from seeing partial or corrupted JSON data during concurrent write operations.
+    /// It spawns 100 threads performing 25 random read/write operations each.
+    ///
+    /// The test verifies:
+    /// - No parse errors occur during concurrent access
+    /// - Final cache file contains valid JSON
+    /// - Cache version remains consistent
     #[test]
     fn cache_file_remains_valid_under_concurrent_access() {
         let _ = tracing_subscriber::fmt::try_init();
@@ -288,32 +325,19 @@ mod tests {
             .expect("initial cache write");
 
         let start_barrier = Arc::new(Barrier::new(THREAD_COUNT + 1));
-
         let mut handles = Vec::with_capacity(THREAD_COUNT);
+
         for thread_seed in 0..THREAD_COUNT {
             let cache_dir = Arc::clone(&cache_dir);
             let barrier = Arc::clone(&start_barrier);
+
             handles.push(thread::spawn(move || {
                 let mut rng = SmallRng::seed_from_u64(thread_seed as u64 + 1);
+
                 barrier.wait();
 
                 for _ in 0..ITERATIONS_PER_THREAD {
-                    if rng.gen_bool(0.4) {
-                        CacheData::read_from_file(cache_dir.as_path(), file_name)
-                            .expect("concurrent read should succeed");
-                    } else {
-                        let mut data = CacheData::default();
-                        let peer = PeerId::random();
-                        let addr = Multiaddr::from_str(&format!(
-                            "/ip4/192.168.1.3/udp/{}/quic-v1/p2p/{peer}",
-                            rng.gen_range(1000..2000),
-                        ))
-                        .expect("construct multiaddr");
-                        let addrs = [addr];
-                        data.add_peer(peer, addrs.iter(), 5, 10);
-                        data.write_to_file(cache_dir.as_path(), file_name)
-                            .expect("concurrent write should succeed");
-                    }
+                    perform_random_cache_operation(cache_dir.as_path(), file_name, &mut rng);
                 }
             }));
         }
@@ -321,18 +345,25 @@ mod tests {
         start_barrier.wait();
 
         for handle in handles {
-            handle.join().expect("thread join");
+            handle
+                .join()
+                .expect("all threads should complete successfully");
         }
 
-        let final_data =
-            CacheData::read_from_file(cache_dir.as_path(), file_name).expect("final read");
+        let final_data = CacheData::read_from_file(cache_dir.as_path(), file_name)
+            .expect("should read final cache state");
+
         assert_eq!(
             final_data.cache_version,
-            CacheData::CACHE_DATA_VERSION.to_string()
+            CacheData::CACHE_DATA_VERSION.to_string(),
+            "cache version should remain consistent after concurrent access"
         );
 
         let cache_file = CacheData::cache_file_path(cache_dir.as_path(), file_name);
-        let contents = fs::read_to_string(&cache_file).expect("read cache file contents");
-        serde_json::from_str::<Value>(&contents).expect("cache file should contain valid JSON");
+        let contents =
+            fs::read_to_string(&cache_file).expect("should read final cache file contents");
+
+        serde_json::from_str::<Value>(&contents)
+            .expect("final cache file should contain valid, parseable JSON");
     }
 }

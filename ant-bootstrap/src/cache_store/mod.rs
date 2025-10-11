@@ -267,9 +267,9 @@ fn duration_with_variance(duration: Duration, variance: u32) -> Duration {
 
     let random_adjustment = Duration::from_secs(rand::thread_rng().gen_range(0..variance as u64));
     if random_adjustment.as_secs().is_multiple_of(2) {
-        duration - random_adjustment
+        duration.saturating_sub(random_adjustment)
     } else {
-        duration + random_adjustment
+        duration.saturating_add(random_adjustment)
     }
 }
 

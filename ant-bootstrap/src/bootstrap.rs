@@ -499,7 +499,9 @@ impl Bootstrap {
                 "Bootstrap cache loaded from disk with {} addresses",
                 addrs.len()
             );
-            let _ = event_tx.send(FetchEvent::Cache(addrs));
+            if let Err(err) = event_tx.send(FetchEvent::Cache(addrs)) {
+                error!("Failed to send cache fetch event: {err:?}");
+            }
         });
 
         self.fetch_in_progress = Some(FetchKind::Cache);
@@ -529,7 +531,9 @@ impl Bootstrap {
         tokio::spawn(async move {
             let Ok(fetcher) = ContactsFetcher::with_endpoints(vec![endpoint.clone()]) else {
                 warn!("Failed to create contacts fetcher for {endpoint}");
-                let _ = event_tx.send(FetchEvent::Contacts(Vec::new()));
+                if let Err(err) = event_tx.send(FetchEvent::Contacts(Vec::new())) {
+                    error!("Failed to send contacts fetch error event: {err:?}");
+                }
                 return;
             };
 
@@ -545,7 +549,9 @@ impl Bootstrap {
                 "Contacts fetch completed from endpoint {endpoint:?} with {} addresses",
                 addrs.len()
             );
-            let _ = event_tx.send(FetchEvent::Contacts(addrs));
+            if let Err(err) = event_tx.send(FetchEvent::Contacts(addrs)) {
+                error!("Failed to send contacts fetch event: {err:?}");
+            }
         });
 
         self.fetch_in_progress = Some(FetchKind::Contacts);

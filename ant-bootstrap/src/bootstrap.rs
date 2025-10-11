@@ -93,7 +93,12 @@ impl Bootstrap {
 
         let cache_pending = !config.first && !config.disable_cache_reading;
         if !cache_pending {
-            info!("Not loading from cache as per configuration");
+            info!(
+                "Not loading from cache as per configuration (first={}, disable_cache_reading={})",
+                config.first, config.disable_cache_reading
+            );
+        } else {
+            info!("Cache loading is enabled - cache will be fetched if needed");
         }
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 

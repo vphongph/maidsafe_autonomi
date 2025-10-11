@@ -5,11 +5,28 @@ import { setTimeout } from 'node:timers/promises';
 test('construct NetworkSpawner', async (t) => {
     const networkSize = 20;
 
-    const spawner = new NetworkSpawner({ local: true, noUpnp: true, size: networkSize });
+    const bootstrapConfig = {
+        local: true,
+        disableCacheReading: true,
+        disableCacheWriting: true
+    };
+
+    console.log('\n=== Bootstrap Config (JavaScript) ===');
+    console.log(JSON.stringify(bootstrapConfig, null, 2));
+    console.log('======================================\n');
+
+    const spawner = new NetworkSpawner({
+        noUpnp: true,
+        size: networkSize,
+        bootstrapConfig
+    });
+
+    console.log('Spawning network with config...');
     const runningNetwork = await spawner.spawn();
 
     const runningNodes = await runningNetwork.runningNodes();
     t.is(runningNodes.length, networkSize);
+    console.log(`Successfully spawned ${runningNodes.length} nodes`);
 
     // Wait for nodes to fill up their routing table
     console.log(`Waiting 15 seconds for ${networkSize} nodes to form network...`);
@@ -60,7 +77,14 @@ test('construct NetworkSpawner', async (t) => {
 });
 
 test('construct NodeSpawner', async (t) => {
-    const spawner = new NodeSpawner({ local: true }, Network.fromString('evm-arbitrum-one'));
+    const spawner = new NodeSpawner({
+        bootstrapConfig: {
+            local: true,
+            first: true,
+            disableCacheReading: true,
+            disableCacheWriting: true
+        }
+    }, Network.fromString('evm-arbitrum-one'));
     const runningNode = await spawner.spawn();
     runningNode.shutdown();
 

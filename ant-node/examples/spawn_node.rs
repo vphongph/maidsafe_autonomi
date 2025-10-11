@@ -10,13 +10,13 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use ant_bootstrap::InitialPeersConfig;
+use ant_node::BootstrapConfig;
 use ant_node::spawn::node_spawner::NodeSpawner;
 
 #[tokio::main]
 async fn main() {
     let running_node = NodeSpawner::new()
-        .with_initial_peers_config(InitialPeersConfig::default())
+        .with_bootstrap_config(BootstrapConfig::default())
         .spawn()
         .await
         .expect("Failed to spawn node");

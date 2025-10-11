@@ -7,7 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::networking::{Quorum, RetryStrategy, Strategy};
-pub use ant_bootstrap::{BootstrapConfig, InitialPeersConfig, error::Error as BootstrapError};
+pub use ant_bootstrap::{
+    Bootstrap, BootstrapConfig, InitialPeersConfig, error::Error as BootstrapError,
+};
 use ant_evm::EvmNetwork;
 use evmlib::contract::payment_vault::MAX_TRANSFERS_PER_TRANSACTION;
 use std::{num::NonZero, sync::LazyLock};

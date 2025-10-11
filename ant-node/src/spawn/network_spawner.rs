@@ -237,7 +237,9 @@ mod tests {
     async fn test_spawn_network() {
         let network_size = 20;
 
-        let bootstrap_config = BootstrapConfig::new(true);
+        let bootstrap_config = BootstrapConfig::new(true)
+            .with_disable_cache_reading(true)
+            .with_disable_env_peers(true);
 
         let running_network = NetworkSpawner::new()
             .with_evm_network(Default::default())

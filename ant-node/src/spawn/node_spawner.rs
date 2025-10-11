@@ -193,7 +193,10 @@ mod tests {
     async fn test_launch_node() {
         let evm_network = EvmNetwork::ArbitrumSepoliaTest;
 
-        let bootstrap_config = BootstrapConfig::new(true).with_first(true);
+        let bootstrap_config = BootstrapConfig::new(true)
+            .with_first(true)
+            .with_disable_cache_reading(true)
+            .with_disable_env_peers(true);
 
         let running_node = NodeSpawner::new()
             .with_evm_network(evm_network)

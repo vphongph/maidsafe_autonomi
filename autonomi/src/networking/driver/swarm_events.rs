@@ -77,12 +77,11 @@ impl NetworkDriver {
                     (peer_id, endpoint.get_remote_address().clone()),
                 );
                 self.connections_made += 1;
-                let peers_in_rt = self.current_routing_table_size();
                 self.bootstrap.on_connection_established(
                     &peer_id,
                     &endpoint,
                     &mut self.swarm,
-                    peers_in_rt,
+                    self.connections_made,
                 );
                 Ok(())
             }
@@ -105,9 +104,11 @@ impl NetworkDriver {
             } => {
                 debug!("OutgoingConnectionError to {peer_id:?} on {connection_id:?} - {error:?}");
                 let _ = self.live_connected_peers.remove(&connection_id);
-                let peers_in_rt = self.current_routing_table_size();
-                self.bootstrap
-                    .on_outgoing_connection_error(peer_id, &mut self.swarm, peers_in_rt);
+                self.bootstrap.on_outgoing_connection_error(
+                    peer_id,
+                    &mut self.swarm,
+                    self.connections_made,
+                );
 
                 Ok(())
             }

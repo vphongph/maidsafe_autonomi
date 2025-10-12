@@ -133,18 +133,19 @@ impl Bootstrap {
         // ensure the initial queue is not empty by fetching from cache/contacts if needed
         //
         // not required for 'first' node
-        if bootstrap.addrs.is_empty() {
-            info!("Initial address queue is empty; fetching from cache/contacts");
+        let mut collected_addrs = Vec::new();
+        if bootstrap.addrs.len() < 50 {
+            info!("Initial address queue < 50; fetching from cache/contacts");
             let now = std::time::Instant::now();
             loop {
                 match bootstrap.next_addr() {
                     Ok(Some(addr)) => {
-                        bootstrap.addrs.push_front(addr);
+                        collected_addrs.push(addr);
                         info!(
                             "We now have {} initial address(es) to dial",
-                            bootstrap.addrs.len()
+                            collected_addrs.len()
                         );
-                        break;
+                        continue;
                     }
                     Ok(None) => {
                         debug!(
@@ -152,12 +153,28 @@ impl Bootstrap {
                         );
                     }
                     Err(err) => {
+                        if !collected_addrs.is_empty() {
+                            info!(
+                                "No more addresses available, but we have {} to dial",
+                                collected_addrs.len()
+                            );
+                            bootstrap.extend_with_addrs(collected_addrs);
+                            break;
+                        }
                         warn!("Failed to fetch initial address: {err}");
                         return Err(err);
                     }
                 }
 
                 if now.elapsed() > std::time::Duration::from_secs(30) {
+                    if !collected_addrs.is_empty() {
+                        info!(
+                            "Timed out waiting for more addresses, but we have {} to dial, returning",
+                            collected_addrs.len()
+                        );
+                        bootstrap.extend_with_addrs(collected_addrs);
+                        break;
+                    }
                     error!("Timed out waiting for initial addresses. ");
                     return Err(Error::NoBootstrapPeersFound);
                 }
@@ -171,7 +188,7 @@ impl Bootstrap {
     /// Returns the next address to try for bootstrapping.
     /// None if a fetch is in progress and no address is ready yet.
     /// Error if there are no more addresses to try.
-    fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
+    pub fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
         loop {
             self.process_events();
 
@@ -472,11 +489,6 @@ impl Bootstrap {
         self.bootstrap_completed
     }
 
-    #[cfg(test)]
-    pub(crate) fn next_addr_for_tests(&mut self) -> Result<Option<Multiaddr>> {
-        self.next_addr()
-    }
-
     fn start_cache_fetch(&mut self) -> Result<()> {
         if matches!(self.fetch_in_progress, Some(FetchKind::Cache)) {
             error!("Cache fetch already in progress, not starting another");
@@ -721,7 +733,7 @@ mod tests {
     async fn expect_next_addr(flow: &mut Bootstrap) -> Result<Multiaddr> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            match flow.next_addr_for_tests() {
+            match flow.next_addr() {
                 Ok(Some(addr)) => return Ok(addr),
                 Ok(None) => {
                     if Instant::now() >= deadline {
@@ -737,7 +749,7 @@ mod tests {
     async fn expect_err(flow: &mut Bootstrap) -> Error {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            match flow.next_addr_for_tests() {
+            match flow.next_addr() {
                 Ok(Some(addr)) => panic!("unexpected address returned: {addr}"),
                 Ok(None) => {
                     if Instant::now() >= deadline {
@@ -748,6 +760,13 @@ mod tests {
                 Err(err) => return err,
             }
         }
+    }
+
+    fn generate_valid_test_multiaddr(ip_third: u8, ip_fourth: u8, port: u16) -> Multiaddr {
+        let peer_id = libp2p::PeerId::random();
+        format!("/ip4/10.{ip_third}.{ip_fourth}.1/tcp/{port}/p2p/{peer_id}")
+            .parse()
+            .unwrap()
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1073,5 +1092,420 @@ mod tests {
         assert_eq!(requests[1].url.path(), "/contacts_two");
 
         remove_env_var(ANT_PEERS_ENV);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_disable_env_peers_flag() {
+        let env_addr = generate_valid_test_multiaddr(2, 0, 2000);
+
+        let _env_guard = env_lock().await;
+        set_env_var(ANT_PEERS_ENV, &env_addr.to_string());
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            ignore_cache: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let result = Bootstrap::new(config).await;
+        assert!(
+            result.is_err(),
+            "Should error when env peers are disabled and no other sources available"
+        );
+        assert!(matches!(result.unwrap_err(), Error::NoBootstrapPeersFound));
+
+        remove_env_var(ANT_PEERS_ENV);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_disable_cache_reading_flag() {
+        let _env_guard = env_lock().await;
+
+        let cache_addr = generate_valid_test_multiaddr(2, 0, 2001);
+        let peer_id = multiaddr_get_peer_id(&cache_addr).unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(true);
+
+        let mut cache_data = CacheData::default();
+        cache_data.add_peer(peer_id, std::iter::once(&cache_addr), 3, 10);
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+        config.disable_cache_reading = true;
+
+        let result = Bootstrap::new(config).await;
+        assert!(
+            result.is_err(),
+            "Should error when cache reading is disabled and no other sources available"
+        );
+        assert!(matches!(result.unwrap_err(), Error::NoBootstrapPeersFound));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_bootstrap_completed_initialization() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            first: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let flow = Bootstrap::new(config).await.unwrap();
+
+        assert!(
+            flow.has_terminated(),
+            "bootstrap_completed should be true for first node"
+        );
+
+        let config = InitialPeersConfig {
+            first: false,
+            local: true,
+            ignore_cache: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            addrs: vec![generate_valid_test_multiaddr(2, 0, 2002)],
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let flow = Bootstrap::new(config).await.unwrap();
+
+        assert!(
+            !flow.has_terminated(),
+            "bootstrap_completed should be false for non-first node"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_bootstrap_peer_ids_population() {
+        let env_addr = generate_valid_test_multiaddr(2, 0, 2003);
+        let cli_addr = generate_valid_test_multiaddr(2, 0, 2004);
+
+        let env_peer_id = multiaddr_get_peer_id(&env_addr).unwrap();
+        let cli_peer_id = multiaddr_get_peer_id(&cli_addr).unwrap();
+
+        let _env_guard = env_lock().await;
+        set_env_var(ANT_PEERS_ENV, &env_addr.to_string());
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            ignore_cache: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            addrs: vec![cli_addr.clone()],
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let flow = Bootstrap::new(config).await.unwrap();
+
+        assert!(
+            flow.is_bootstrap_peer(&env_peer_id),
+            "Peer ID from env should be tracked"
+        );
+        assert!(
+            flow.is_bootstrap_peer(&cli_peer_id),
+            "Peer ID from CLI should be tracked"
+        );
+
+        remove_env_var(ANT_PEERS_ENV);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_invalid_multiaddr_in_initial_peers() {
+        let _env_guard = env_lock().await;
+
+        let valid_addr = generate_valid_test_multiaddr(2, 0, 2005);
+        let invalid_addr: Multiaddr = "/ip4/127.0.0.1/tcp/1234".parse().unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            ignore_cache: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            addrs: vec![valid_addr.clone()],
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        config.initial_peers.push(invalid_addr);
+
+        let mut flow = Bootstrap::new(config).await.unwrap();
+
+        let first = expect_next_addr(&mut flow).await.unwrap();
+        assert_eq!(first, valid_addr, "Should get the valid address");
+
+        let err = expect_err(&mut flow).await;
+        assert!(
+            matches!(err, Error::NoBootstrapPeersFound),
+            "Should not find any more peers after valid one (invalid addr was filtered)"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_local_network_skips_contacts() {
+        let _env_guard = env_lock().await;
+
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/should-not-be-called"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                "/ip4/127.0.0.1/udp/8080/quic-v1/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE",
+            ))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            ignore_cache: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            network_contacts_url: vec![format!("{}/should-not-be-called", mock_server.uri())],
+            addrs: vec![generate_valid_test_multiaddr(2, 0, 2006)],
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let addr_from_config = config.initial_peers[0].clone();
+        let mut flow = Bootstrap::new(config).await.unwrap();
+
+        let first = expect_next_addr(&mut flow).await.unwrap();
+        assert_eq!(
+            first, addr_from_config,
+            "Should get the address from config"
+        );
+
+        let err = expect_err(&mut flow).await;
+        assert!(matches!(err, Error::NoBootstrapPeersFound));
+
+        assert!(
+            mock_server.received_requests().await.unwrap().is_empty(),
+            "local flag should prevent contact fetches"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_timeout_with_no_addresses() {
+        let _env_guard = env_lock().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(true);
+        let cache_data = CacheData::default();
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let result = Bootstrap::new(config).await;
+
+        assert!(
+            result.is_err(),
+            "Should error when no addresses are available from any source"
+        );
+        assert!(matches!(result.unwrap_err(), Error::NoBootstrapPeersFound));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_first_node_clears_cache() {
+        let _env_guard = env_lock().await;
+
+        let cache_addr = generate_valid_test_multiaddr(2, 0, 2007);
+        let peer_id = multiaddr_get_peer_id(&cache_addr).unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(false);
+
+        let mut cache_data = CacheData::default();
+        cache_data.add_peer(peer_id, std::iter::once(&cache_addr), 3, 10);
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let file_path = temp_dir.path().join(format!(
+            "version_{}/{}",
+            CacheData::CACHE_DATA_VERSION,
+            file_name
+        ));
+
+        let contents_before = std::fs::read_to_string(&file_path).unwrap();
+        assert!(
+            contents_before.contains(&cache_addr.to_string()),
+            "Cache should contain the address before initialization"
+        );
+
+        let config = InitialPeersConfig {
+            first: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let config = BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        let _flow = Bootstrap::new(config).await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let contents_after = std::fs::read_to_string(&file_path).unwrap();
+        assert!(
+            !contents_after.contains(&cache_addr.to_string()),
+            "Cache should be cleared for first node"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_new_loads_at_least_50_contacts() {
+        let _env_guard = env_lock().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(true);
+
+        let mut cache_data = CacheData::default();
+        for i in 0..60 {
+            let addr = generate_valid_test_multiaddr(3, i as u8, 3000 + i);
+            let peer_id = multiaddr_get_peer_id(&addr).unwrap();
+            cache_data.add_peer(peer_id, std::iter::once(&addr), 3, 10);
+        }
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let result = Bootstrap::new(config).await;
+
+        assert!(
+            result.is_ok(),
+            "Should successfully initialize with 60 contacts in cache"
+        );
+
+        let mut flow = result.unwrap();
+        let mut count = 0;
+        while let Ok(Some(_addr)) = flow.next_addr() {
+            count += 1;
+            if count >= 60 {
+                break;
+            }
+        }
+
+        assert!(
+            count > 0,
+            "Should have loaded contacts from cache, got {count}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_new_succeeds_with_few_contacts() {
+        let _env_guard = env_lock().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(true);
+
+        let mut cache_data = CacheData::default();
+        for i in 0..5 {
+            let addr = generate_valid_test_multiaddr(4, i as u8, 4000 + i);
+            let peer_id = multiaddr_get_peer_id(&addr).unwrap();
+            cache_data.add_peer(peer_id, std::iter::once(&addr), 3, 10);
+        }
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let config = InitialPeersConfig {
+            local: true,
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let result = Bootstrap::new(config).await;
+        assert!(
+            result.is_ok(),
+            "Should succeed with few contacts (< 50 but > 0)"
+        );
+
+        let mut flow = result.unwrap();
+        let mut count = 0;
+        while let Ok(Some(_addr)) = flow.next_addr() {
+            count += 1;
+            if count >= 10 {
+                break;
+            }
+        }
+
+        assert_eq!(count, 5, "Should have exactly 5 contacts");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_new_errors_with_zero_contacts() {
+        let _env_guard = env_lock().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_name = BootstrapCacheStore::cache_file_name(false);
+        let cache_data = CacheData::default();
+        cache_data
+            .write_to_file(temp_dir.path(), &file_name)
+            .unwrap();
+
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/failing-endpoint"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1..)
+            .mount(&mock_server)
+            .await;
+
+        let config = InitialPeersConfig {
+            bootstrap_cache_dir: Some(temp_dir.path().to_path_buf()),
+            network_contacts_url: vec![format!("{}/failing-endpoint", mock_server.uri())],
+            ..Default::default()
+        };
+        let mut config =
+            BootstrapConfig::try_from(&config).expect("Failed to create BootstrapConfig");
+        config.disable_env_peers = true;
+
+        let result = Bootstrap::new(config).await;
+
+        assert!(
+            result.is_err(),
+            "Should error when all sources fail and no contacts are available"
+        );
+        assert!(matches!(result.unwrap_err(), Error::NoBootstrapPeersFound));
     }
 }

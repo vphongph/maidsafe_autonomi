@@ -24,6 +24,7 @@ use ant_protocol::{
 };
 use futures::future::Either;
 use libp2p::kad::store::MemoryStoreConfig;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::ConnectionId;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
@@ -200,10 +201,7 @@ impl NetworkDriver {
             connections_made: 0,
         };
 
-        let peers_in_rt = driver.current_routing_table_size();
-        driver
-            .bootstrap
-            .trigger_bootstrapping_process(&mut driver.swarm, peers_in_rt);
+        driver.bootstrap_network();
 
         driver
     }
@@ -232,6 +230,40 @@ impl NetworkDriver {
         }
     }
 
+    /// Bootstrap to the network by triggering the bootstrapping process
+    ///
+    /// We also "optionally" add some peers directly to the routing table to make sure we have a large
+    /// sample of peers to query from.
+    fn bootstrap_network(&mut self) {
+        let mut peers = Vec::new();
+
+        while let Ok(Some(addr)) = self.bootstrap.next_addr() {
+            if peers.len() >= 50 {
+                break;
+            }
+
+            peers.push(addr);
+        }
+
+        for contact in peers {
+            let contact_id = match contact.iter().find(|p| matches!(p, Protocol::P2p(_))) {
+                Some(Protocol::P2p(id)) => id,
+                _ => {
+                    debug!("Bootstrap peer {contact} has no peer ID, skipping adding to kad");
+                    continue;
+                }
+            };
+
+            self.swarm
+                .behaviour_mut()
+                .kademlia
+                .add_address(&contact_id, contact);
+        }
+
+        self.bootstrap
+            .trigger_bootstrapping_process(&mut self.swarm, 0);
+    }
+
     /// Shorthand for kad behaviour mut
     fn kad(&mut self) -> &mut kad::Behaviour<MemoryStore> {
         &mut self.swarm.behaviour_mut().kademlia
@@ -240,15 +272,6 @@ impl NetworkDriver {
     /// Shorthand for request response behaviour mut
     fn req(&mut self) -> &mut request_response::cbor::Behaviour<Request, Response> {
         &mut self.swarm.behaviour_mut().request_response
-    }
-
-    fn current_routing_table_size(&mut self) -> usize {
-        self.swarm
-            .behaviour_mut()
-            .kademlia
-            .kbuckets()
-            .map(|bucket| bucket.num_entries())
-            .sum()
     }
 
     /// Process a task sent by the client, start the query on kad and add it to the pending tasks

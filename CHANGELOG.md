@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 2025-10-06
 
+### Network
+
+### Changed
+
+- Nodes now use the `Bootstrap` struct to drive the initial bootstrapping process and the bootstrap
+  cache.
+- Nodes now evict peers immediately if they notice their peer ID has changed. This allows the
+  network to flush out old peers much quicker. This should resolve some performance issues we've seen
+  on the production network that have been the result of node operators who are over-provisioning and
+  pulling large numbers of nodes in short time periods.
+
+## Bootstrapping
+
+### Added
+
+- A new `Bootstrap` struct is introduced that provides a single interface to bootstrap a `Node` or
+  `Client` to the network.
+- The `BootstrapConfig` allows the user to modify various configurations for bootstrapping to the
+  network. Some options include providing a manual address, setting a custom bootstrap cache
+  directory, disabling bootstrap cache reading, setting custom network contacts url and so on.
+- The `Bootstrap` struct dials peers from all provided sources before terminating: environment
+  variables, CLI arguments, bootstrap cache, and network contact URLs. This solves the major issue of
+  using an outdated bootstrap cache to dial the network.
+- Implement file locking for bootstrap cache such that concurrent accesses do not error out or
+  produce empty values.
+
+### Changed
+
+- The old method of obtaining the bootstrap peers as `Vec<MultiAddress>` using
+  `InitialPeersConfig::get_bootstrap_addrs()` has now been removed in favour of the automated
+  bootstrapping process.
+
 ### API
 
 #### Added
@@ -27,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Changed
 
 - `self_encryption` dependency upgraded to version `0.34.1` for improved encryption performance.
+- `ClientConfig::bootstrap_cache_config` and `ClientConfig::init_peers_config` has been
+  deprecated in favour of `ClientConfig::bootstrap_config`. This new config combines all the options
+  from the deprecated fields.
 
 ### Payments
 
@@ -52,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Single-node payment is now enabled by default for both the `file cost` and `file upload` commands,
   reducing gas fees for users. The previous behaviour can be restored using the
   `--disable-single-node-payment` flag.
+- The `NetworkDriver` now uses the `Boostrap` struct to drive the initial bootstrapping process and
+  the bootstrap cache.
 
 ### General
 

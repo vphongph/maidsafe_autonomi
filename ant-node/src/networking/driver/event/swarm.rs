@@ -19,7 +19,10 @@ use libp2p::{
     Multiaddr, TransportError,
     core::ConnectedPoint,
     multiaddr::Protocol,
-    swarm::{ConnectionId, DialError, SwarmEvent},
+    swarm::{
+        ConnectionId, DialError, SwarmEvent,
+        dial_opts::{DialOpts, PeerCondition},
+    },
 };
 use std::time::Instant;
 use tokio::time::Duration;
@@ -371,6 +374,7 @@ impl SwarmDriver {
                     self.peers_in_rt,
                 );
 
+                let mut redial = None;
                 // we need to decide if this was a critical error and if we should report it to the Issue tracker
                 let issue_to_record = match &error {
                     DialError::Transport(errors) => {
@@ -476,6 +480,14 @@ impl SwarmDriver {
                         debug!(
                             "OutgoingConnectionError: WrongPeerId: obtained: {obtained:?}, address: {address:?}"
                         );
+                        let mut address = address.clone();
+                        if matches!(address.iter().last(), Some(Protocol::P2p(_))) {
+                            let _ = address.pop();
+                            address.push(Protocol::P2p(*obtained));
+                            redial = Some((address, *obtained));
+                            info!("Redial WrongPeerId address with correct PeerId: {redial:?}");
+                        }
+
                         Some(NodeIssue::WrongPeerId)
                     }
                     DialError::Denied { cause } => {
@@ -492,6 +504,20 @@ impl SwarmDriver {
                         "Outgoing Connection error to {failed_peer_id:?} is considered as critical. Marking it as an {issue_for_logging:?}. Error: {error:?}"
                     );
                     self.record_node_issue(failed_peer_id, issue);
+                }
+
+                if let Some((addr, remote_peer_id)) = redial {
+                    info!("Attempting to redial {failed_peer_id:?} at {addr:?}");
+
+                    if let Err(err) = self.swarm.dial(
+                        DialOpts::peer_id(remote_peer_id)
+                            // If we have a peer ID, we can prevent simultaneous dials.
+                            .condition(PeerCondition::NotDialing)
+                            .addresses(vec![addr.clone()])
+                            .build(),
+                    ) {
+                        warn!("Failed to redial {failed_peer_id:?} at {addr:?}: {err:?}");
+                    }
                 }
             }
             SwarmEvent::IncomingConnectionError {

@@ -90,11 +90,12 @@ fn convert_bootstrap_config(config: BootstrapConfigFields) -> Result<BootstrapCo
     if !initial_peers.is_empty() {
         bootstrap_config = bootstrap_config.with_initial_peers(initial_peers);
     }
-    if let Some(max_peers) = config.max_peers {
-        bootstrap_config = bootstrap_config.with_max_peers(max_peers as usize);
+    if let Some(max_cached_peers) = config.max_cached_peers {
+        bootstrap_config = bootstrap_config.with_max_cached_peers(max_cached_peers as usize);
     }
-    if let Some(max_addrs_per_peer) = config.max_addrs_per_peer {
-        bootstrap_config = bootstrap_config.with_addrs_per_peer(max_addrs_per_peer as usize);
+    if let Some(max_addrs_per_cached_peer) = config.max_addrs_per_cached_peer {
+        bootstrap_config =
+            bootstrap_config.with_max_addrs_per_cached_peer(max_addrs_per_cached_peer as usize);
     }
     if let Some(min_duration_ms) = config.min_cache_save_duration_ms {
         bootstrap_config.min_cache_save_duration = Duration::from_millis(min_duration_ms as u64);
@@ -331,8 +332,8 @@ pub struct BootstrapConfigFields {
     pub first: Option<bool>,
     pub initial_peers: Option<Vec<String>>,
     pub local: Option<bool>,
-    pub max_peers: Option<u32>,
-    pub max_addrs_per_peer: Option<u32>,
+    pub max_cached_peers: Option<u32>,
+    pub max_addrs_per_cached_peer: Option<u32>,
     pub min_cache_save_duration_ms: Option<u32>,
     pub max_cache_save_duration_ms: Option<u32>,
     pub network_contacts_url: Option<Vec<String>>,

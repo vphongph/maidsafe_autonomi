@@ -94,8 +94,8 @@ impl BootstrapCacheStore {
         self.data.write().await.add_peer(
             peer_id,
             [addr].iter(),
-            self.config.max_addrs_per_peer,
-            self.config.max_peers,
+            self.config.max_addrs_per_cached_peer,
+            self.config.max_cached_peers,
         );
     }
 
@@ -108,7 +108,7 @@ impl BootstrapCacheStore {
             &Self::cache_file_name(cfg.local),
         ) {
             Ok(mut data) => {
-                while data.peers.len() > cfg.max_peers {
+                while data.peers.len() > cfg.max_cached_peers {
                     data.peers.pop_back();
                 }
                 return Ok(data);
@@ -126,7 +126,7 @@ impl BootstrapCacheStore {
             Ok(data) => {
                 warn!("Loaded cache data from older version, upgrading to latest version");
                 let mut data: CacheDataLatest = data.into();
-                while data.peers.len() > cfg.max_peers {
+                while data.peers.len() > cfg.max_cached_peers {
                     data.peers.pop_back();
                 }
 
@@ -161,8 +161,8 @@ impl BootstrapCacheStore {
         if let Ok(data_from_file) = Self::load_cache_data(&self.config) {
             self.data.write().await.sync(
                 &data_from_file,
-                self.config.max_addrs_per_peer,
-                self.config.max_peers,
+                self.config.max_addrs_per_cached_peer,
+                self.config.max_cached_peers,
             );
         } else {
             warn!("Failed to load cache data from file, overwriting with new data");
@@ -324,7 +324,7 @@ mod tests {
         let dir = TempDir::new().expect("temp dir");
         let config = BootstrapConfig::default()
             .with_cache_dir(dir.path())
-            .with_max_peers(3);
+            .with_max_cached_peers(3);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
 
         let samples = [
@@ -496,7 +496,7 @@ mod tests {
         let dir = TempDir::new().expect("temp dir");
         let config = BootstrapConfig::default()
             .with_cache_dir(dir.path())
-            .with_addrs_per_peer(2);
+            .with_max_addrs_per_cached_peer(2);
         let cache = BootstrapCacheStore::new(config.clone()).expect("create cache");
 
         let peer_id = "12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE";

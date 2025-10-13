@@ -17,16 +17,22 @@ use std::{
 };
 
 /// Maximum peers to store
-const MAX_PEERS: usize = 1500;
+const MAX_CACHED_PEERS: usize = 1500;
 
 /// Maximum number of addresses to store for a Peer
-const MAX_ADDRS_PER_PEER: usize = 3;
+const MAX_ADDRS_PER_CACHED_PEER: usize = 3;
 
 // Min time until we save the bootstrap cache to disk. 30 secs
 const MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 // Max time until we save the bootstrap cache to disk. 3 hours
 const MAX_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// The max number of concurrent dials to be made during the initial bootstrap process.
+const CONCURRENT_DIALS: usize = 5;
+
+/// The max number of peers to be added before stopping the initial bootstrap process.
+const MAX_PEERS_BEFORE_TERMINATION: usize = 5;
 
 /// Configurations to fetch the initial peers which is used to bootstrap the network.
 /// This could optionally also be used as a command line argument struct.
@@ -115,10 +121,22 @@ pub struct BootstrapConfig {
     pub local: bool,
     /// The max time duration until we save the bootstrap cache to disk.
     pub max_cache_save_duration: Duration,
-    /// Maximum number of peers to keep in the cache
-    pub max_peers: usize,
-    /// Maximum number of addresses stored per peer.
-    pub max_addrs_per_peer: usize,
+    /// The max number of concurrent dials to be made during the initial bootstrap process.
+    ///
+    /// This is the number of peers we will try to dial in parallel.
+    /// Default is 5.
+    pub max_concurrent_dials: usize,
+    /// The max number of peers to be added to RT / connected before stopping the initial bootstrap process.
+    /// Default is 5.
+    pub max_contacted_peers_before_termination: usize,
+    /// Maximum number of peers to store inside the bootstrap cache
+    ///
+    /// When the number of cached peers exceeds this value, the least recently seen peers will be removed.
+    /// Default is 1500.
+    pub max_cached_peers: usize,
+    /// Maximum number of addresses stored per peer inside the bootstrap cache.
+    /// Default is 3.
+    pub max_addrs_per_cached_peer: usize,
     /// The min time duration until we save the bootstrap cache to disk.
     pub min_cache_save_duration: Duration,
     /// Specify the URL to fetch the network contacts from.
@@ -140,8 +158,10 @@ impl Default for BootstrapConfig {
             first: false,
             initial_peers: vec![],
             local: false,
-            max_peers: MAX_PEERS,
-            max_addrs_per_peer: MAX_ADDRS_PER_PEER,
+            max_concurrent_dials: CONCURRENT_DIALS,
+            max_contacted_peers_before_termination: MAX_PEERS_BEFORE_TERMINATION,
+            max_cached_peers: MAX_CACHED_PEERS,
+            max_addrs_per_cached_peer: MAX_ADDRS_PER_CACHED_PEER,
             min_cache_save_duration: MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL,
             max_cache_save_duration: MAX_BOOTSTRAP_CACHE_SAVE_INTERVAL,
             network_contacts_url: vec![],
@@ -199,15 +219,29 @@ impl BootstrapConfig {
         self
     }
 
-    /// Sets the maximum number of peers
-    pub fn with_max_peers(mut self, max_peers: usize) -> Self {
-        self.max_peers = max_peers;
+    /// Sets the maximum number of concurrent dials to be made during the initial bootstrap process
+    /// Default is 5.
+    pub fn with_max_concurrent_dials(mut self, max_dials: usize) -> Self {
+        self.max_concurrent_dials = max_dials;
         self
     }
 
-    /// Sets the maximum number of addresses for a single peer.
-    pub fn with_addrs_per_peer(mut self, max_addrs: usize) -> Self {
-        self.max_addrs_per_peer = max_addrs;
+    /// Sets the maximum number of peers to be added / contacted before stopping the initial bootstrap process
+    /// Default is 5.
+    pub fn with_max_contacted_peers_before_termination(mut self, max_peers: usize) -> Self {
+        self.max_contacted_peers_before_termination = max_peers;
+        self
+    }
+
+    /// Sets the maximum number of cached peers
+    pub fn with_max_cached_peers(mut self, max_peers: usize) -> Self {
+        self.max_cached_peers = max_peers;
+        self
+    }
+
+    /// Sets the maximum number of addresses for a single peer in the bootstrap cache
+    pub fn with_max_addrs_per_cached_peer(mut self, max_addrs: usize) -> Self {
+        self.max_addrs_per_cached_peer = max_addrs;
         self
     }
 

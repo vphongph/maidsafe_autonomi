@@ -34,11 +34,6 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use url::Url;
 
-/// The max number of concurrent dials to be made during the initial bootstrap process.
-const CONCURRENT_DIALS: usize = 3;
-/// The max number of peers to be added before stopping the initial bootstrap process.
-const MAX_PEERS_BEFORE_TERMINATION: usize = 5;
-
 /// Manages the flow of obtaining bootstrap peer addresses from various sources and also writes to the bootstrap cache.
 ///
 /// The sources are tried in the following order while reading:
@@ -185,9 +180,12 @@ impl Bootstrap {
         Ok(bootstrap)
     }
 
-    /// Returns the next address to try for bootstrapping.
-    /// None if a fetch is in progress and no address is ready yet.
-    /// Error if there are no more addresses to try.
+    /// Returns the next address from the sources. Returns `Ok(None)` if we are waiting for a source to return more
+    /// addresses.
+    /// Error if we have exhausted all sources and have no more addresses to return.
+    ///
+    /// This does not start any dial attempts, it returns the next address to dial.
+    /// Use `trigger_bootstrapping_process` to start auto manage the whole bootstrapping process.
     pub fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
         loop {
             self.process_events();
@@ -292,25 +290,30 @@ impl Bootstrap {
         }
     }
 
-    fn should_continue_bootstrapping(&mut self, peers_in_rt: usize) -> bool {
+    fn should_continue_bootstrapping(&mut self, contacted_peers: usize) -> bool {
         if self.bootstrap_completed {
             info!("Initial bootstrap process has already completed successfully.");
             return false;
         }
 
-        if peers_in_rt >= MAX_PEERS_BEFORE_TERMINATION {
+        if contacted_peers
+            >= self
+                .cache_store
+                .config()
+                .max_contacted_peers_before_termination
+        {
             self.bootstrap_completed = true;
             self.addrs.clear();
             self.ongoing_dials.clear();
 
             info!(
-                "Initial bootstrap process completed successfully. We have {peers_in_rt} peers in the routing table."
+                "Initial bootstrap process completed successfully. We have {contacted_peers} peers in the routing table."
             );
 
             return false;
         }
 
-        if self.ongoing_dials.len() >= CONCURRENT_DIALS {
+        if self.ongoing_dials.len() >= self.cache_store.config().max_concurrent_dials {
             info!(
                 "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
                 self.ongoing_dials.len()
@@ -328,7 +331,7 @@ impl Bootstrap {
                 return false;
             }
             info!(
-                "We have {peers_in_rt} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
+                "We have {contacted_peers} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
             );
 
             self.bootstrap_completed = true;
@@ -341,13 +344,13 @@ impl Bootstrap {
     pub fn trigger_bootstrapping_process<B: NetworkBehaviour>(
         &mut self,
         swarm: &mut Swarm<B>,
-        peers_in_rt: usize,
+        contacted_peers: usize,
     ) {
-        if !self.should_continue_bootstrapping(peers_in_rt) {
+        if !self.should_continue_bootstrapping(contacted_peers) {
             return;
         }
 
-        while self.ongoing_dials.len() < CONCURRENT_DIALS {
+        while self.ongoing_dials.len() < self.cache_store.config().max_concurrent_dials {
             match self.try_next_dial_addr() {
                 Ok(Some(mut addr)) => {
                     let addr_clone = addr.clone();
@@ -431,7 +434,7 @@ impl Bootstrap {
         peer_id: &PeerId,
         endpoint: &ConnectedPoint,
         swarm: &mut Swarm<B>,
-        peers_in_rt: usize,
+        contacted_peers: usize,
     ) {
         if self.bootstrap_completed {
             return;
@@ -447,14 +450,14 @@ impl Bootstrap {
                 });
         }
 
-        self.trigger_bootstrapping_process(swarm, peers_in_rt);
+        self.trigger_bootstrapping_process(swarm, contacted_peers);
     }
 
     pub fn on_outgoing_connection_error<B: NetworkBehaviour>(
         &mut self,
         peer_id: Option<PeerId>,
         swarm: &mut Swarm<B>,
-        peers_in_rt: usize,
+        contacted_peers: usize,
     ) {
         if self.bootstrap_completed {
             return;
@@ -478,7 +481,7 @@ impl Bootstrap {
             }
         }
 
-        self.trigger_bootstrapping_process(swarm, peers_in_rt);
+        self.trigger_bootstrapping_process(swarm, contacted_peers);
     }
 
     pub fn is_bootstrap_peer(&self, peer_id: &PeerId) -> bool {

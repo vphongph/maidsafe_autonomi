@@ -1997,17 +1997,17 @@ impl PyBootstrapCacheConfig {
         }
     }
 
-    /// Sets the maximum number of peers.
-    fn with_max_peers(&self, max_peers: usize) -> Self {
+    /// Sets the maximum number of cached peers.
+    fn with_max_cached_peers(&self, max_peers: usize) -> Self {
         Self {
-            inner: self.inner.clone().with_max_peers(max_peers),
+            inner: self.inner.clone().with_max_cached_peers(max_peers),
         }
     }
 
     /// Sets the maximum number of addresses for a single peer.
-    fn with_addrs_per_peer(&self, max_addrs: usize) -> Self {
+    fn with_max_addrs_per_cached_peer(&self, max_addrs: usize) -> Self {
         Self {
-            inner: self.inner.clone().with_addrs_per_peer(max_addrs),
+            inner: self.inner.clone().with_max_addrs_per_cached_peer(max_addrs),
         }
     }
 
@@ -2085,16 +2085,16 @@ impl PyBootstrapCacheConfig {
         })
     }
 
-    /// Get the maximum number of peers.
+    /// Get the maximum number of cached peers.
     #[getter]
-    fn max_peers(&self) -> usize {
-        self.inner.max_peers
+    fn max_cached_peers(&self) -> usize {
+        self.inner.max_cached_peers
     }
 
-    /// Get the maximum number of addresses per peer.
+    /// Get the maximum number of addresses per cached peer.
     #[getter]
-    fn max_addrs_per_peer(&self) -> usize {
-        self.inner.max_addrs_per_peer
+    fn max_addrs_per_cached_peer(&self) -> usize {
+        self.inner.max_addrs_per_cached_peer
     }
 
     /// Get the cache directory.

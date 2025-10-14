@@ -23,10 +23,10 @@ use xor_name::XorName;
 /// Payment strategy for uploads
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PaymentMode {
-    /// Default mode: Pay 3 nodes
-    #[default]
+    /// Pay 3 nodes
     Standard,
-    /// Alternative mode: Pay only the median priced node with 3x the quoted amount
+    /// Default mode: Pay only the median priced node with 3x the quoted amount
+    #[default]
     SingleNode,
 }
 

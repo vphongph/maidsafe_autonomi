@@ -282,7 +282,7 @@ impl Client {
             evm_network: config.evm_network,
             config: config.strategy,
             retry_failed: 0,
-            payment_mode: PaymentMode::Standard,
+            payment_mode: PaymentMode::default(),
         })
     }
 

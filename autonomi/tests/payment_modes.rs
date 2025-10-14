@@ -37,9 +37,9 @@ async fn test_payment_modes_file_upload() -> Result<()> {
     thread_rng().fill_bytes(&mut single_data_vec);
     let single_data = Bytes::from(single_data_vec);
 
-    // Test 1: Standard payment mode (default)
+    // Test 1: Standard payment mode (explicitly set)
     println!("Testing Standard payment mode");
-    let client_standard = client.clone();
+    let client_standard = client.clone().with_payment_mode(PaymentMode::Standard);
     let (cost_standard, addr_standard) = client_standard
         .data_put_public(standard_data.clone(), payment_option.clone())
         .await?;
@@ -128,7 +128,7 @@ async fn test_payment_modes_cost_estimation() -> Result<()> {
 
     // Test 1: Upload small data with Standard mode
     println!("Testing small data upload with Standard mode");
-    let client_standard = client.clone();
+    let client_standard = client.clone().with_payment_mode(PaymentMode::Standard);
     let (small_cost_standard, addr_small_standard) = client_standard
         .data_put_public(small_data_standard.clone(), payment_option.clone())
         .await?;

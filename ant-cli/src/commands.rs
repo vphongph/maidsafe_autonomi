@@ -68,6 +68,9 @@ pub enum SubCmd {
     Analyze {
         /// The address of the data to analyse.
         addr: String,
+        /// Show closest nodes to this address instead of analyzing it.
+        #[arg(long)]
+        closest_nodes: bool,
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
@@ -80,9 +83,9 @@ pub enum FileCmd {
     Cost {
         /// The file to estimate cost for.
         file: String,
-        /// Disable single-node payment mode. By default, single-node payment pays only the highest
-        /// priced node with 3x that amount. This flag switches to paying 3 nodes individually,
-        /// which costs more in gas fees but less in upload tokens.
+        /// Use standard payment mode instead of single-node payment (default).
+        /// Standard mode pays 3 nodes individually, which costs more in gas fees.
+        /// Single-node payment (default) pays only one node with 3x that amount, saving gas fees.
         #[arg(long)]
         disable_single_node_payment: bool,
     },
@@ -105,9 +108,10 @@ pub enum FileCmd {
         #[arg(long)]
         #[clap(default_value = "0")]
         retry_failed: u64,
-        /// Disable single-node payment mode. By default, single-node payment pays only the highest
-        /// priced node with 3x that amount. Data is still stored on 5 nodes. This flag switches to
-        /// paying 3 nodes individually, which costs more in gas fees but less in upload tokens.
+        /// Use standard payment mode instead of single-node payment (default).
+        /// Standard mode pays 3 nodes individually, which costs more in gas fees.
+        /// Single-node payment (default) pays only one node with 3x that amount, saving gas fees.
+        /// Data is stored on 5 nodes regardless of payment mode.
         #[arg(long)]
         disable_single_node_payment: bool,
         #[command(flatten)]
@@ -456,7 +460,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             FileCmd::Cost {
                 file,
                 disable_single_node_payment,
-            } => file::cost(&file, network_context, !disable_single_node_payment).await,
+            } => file::cost(&file, network_context, disable_single_node_payment).await,
             FileCmd::Upload {
                 file,
                 public,
@@ -472,7 +476,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                     network_context,
                     transaction_opt.max_fee_per_gas,
                     retry_failed,
-                    !disable_single_node_payment,
+                    disable_single_node_payment,
                 )
                 .await
                 {
@@ -642,9 +646,11 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             WalletCmd::Export => wallet::export(),
             WalletCmd::Balance => wallet::balance(network_context).await,
         },
-        Some(SubCmd::Analyze { addr, verbose }) => {
-            analyze::analyze(&addr, verbose, network_context).await
-        }
+        Some(SubCmd::Analyze {
+            addr,
+            closest_nodes,
+            verbose,
+        }) => analyze::analyze(&addr, closest_nodes, verbose, network_context).await,
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()

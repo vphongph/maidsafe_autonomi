@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-10-06
+
+### Language Bindings
+
+#### Added
+
+**Python:**
+- `Client` class: `with_payment_mode` method for setting the payment mode.
+- `PaymentMode` enum for defining the available payment modes.
+
+**NodeJS:**
+- `Client` class: `with_payment_mode` method for setting the payment mode.
+- `PaymentMode` enum for defining the available payment modes.
+
+### Network
+
+### Changed
+
+- Nodes now use the `Bootstrap` struct to drive the initial bootstrapping process and the bootstrap
+  cache.
+- Nodes now evict peers immediately if they notice their peer ID has changed. This allows the
+  network to flush out old peers much quicker. This should resolve some performance issues we've seen
+  on the production network that have been the result of node operators who are over-provisioning and
+  pulling large numbers of nodes in short time periods.
+
+## Bootstrapping
+
+### Added
+
+- A new `Bootstrap` struct is introduced that provides a single interface to bootstrap a `Node` or
+  `Client` to the network.
+- The `BootstrapConfig` allows the user to modify various configurations for bootstrapping to the
+  network. Some options include providing a manual address, setting a custom bootstrap cache
+  directory, disabling bootstrap cache reading, setting custom network contacts url and so on.
+- The `Bootstrap` struct dials peers from all provided sources before terminating: environment
+  variables, CLI arguments, bootstrap cache, and network contact URLs. This solves the major issue of
+  using an outdated bootstrap cache to dial the network.
+- Implement file locking for bootstrap cache such that concurrent accesses do not error out or
+  produce empty values.
+
+### Changed
+
+- The old method of obtaining the bootstrap peers as `Vec<MultiAddress>` using
+  `InitialPeersConfig::get_bootstrap_addrs()` has now been removed in favour of the automated
+  bootstrapping process.
+
+### API
+
+#### Added
+
+- Introduce a new payment mode: single node. This reduces gas fees by making a single transaction to
+  the median-priced node with 3x the quote amount, rather than 3 separate transactions to 3
+  highest nodes.
+- `PaymentMode` enum for controlling upload payment strategy with `Standard` (pay 3 nodes) and
+  `SingleNode` (pay 1 node with 3x amount) variants.
+- `Client::with_payment_mode()` method for setting the payment mode on the client.
+- `Client::get_raw_quote_from_peer()` method for obtaining quotes from specific peers without
+  market prices. This is useful for testing and obtaining reward addresses.
+- `Client::get_node_version()` async method for requesting the node version of a specific peer on
+  the network.
+
+#### Changed
+
+- `self_encryption` dependency upgraded to version `0.34.1` for improved encryption performance.
+- `ClientConfig::bootstrap_cache_config` and `ClientConfig::init_peers_config` has been
+  deprecated in favour of `ClientConfig::bootstrap_config`. This new config combines all the options
+  from the deprecated fields.
+
+### Payments
+
+#### Changed
+
+- Payment vault smart contract upgraded from V2 to V6. This upgrade supports the new single-node
+  payment verification logic while maintaining backward compatibility.
+
+### Ant Client
+
+#### Added
+
+- The `file cost` command provides a `--disable-single-node-payment` flag to switch from the
+  default single-node payment mode to the multi-node payment mode.
+- The `file upload` command provides a `--disable-single-node-payment` flag to switch from the
+  default single-node payment mode to the multi-node payment mode.
+- The `analyze` command now has an `analyse` alias for British English spelling preference.
+- The `analyze` command now supports a `--closest-nodes` flag argument that will display the closest 
+  nodes to the address being analysed.
+
+#### Changed
+
+- Single-node payment is now enabled by default for both the `file cost` and `file upload` commands,
+  reducing gas fees for users. The previous behaviour can be restored using the
+  `--disable-single-node-payment` flag.
+- The `NetworkDriver` now uses the `Boostrap` struct to drive the initial bootstrapping process and
+  the bootstrap cache.
+
+### General
+
+#### Changed
+
+- Various nightly CI workflows have been removed as they were not being actively used.
+- GitHub Actions `setup-python` upgraded from v5 to v6.
+
 ## 2025-09-29
 
 ### API

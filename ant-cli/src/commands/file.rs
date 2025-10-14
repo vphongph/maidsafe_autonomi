@@ -27,16 +27,18 @@ const MAX_ADDRESSES_TO_PRINT: usize = 3;
 pub async fn cost(
     file: &str,
     network_context: NetworkContext,
-    single_node_payment: bool,
+    use_standard_payment: bool,
 ) -> Result<()> {
     let mut client = crate::actions::connect_to_network(network_context)
         .await
         .map_err(|(err, _)| err)?;
 
-    // Configure payment mode
-    if single_node_payment {
-        client = client.with_payment_mode(PaymentMode::SingleNode);
-        println!("🎯 Using single node payment mode for cost estimation");
+    // Configure payment mode - default is SingleNode, only override if Standard is requested
+    if use_standard_payment {
+        client = client.with_payment_mode(PaymentMode::Standard);
+        println!("💳 Using standard payment mode (pays 3 nodes individually)");
+    } else {
+        println!("🎯 Using single node payment mode (default - saves gas fees)");
     }
 
     println!("Getting upload cost...");
@@ -59,7 +61,7 @@ pub async fn upload(
     network_context: NetworkContext,
     max_fee_per_gas_param: Option<MaxFeePerGasParam>,
     retry_failed: u64,
-    single_node_payment: bool,
+    use_standard_payment: bool,
 ) -> Result<(), ExitCodeError> {
     let config = ClientOperatingStrategy::new();
 
@@ -74,10 +76,12 @@ pub async fn upload(
         );
     }
 
-    // Configure payment mode
-    if single_node_payment {
-        client = client.with_payment_mode(PaymentMode::SingleNode);
-        println!("🎯 Using single node payment mode - saving gas fees");
+    // Configure payment mode - default is SingleNode, only override if Standard is requested
+    if use_standard_payment {
+        client = client.with_payment_mode(PaymentMode::Standard);
+        println!("💳 Using standard payment mode (pays 3 nodes individually)");
+    } else {
+        println!("🎯 Using single node payment mode (default - saves gas fees)");
     }
 
     let mut wallet = load_wallet(client.evm_network()).map_err(|err| (err, IO_ERROR))?;

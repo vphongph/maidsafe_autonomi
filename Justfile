@@ -43,10 +43,6 @@ build-release-artifacts arch nightly="false":
   mkdir artifacts
   cargo clean
 
-  if [ -n "$MAX_CHUNK_SIZE" ]; then
-    echo "Overriding chunk size to $MAX_CHUNK_SIZE bytes"
-  fi
-
   nightly_feature=""
   if [[ "$nightly" == "true" ]]; then
     nightly_feature="--features nightly"

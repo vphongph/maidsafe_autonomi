@@ -274,7 +274,44 @@ impl Client {
         let network = Network::new(bootstrap)?;
 
         // Wait for the network to be ready with enough peers
-        network.wait_for_connectivity().await?;
+        let connectivity_result = network.wait_for_connectivity().await;
+
+        // If the connection failed and we were using the bootstrap cache,
+        // retry once with the cache disabled to fall back to mainnet contacts
+        if connectivity_result.is_err() && !config.bootstrap_config.disable_cache_reading {
+            warn!(
+                "Initial connection failed with bootstrap cache enabled. Retrying with cache disabled to use mainnet contacts..."
+            );
+
+            // Create a new config with cache reading disabled
+            let retry_config = BootstrapConfig {
+                disable_cache_reading: true,
+                ..config.bootstrap_config.clone()
+            };
+
+            // Retry the bootstrap and connection with cache disabled
+            let bootstrap_retry = Bootstrap::new(retry_config).await?;
+            let network_retry = Network::new(bootstrap_retry)?;
+
+            // Wait for connectivity with the new bootstrap configuration
+            network_retry.wait_for_connectivity().await?;
+
+            info!(
+                "Successfully connected to the network using mainnet contacts after cache failure"
+            );
+
+            return Ok(Self {
+                network: network_retry,
+                client_event_sender: None,
+                evm_network: config.evm_network,
+                config: config.strategy,
+                retry_failed: 0,
+                payment_mode: PaymentMode::Standard,
+            });
+        }
+
+        // If the first attempt succeeded or cache was already disabled, return normally
+        connectivity_result?;
 
         Ok(Self {
             network,

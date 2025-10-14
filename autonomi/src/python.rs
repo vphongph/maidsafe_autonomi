@@ -283,6 +283,16 @@ impl PyClient {
         }
     }
 
+    /// Set the payment mode for uploads.
+    fn with_payment_mode(mut slf: PyRefMut<'_, Self>, payment_mode: PyPaymentMode) -> PyRefMut<'_, Self> {
+        let mode = match payment_mode {
+            PyPaymentMode::Standard => crate::client::quote::PaymentMode::Standard,
+            PyPaymentMode::SingleNode => crate::client::quote::PaymentMode::SingleNode,
+        };
+        slf.inner = slf.inner.clone().with_payment_mode(mode);
+        slf
+    }
+
     /// Get the cost of storing a chunk on the network
     fn chunk_cost<'a>(&self, py: Python<'a>, addr: PyChunkAddress) -> PyResult<Bound<'a, PyAny>> {
         let client = self.inner.clone();
@@ -2730,6 +2740,16 @@ impl PyMaxFeePerGas {
     }
 }
 
+/// Payment strategy for uploads
+#[pyclass(name = "PaymentMode", eq, eq_int)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum PyPaymentMode {
+    /// Default mode: Pay 3 nodes
+    Standard = 0,
+    /// Alternative mode: Pay only the median priced node with 3x the quoted amount
+    SingleNode = 1,
+}
+
 /// Options for making payments on the network.
 #[pyclass(name = "PaymentOption")]
 #[derive(Clone)]
@@ -4560,6 +4580,7 @@ fn autonomi_client_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMainSecretKey>()?;
     m.add_class::<PyMaxFeePerGas>()?;
     m.add_class::<PyMetadata>()?;
+    m.add_class::<PyPaymentMode>()?;
     m.add_class::<PyPaymentOption>()?;
     m.add_class::<PyPaymentQuote>()?;
     m.add_class::<PyPointer>()?;

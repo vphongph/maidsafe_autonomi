@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 2025-10-06
 
+### Language Bindings
+
+#### Added
+
+**Python:**
+- `Client` class: `with_payment_mode` method for setting the payment mode.
+- `PaymentMode` enum for defining the available payment modes.
+
+**NodeJS:**
+- `Client` class: `with_payment_mode` method for setting the payment mode.
+- `PaymentMode` enum for defining the available payment modes.
+
 ### Network
 
 ### Changed

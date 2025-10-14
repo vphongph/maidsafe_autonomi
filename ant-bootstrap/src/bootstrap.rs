@@ -49,10 +49,13 @@ use url::Url;
 /// If no more addresses are available from any source, `next_addr` returns an error.
 /// It is expected that the caller will retry `next_addr` later to allow
 /// for asynchronous fetches to complete.
-#[derive(Debug)]
+#[derive(custom_debug::Debug)]
 pub struct Bootstrap {
     cache_store: BootstrapCacheStore,
     addrs: VecDeque<Multiaddr>,
+    // The task responsible for syncing the cache, this is aborted on drop.
+    #[debug(skip)]
+    cache_task: Option<tokio::task::JoinHandle<()>>,
     // fetcher
     cache_pending: bool,
     contacts_progress: Option<ContactsProgress>,
@@ -114,10 +117,12 @@ impl Bootstrap {
             ongoing_dials: HashSet::new(),
             bootstrap_peer_ids,
             bootstrap_completed: config.first,
+            cache_task: None,
         };
 
         info!("Cache store is initialized and will sync and flush periodically");
-        bootstrap.cache_store.sync_and_flush_periodically();
+        let cache_task = bootstrap.cache_store.sync_and_flush_periodically();
+        bootstrap.cache_task = Some(cache_task);
 
         if config.first {
             info!("First node in network; clearing any existing cache");
@@ -640,6 +645,14 @@ impl Bootstrap {
 
     pub fn cache_store(&self) -> &BootstrapCacheStore {
         &self.cache_store
+    }
+}
+
+impl Drop for Bootstrap {
+    fn drop(&mut self) {
+        if let Some(cache_task) = self.cache_task.take() {
+            cache_task.abort();
+        }
     }
 }
 

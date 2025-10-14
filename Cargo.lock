@@ -835,6 +835,7 @@ dependencies = [
  "chrono",
  "clap",
  "color-eyre",
+ "custom_debug",
  "dirs-next",
  "futures",
  "libp2p",

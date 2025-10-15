@@ -38,7 +38,7 @@ const FETCH_TIMEOUT_SECS: u64 = 30;
 /// Maximum number of endpoints to fetch at a time
 const MAX_CONCURRENT_FETCHES: usize = 3;
 /// The max number of retries for an endpoint on failure.
-const MAX_RETRIES_ON_FETCH_FAILURE: usize = 3;
+const MAX_RETRIES_ON_FETCH_FAILURE: usize = 2;
 
 /// Discovers initial peers from a list of endpoints
 pub struct ContactsFetcher {
@@ -232,7 +232,7 @@ impl ContactsFetcher {
                 "Failed to get bootstrap addrs from URL, retrying {retries}/{MAX_RETRIES_ON_FETCH_FAILURE}"
             );
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
         };
 
         Ok(bootstrap_addresses)
@@ -393,7 +393,7 @@ mod tests {
             .and(path("/retry"))
             .respond_with(move |_: &wiremock::Request| {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                if count < 2 {
+                if count < 1 {
                     ResponseTemplate::new(500)
                 } else {
                     ResponseTemplate::new(200).set_body_string(

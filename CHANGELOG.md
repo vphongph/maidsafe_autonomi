@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-10-15
+
+### Bootstrapping
+
+#### Fixed
+
+- Provide a timeout in the bootstrapping process that prevents indefinite waiting to fetch contacts,
+  which in turn could result in a timeout error. We will also now complete bootstrapping when we've
+  obtained five addresses. This fix will apply to both the `antnode` and `ant` binaries.
+
 ## 2025-10-06
 
 ### Language Bindings
@@ -32,9 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the production network that have been the result of node operators who are over-provisioning and
   pulling large numbers of nodes in short time periods.
 
-## Bootstrapping
+### Bootstrapping
 
-### Added
+#### Added
 
 - A new `Bootstrap` struct is introduced that provides a single interface to bootstrap a `Node` or
   `Client` to the network.
@@ -47,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement file locking for bootstrap cache such that concurrent accesses do not error out or
   produce empty values.
 
-### Changed
+#### Changed
 
 - The old method of obtaining the bootstrap peers as `Vec<MultiAddress>` using
   `InitialPeersConfig::get_bootstrap_addrs()` has now been removed in favour of the automated

@@ -284,7 +284,10 @@ impl PyClient {
     }
 
     /// Set the payment mode for uploads.
-    fn with_payment_mode(mut slf: PyRefMut<'_, Self>, payment_mode: PyPaymentMode) -> PyRefMut<'_, Self> {
+    fn with_payment_mode(
+        mut slf: PyRefMut<'_, Self>,
+        payment_mode: PyPaymentMode,
+    ) -> PyRefMut<'_, Self> {
         let mode = match payment_mode {
             PyPaymentMode::Standard => crate::client::quote::PaymentMode::Standard,
             PyPaymentMode::SingleNode => crate::client::quote::PaymentMode::SingleNode,

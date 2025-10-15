@@ -30,9 +30,19 @@ use libp2p::{
     },
 };
 use std::collections::{HashSet, VecDeque};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use url::Url;
+
+/// Timeout for individual fetch operations
+const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Minimum number of initial addresses to fetch before returning from `new()`
+const MIN_INITIAL_ADDRS: usize = 5;
+
+/// Timeout in seconds to wait for initial addresses during bootstrap initialization
+const INITIAL_ADDR_FETCH_TIMEOUT_SECS: u64 = 30;
 
 /// Manages the flow of obtaining bootstrap peer addresses from various sources and also writes to the bootstrap cache.
 ///
@@ -134,17 +144,20 @@ impl Bootstrap {
         //
         // not required for 'first' node
         let mut collected_addrs = Vec::new();
-        if bootstrap.addrs.len() < 50 {
-            info!("Initial address queue < 50; fetching from cache/contacts");
+        if bootstrap.addrs.len() < MIN_INITIAL_ADDRS {
+            info!("Initial address queue < {MIN_INITIAL_ADDRS}; fetching from cache/contacts");
             let now = std::time::Instant::now();
             loop {
                 match bootstrap.next_addr() {
                     Ok(Some(addr)) => {
                         collected_addrs.push(addr);
-                        info!(
-                            "We now have {} initial address(es) to dial",
-                            collected_addrs.len()
-                        );
+                        if Self::try_finalize_initial_addrs(
+                            &mut bootstrap,
+                            &mut collected_addrs,
+                            MIN_INITIAL_ADDRS,
+                        ) {
+                            break;
+                        }
                         continue;
                     }
                     Ok(None) => {
@@ -153,12 +166,8 @@ impl Bootstrap {
                         );
                     }
                     Err(err) => {
-                        if !collected_addrs.is_empty() {
-                            info!(
-                                "No more addresses available, but we have {} to dial",
-                                collected_addrs.len()
-                            );
-                            bootstrap.extend_with_addrs(collected_addrs);
+                        if Self::try_finalize_initial_addrs(&mut bootstrap, &mut collected_addrs, 1)
+                        {
                             break;
                         }
                         warn!("Failed to fetch initial address: {err}");
@@ -166,13 +175,8 @@ impl Bootstrap {
                     }
                 }
 
-                if now.elapsed() > std::time::Duration::from_secs(30) {
-                    if !collected_addrs.is_empty() {
-                        info!(
-                            "Timed out waiting for more addresses, but we have {} to dial, returning",
-                            collected_addrs.len()
-                        );
-                        bootstrap.extend_with_addrs(collected_addrs);
+                if now.elapsed() > std::time::Duration::from_secs(INITIAL_ADDR_FETCH_TIMEOUT_SECS) {
+                    if Self::try_finalize_initial_addrs(&mut bootstrap, &mut collected_addrs, 1) {
                         break;
                     }
                     error!("Timed out waiting for initial addresses. ");
@@ -183,6 +187,25 @@ impl Bootstrap {
         }
 
         Ok(bootstrap)
+    }
+
+    /// Attempts to finalize the initial address collection by extending the bootstrap with collected addresses.
+    /// Returns `true` if addresses were successfully added and initialization should complete.
+    /// Returns `false` if no addresses are available yet.
+    fn try_finalize_initial_addrs(
+        bootstrap: &mut Bootstrap,
+        collected_addrs: &mut Vec<Multiaddr>,
+        min_address: usize,
+    ) -> bool {
+        if collected_addrs.len() < min_address {
+            return false;
+        }
+        info!(
+            "Collected minimum required initial addresses ({}), proceeding with bootstrap.",
+            collected_addrs.len()
+        );
+        bootstrap.extend_with_addrs(std::mem::take(collected_addrs));
+        true
     }
 
     /// Returns the next address from the sources. Returns `Ok(None)` if we are waiting for a source to return more
@@ -201,7 +224,7 @@ impl Bootstrap {
             }
 
             if self.fetch_in_progress.is_some() {
-                info!("next_addr waiting for in-flight fetch result");
+                debug!("next_addr waiting for in-flight fetch result");
                 return Ok(None);
             }
 
@@ -508,18 +531,29 @@ impl Bootstrap {
         let event_tx = self.event_tx.clone();
 
         tokio::spawn(async move {
-            let addrs = match tokio::task::spawn_blocking(move || {
-                BootstrapCacheStore::load_cache_data(&config)
+            let fetch_result = tokio::time::timeout(FETCH_TIMEOUT, async move {
+                tokio::task::spawn_blocking(move || BootstrapCacheStore::load_cache_data(&config))
+                    .await
             })
-            .await
-            {
-                Ok(Ok(cache_data)) => cache_data.get_all_addrs().cloned().collect(),
-                Ok(Err(err)) => {
-                    warn!("Failed to load cache data: {err}");
-                    Vec::new()
-                }
-                Err(err) => {
-                    warn!("Cache fetch task failed to join: {err}");
+            .await;
+
+            let addrs = match fetch_result {
+                Ok(spawn_result) => match spawn_result {
+                    Ok(Ok(cache_data)) => cache_data.get_all_addrs().cloned().collect(),
+                    Ok(Err(err)) => {
+                        warn!("Failed to load cache data: {err}");
+                        Vec::new()
+                    }
+                    Err(err) => {
+                        warn!("Cache fetch task failed to join: {err}");
+                        Vec::new()
+                    }
+                },
+                Err(_) => {
+                    warn!(
+                        "Cache fetch timed out after {} seconds",
+                        FETCH_TIMEOUT.as_secs()
+                    );
                     Vec::new()
                 }
             };
@@ -558,18 +592,23 @@ impl Bootstrap {
         let event_tx = self.event_tx.clone();
 
         tokio::spawn(async move {
-            let Ok(fetcher) = ContactsFetcher::with_endpoints(vec![endpoint.clone()]) else {
-                warn!("Failed to create contacts fetcher for {endpoint}");
-                if let Err(err) = event_tx.send(FetchEvent::Contacts(Vec::new())) {
-                    error!("Failed to send contacts fetch error event: {err:?}");
-                }
-                return;
-            };
+            let fetch_result = tokio::time::timeout(FETCH_TIMEOUT, async {
+                let fetcher = ContactsFetcher::with_endpoints(vec![endpoint.clone()])?;
+                fetcher.fetch_bootstrap_addresses().await
+            })
+            .await;
 
-            let addrs = match fetcher.fetch_bootstrap_addresses().await {
-                Ok(addrs) => addrs,
-                Err(err) => {
+            let addrs = match fetch_result {
+                Ok(Ok(addrs)) => addrs,
+                Ok(Err(err)) => {
                     warn!("Failed to fetch contacts from {endpoint}: {err}");
+                    Vec::new()
+                }
+                Err(_) => {
+                    warn!(
+                        "Contacts fetch from {endpoint} timed out after {} seconds",
+                        FETCH_TIMEOUT.as_secs()
+                    );
                     Vec::new()
                 }
             };

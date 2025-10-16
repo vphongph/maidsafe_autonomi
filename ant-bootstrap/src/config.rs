@@ -29,7 +29,7 @@ const MIN_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_BOOTSTRAP_CACHE_SAVE_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
 
 /// The max number of concurrent dials to be made during the initial bootstrap process.
-const CONCURRENT_DIALS: usize = 5;
+const CONCURRENT_DIALS: usize = 10;
 
 /// The max number of peers to be added before stopping the initial bootstrap process.
 const MAX_PEERS_BEFORE_TERMINATION: usize = 5;

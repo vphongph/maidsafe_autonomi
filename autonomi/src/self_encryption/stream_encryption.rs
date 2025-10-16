@@ -271,7 +271,8 @@ pub(crate) async fn encrypt_directory_files(
     for entry in walkdir::WalkDir::new(&dir_path) {
         let entry = entry?;
 
-        if entry.file_type().is_dir() {
+        // Skip files and symbolic links
+        if !entry.file_type().is_file() {
             continue;
         }
 

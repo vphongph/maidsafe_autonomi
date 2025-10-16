@@ -77,12 +77,8 @@ impl NetworkDriver {
                     (peer_id, endpoint.get_remote_address().clone()),
                 );
                 self.connections_made += 1;
-                self.bootstrap.on_connection_established(
-                    &peer_id,
-                    &endpoint,
-                    &mut self.swarm,
-                    self.connections_made,
-                );
+                self.bootstrap
+                    .on_connection_established(&peer_id, &endpoint);
                 Ok(())
             }
             SwarmEvent::ConnectionClosed {
@@ -104,11 +100,7 @@ impl NetworkDriver {
             } => {
                 debug!("OutgoingConnectionError to {peer_id:?} on {connection_id:?} - {error:?}");
                 let _ = self.live_connected_peers.remove(&connection_id);
-                self.bootstrap.on_outgoing_connection_error(
-                    peer_id,
-                    &mut self.swarm,
-                    self.connections_made,
-                );
+                self.bootstrap.on_outgoing_connection_error(peer_id);
 
                 Ok(())
             }

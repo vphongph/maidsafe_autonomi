@@ -254,12 +254,8 @@ impl SwarmDriver {
                 event_string = "ConnectionEstablished";
                 debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
 
-                self.bootstrap.on_connection_established(
-                    &peer_id,
-                    &endpoint,
-                    &mut self.swarm,
-                    self.peers_in_rt,
-                );
+                self.bootstrap
+                    .on_connection_established(&peer_id, &endpoint);
 
                 if let Some(external_address_manager) = self.external_address_manager.as_mut()
                     && let ConnectedPoint::Listener { local_addr, .. } = &endpoint
@@ -337,11 +333,7 @@ impl SwarmDriver {
 
                 self.record_connection_metrics();
 
-                self.bootstrap.on_outgoing_connection_error(
-                    None,
-                    &mut self.swarm,
-                    self.peers_in_rt,
-                );
+                self.bootstrap.on_outgoing_connection_error(None);
             }
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(failed_peer_id),
@@ -369,11 +361,8 @@ impl SwarmDriver {
                 let _ = self.live_connected_peers.remove(&connection_id);
                 self.record_connection_metrics();
 
-                self.bootstrap.on_outgoing_connection_error(
-                    Some(failed_peer_id),
-                    &mut self.swarm,
-                    self.peers_in_rt,
-                );
+                self.bootstrap
+                    .on_outgoing_connection_error(Some(failed_peer_id));
 
                 let mut redial = None;
                 // we need to decide if this was a critical error and if we should report it to the Issue tracker

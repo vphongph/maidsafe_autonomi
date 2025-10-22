@@ -213,23 +213,23 @@ impl Bootstrap {
     /// Error if we have exhausted all sources and have no more addresses to return.
     ///
     /// This does not start any dial attempts, it returns the next address to dial.
-    /// Use `trigger_bootstrapping_process` to start auto manage the whole bootstrapping process.
+    /// Use `trigger_bootstrapping_process` to poll the dialing process.
     pub fn next_addr(&mut self) -> Result<Option<Multiaddr>> {
         loop {
             self.process_events();
 
             if let Some(addr) = self.addrs.pop_front() {
-                info!(?addr, "next_addr returning queued address");
+                info!("Returning next bootstrap address: {addr}");
                 return Ok(Some(addr));
             }
 
-            if self.fetch_in_progress.is_some() {
-                debug!("next_addr waiting for in-flight fetch result");
+            if let Some(fetch_kind) = self.fetch_in_progress {
+                debug!("Fetch in progress: {fetch_kind:?}; waiting for addresses");
                 return Ok(None);
             }
 
             if self.cache_pending && !matches!(self.fetch_in_progress, Some(FetchKind::Cache)) {
-                info!("next_addr triggering cache fetch");
+                info!("Triggering cache fetch");
                 self.start_cache_fetch()?;
                 continue;
             }
@@ -237,7 +237,7 @@ impl Bootstrap {
             if self.contacts_progress.is_some()
                 && !matches!(self.fetch_in_progress, Some(FetchKind::Contacts))
             {
-                info!("next_addr triggering contacts fetch");
+                info!("Triggering contacts fetch");
                 self.start_contacts_fetch()?;
                 if self.fetch_in_progress.is_some() {
                     return Ok(None);
@@ -245,7 +245,7 @@ impl Bootstrap {
                 continue;
             }
 
-            info!("next_addr exhausted all address sources");
+            warn!("No more sources to fetch bootstrap addresses from, and address queue is empty.");
             return Err(Error::NoBootstrapPeersFound);
         }
     }
@@ -254,17 +254,17 @@ impl Bootstrap {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 FetchEvent::Cache(addrs) => {
-                    info!(count = addrs.len(), "process_events received cache batch");
                     if addrs.is_empty() {
-                        info!("No addresses retrieved from cache");
+                        info!("Cache fetch has completed, but read 0 addresses");
                     } else {
+                        info!("Cache fetch has completed. Got {} addresses", addrs.len());
                         self.extend_with_addrs(addrs);
                     }
                 }
                 FetchEvent::Contacts(addrs) => {
                     info!(
-                        count = addrs.len(),
-                        "process_events received contacts batch"
+                        "Contacts fetch has completed. Got {} addresses",
+                        addrs.len()
                     );
                     self.extend_with_addrs(addrs);
                     if self
@@ -318,10 +318,11 @@ impl Bootstrap {
         }
     }
 
-    fn should_continue_bootstrapping(&mut self, contacted_peers: usize) -> bool {
+    /// Return true if the bootstrapping process has completed or if we have run out of addresses, otherwise false.
+    fn has_bootstrap_completed(&self, contacted_peers: usize) -> bool {
         if self.bootstrap_completed {
-            info!("Initial bootstrap process has already completed successfully.");
-            return false;
+            debug!("Initial bootstrap process has already completed successfully.");
+            return true;
         }
 
         if contacted_peers
@@ -330,52 +331,42 @@ impl Bootstrap {
                 .config()
                 .max_contacted_peers_before_termination
         {
-            self.bootstrap_completed = true;
-            self.addrs.clear();
-            self.ongoing_dials.clear();
-
             info!(
                 "Initial bootstrap process completed successfully. We have {contacted_peers} peers in the routing table."
             );
-
-            return false;
+            return true;
         }
 
-        if self.ongoing_dials.len() >= self.cache_store.config().max_concurrent_dials {
-            info!(
-                "Initial bootstrap has {} ongoing dials. Not dialing anymore.",
-                self.ongoing_dials.len()
-            );
-
-            return false;
-        }
-
-        if self.addrs.is_empty() {
-            if self.cache_pending
-                || self.contacts_progress.is_some()
-                || self.fetch_in_progress.is_some()
-            {
-                info!("Initial bootstrap is awaiting additional addresses to arrive.");
-                return false;
-            }
+        // If addresses are empty AND no fetch is in progress AND no contacts endpoints are left to try, then
+        // we have exhausted all sources.
+        if self.addrs.is_empty()
+            && !self.cache_pending
+            && self.contacts_progress.is_none()
+            && self.fetch_in_progress.is_none()
+        {
             info!(
                 "We have {contacted_peers} peers in RT, but no more addresses to dial. Stopping initial bootstrap."
             );
-
-            self.bootstrap_completed = true;
-            return false;
+            return true;
         }
 
-        true
+        false
     }
 
+    /// Manages the bootstrapping process by attempting to dial peers from the available addresses.
+    ///
+    /// Returns `true` if the bootstrapping process has ended (either due to successful connection or due to exhaustion
+    /// of addresses), otherwise `false`.
     pub fn trigger_bootstrapping_process<B: NetworkBehaviour>(
         &mut self,
         swarm: &mut Swarm<B>,
         contacted_peers: usize,
-    ) {
-        if !self.should_continue_bootstrapping(contacted_peers) {
-            return;
+    ) -> bool {
+        if self.has_bootstrap_completed(contacted_peers) {
+            self.bootstrap_completed = true;
+            self.addrs.clear();
+            self.ongoing_dials.clear();
+            return true;
         }
 
         while self.ongoing_dials.len() < self.cache_store.config().max_concurrent_dials {
@@ -455,15 +446,10 @@ impl Bootstrap {
                 }
             }
         }
+        self.bootstrap_completed
     }
 
-    pub fn on_connection_established<B: NetworkBehaviour>(
-        &mut self,
-        peer_id: &PeerId,
-        endpoint: &ConnectedPoint,
-        swarm: &mut Swarm<B>,
-        contacted_peers: usize,
-    ) {
+    pub fn on_connection_established(&mut self, peer_id: &PeerId, endpoint: &ConnectedPoint) {
         if self.bootstrap_completed {
             return;
         }
@@ -477,16 +463,9 @@ impl Bootstrap {
                     None => true,
                 });
         }
-
-        self.trigger_bootstrapping_process(swarm, contacted_peers);
     }
 
-    pub fn on_outgoing_connection_error<B: NetworkBehaviour>(
-        &mut self,
-        peer_id: Option<PeerId>,
-        swarm: &mut Swarm<B>,
-        contacted_peers: usize,
-    ) {
+    pub fn on_outgoing_connection_error(&mut self, peer_id: Option<PeerId>) {
         if self.bootstrap_completed {
             return;
         }
@@ -508,8 +487,6 @@ impl Bootstrap {
                     .retain(|addr| multiaddr_get_peer_id(addr).is_some());
             }
         }
-
-        self.trigger_bootstrapping_process(swarm, contacted_peers);
     }
 
     pub fn is_bootstrap_peer(&self, peer_id: &PeerId) -> bool {
@@ -689,8 +666,8 @@ impl Bootstrap {
 
 impl Drop for Bootstrap {
     fn drop(&mut self) {
-        if let Some(cache_task) = self.cache_task.take() {
-            cache_task.abort();
+        if let Some(cache_sync_task) = self.cache_task.take() {
+            cache_sync_task.abort();
         }
     }
 }

@@ -46,7 +46,7 @@ use libp2p::{
 use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{Duration, Interval, interval};
+use tokio::time::{Duration, interval};
 use tracing::warn;
 
 use super::interface::{LocalSwarmCmd, NetworkEvent, NetworkSwarmCmd};
@@ -65,10 +65,9 @@ pub(crate) const RELAY_MANAGER_RESERVATION_INTERVAL: Duration = Duration::from_s
 /// Interval over which we check if we could dial any peer in the dial queue.
 const DIAL_QUEUE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Periodically check if the initial bootstrap process should be triggered.
-/// This happens only once after the conditions for triggering the initial bootstrap process are met.
-pub(crate) const INITIAL_BOOTSTRAP_CHECK_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(1);
+/// Periodically trigger the bootstrap process to try connect to more peers in the network.
+pub(crate) const BOOTSTRAP_CHECK_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(100);
 
 /// The ways in which the Get Closest queries are used.
 pub(crate) enum PendingGetClosestType {
@@ -174,8 +173,7 @@ impl SwarmDriver {
         let mut network_discover_interval = interval(NETWORK_DISCOVER_INTERVAL);
         let mut set_farthest_record_interval = interval(CLOSET_RECORD_CHECK_INTERVAL);
         let mut relay_manager_reservation_interval = interval(RELAY_MANAGER_RESERVATION_INTERVAL);
-        let mut initial_bootstrap_trigger_check_interval =
-            Some(interval(INITIAL_BOOTSTRAP_CHECK_INTERVAL));
+        let mut bootstrap_interval = Some(interval(BOOTSTRAP_CHECK_INTERVAL));
         let mut dial_queue_check_interval = interval(DIAL_QUEUE_CHECK_INTERVAL);
         let _ = dial_queue_check_interval.tick().await; // first tick completes immediately
 
@@ -249,19 +247,21 @@ impl SwarmDriver {
                         let _ = self.dial_queue.remove(peer_id);
                     }
                 },
-
-                // check if we can trigger the initial bootstrap process
-                // once it is triggered, we don't re-trigger it
-                Some(()) = conditional_interval(&mut initial_bootstrap_trigger_check_interval) => {
+                // Only call the async closure IF bootstrap_interval is Some. This prevents the tokio::select! from
+                // executing this branch once bootstrap_interval is set to None.
+                _ = async {
+                    debug!("Polling bootstrap interval.");
+                    #[allow(clippy::unwrap_used)]
+                    bootstrap_interval.as_mut().expect("bootstrap interval is checked before executing").tick().await
+                }, if bootstrap_interval.is_some() => {
                     if self.initial_bootstrap_trigger.should_trigger_initial_bootstrap() {
-                        info!("Triggering initial bootstrap process. This is a one-time operation.");
-                        self.bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
-                        // we will not call this loop anymore, once the initial bootstrap is triggered.
-                        // It should run on its own and complete.
-                        initial_bootstrap_trigger_check_interval = None;
+                        let completed = self.bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.peers_in_rt);
+                        if completed {
+                            info!("Initial bootstrap process completed. Marking bootstrap_interval as None.");
+                            bootstrap_interval = None;
+                        }
                     }
                 }
-
                 // runs every bootstrap_interval time
                 _ = network_discover_interval.tick() => {
                     round_robin_index += 1;
@@ -529,17 +529,6 @@ impl SwarmDriver {
         }
 
         Ok(())
-    }
-}
-
-/// To tick an optional interval inside tokio::select! without looping forever.
-async fn conditional_interval(i: &mut Option<Interval>) -> Option<()> {
-    match i {
-        Some(i) => {
-            let _ = i.tick().await;
-            Some(())
-        }
-        None => None,
     }
 }
 

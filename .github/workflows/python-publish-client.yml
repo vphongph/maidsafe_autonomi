@@ -30,7 +30,7 @@ jobs:
           sccache: 'true'
           working-directory: ./autonomi
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
@@ -58,7 +58,7 @@ jobs:
           sccache: 'true'
           working-directory: ./autonomi
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-windows-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
@@ -93,7 +93,7 @@ jobs:
           sccache: 'true'
           working-directory: ./autonomi
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-linux-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
@@ -132,7 +132,7 @@ jobs:
           sccache: 'true'
           working-directory: ./autonomi
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-musllinux-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
@@ -228,7 +228,7 @@ jobs:
           args: --out dist
           working-directory: build/autonomi
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels
           path: build/autonomi/dist/*.tar.gz

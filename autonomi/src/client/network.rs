@@ -10,7 +10,7 @@ use crate::Client;
 use crate::networking::NetworkError;
 use crate::networking::version::PackageVersion;
 use ant_protocol::NetworkAddress;
-use libp2p::kad::PeerInfo;
+use libp2p::kad::{PeerInfo, Record};
 
 impl Client {
     /// Retrieve the closest peers to the given network address.
@@ -20,6 +20,20 @@ impl Client {
     ) -> Result<Vec<PeerInfo>, NetworkError> {
         self.network
             .get_closest_peers_with_retries(network_address.into())
+            .await
+    }
+
+    /// Get a record directly from a specific peer.
+    /// Returns:
+    /// - Some(Record) if the peer holds the record
+    /// - None if the peer doesn't hold the record or the request fails
+    pub async fn get_record_from_peer(
+        &self,
+        network_address: impl Into<NetworkAddress>,
+        peer: PeerInfo,
+    ) -> Result<Option<Record>, NetworkError> {
+        self.network
+            .get_record_from_peer(network_address.into(), peer)
             .await
     }
 

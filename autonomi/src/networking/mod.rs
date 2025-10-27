@@ -422,6 +422,28 @@ impl Network {
         }
     }
 
+    /// Get a record directly from a specific peer on the Network
+    /// Returns:
+    /// - Some(Record) if the peer holds the record
+    /// - None if the peer doesn't hold the record or the request fails
+    pub async fn get_record_from_peer(
+        &self,
+        addr: NetworkAddress,
+        peer: PeerInfo,
+    ) -> Result<Option<Record>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetRecordFromPeer {
+            addr,
+            peer,
+            resp: tx,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        rx.await?
+    }
+
     /// Get a quote for a record from a Peer on the Network
     /// Returns an Option:
     /// - Some(PaymentQuote) if the quote is successfully received

@@ -73,7 +73,6 @@ impl std::fmt::Display for Analysis {
         match self {
             Analysis::Chunk(chunk) => {
                 writeln!(f, "Chunk stored at: {}", chunk.address().to_hex())?;
-                writeln!(f, "Chunk content in hex: {}", hex::encode(chunk.value()))?;
             }
             Analysis::GraphEntry(graph_entry) => {
                 writeln!(

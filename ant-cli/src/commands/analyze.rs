@@ -7,7 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
-use autonomi::{Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError};
+use autonomi::{
+    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
+    networking::NetworkAddress,
+};
 use color_eyre::eyre::Result;
 use std::str::FromStr;
 
@@ -32,7 +35,7 @@ pub async fn analyze(
         .map_err(|(err, _)| err)?;
 
     if closest_nodes {
-        return print_closest_nodes(&client, addr, verbose).await;
+        print_closest_nodes(&client, addr, verbose).await?;
     }
 
     let analysis = client.analyze_address(addr, verbose).await;
@@ -132,41 +135,106 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     println_if_verbose!("Querying closest peers to address...");
 
     // Try parsing as ChunkAddress (XorName) first
-    let peers = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+    let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
         println_if_verbose!("Identified as ChunkAddress");
-        client
-            .get_closest_to_address(chunk_addr)
-            .await
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?
+        NetworkAddress::from(chunk_addr)
     // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
     } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
         println_if_verbose!("Identified as PublicKey, using GraphEntryAddress");
         // Default to GraphEntryAddress for public keys
-        let graph_entry_address = GraphEntryAddress::new(public_key);
-        client
-            .get_closest_to_address(graph_entry_address)
-            .await
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?
+        NetworkAddress::from(GraphEntryAddress::new(public_key))
     } else {
         return Err(color_eyre::eyre::eyre!(
             "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
         ));
     };
 
-    // Sort peers by peer_id for consistent output
+    // Get closest group to the target addr
+    let peers = client
+        .get_closest_to_address(target_addr.clone(), Some(20))
+        .await
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
+
+    // Sort peers by distance to target address
     let mut sorted_peers = peers;
-    sorted_peers.sort_by(|a, b| a.peer_id.cmp(&b.peer_id));
+    sorted_peers.sort_by_key(|peer| {
+        let peer_addr = NetworkAddress::from(peer.peer_id);
+        target_addr.distance(&peer_addr)
+    });
 
     println!("Found {} closest peers to {}:", sorted_peers.len(), addr);
+    println!();
+
+    // Check holding status for each peer
     for (i, peer) in sorted_peers.iter().enumerate() {
-        println!("{}. Peer ID: {}", i + 1, peer.peer_id);
+        let peer_addr = NetworkAddress::from(peer.peer_id);
+        let distance = target_addr.distance(&peer_addr);
+        
+        println!("{}. Peer ID: {} (distance: {distance:?}[{:?}])", i + 1, peer.peer_id, distance.ilog2());
+
+        // Query the peer directly to check if it holds the record
+        match client
+            .get_record_from_peer(target_addr.clone(), peer.clone())
+            .await
+        {
+            Ok(Some(record)) => {
+                println!(
+                    "   Status: ✅ HOLDING record (size: {} bytes)",
+                    record.value.len()
+                );
+            }
+            Ok(None) => {
+                println!("   Status: ❌ NOT holding record");
+            }
+            Err(e) => {
+                println!("   Status: ⚠️  Failed to query: {e}");
+            }
+        }
+
         if verbose {
             println!("   Addresses:");
             for addr in &peer.addrs {
                 println!("     - {addr}");
             }
-            println!();
         }
+        println!();
+    }
+
+    // Print 2-D distance matrix among sorted peers
+    println!("\n{}", "=".repeat(80));
+    println!("Distance Matrix Among Closest Peers:");
+    println!("{}", "=".repeat(80));
+    println!();
+
+    // Print header row with peer indices
+    print!("     ");
+    for i in 0..sorted_peers.len() {
+        print!("Peer {:2} ", i + 1);
+    }
+    println!();
+    print!("     ");
+    for _ in 0..sorted_peers.len() {
+        print!("{} ", "-".repeat(7));
+    }
+    println!();
+
+    // Print each row of the distance matrix
+    for (i, peer_i) in sorted_peers.iter().enumerate() {
+        print!("P{:2}  ", i + 1);
+        let addr_i = NetworkAddress::from(peer_i.peer_id);
+        
+        for peer_j in &sorted_peers {
+            let addr_j = NetworkAddress::from(peer_j.peer_id);
+            let distance = addr_i.distance(&addr_j);
+            
+            // Display distance with ilog2 for readability
+            if addr_i == addr_j {
+                print!("   -    ");
+            } else {
+                print!("{:?} ", distance.ilog2());
+            }
+        }
+        println!();
     }
 
     Ok(())

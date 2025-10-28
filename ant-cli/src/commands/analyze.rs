@@ -7,11 +7,13 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
+use autonomi::client::analyze::Analysis;
 use autonomi::{
     Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
     networking::NetworkAddress,
 };
 use color_eyre::eyre::Result;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 pub async fn analyze(
@@ -19,6 +21,7 @@ pub async fn analyze(
     closest_nodes: bool,
     verbose: bool,
     network_context: NetworkContext,
+    recursive: bool,
 ) -> Result<()> {
     macro_rules! println_if_verbose {
         ($($arg:tt)*) => {
@@ -27,7 +30,7 @@ pub async fn analyze(
             }
         };
     }
-    println_if_verbose!("Analyzing address: {}", addr);
+    println_if_verbose!("Analyzing address: {addr}");
 
     // then connect to network and check data
     let client = crate::actions::connect_to_network(network_context)
@@ -38,22 +41,38 @@ pub async fn analyze(
         print_closest_nodes(&client, addr, verbose).await?;
     }
 
-    let analysis = client.analyze_address(addr, verbose).await;
-    match analysis {
-        Ok(analysis) => {
-            println_if_verbose!("Analysis successful");
-            println!("{analysis}");
+    let results = if recursive {
+        println_if_verbose!("Starting recursive analysis...");
+        client.analyze_address_recursively(addr, verbose).await
+    } else {
+        let mut map = HashMap::new();
+        let analysis = client.analyze_address(addr, verbose).await;
+        map.insert(addr.to_string(), analysis);
+        map
+    };
+
+    // Print results
+    if recursive && results.len() > 1 {
+        print_recursive_summary(&results);
+    } else if let Some((_, analysis)) = results.iter().next() {
+        match analysis {
+            Ok(analysis) => {
+                println_if_verbose!("Analysis successful");
+                println!("{analysis}");
+            }
+            Err(AnalysisError::UnrecognizedInput) => {
+                println!("🚨 Could not identify address type!");
+                println_if_verbose!(
+                    "Provided string was not recognized as a data address, trying other types..."
+                );
+                try_other_types(addr, verbose);
+            }
+            Err(e) => {
+                println!("Analysis inconclusive: {e}");
+            }
         }
-        Err(AnalysisError::UnrecognizedInput) => {
-            println!("🚨 Could not identify address type!");
-            println_if_verbose!(
-                "Provided string was not recognized as a data address, trying other types..."
-            );
-            try_other_types(addr, verbose);
-        }
-        Err(e) => {
-            println!("Analysis inconclusive: {e}");
-        }
+    } else {
+        println!("No analysis results available.");
     }
 
     Ok(())
@@ -169,8 +188,13 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     for (i, peer) in sorted_peers.iter().enumerate() {
         let peer_addr = NetworkAddress::from(peer.peer_id);
         let distance = target_addr.distance(&peer_addr);
-        
-        println!("{}. Peer ID: {} (distance: {distance:?}[{:?}])", i + 1, peer.peer_id, distance.ilog2());
+
+        println!(
+            "{}. Peer ID: {} (distance: {distance:?}[{:?}])",
+            i + 1,
+            peer.peer_id,
+            distance.ilog2()
+        );
 
         // Query the peer directly to check if it holds the record
         match client
@@ -222,11 +246,11 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     for (i, peer_i) in sorted_peers.iter().enumerate() {
         print!("P{:2}  ", i + 1);
         let addr_i = NetworkAddress::from(peer_i.peer_id);
-        
+
         for peer_j in &sorted_peers {
             let addr_j = NetworkAddress::from(peer_j.peer_id);
             let distance = addr_i.distance(&addr_j);
-            
+
             // Display distance with ilog2 for readability
             if addr_i == addr_j {
                 print!("   -    ");
@@ -238,4 +262,33 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     }
 
     Ok(())
+}
+
+fn print_recursive_summary(results: &HashMap<String, Result<Analysis, AnalysisError>>) {
+    println!("\n{:<70} | {:<15} | Status", "Address", "Type");
+    println!("{}", "─".repeat(98));
+
+    for (address, result) in results {
+        let (type_name, status) = match result {
+            Ok(analysis) => {
+                let type_str = match analysis {
+                    Analysis::Chunk(_) => "Chunk",
+                    Analysis::GraphEntry(_) => "GraphEntry",
+                    Analysis::Pointer(_) => "Pointer",
+                    Analysis::Scratchpad(_) => "Scratchpad",
+                    Analysis::Register { .. } => "Register",
+                    Analysis::DataMap { .. } => "DataMap",
+                    Analysis::RawDataMap { .. } => "RawDataMap",
+                    Analysis::PublicArchive { .. } => "PublicArchive",
+                    Analysis::PrivateArchive(_) => "PrivateArchive",
+                };
+                (type_str, "✓ Found")
+            }
+            Err(_) => ("Unknown", "✗ Not found"),
+        };
+
+        println!("{address:<70} | {type_name:<15} | {status}");
+    }
+
+    println!("\nTotal: {} addresses", results.len());
 }

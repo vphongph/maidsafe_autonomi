@@ -7,8 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
-use autonomi::{Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
-    networking::NetworkAddress};
+use autonomi::{
+    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
+    networking::NetworkAddress,
+};
 use color_eyre::eyre::Result;
 use std::str::FromStr;
 
@@ -149,9 +151,9 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
 
     // Get closest group to the target addr
     let peers = client
-            .get_closest_to_address(target_addr.clone())
-            .await
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
+        .get_closest_to_address(target_addr.clone(), Some(20))
+        .await
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
     // Sort peers by peer_id for consistent output
     let mut sorted_peers = peers;
@@ -163,11 +165,17 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     // Check holding status for each peer
     for (i, peer) in sorted_peers.iter().enumerate() {
         println!("{}. Peer ID: {}", i + 1, peer.peer_id);
-        
+
         // Query the peer directly to check if it holds the record
-        match client.get_record_from_peer(target_addr.clone(), peer.clone()).await {
+        match client
+            .get_record_from_peer(target_addr.clone(), peer.clone())
+            .await
+        {
             Ok(Some(record)) => {
-                println!("   Status: ✅ HOLDING record (size: {} bytes)", record.value.len());
+                println!(
+                    "   Status: ✅ HOLDING record (size: {} bytes)",
+                    record.value.len()
+                );
             }
             Ok(None) => {
                 println!("   Status: ❌ NOT holding record");
@@ -176,7 +184,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
                 println!("   Status: ⚠️  Failed to query: {e}");
             }
         }
-        
+
         if verbose {
             println!("   Addresses:");
             for addr in &peer.addrs {

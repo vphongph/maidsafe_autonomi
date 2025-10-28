@@ -414,12 +414,12 @@ impl TaskHandler {
         id: OutboundRequestId,
         result: Result<(NetworkAddress, bytes::Bytes), ant_protocol::error::Error>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self
-            .get_record_from_peer
-            .remove(&id)
-            .ok_or(TaskHandlerError::UnknownQuery(format!(
-                "OutboundRequestId {id:?}"
-            )))?;
+        let responder =
+            self.get_record_from_peer
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
 
         match result {
             Ok((holder, record_content)) => {

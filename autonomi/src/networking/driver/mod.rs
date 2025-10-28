@@ -406,10 +406,8 @@ impl NetworkDriver {
                     self.req()
                         .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
 
-                self.pending_tasks.insert_query(
-                    req_id,
-                    NetworkTask::GetRecordFromPeer { addr, peer, resp },
-                );
+                self.pending_tasks
+                    .insert_query(req_id, NetworkTask::GetRecordFromPeer { addr, peer, resp });
             }
             NetworkTask::ConnectionsMade { resp } => {
                 // Send the current count of connections made

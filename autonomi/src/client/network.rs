@@ -14,12 +14,15 @@ use libp2p::kad::{PeerInfo, Record};
 
 impl Client {
     /// Retrieve the closest peers to the given network address.
+    ///
+    /// Optionally specify a count of peers to retrieve; if None, CLOSE_GROUP+2 peers will be returned.
     pub async fn get_closest_to_address(
         &self,
         network_address: impl Into<NetworkAddress>,
+        count: Option<usize>,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
         self.network
-            .get_closest_peers_with_retries(network_address.into())
+            .get_closest_peers_with_retries(network_address.into(), count)
             .await
     }
 

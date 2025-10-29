@@ -8,8 +8,9 @@
 
 use crate::actions::NetworkContext;
 use autonomi::{
-    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
-    networking::NetworkAddress,
+    Multiaddr, RewardsAddress, SecretKey, Wallet,
+    client::analyze::AnalysisError,
+    networking::{NetworkAddress, NetworkError},
 };
 use color_eyre::eyre::Result;
 use std::str::FromStr;
@@ -17,6 +18,7 @@ use std::str::FromStr;
 pub async fn analyze(
     addr: &str,
     closest_nodes: bool,
+    holders: bool,
     verbose: bool,
     network_context: NetworkContext,
 ) -> Result<()> {
@@ -35,7 +37,11 @@ pub async fn analyze(
         .map_err(|(err, _)| err)?;
 
     if closest_nodes {
-        print_closest_nodes(&client, addr, verbose).await?;
+        let _ = print_closest_nodes(&client, addr, verbose).await;
+    }
+
+    if holders {
+        let _ = print_holders(&client, addr, verbose).await;
     }
 
     let analysis = client.analyze_address(addr, verbose).await;
@@ -117,6 +123,95 @@ fn try_other_types(addr: &str, verbose: bool) {
     println!("⚠️ Unrecognized input");
 }
 
+async fn print_holders(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
+    use autonomi::PublicKey;
+    use autonomi::chunk::ChunkAddress;
+    use autonomi::graph::GraphEntryAddress;
+    use autonomi::networking::NetworkAddress;
+
+    macro_rules! println_if_verbose {
+        ($($arg:tt)*) => {
+            if verbose {
+                println!($($arg)*);
+            }
+        };
+    }
+
+    let hex_addr = addr.trim_start_matches("0x");
+
+    println_if_verbose!("Querying holders of record at address...");
+
+    // Try parsing as ChunkAddress (XorName) first
+    let network_addr: NetworkAddress = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+        println_if_verbose!("Identified as ChunkAddress");
+        chunk_addr.into()
+    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
+    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
+        println_if_verbose!("Identified as PublicKey, using GraphEntryAddress");
+        // Default to GraphEntryAddress for public keys
+        let graph_entry_address = GraphEntryAddress::new(public_key);
+        graph_entry_address.into()
+    } else {
+        return Err(color_eyre::eyre::eyre!(
+            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
+        ));
+    };
+
+    let quorum = std::num::NonZeroUsize::new(20)
+        .map(autonomi::networking::Quorum::N)
+        .expect("20 is non-zero");
+
+    let (record, holders) = match client.get_record_and_holders(network_addr.clone(), quorum).await {
+        Ok((record, holders)) => (record, holders),
+        Err(NetworkError::GetRecordTimeout(holders)) => {
+            println_if_verbose!("Request timed out, showing partial results");
+            (None, holders)
+        }
+        Err(NetworkError::GetRecordQuorumFailed {
+            got_holders,
+            expected_holders,
+            holders,
+        }) => {
+            println_if_verbose!(
+                "Quorum not met (got {got_holders}/{expected_holders}), showing partial results"
+            );
+            (None, holders)
+        }
+        Err(e) => {
+            return Err(color_eyre::eyre::eyre!("Failed to get record holders: {e}"));
+        }
+    };
+
+    if record.is_none() && holders.is_empty() {
+        println!("No record found at address: {addr}");
+        return Ok(());
+    }
+
+    // Sort holders by distance to target address
+    let mut sorted_holders = holders;
+    sorted_holders.sort_by_key(|peer_id| {
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        network_addr.distance(&peer_addr)
+    });
+
+    println!(
+        "Found {} holders for record at {addr}:",
+        sorted_holders.len()
+    );
+    for (i, peer_id) in sorted_holders.iter().enumerate() {
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        let distance = network_addr.distance(&peer_addr);
+
+        println!(
+            "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
+            i + 1,
+            distance.ilog2().unwrap_or(0)
+        );
+    }
+
+    Ok(())
+}
+
 async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
     use autonomi::PublicKey;
     use autonomi::chunk::ChunkAddress;
@@ -169,8 +264,13 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     for (i, peer) in sorted_peers.iter().enumerate() {
         let peer_addr = NetworkAddress::from(peer.peer_id);
         let distance = target_addr.distance(&peer_addr);
-        
-        println!("{}. Peer ID: {} (distance: {distance:?}[{:?}])", i + 1, peer.peer_id, distance.ilog2());
+
+        println!(
+            "{}. Peer ID: {} (distance: {distance:?}[{:?}])",
+            i + 1,
+            peer.peer_id,
+            distance.ilog2().unwrap_or(0)
+        );
 
         // Query the peer directly to check if it holds the record
         match client
@@ -222,16 +322,16 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     for (i, peer_i) in sorted_peers.iter().enumerate() {
         print!("P{:2}  ", i + 1);
         let addr_i = NetworkAddress::from(peer_i.peer_id);
-        
+
         for peer_j in &sorted_peers {
             let addr_j = NetworkAddress::from(peer_j.peer_id);
             let distance = addr_i.distance(&addr_j);
-            
+
             // Display distance with ilog2 for readability
             if addr_i == addr_j {
                 print!("   -    ");
             } else {
-                print!("{:?} ", distance.ilog2());
+                print!("{:?} ", distance.ilog2().unwrap_or(0));
             }
         }
         println!();

@@ -71,6 +71,9 @@ pub enum SubCmd {
         /// Show closest nodes to this address instead of analyzing it.
         #[arg(long)]
         closest_nodes: bool,
+        /// Show all holders of the record at this address.
+        #[arg(long)]
+        holders: bool,
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
@@ -649,8 +652,9 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         Some(SubCmd::Analyze {
             addr,
             closest_nodes,
+            holders,
             verbose,
-        }) => analyze::analyze(&addr, closest_nodes, verbose, network_context).await,
+        }) => analyze::analyze(&addr, closest_nodes, holders, verbose, network_context).await,
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()

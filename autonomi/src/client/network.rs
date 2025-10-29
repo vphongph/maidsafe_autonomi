@@ -10,7 +10,8 @@ use crate::Client;
 use crate::networking::NetworkError;
 use crate::networking::version::PackageVersion;
 use ant_protocol::NetworkAddress;
-use libp2p::kad::{PeerInfo, Record};
+use libp2p::PeerId;
+use libp2p::kad::{PeerInfo, Quorum, Record};
 
 impl Client {
     /// Retrieve the closest peers to the given network address.
@@ -37,6 +38,23 @@ impl Client {
     ) -> Result<Option<Record>, NetworkError> {
         self.network
             .get_record_from_peer(network_address.into(), peer)
+            .await
+    }
+
+    /// Get a record from the network and the list of peers holding it.
+    /// Returns the record if successful along with the peers that handed it to us.
+    /// If the record is not found, the result will be None and an empty list of peers.
+    /// If the Quorum is not met, the result will be None and the list of peers that did manage to deliver the record.
+    /// As soon as the quorum is met, the request will complete and the result will be returned.
+    /// Note that the holders returned is not an exhaustive list of all holders of the record,
+    /// it only contains the peers that responded to the request before the quorum was met.
+    pub async fn get_record_and_holders(
+        &self,
+        network_address: impl Into<NetworkAddress>,
+        quorum: Quorum,
+    ) -> Result<(Option<Record>, Vec<PeerId>), NetworkError> {
+        self.network
+            .get_record_and_holders(network_address.into(), quorum)
             .await
     }
 

@@ -119,11 +119,12 @@ pub enum NetworkError {
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
     #[error(
-        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}"
+        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}, holders: {holders:?}"
     )]
     GetRecordQuorumFailed {
         got_holders: usize,
         expected_holders: usize,
+        holders: Vec<PeerId>,
     },
     #[error("Failed to get record: {0}")]
     GetRecordError(String),

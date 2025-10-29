@@ -312,9 +312,18 @@ pub async fn get_closest_nodes_status(
     Ok(closest_peers_statuses)
 }
 
-/// Statistics about distances between peers and to target
+/// Statistics about distances from target address to peers
 #[derive(Debug, Clone)]
-pub struct DistanceStats {
+pub struct TargetDistanceStats {
+    pub min: u32,
+    pub max: u32,
+    pub avg: u32,
+    pub histogram: Vec<(String, usize)>, // (range_label, count)
+}
+
+/// Statistics about distances among peers (peer-to-peer)
+#[derive(Debug, Clone)]
+pub struct PeerDistanceStats {
     pub min: u32,
     pub max: u32,
     pub avg: u32,
@@ -328,7 +337,8 @@ struct AnalysisTableRow {
     type_name: String,
     kad_query_status: String, // "✓ Found" or "✗ Not found"
     closest_peers_count: Option<(usize, usize)>, // (holding, total) e.g. (15, 20)
-    distance_stats: Option<DistanceStats>, // Raw distance statistics
+    target_distance_stats: Option<TargetDistanceStats>, // Distance from target to peers
+    peer_distance_stats: Option<PeerDistanceStats>, // Distance among peers
 }
 
 /// Format histogram as compact text showing only non-zero buckets
@@ -347,11 +357,11 @@ fn format_histogram_compact(histogram: &[(String, usize)]) -> String {
     }
 }
 
-/// Calculate distance statistics for a set of peers relative to a target address
-fn calculate_distance_stats(
+/// Calculate distance statistics from target address to each peer
+fn calculate_target_distance_stats(
     peer_statuses: &[ClosestPeerStatus],
     target_addr: &NetworkAddress,
-) -> DistanceStats {
+) -> TargetDistanceStats {
     let distances: Vec<u32> = peer_statuses
         .iter()
         .map(|status| {
@@ -391,7 +401,66 @@ fn calculate_distance_stats(
         })
         .collect();
 
-    DistanceStats {
+    TargetDistanceStats {
+        min,
+        max,
+        avg,
+        histogram,
+    }
+}
+
+/// Calculate distance statistics among peers (peer-to-peer distances)
+fn calculate_peer_distance_stats(peer_statuses: &[ClosestPeerStatus]) -> PeerDistanceStats {
+    let mut distances: Vec<u32> = Vec::new();
+
+    // Calculate all pairwise distances
+    for status_i in peer_statuses.iter() {
+        let addr_i = NetworkAddress::from(*status_i.peer_id());
+
+        for status_j in peer_statuses.iter() {
+            let addr_j = NetworkAddress::from(*status_j.peer_id());
+
+            // Skip self-distances (diagonal)
+            if addr_i == addr_j {
+                continue;
+            }
+
+            let distance = addr_i.distance(&addr_j);
+            distances.push(distance.ilog2().unwrap_or(0));
+        }
+    }
+
+    let min = *distances.iter().min().unwrap_or(&0);
+    let max = *distances.iter().max().unwrap_or(&0);
+    let avg = if !distances.is_empty() {
+        distances.iter().sum::<u32>() / distances.len() as u32
+    } else {
+        0
+    };
+
+    // Create histogram with same 10 buckets as target distances
+    let buckets = vec![
+        ("0-150", 0u32, 151u32),
+        ("151-200", 151u32, 201u32),
+        ("201-220", 201u32, 221u32),
+        ("221-230", 221u32, 231u32),
+        ("231-235", 231u32, 236u32),
+        ("236-240", 236u32, 241u32),
+        ("241-245", 241u32, 246u32),
+        ("246-250", 246u32, 251u32),
+        ("251-253", 251u32, 254u32),
+        ("254-256", 254u32, 257u32),
+    ];
+
+    let histogram = buckets
+        .into_iter()
+        .map(|(label, start, end)| {
+            let count = distances.iter().filter(|&&d| d >= start && d < end).count();
+            (label.to_string(), count)
+        })
+        .collect();
+
+    PeerDistanceStats {
         min,
         max,
         avg,
@@ -527,7 +596,8 @@ fn print_recursive_summary(
 
         // Initialize with defaults
         let mut closest_peers_count = None;
-        let mut distance_stats = None;
+        let mut target_distance_stats = None;
+        let mut peer_distance_stats = None;
 
         // Set values if closest nodes data exists for this address
         if let Some(ref closest_nodes_map) = closest_nodes_data
@@ -543,9 +613,12 @@ fn print_recursive_summary(
 
             // Get target address from the first peer status
             if let Some(target_addr) = peer_statuses.first().map(|s| s.target_address()) {
-                let stats = calculate_distance_stats(peer_statuses, target_addr);
-                distance_stats = Some(stats);
+                target_distance_stats =
+                    Some(calculate_target_distance_stats(peer_statuses, target_addr));
             }
+
+            // Calculate peer-to-peer distances
+            peer_distance_stats = Some(calculate_peer_distance_stats(peer_statuses));
         }
 
         table_rows.push(AnalysisTableRow {
@@ -553,7 +626,8 @@ fn print_recursive_summary(
             type_name,
             kad_query_status: kad_status,
             closest_peers_count,
-            distance_stats,
+            target_distance_stats,
+            peer_distance_stats,
         });
     }
 
@@ -576,10 +650,16 @@ fn print_consolidated_table(rows: &[AnalysisTableRow], with_closest_nodes: bool)
     if with_closest_nodes {
         // Table with closest nodes information
         println!(
-            "{:<64} | {:<13} | {:<11} | {:<13} | {:<23} | Target Distance Hist",
-            "Address", "Type", "Kad Query", "Closest Peers", "Target Distances (ilog2)"
+            "{:<64} | {:<13} | {:<11} | {:<13} | {:<24} | {:<21} | {:<23} | Peer Distance Hist",
+            "Address",
+            "Type",
+            "Kad Query",
+            "Closest Peers",
+            "Target Distances (ilog2)",
+            "Target Distance Hist",
+            "Peer Distances (ilog2)"
         );
-        println!("{}", "─".repeat(165));
+        println!("{}", "─".repeat(210));
 
         for row in rows {
             let closest_display = row
@@ -587,32 +667,46 @@ fn print_consolidated_table(rows: &[AnalysisTableRow], with_closest_nodes: bool)
                 .map(|(h, t)| format!("{h}/{t}"))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let distance_display = row
-                .distance_stats
+            let target_distance_display = row
+                .target_distance_stats
                 .as_ref()
                 .map(|stats| format!("min={} avg={} max={}", stats.min, stats.avg, stats.max))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let histogram_display = row
-                .distance_stats
+            let target_histogram_display = row
+                .target_distance_stats
+                .as_ref()
+                .map(|stats| format_histogram_compact(&stats.histogram))
+                .unwrap_or_default();
+
+            let peer_distance_display = row
+                .peer_distance_stats
+                .as_ref()
+                .map(|stats| format!("min={} avg={} max={}", stats.min, stats.avg, stats.max))
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let peer_histogram_display = row
+                .peer_distance_stats
                 .as_ref()
                 .map(|stats| format_histogram_compact(&stats.histogram))
                 .unwrap_or_default();
 
             println!(
-                "{:<64} | {:<13} | {:<11} | {:<13} | {:<23} | {}",
+                "{:<64} | {:<13} | {:<11} | {:<13} | {:<24} | {:<21} | {:<23} | {}",
                 row.address,
                 row.type_name,
                 row.kad_query_status,
                 closest_display,
-                distance_display,
-                histogram_display
+                target_distance_display,
+                target_histogram_display,
+                peer_distance_display,
+                peer_histogram_display
             );
         }
     } else {
         // Simple table without closest nodes information
         println!("{:<64} | {:<13} | Kad Query", "Address", "Type");
-        println!("{}", "─".repeat(90));
+        println!("{}", "─".repeat(95));
 
         for row in rows {
             println!(
@@ -655,15 +749,33 @@ fn print_verbose_details(
             );
         }
 
-        // Print distance stats if available
-        if let Some(ref stats) = row.distance_stats {
+        // Print target distance stats if available
+        if let Some(ref stats) = row.target_distance_stats {
             println!(
-                "  Distance (ilog2): min={} avg={} max={}",
+                "  Target Distances (ilog2): min={} avg={} max={}",
                 stats.min, stats.avg, stats.max
             );
 
             // Print detailed histogram breakdown
-            print!("  Distance histogram: ");
+            print!("  Target Distance histogram: ");
+            for (i, (range, count)) in stats.histogram.iter().enumerate() {
+                if i > 0 {
+                    print!("  ");
+                }
+                print!("[{range}]: {count}");
+            }
+            println!();
+        }
+
+        // Print peer distance stats if available
+        if let Some(ref stats) = row.peer_distance_stats {
+            println!(
+                "  Peer Distances (ilog2): min={} avg={} max={}",
+                stats.min, stats.avg, stats.max
+            );
+
+            // Print detailed histogram breakdown
+            print!("  Peer Distance histogram: ");
             for (i, (range, count)) in stats.histogram.iter().enumerate() {
                 if i > 0 {
                     print!("  ");

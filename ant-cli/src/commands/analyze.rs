@@ -17,6 +17,7 @@ use autonomi::{
     networking::NetworkAddress,
 };
 use color_eyre::eyre::Result;
+use comfy_table::{Cell, CellAlignment, Table};
 use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -645,21 +646,20 @@ fn print_recursive_summary(
 
 /// Print the consolidated analysis table
 fn print_consolidated_table(rows: &[AnalysisTableRow], with_closest_nodes: bool) {
-    println!();
+    let mut table = Table::new();
 
     if with_closest_nodes {
         // Table with closest nodes information
-        println!(
-            "{:<64} | {:<13} | {:<11} | {:<13} | {:<24} | {:<21} | {:<23} | Peer Distance Hist",
-            "Address",
-            "Type",
-            "Kad Query",
-            "Closest Peers",
-            "Target Distances (ilog2)",
-            "Target Distance Hist",
-            "Peer Distances (ilog2)"
-        );
-        println!("{}", "─".repeat(210));
+        table.set_header(vec![
+            Cell::new("Address").set_alignment(CellAlignment::Left),
+            Cell::new("Type").set_alignment(CellAlignment::Left),
+            Cell::new("Kad Query").set_alignment(CellAlignment::Left),
+            Cell::new("Closest Peers").set_alignment(CellAlignment::Left),
+            Cell::new("Target Distances (ilog2)").set_alignment(CellAlignment::Left),
+            Cell::new("Target Distance Hist").set_alignment(CellAlignment::Left),
+            Cell::new("Peer Distances (ilog2)").set_alignment(CellAlignment::Left),
+            Cell::new("Peer Distance Hist").set_alignment(CellAlignment::Left),
+        ]);
 
         for row in rows {
             let closest_display = row
@@ -691,31 +691,35 @@ fn print_consolidated_table(rows: &[AnalysisTableRow], with_closest_nodes: bool)
                 .map(|stats| format_histogram_compact(&stats.histogram))
                 .unwrap_or_default();
 
-            println!(
-                "{:<64} | {:<13} | {:<11} | {:<13} | {:<24} | {:<21} | {:<23} | {}",
-                row.address,
-                row.type_name,
-                row.kad_query_status,
-                closest_display,
-                target_distance_display,
-                target_histogram_display,
-                peer_distance_display,
-                peer_histogram_display
-            );
+            table.add_row(vec![
+                Cell::new(&row.address),
+                Cell::new(&row.type_name),
+                Cell::new(&row.kad_query_status),
+                Cell::new(closest_display),
+                Cell::new(target_distance_display),
+                Cell::new(target_histogram_display),
+                Cell::new(peer_distance_display),
+                Cell::new(peer_histogram_display),
+            ]);
         }
     } else {
         // Simple table without closest nodes information
-        println!("{:<64} | {:<13} | Kad Query", "Address", "Type");
-        println!("{}", "─".repeat(95));
+        table.set_header(vec![
+            Cell::new("Address").set_alignment(CellAlignment::Left),
+            Cell::new("Type").set_alignment(CellAlignment::Left),
+            Cell::new("Kad Query").set_alignment(CellAlignment::Left),
+        ]);
 
         for row in rows {
-            println!(
-                "{:<64} | {:<13} | {}",
-                row.address, row.type_name, row.kad_query_status
-            );
+            table.add_row(vec![
+                Cell::new(&row.address),
+                Cell::new(&row.type_name),
+                Cell::new(&row.kad_query_status),
+            ]);
         }
     }
 
+    println!("\n{table}");
     println!("\nTotal: {} addresses", rows.len());
 }
 

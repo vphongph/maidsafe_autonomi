@@ -13,8 +13,9 @@ use autonomi::client::analyze::Analysis;
 use autonomi::graph::GraphEntryAddress;
 use autonomi::networking::PeerId;
 use autonomi::{
-    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
-    networking::NetworkAddress,
+    Multiaddr, RewardsAddress, SecretKey, Wallet,
+    client::analyze::AnalysisError,
+    networking::{NetworkAddress, NetworkError},
 };
 use color_eyre::eyre::Result;
 use comfy_table::{Cell, CellAlignment, Table};
@@ -76,6 +77,14 @@ impl ClosestPeerStatus {
     }
 }
 
+/// Status of a holder for a given address
+#[derive(Debug, Clone)]
+pub struct HolderStatus {
+    peer_id: PeerId,
+    target_address: NetworkAddress,
+    size: usize,
+}
+
 macro_rules! println_if {
     ($cond:expr, $($arg:tt)*) => {
         if $cond {
@@ -87,9 +96,10 @@ macro_rules! println_if {
 pub async fn analyze(
     addr: &str,
     closest_nodes: bool,
+    holders: bool,
+    recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
-    recursive: bool,
 ) -> Result<()> {
     println_if!(verbose, "Analyzing address: {addr}");
 
@@ -108,8 +118,8 @@ pub async fn analyze(
         map
     };
 
-    // Pre-compute closest nodes data if needed for recursive mode
-    let closest_nodes_data = if closest_nodes && recursive && results.len() > 1 {
+    // Pre-compute closest nodes data
+    let closest_nodes_data = if closest_nodes {
         println!(
             "Querying closest peers for all {} addresses...",
             results.len()
@@ -145,11 +155,51 @@ pub async fn analyze(
         None
     };
 
+    // Pre-compute holder data
+    let holders_data = if holders {
+        println!(
+            "Querying kad::get_record holders for all {} addresses...",
+            results.len()
+        );
+        let addresses: Vec<String> = results.keys().cloned().collect();
+        let query_tasks = addresses.iter().map(|addr| {
+            let client = client.clone();
+            let addr = addr.clone();
+            async move {
+                let result = get_holders_status(&client, &addr, false).await;
+                (addr, result)
+            }
+        });
+
+        let holders_results: Vec<(String, Result<Vec<HolderStatus>>)> =
+            stream::iter(query_tasks)
+                .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+                .collect()
+                .await;
+        println!(
+            "Completed querying kad::get_record holders for all {} addresses.",
+            holders_results.len()
+        );
+
+        // Build map, only including successful results
+        let map: HashMap<String, Vec<HolderStatus>> = holders_results
+            .into_iter()
+            .filter_map(|(addr, result)| result.ok().map(|statuses| (addr, statuses)))
+            .collect();
+
+        Some(map)
+    } else {
+        None
+    };
+
     // Print results
-    if recursive && results.len() > 1 {
-        // Use unified summary for recursive mode
-        print_recursive_summary(&results, closest_nodes_data, verbose)?;
-    } else if let Some((_, analysis)) = results.iter().next() {
+    if closest_nodes_data.is_some() || holders_data.is_some() {
+        // Use unified summary for output
+        print_summary(&results, closest_nodes_data, holders_data, verbose)?;
+    }
+
+    if results.len() == 1
+    && let Some((_, analysis)) = results.iter().next() {
         match analysis {
             Ok(analysis) => {
                 println_if!(verbose, "Analysis successful");
@@ -237,6 +287,112 @@ fn try_other_types(addr: &str, verbose: bool) {
     }
 
     println!("⚠️ Unrecognized input");
+}
+
+/// Get holders (along query path) status for an address
+///
+/// Returns a vector of HolderStatus for the given address
+async fn get_holders_status(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<Vec<HolderStatus>> {
+    use autonomi::PublicKey;
+    use autonomi::chunk::ChunkAddress;
+    use autonomi::graph::GraphEntryAddress;
+    use autonomi::networking::NetworkAddress;
+
+    macro_rules! println_if_verbose {
+        ($($arg:tt)*) => {
+            if verbose {
+                println!($($arg)*);
+            }
+        };
+    }
+
+    let hex_addr = addr.trim_start_matches("0x");
+
+    println_if_verbose!("Querying holders of record at address...");
+
+    // Try parsing as ChunkAddress (XorName) first
+    let network_addr: NetworkAddress = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+        println_if_verbose!("Identified as ChunkAddress");
+        chunk_addr.into()
+    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
+    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
+        println_if_verbose!("Identified as PublicKey, using GraphEntryAddress");
+        // Default to GraphEntryAddress for public keys
+        let graph_entry_address = GraphEntryAddress::new(public_key);
+        graph_entry_address.into()
+    } else {
+        return Err(color_eyre::eyre::eyre!(
+            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
+        ));
+    };
+
+    let quorum = std::num::NonZeroUsize::new(20)
+        .map(autonomi::networking::Quorum::N)
+        .expect("20 is non-zero");
+
+    let (record, holders) = match client.get_record_and_holders(network_addr.clone(), quorum).await {
+        Ok((record, holders)) => (record, holders),
+        Err(NetworkError::GetRecordTimeout(holders)) => {
+            println_if_verbose!("Request timed out, showing partial results");
+            (None, holders)
+        }
+        Err(NetworkError::GetRecordQuorumFailed {
+            got_holders,
+            expected_holders,
+            holders,
+        }) => {
+            println_if_verbose!(
+                "Quorum not met (got {got_holders}/{expected_holders}), showing partial results"
+            );
+            (None, holders)
+        }
+        Err(e) => {
+            return Err(color_eyre::eyre::eyre!("Failed to get record holders: {e}"));
+        }
+    };
+
+    let mut holders_status = vec![];
+
+    if record.is_none() && holders.is_empty() {
+        println!("No record found at address: {addr}");
+        return Ok(holders_status);
+    }
+
+    let size = if let Some(ref record) = record {
+        record.value.len()
+    } else {
+        0
+    };
+
+    // Sort holders by distance to target address
+    let mut sorted_holders = holders;
+    sorted_holders.sort_by_key(|peer_id| {
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        network_addr.distance(&peer_addr)
+    });
+
+    println!(
+        "Found {} holders for record at {addr}:",
+        sorted_holders.len()
+    );
+    for (i, peer_id) in sorted_holders.iter().enumerate() {
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        let distance = network_addr.distance(&peer_addr);
+
+        println!(
+            "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
+            i + 1,
+            distance.ilog2().unwrap_or(0)
+        );
+
+        holders_status.push(HolderStatus {
+            peer_id: *peer_id,
+            target_address: network_addr.clone(),
+            size,
+        });
+    }
+
+    Ok(holders_status)
 }
 
 /// Get closest peer status for an address
@@ -503,7 +659,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
         println!(
             "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
             i + 1,
-            distance.ilog2()
+            distance.ilog2().unwrap_or(0)
         );
 
         // Print status from the map
@@ -559,7 +715,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
             if addr_i == addr_j {
                 print!("   -    ");
             } else {
-                print!("{:?} ", distance.ilog2());
+                print!("{:?} ", distance.ilog2().unwrap_or(0));
             }
         }
         println!();
@@ -568,9 +724,10 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
     Ok(())
 }
 
-fn print_recursive_summary(
+fn print_summary(
     results: &HashMap<String, Result<Analysis, AnalysisError>>,
     closest_nodes_data: Option<HashMap<String, Vec<ClosestPeerStatus>>>,
+    holders_data: Option<HashMap<String, Vec<HolderStatus>>>,
     verbose: bool,
 ) -> Result<()> {
     // Build table rows
@@ -641,7 +798,46 @@ fn print_recursive_summary(
         print_verbose_details(&table_rows, &closest_nodes_data)?;
     }
 
+    if let Some(holders_data) = holders_data {
+        print_holders(holders_data)
+    }
+
     Ok(())
+}
+
+fn print_holders(holders_data: HashMap<String, Vec<HolderStatus>>) {
+    use autonomi::networking::NetworkAddress;
+
+    for (addr_str, holders) in holders_data {
+        let (target_addr, size) = if let Some(first) = holders.first() {
+            (first.target_address.clone(), first.size)
+        } else {
+            println!("No holders of target {addr_str}");
+            continue
+        };
+
+        // Sort holders by distance to target address
+        let mut sorted_holders: Vec<PeerId> = holders.iter().map(|stat| stat.peer_id).collect();
+        sorted_holders.sort_by_key(|peer_id| {
+            let peer_addr: NetworkAddress = (*peer_id).into();
+            target_addr.distance(&peer_addr)
+        });
+
+        println!(
+            "Found {} holders for record with length of {size} at {addr_str}:",
+            sorted_holders.len()
+        );
+        for (i, peer_id) in sorted_holders.iter().enumerate() {
+            let peer_addr: NetworkAddress = (*peer_id).into();
+            let distance = target_addr.distance(&peer_addr);
+
+            println!(
+                "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
+                i + 1,
+                distance.ilog2().unwrap_or(0)
+            );
+        }
+    }
 }
 
 /// Print the consolidated analysis table

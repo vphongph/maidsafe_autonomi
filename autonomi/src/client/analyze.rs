@@ -250,7 +250,7 @@ impl Client {
             if batch.is_empty() {
                 break;
             }
-            println_if!(verbose, "Processing batch of {} addresses", batch.len());
+            println_if!(verbose, "Analyzing batch of {} addresses", batch.len());
             info!("Analyzing batch of {} addresses", batch.len());
 
             // Create futures for the batch
@@ -297,6 +297,10 @@ impl Client {
                 }
             }
         }
+        println!(
+            "Finished recursive analysis. Total addresses analyzed: {}",
+            results.len()
+        );
 
         results
     }

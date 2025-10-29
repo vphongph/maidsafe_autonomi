@@ -80,6 +80,9 @@ pub enum SubCmd {
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
+        /// Output results as JSON to stdout.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -658,7 +661,19 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             holders,
             verbose,
             recursive,
-        }) => analyze::analyze(&addr, closest_nodes, holders, recursive, verbose, network_context).await,
+            json,
+        }) => {
+            analyze::analyze(
+                &addr,
+                closest_nodes,
+                holders,
+                recursive,
+                verbose,
+                network_context,
+                json,
+            )
+            .await
+        }
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()

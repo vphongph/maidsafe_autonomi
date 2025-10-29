@@ -6,16 +6,18 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+mod json;
+
 use crate::actions::NetworkContext;
 use autonomi::PublicKey;
 use autonomi::chunk::ChunkAddress;
 use autonomi::client::analyze::Analysis;
 use autonomi::graph::GraphEntryAddress;
+use autonomi::networking::NetworkAddress;
 use autonomi::networking::PeerId;
 use autonomi::{
-    Multiaddr, RewardsAddress, SecretKey, Wallet,
-    client::analyze::AnalysisError,
-    networking::{NetworkAddress, NetworkError},
+    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
+    networking::NetworkError,
 };
 use color_eyre::eyre::Result;
 use comfy_table::{Cell, CellAlignment, Table};
@@ -100,30 +102,37 @@ pub async fn analyze(
     recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
+    json_output: bool,
 ) -> Result<()> {
-    println_if!(verbose, "Analyzing address: {addr}");
+    let verbose_enabled = verbose && !json_output;
+    println_if!(verbose_enabled, "Analyzing address: {addr}");
 
     // then connect to network and check data
-    let client = crate::actions::connect_to_network(network_context)
-        .await
-        .map_err(|(err, _)| err)?;
+    let client =
+        crate::actions::connect_to_network_with_config(network_context, Default::default())
+            .await
+            .map_err(|(err, _)| err)?;
 
     let results = if recursive {
-        println_if!(verbose, "Starting recursive analysis...");
-        client.analyze_address_recursively(addr, verbose).await
+        println_if!(verbose_enabled, "Starting recursive analysis...");
+        client
+            .analyze_address_recursively(addr, verbose && !json_output)
+            .await
     } else {
         let mut map = HashMap::new();
-        let analysis = client.analyze_address(addr, verbose).await;
+        let analysis = client.analyze_address(addr, verbose && !json_output).await;
         map.insert(addr.to_string(), analysis);
         map
     };
 
-    // Pre-compute closest nodes data
+    // Pre-compute closest nodes data if needed
     let closest_nodes_data = if closest_nodes {
-        println!(
+        println_if!(
+            !json_output,
             "Querying closest peers for all {} addresses...",
             results.len()
         );
+
         let addresses: Vec<String> = results.keys().cloned().collect();
         let query_tasks = addresses.iter().map(|addr| {
             let client = client.clone();
@@ -139,7 +148,9 @@ pub async fn analyze(
                 .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
                 .collect()
                 .await;
-        println!(
+
+        println_if!(
+            !json_output,
             "Completed querying closest peers for all {} addresses.",
             closest_nodes_results.len()
         );
@@ -171,11 +182,10 @@ pub async fn analyze(
             }
         });
 
-        let holders_results: Vec<(String, Result<Vec<HolderStatus>>)> =
-            stream::iter(query_tasks)
-                .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
-                .collect()
-                .await;
+        let holders_results: Vec<(String, Result<Vec<HolderStatus>>)> = stream::iter(query_tasks)
+            .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+            .collect()
+            .await;
         println!(
             "Completed querying kad::get_record holders for all {} addresses.",
             holders_results.len()
@@ -192,14 +202,11 @@ pub async fn analyze(
         None
     };
 
-    // Print results
-    if closest_nodes_data.is_some() || holders_data.is_some() {
-        // Use unified summary for output
+    if json_output {
+        output_json(addr, &results, closest_nodes_data, holders_data)?;
+    } else if closest_nodes_data.is_some() || holders_data.is_some() {
         print_summary(&results, closest_nodes_data, holders_data, verbose)?;
-    }
-
-    if results.len() == 1
-    && let Some((_, analysis)) = results.iter().next() {
+    } else if let Some((_, analysis)) = results.iter().next() {
         match analysis {
             Ok(analysis) => {
                 println_if!(verbose, "Analysis successful");
@@ -227,6 +234,66 @@ pub async fn analyze(
     }
 
     Ok(())
+}
+
+/// Output analysis results as JSON
+fn output_json(
+    provided_address: &str,
+    results: &HashMap<String, Result<Analysis, AnalysisError>>,
+    closest_nodes_data: Option<HashMap<String, Vec<ClosestPeerStatus>>>,
+    holders_data: Option<HashMap<String, Vec<HolderStatus>>>,
+) -> Result<()> {
+    let mut json_output = json::JsonOutput::new(provided_address.to_string());
+
+    for (address, analysis_result) in results {
+        // Parse the address to get the NetworkAddress for distance calculations
+        let target_addr = parse_network_address(address)?;
+
+        // Get closest peers data for this address if available
+        let closest_peers = closest_nodes_data
+            .as_ref()
+            .and_then(|map| map.get(address))
+            .cloned();
+        let holders = holders_data
+            .as_ref()
+            .and_then(|map| map.get(address))
+            .cloned();
+
+        let analyzed = json::AnalyzedAddress::new(
+            address.clone(),
+            analysis_result,
+            closest_peers,
+            holders,
+            &target_addr,
+        );
+
+        json_output.add_address(analyzed);
+    }
+
+    // Output JSON to stdout
+    let json_str = serde_json::to_string_pretty(&json_output)?;
+    println!("{json_str}");
+
+    Ok(())
+}
+
+/// Parse a string address into a NetworkAddress
+fn parse_network_address(addr: &str) -> Result<NetworkAddress> {
+    let hex_addr = addr.trim_start_matches("0x");
+
+    // Try parsing as ChunkAddress first
+    if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+        return Ok(NetworkAddress::from(chunk_addr));
+    }
+
+    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
+    if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
+        return Ok(NetworkAddress::from(GraphEntryAddress::new(public_key)));
+    }
+
+    Err(color_eyre::eyre::eyre!(
+        "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
+    ))
 }
 
 fn try_other_types(addr: &str, verbose: bool) {
@@ -292,12 +359,11 @@ fn try_other_types(addr: &str, verbose: bool) {
 /// Get holders (along query path) status for an address
 ///
 /// Returns a vector of HolderStatus for the given address
-async fn get_holders_status(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<Vec<HolderStatus>> {
-    use autonomi::PublicKey;
-    use autonomi::chunk::ChunkAddress;
-    use autonomi::graph::GraphEntryAddress;
-    use autonomi::networking::NetworkAddress;
-
+async fn get_holders_status(
+    client: &autonomi::Client,
+    addr: &str,
+    verbose: bool,
+) -> Result<Vec<HolderStatus>> {
     macro_rules! println_if_verbose {
         ($($arg:tt)*) => {
             if verbose {
@@ -330,7 +396,10 @@ async fn get_holders_status(client: &autonomi::Client, addr: &str, verbose: bool
         .map(autonomi::networking::Quorum::N)
         .expect("20 is non-zero");
 
-    let (record, holders) = match client.get_record_and_holders(network_addr.clone(), quorum).await {
+    let (record, holders) = match client
+        .get_record_and_holders(network_addr.clone(), quorum)
+        .await
+    {
         Ok((record, holders)) => (record, holders),
         Err(NetworkError::GetRecordTimeout(holders)) => {
             println_if_verbose!("Request timed out, showing partial results");
@@ -403,24 +472,9 @@ pub async fn get_closest_nodes_status(
     addr: &str,
     verbose: bool,
 ) -> Result<Vec<ClosestPeerStatus>> {
-    let hex_addr = addr.trim_start_matches("0x");
-
     println_if!(verbose, "Querying closest peers to address...");
 
-    // Try parsing as ChunkAddress (XorName) first
-    let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
-        println_if!(verbose, "Identified as ChunkAddress");
-        NetworkAddress::from(chunk_addr)
-    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
-    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
-        println_if!(verbose, "Identified as PublicKey, using GraphEntryAddress");
-        // Default to GraphEntryAddress for public keys
-        NetworkAddress::from(GraphEntryAddress::new(public_key))
-    } else {
-        return Err(color_eyre::eyre::eyre!(
-            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
-        ));
-    };
+    let target_addr = parse_network_address(addr)?;
 
     // Get closest group to the target addr
     let peers = client
@@ -626,20 +680,7 @@ fn calculate_peer_distance_stats(peer_statuses: &[ClosestPeerStatus]) -> PeerDis
 }
 
 async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
-    let hex_addr = addr.trim_start_matches("0x");
-
-    // Try parsing as ChunkAddress (XorName) first
-    let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
-        NetworkAddress::from(chunk_addr)
-    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
-    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
-        // Default to GraphEntryAddress for public keys
-        NetworkAddress::from(GraphEntryAddress::new(public_key))
-    } else {
-        return Err(color_eyre::eyre::eyre!(
-            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
-        ));
-    };
+    let target_addr = parse_network_address(addr)?;
 
     // Get the closest peer status
     let mut closest_peers_statuses = get_closest_nodes_status(client, addr, verbose).await?;
@@ -806,14 +847,12 @@ fn print_summary(
 }
 
 fn print_holders(holders_data: HashMap<String, Vec<HolderStatus>>) {
-    use autonomi::networking::NetworkAddress;
-
     for (addr_str, holders) in holders_data {
         let (target_addr, size) = if let Some(first) = holders.first() {
             (first.target_address.clone(), first.size)
         } else {
             println!("No holders of target {addr_str}");
-            continue
+            continue;
         };
 
         // Sort holders by distance to target address

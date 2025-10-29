@@ -99,10 +99,6 @@ pub async fn analyze(
         .await
         .map_err(|(err, _)| err)?;
 
-    if closest_nodes {
-        print_closest_nodes(&client, addr, verbose).await?;
-    }
-
     let results = if recursive {
         println_if!(verbose, "Starting recursive analysis...");
         client.analyze_address_recursively(addr, verbose).await
@@ -136,6 +132,16 @@ pub async fn analyze(
         }
     } else {
         println!("No analysis results available.");
+    }
+
+    // Print closest nodes analysis
+    if closest_nodes {
+        if recursive && results.len() > 1 {
+            let addresses: Vec<String> = results.keys().cloned().collect();
+            print_recursive_closest_nodes_summary(&client, addresses, verbose).await?;
+        } else {
+            print_closest_nodes(&client, addr, verbose).await?;
+        }
     }
 
     Ok(())
@@ -234,8 +240,7 @@ pub async fn get_closest_nodes_status(
         .await
         .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
-    println!("Found {} closest peers to {}:", peers.len(), addr);
-    println!();
+    println!("Found {} closest peers to {}", peers.len(), addr);
 
     // Query all peers concurrently
     let query_tasks = peers.iter().map(|peer| {
@@ -275,6 +280,184 @@ pub async fn get_closest_nodes_status(
         .await;
 
     Ok(holders_map)
+}
+
+/// Statistics about distances between peers and to target
+#[derive(Debug)]
+struct DistanceStats {
+    min: u32,
+    max: u32,
+    avg: u32,
+    histogram: Vec<(String, usize)>, // (range_label, count)
+}
+
+/// Calculate distance statistics for a set of peers relative to a target address
+fn calculate_distance_stats(
+    peer_statuses: &[ClosestPeerStatus],
+    target_addr: &NetworkAddress,
+) -> DistanceStats {
+    let distances: Vec<u32> = peer_statuses
+        .iter()
+        .map(|status| {
+            let peer_addr = NetworkAddress::from(*status.peer_id());
+            let distance = target_addr.distance(&peer_addr);
+            distance.ilog2().unwrap_or(0)
+        })
+        .collect();
+
+    let min = *distances.iter().min().unwrap_or(&0);
+    let max = *distances.iter().max().unwrap_or(&0);
+    let avg = if !distances.is_empty() {
+        distances.iter().sum::<u32>() / distances.len() as u32
+    } else {
+        0
+    };
+
+    // Create histogram with 10 buckets, starting wide and getting narrower
+    let buckets = vec![
+        ("0-150", 0u32, 151u32),
+        ("151-200", 151u32, 201u32),
+        ("201-220", 201u32, 221u32),
+        ("221-230", 221u32, 231u32),
+        ("231-235", 231u32, 236u32),
+        ("236-240", 236u32, 241u32),
+        ("241-245", 241u32, 246u32),
+        ("246-250", 246u32, 251u32),
+        ("251-253", 251u32, 254u32),
+        ("254-256", 254u32, 257u32),
+    ];
+
+    let histogram = buckets
+        .into_iter()
+        .map(|(label, start, end)| {
+            let count = distances.iter().filter(|&&d| d >= start && d < end).count();
+            (label.to_string(), count)
+        })
+        .collect();
+
+    DistanceStats {
+        min,
+        max,
+        avg,
+        histogram,
+    }
+}
+
+/// Print consolidated closest nodes summary for multiple addresses (recursive mode)
+async fn print_recursive_closest_nodes_summary(
+    client: &autonomi::Client,
+    addresses: Vec<String>,
+    verbose: bool,
+) -> Result<()> {
+    println!("\n{}", "=".repeat(80));
+    println!("Closest Nodes Analysis for {} Addresses", addresses.len());
+    println!("{}", "=".repeat(80));
+    println!();
+
+    // Process addresses concurrently in batches
+    let query_tasks = addresses.iter().map(|addr| {
+        let client = client.clone();
+        let addr = addr.clone();
+        async move {
+            let result = get_closest_nodes_status(&client, &addr, false).await;
+            (addr, result)
+        }
+    });
+
+    let results: Vec<_> = stream::iter(query_tasks)
+        .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+        .collect()
+        .await;
+
+    // Print section for each address
+    for (addr, result) in results {
+        match result {
+            Ok(peer_statuses) => {
+                print_address_closest_nodes_section(&addr, peer_statuses, verbose)?;
+            }
+            Err(e) => {
+                println!("Address: {}", truncate_address(&addr));
+                println!("  ⚠️  Failed to query closest nodes: {e}");
+                println!();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Helper to truncate address for display
+fn truncate_address(addr: &str) -> String {
+    if addr.len() > 24 {
+        format!("{}...{}", &addr[..16], &addr[addr.len() - 8..])
+    } else {
+        addr.to_string()
+    }
+}
+
+/// Print a section for a single address's closest nodes info
+fn print_address_closest_nodes_section(
+    addr: &str,
+    peer_statuses: Vec<ClosestPeerStatus>,
+    verbose: bool,
+) -> Result<()> {
+    // Count statuses
+    let total = peer_statuses.len();
+    let holding = peer_statuses
+        .iter()
+        .filter(|s| matches!(s, ClosestPeerStatus::Holding { .. }))
+        .count();
+    let not_holding = peer_statuses
+        .iter()
+        .filter(|s| matches!(s, ClosestPeerStatus::NotHolding { .. }))
+        .count();
+    let failed = peer_statuses
+        .iter()
+        .filter(|s| matches!(s, ClosestPeerStatus::FailedQuery { .. }))
+        .count();
+
+    // Get target address from first peer status
+    let target_addr = peer_statuses
+        .first()
+        .map(|s| s.target_address().clone())
+        .ok_or_else(|| color_eyre::eyre::eyre!("No peer statuses available"))?;
+
+    // Calculate distance statistics
+    let stats = calculate_distance_stats(&peer_statuses, &target_addr);
+
+    // Print section
+    println!("Address: {}", truncate_address(addr));
+    println!(
+        "  Holders: {}/{} | ✅ {} holding | ❌ {} not holding | ⚠️  {} failed",
+        holding, total, holding, not_holding, failed
+    );
+    println!(
+        "  Distance to target (ilog2): min={} avg={} max={}",
+        stats.min, stats.avg, stats.max
+    );
+
+    // Print histogram
+    print!("  Distance histogram: ");
+    for (i, (range, count)) in stats.histogram.iter().enumerate() {
+        if i > 0 {
+            print!("  ");
+        }
+        print!("[{}]: {}", range, count);
+    }
+    println!();
+
+    // In verbose mode, list holding peer IDs
+    if verbose {
+        println!("  Holding peers:");
+        for status in peer_statuses.iter() {
+            if let ClosestPeerStatus::Holding { peer_id, .. } = status {
+                println!("    - {}", peer_id);
+            }
+        }
+    }
+
+    println!();
+    Ok(())
 }
 
 async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {

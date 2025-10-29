@@ -7,7 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::actions::NetworkContext;
+use autonomi::PublicKey;
+use autonomi::chunk::ChunkAddress;
 use autonomi::client::analyze::Analysis;
+use autonomi::graph::GraphEntryAddress;
 use autonomi::{
     Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
     networking::NetworkAddress,
@@ -16,6 +19,14 @@ use color_eyre::eyre::Result;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+macro_rules! println_if {
+    ($cond:expr, $($arg:tt)*) => {
+        if $cond {
+            println!($($arg)*);
+        }
+    };
+}
+
 pub async fn analyze(
     addr: &str,
     closest_nodes: bool,
@@ -23,14 +34,7 @@ pub async fn analyze(
     network_context: NetworkContext,
     recursive: bool,
 ) -> Result<()> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-    println_if_verbose!("Analyzing address: {addr}");
+    println_if!(verbose, "Analyzing address: {addr}");
 
     // then connect to network and check data
     let client = crate::actions::connect_to_network(network_context)
@@ -42,7 +46,7 @@ pub async fn analyze(
     }
 
     let results = if recursive {
-        println_if_verbose!("Starting recursive analysis...");
+        println_if!(verbose, "Starting recursive analysis...");
         client.analyze_address_recursively(addr, verbose).await
     } else {
         let mut map = HashMap::new();
@@ -57,12 +61,13 @@ pub async fn analyze(
     } else if let Some((_, analysis)) = results.iter().next() {
         match analysis {
             Ok(analysis) => {
-                println_if_verbose!("Analysis successful");
+                println_if!(verbose, "Analysis successful");
                 println!("{analysis}");
             }
             Err(AnalysisError::UnrecognizedInput) => {
                 println!("🚨 Could not identify address type!");
-                println_if_verbose!(
+                println_if!(
+                    verbose,
                     "Provided string was not recognized as a data address, trying other types..."
                 );
                 try_other_types(addr, verbose);
@@ -79,27 +84,22 @@ pub async fn analyze(
 }
 
 fn try_other_types(addr: &str, verbose: bool) {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     // local reference to private data
     let try_private_address = crate::user_data::get_local_private_archive_access(addr).ok();
     if let Some(data_map) = try_private_address {
         println!(
             "✅ Identified input as a: Local Private Archive's DataMap local address (only works on your own machine)"
         );
-        println_if_verbose!(
+        println_if!(
+            verbose,
             "💡 This local address points to a DataMap which is stored on your local machine."
         );
-        println_if_verbose!(
+        println_if!(
+            verbose,
             "💡 Using this DataMap you can download your Private Archive from the Network."
         );
-        println_if_verbose!(
+        println_if!(
+            verbose,
             "💡 You can use the `file download` command to download the private data from the DataMap"
         );
         println!("DataMap in hex: {}", data_map.to_hex());
@@ -113,13 +113,17 @@ fn try_other_types(addr: &str, verbose: bool) {
     if maybe_secret_key.is_some() || maybe_eth_sk.is_some() {
         println!("🚨 Please keep your secret key safe! Don't use it as a data address!");
         println!("✅ Identified input as a: Secret Key");
-        println_if_verbose!("💡 A Secret Key is used to sign data or transactions on the Network.");
+        println_if!(
+            verbose,
+            "💡 A Secret Key is used to sign data or transactions on the Network."
+        );
         return;
     }
     let maybe_eth_address = addr.parse::<RewardsAddress>().ok();
     if maybe_eth_address.is_some() {
         println!("✅ Identified input as an: Ethereum Address");
-        println_if_verbose!(
+        println_if!(
+            verbose,
             "💡 An Ethereum address is a cryptographic identifier for a blockchain account. It can be used to receive funds and rewards on the Network."
         );
         return;
@@ -129,7 +133,10 @@ fn try_other_types(addr: &str, verbose: bool) {
     let maybe_multiaddr = Multiaddr::from_str(addr).ok();
     if maybe_multiaddr.is_some() {
         println!("✅ Identified input as a: Multiaddr");
-        println_if_verbose!("💡 A Mutliaddr is the url used to connect to a node on the Network.");
+        println_if!(
+            verbose,
+            "💡 A Mutliaddr is the url used to connect to a node on the Network."
+        );
         return;
     }
 
@@ -137,29 +144,17 @@ fn try_other_types(addr: &str, verbose: bool) {
 }
 
 async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
-    use autonomi::PublicKey;
-    use autonomi::chunk::ChunkAddress;
-    use autonomi::graph::GraphEntryAddress;
-
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     let hex_addr = addr.trim_start_matches("0x");
 
-    println_if_verbose!("Querying closest peers to address...");
+    println_if!(verbose, "Querying closest peers to address...");
 
     // Try parsing as ChunkAddress (XorName) first
     let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
-        println_if_verbose!("Identified as ChunkAddress");
+        println_if!(verbose, "Identified as ChunkAddress");
         NetworkAddress::from(chunk_addr)
     // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
     } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
-        println_if_verbose!("Identified as PublicKey, using GraphEntryAddress");
+        println_if!(verbose, "Identified as PublicKey, using GraphEntryAddress");
         // Default to GraphEntryAddress for public keys
         NetworkAddress::from(GraphEntryAddress::new(public_key))
     } else {

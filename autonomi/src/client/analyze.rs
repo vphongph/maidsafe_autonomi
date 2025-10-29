@@ -29,6 +29,14 @@ use std::collections::VecDeque;
 use super::{GetError, register::RegisterAddress};
 const MAX_HEX_PRINT_LENGTH: usize = 4 * 1024;
 
+macro_rules! println_if {
+    ($cond:expr, $($arg:tt)*) => {
+        if $cond {
+            println!($($arg)*);
+        }
+    };
+}
+
 /// The result of analyzing an address
 #[derive(custom_debug::Debug, Clone, Eq, PartialEq)]
 pub enum Analysis {
@@ -182,42 +190,38 @@ impl Client {
         address: &str,
         verbose: bool,
     ) -> Result<Analysis, AnalysisError> {
-        macro_rules! println_if_verbose {
-            ($($arg:tt)*) => {
-                if verbose {
-                    println!($($arg)*);
-                }
-            };
-        }
         let hex_addr = address.trim_start_matches("0x");
 
         // data addresses
         let maybe_xorname = ChunkAddress::from_hex(address).ok();
         if let Some(chunk_addr) = maybe_xorname {
-            println_if_verbose!("Identified as a Chunk address...");
+            println_if!(verbose, "Identified as a Chunk address...");
             return analyze_chunk(&chunk_addr, self, verbose).await;
         }
 
         // public keys
         let maybe_public_key = PublicKey::from_hex(hex_addr).ok();
         if let Some(public_key) = maybe_public_key {
-            println_if_verbose!("Identified as a bls Public Key, might be a key addressed type...");
+            println_if!(
+                verbose,
+                "Identified as a bls Public Key, might be a key addressed type..."
+            );
             return analyze_public_key(&public_key, self, verbose).await;
         }
 
         // datamaps
         if let Ok(hex_chunk) = DataMapChunk::from_hex(hex_addr) {
-            println_if_verbose!("Detected hex encoded data, might be a DataMap...");
+            println_if!(verbose, "Detected hex encoded data, might be a DataMap...");
             let maybe_data_map: Option<DataMap> = rmp_serde::from_slice(hex_chunk.0.value()).ok();
             if let Some(_data_map) = maybe_data_map {
-                println_if_verbose!("Identified as a new DataMap...");
+                println_if!(verbose, "Identified as a new DataMap...");
                 return analyze_datamap(None, &hex_chunk, self, verbose).await;
             }
 
             let maybe_data_map: Option<DataMapLevel> =
                 rmp_serde::from_slice(hex_chunk.0.value()).ok();
             if let Some(_data_map) = maybe_data_map {
-                println_if_verbose!("Identified as an old DataMap...");
+                println_if!(verbose, "Identified as an old DataMap...");
                 return analyze_datamap_old(None, &hex_chunk, self, verbose).await;
             }
         }
@@ -232,14 +236,6 @@ impl Client {
         address: &str,
         verbose: bool,
     ) -> HashMap<String, Result<Analysis, AnalysisError>> {
-        macro_rules! println_if_verbose {
-            ($($arg:tt)*) => {
-                if verbose {
-                    println!($($arg)*);
-                }
-            };
-        }
-
         let mut results = HashMap::new();
         let mut to_process: VecDeque<String> = VecDeque::new();
         to_process.push_back(address.to_string());
@@ -254,14 +250,14 @@ impl Client {
             if batch.is_empty() {
                 break;
             }
-            println_if_verbose!("Processing batch of {} addresses", batch.len());
+            println_if!(verbose, "Processing batch of {} addresses", batch.len());
             info!("Analyzing batch of {} addresses", batch.len());
 
             // Create futures for the batch
             let analyze_tasks = batch.into_iter().map(|addr| {
                 let client = self.clone();
                 async move {
-                    println_if_verbose!("Analyzing address: {addr}");
+                    println_if!(verbose, "Analyzing address: {addr}");
                     info!("Analyzing address: {addr}");
                     let analysis = client.analyze_address(&addr, false).await;
                     info!("Analysis completed for address: {addr}, result: {analysis:?}");
@@ -269,7 +265,8 @@ impl Client {
                     let referenced_addrs = if let Ok(ref analysis_result) = analysis {
                         let addrs = extract_addresses(analysis_result);
                         if !addrs.is_empty() {
-                            println_if_verbose!(
+                            println_if!(
+                                verbose,
                                 "Found {} referenced addresses from {addr}",
                                 addrs.len(),
                             );
@@ -310,26 +307,22 @@ impl Client {
         address: &str,
         verbose: bool,
     ) -> Result<PointerTarget, AnalysisError> {
-        macro_rules! println_if_verbose {
-            ($($arg:tt)*) => {
-                if verbose {
-                    println!($($arg)*);
-                }
-            };
-        }
         let hex_addr = address.trim_start_matches("0x");
 
         // data addresses
         let maybe_xorname = ChunkAddress::from_hex(address).ok();
         if let Some(chunk_addr) = maybe_xorname {
-            println_if_verbose!("Identified as a Chunk address...");
+            println_if!(verbose, "Identified as a Chunk address...");
             return Ok(PointerTarget::ChunkAddress(chunk_addr));
         }
 
         // public keys
         let maybe_public_key = PublicKey::from_hex(hex_addr).ok();
         if let Some(public_key) = maybe_public_key {
-            println_if_verbose!("Identified as a bls Public Key, might be a key addressed type...");
+            println_if!(
+                verbose,
+                "Identified as a bls Public Key, might be a key addressed type..."
+            );
             return analyze_public_key_type(public_key, self, verbose).await;
         }
 
@@ -342,14 +335,6 @@ async fn analyze_public_key_type(
     client: &Client,
     verbose: bool,
 ) -> Result<PointerTarget, AnalysisError> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     let graph_entry_address = GraphEntryAddress::new(public_key);
     let pointer_address = PointerAddress::new(public_key);
     let scratchpad_address = ScratchpadAddress::new(public_key);
@@ -363,21 +348,21 @@ async fn analyze_public_key_type(
 
     match (maybe_graph_entry, maybe_pointer, maybe_scratchpad) {
         (Ok(_graph_entry), _, _) => {
-            println_if_verbose!("Identified GraphEntry...");
+            println_if!(verbose, "Identified GraphEntry...");
             Ok(PointerTarget::GraphEntryAddress(graph_entry_address))
         }
         (_, Ok(_pointer), _) => {
-            println_if_verbose!("Identified Pointer...");
+            println_if!(verbose, "Identified Pointer...");
             Ok(PointerTarget::PointerAddress(pointer_address))
         }
         (_, _, Ok(_scratchpad)) => {
-            println_if_verbose!("Identified Scratchpad...");
+            println_if!(verbose, "Identified Scratchpad...");
             Ok(PointerTarget::ScratchpadAddress(scratchpad_address))
         }
         (Err(e1), Err(e2), Err(e3)) => {
-            println_if_verbose!("Failed to get graph entry: {e1}");
-            println_if_verbose!("Failed to get pointer: {e2}");
-            println_if_verbose!("Failed to get scratchpad: {e3}");
+            println_if!(verbose, "Failed to get graph entry: {e1}");
+            println_if!(verbose, "Failed to get pointer: {e2}");
+            println_if!(verbose, "Failed to get scratchpad: {e3}");
             Err(AnalysisError::FailedGet)
         }
     }
@@ -388,27 +373,23 @@ async fn analyze_chunk(
     client: &Client,
     verbose: bool,
 ) -> Result<Analysis, AnalysisError> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
-    println_if_verbose!("Getting chunk at address: {} ...", chunk_addr.to_hex());
+    println_if!(
+        verbose,
+        "Getting chunk at address: {} ...",
+        chunk_addr.to_hex()
+    );
     let chunk = client.chunk_get(chunk_addr).await?;
-    println_if_verbose!("Got chunk of {} bytes...", chunk.value().len());
+    println_if!(verbose, "Got chunk of {} bytes...", chunk.value().len());
 
     // check if it's a datamap
     if let Ok(_data_map) = rmp_serde::from_slice::<DataMap>(chunk.value()) {
-        println_if_verbose!("Identified chunk content as a DataMap...");
+        println_if!(verbose, "Identified chunk content as a DataMap...");
         return analyze_datamap(Some(*chunk_addr), &chunk.into(), client, verbose).await;
     }
 
     // check if it's an old datamap
     if let Ok(_data_map) = rmp_serde::from_slice::<DataMapLevel>(chunk.value()) {
-        println_if_verbose!("Identified chunk content as an old DataMap...");
+        println_if!(verbose, "Identified chunk content as an old DataMap...");
         return analyze_datamap_old(Some(*chunk_addr), &chunk.into(), client, verbose).await;
     }
 
@@ -421,23 +402,16 @@ async fn analyze_datamap(
     client: &Client,
     verbose: bool,
 ) -> Result<Analysis, AnalysisError> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     let map: DataMap =
         rmp_serde::from_slice(datamap.0.value()).map_err(|_| AnalysisError::UnrecognizedInput)?;
     let points_to_a_data_map = map.child.is_some();
 
-    println_if_verbose!("Fetching data from the Network...");
+    println_if!(verbose, "Fetching data from the Network...");
     let data = match client.data_get(datamap).await {
         Ok(data) => data,
         Err(GetError::TooLargeForMemory) => {
-            println_if_verbose!(
+            println_if!(
+                verbose,
                 "Datamap points to a large sized file, not suitable for in-memory fetch."
             );
             let analysis = match stored_at {
@@ -457,7 +431,7 @@ async fn analyze_datamap(
         }
         Err(e) => return Err(AnalysisError::GetError(e)),
     };
-    println_if_verbose!("Data fetched from the Network...");
+    println_if!(verbose, "Data fetched from the Network...");
 
     if let Ok(private_archive) = PrivateArchive::from_bytes(data.clone()) {
         // public archives and private archives can be confused into each other
@@ -469,9 +443,13 @@ async fn analyze_datamap(
             .iter()
             .all(|(_, (data_addr, _))| data_addr.to_hex().len() == xorname_hex_len);
         if all_addrs_are_xornames {
-            println_if_verbose!("All addresses are xornames, so it's a public archive");
+            println_if!(
+                verbose,
+                "All addresses are xornames, so it's a public archive"
+            );
             if let Ok(public_archive) = PublicArchive::from_bytes(data.clone()) {
-                println_if_verbose!(
+                println_if!(
+                    verbose,
                     "Identified the data pointed to by the DataMap as a PublicArchive..."
                 );
                 return Ok(Analysis::PublicArchive {
@@ -481,12 +459,18 @@ async fn analyze_datamap(
             }
         }
 
-        println_if_verbose!("Identified the data pointed to by the DataMap as a PrivateArchive...");
+        println_if!(
+            verbose,
+            "Identified the data pointed to by the DataMap as a PrivateArchive..."
+        );
         return Ok(Analysis::PrivateArchive(private_archive));
     }
 
     if let Ok(public_archive) = PublicArchive::from_bytes(data.clone()) {
-        println_if_verbose!("Identified the data pointed to by the DataMap as a PublicArchive...");
+        println_if!(
+            verbose,
+            "Identified the data pointed to by the DataMap as a PublicArchive..."
+        );
         return Ok(Analysis::PublicArchive {
             address: stored_at,
             archive: public_archive,
@@ -516,25 +500,21 @@ async fn analyze_datamap_old(
     client: &Client,
     verbose: bool,
 ) -> Result<Analysis, AnalysisError> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     let data_map_level: DataMapLevel =
         rmp_serde::from_slice(datamap.0.value()).map_err(|_| AnalysisError::UnrecognizedInput)?;
     let (map, points_to_a_data_map) = match data_map_level {
         DataMapLevel::Additional(map) => {
-            println_if_verbose!(
+            println_if!(
+                verbose,
                 "Identified a DataMap whose contents is another DataMap, the content might be pretty big..."
             );
             (map, true)
         }
         DataMapLevel::First(map) => {
-            println_if_verbose!("Identified a DataMap which directly contains data...");
+            println_if!(
+                verbose,
+                "Identified a DataMap which directly contains data..."
+            );
             (map, false)
         }
     };
@@ -555,11 +535,12 @@ async fn analyze_datamap_old(
         child: None,
     };
 
-    println_if_verbose!("Fetching data from the Network...");
+    println_if!(verbose, "Fetching data from the Network...");
     let data = match client.data_get(datamap).await {
         Ok(data) => data,
         Err(GetError::TooLargeForMemory) => {
-            println_if_verbose!(
+            println_if!(
+                verbose,
                 "Datamap points to a large sized file, not suitable for in-memory fetch."
             );
             let analysis = match stored_at {
@@ -579,7 +560,7 @@ async fn analyze_datamap_old(
         }
         Err(e) => return Err(AnalysisError::GetError(e)),
     };
-    println_if_verbose!("Data fetched from the Network...");
+    println_if!(verbose, "Data fetched from the Network...");
 
     if let Ok(private_archive) = PrivateArchive::from_bytes(data.clone()) {
         // public archives and private archives can be confused into each other
@@ -591,9 +572,13 @@ async fn analyze_datamap_old(
             .iter()
             .all(|(_, (data_addr, _))| data_addr.to_hex().len() == xorname_hex_len);
         if all_addrs_are_xornames {
-            println_if_verbose!("All addresses are xornames, so it's a public archive");
+            println_if!(
+                verbose,
+                "All addresses are xornames, so it's a public archive"
+            );
             if let Ok(public_archive) = PublicArchive::from_bytes(data.clone()) {
-                println_if_verbose!(
+                println_if!(
+                    verbose,
                     "Identified the data pointed to by the DataMap as a PublicArchive..."
                 );
                 return Ok(Analysis::PublicArchive {
@@ -603,12 +588,18 @@ async fn analyze_datamap_old(
             }
         }
 
-        println_if_verbose!("Identified the data pointed to by the DataMap as a PrivateArchive...");
+        println_if!(
+            verbose,
+            "Identified the data pointed to by the DataMap as a PrivateArchive..."
+        );
         return Ok(Analysis::PrivateArchive(private_archive));
     }
 
     if let Ok(public_archive) = PublicArchive::from_bytes(data.clone()) {
-        println_if_verbose!("Identified the data pointed to by the DataMap as a PublicArchive...");
+        println_if!(
+            verbose,
+            "Identified the data pointed to by the DataMap as a PublicArchive..."
+        );
         return Ok(Analysis::PublicArchive {
             address: stored_at,
             archive: public_archive,
@@ -637,14 +628,6 @@ async fn analyze_public_key(
     client: &Client,
     verbose: bool,
 ) -> Result<Analysis, AnalysisError> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
-
     let graph_entry_address = GraphEntryAddress::new(*public_key);
     let pointer_address = PointerAddress::new(*public_key);
     let register_address = RegisterAddress::new(*public_key);
@@ -665,8 +648,11 @@ async fn analyze_public_key(
         maybe_scratchpad,
     ) {
         (graph_entry, _, Ok(value), _) => {
-            println_if_verbose!("Identified GraphEntry, which fits the format of a Register...");
-            println_if_verbose!("GraphEntry: {:#?}", graph_entry);
+            println_if!(
+                verbose,
+                "Identified GraphEntry, which fits the format of a Register..."
+            );
+            println_if!(verbose, "GraphEntry: {:#?}", graph_entry);
             Ok(Analysis::Register {
                 address: register_address,
                 owner: *public_key,
@@ -676,22 +662,22 @@ async fn analyze_public_key(
             })
         }
         (Ok(graph_entry), _, _, _) => {
-            println_if_verbose!("Identified GraphEntry...");
+            println_if!(verbose, "Identified GraphEntry...");
             Ok(Analysis::GraphEntry(graph_entry))
         }
         (_, Ok(pointer), _, _) => {
-            println_if_verbose!("Identified Pointer...");
+            println_if!(verbose, "Identified Pointer...");
             Ok(Analysis::Pointer(pointer))
         }
         (_, _, _, Ok(scratchpad)) => {
-            println_if_verbose!("Identified Scratchpad...");
+            println_if!(verbose, "Identified Scratchpad...");
             Ok(Analysis::Scratchpad(scratchpad))
         }
         (Err(e1), Err(e2), Err(e3), Err(e4)) => {
-            println_if_verbose!("Failed to get graph entry: {e1}");
-            println_if_verbose!("Failed to get pointer: {e2}");
-            println_if_verbose!("Failed to get register: {e3}");
-            println_if_verbose!("Failed to get scratchpad: {e4}");
+            println_if!(verbose, "Failed to get graph entry: {e1}");
+            println_if!(verbose, "Failed to get pointer: {e2}");
+            println_if!(verbose, "Failed to get register: {e3}");
+            println_if!(verbose, "Failed to get scratchpad: {e4}");
             Err(AnalysisError::FailedGet)
         }
     }

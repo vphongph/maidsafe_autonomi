@@ -11,13 +11,71 @@ use autonomi::PublicKey;
 use autonomi::chunk::ChunkAddress;
 use autonomi::client::analyze::Analysis;
 use autonomi::graph::GraphEntryAddress;
+use autonomi::networking::PeerId;
 use autonomi::{
     Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
     networking::NetworkAddress,
 };
 use color_eyre::eyre::Result;
+use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::str::FromStr;
+
+/// Status of a holder's record for a given address
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum ClosestPeerStatus {
+    /// Peer is holding the record with the given size in bytes
+    Holding {
+        peer_id: PeerId,
+        target_address: NetworkAddress,
+        listen_addrs: Vec<Multiaddr>,
+        size: usize,
+    },
+    /// Peer is not holding the record
+    NotHolding {
+        peer_id: PeerId,
+        target_address: NetworkAddress,
+        listen_addrs: Vec<Multiaddr>,
+    },
+    /// Failed to query the peer
+    FailedQuery {
+        peer_id: PeerId,
+        target_address: NetworkAddress,
+        listen_addrs: Vec<Multiaddr>,
+        error: String,
+    },
+}
+
+impl ClosestPeerStatus {
+    /// Get the listen addresses of the peer
+    pub fn listen_addrs(&self) -> &Vec<Multiaddr> {
+        match self {
+            ClosestPeerStatus::Holding { listen_addrs, .. } => listen_addrs,
+            ClosestPeerStatus::NotHolding { listen_addrs, .. } => listen_addrs,
+            ClosestPeerStatus::FailedQuery { listen_addrs, .. } => listen_addrs,
+        }
+    }
+
+    /// Get the peer ID
+    pub fn peer_id(&self) -> &PeerId {
+        match self {
+            ClosestPeerStatus::Holding { peer_id, .. } => peer_id,
+            ClosestPeerStatus::NotHolding { peer_id, .. } => peer_id,
+            ClosestPeerStatus::FailedQuery { peer_id, .. } => peer_id,
+        }
+    }
+
+    /// Get the target address
+    #[allow(dead_code)]
+    pub fn target_address(&self) -> &NetworkAddress {
+        match self {
+            ClosestPeerStatus::Holding { target_address, .. } => target_address,
+            ClosestPeerStatus::NotHolding { target_address, .. } => target_address,
+            ClosestPeerStatus::FailedQuery { target_address, .. } => target_address,
+        }
+    }
+}
 
 macro_rules! println_if {
     ($cond:expr, $($arg:tt)*) => {
@@ -143,7 +201,14 @@ fn try_other_types(addr: &str, verbose: bool) {
     println!("⚠️ Unrecognized input");
 }
 
-async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
+/// Get holder status for the closest nodes to an address
+///
+/// Returns a map of PeerIds to their HolderStatus for the given address
+pub async fn get_closest_nodes_status(
+    client: &autonomi::Client,
+    addr: &str,
+    verbose: bool,
+) -> Result<Vec<ClosestPeerStatus>> {
     let hex_addr = addr.trim_start_matches("0x");
 
     println_if!(verbose, "Querying closest peers to address...");
@@ -169,50 +234,102 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
         .await
         .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
+    println!("Found {} closest peers to {}:", peers.len(), addr);
+    println!();
+
+    // Query all peers concurrently
+    let query_tasks = peers.iter().map(|peer| {
+        let client = client.clone();
+        let target_addr = target_addr.clone();
+        let peer = peer.clone();
+        async move {
+            let status = match client
+                .get_record_from_peer(target_addr.clone(), peer.clone())
+                .await
+            {
+                Ok(Some(record)) => ClosestPeerStatus::Holding {
+                    peer_id: peer.peer_id,
+                    listen_addrs: peer.addrs.clone(),
+                    target_address: target_addr.clone(),
+                    size: record.value.len(),
+                },
+                Ok(None) => ClosestPeerStatus::NotHolding {
+                    peer_id: peer.peer_id,
+                    listen_addrs: peer.addrs.clone(),
+                    target_address: target_addr.clone(),
+                },
+                Err(e) => ClosestPeerStatus::FailedQuery {
+                    peer_id: peer.peer_id,
+                    listen_addrs: peer.addrs.clone(),
+                    target_address: target_addr.clone(),
+                    error: e.to_string(),
+                },
+            };
+            status
+        }
+    });
+
+    let holders_map: Vec<ClosestPeerStatus> = stream::iter(query_tasks)
+        .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+        .collect()
+        .await;
+
+    Ok(holders_map)
+}
+
+async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
+    let hex_addr = addr.trim_start_matches("0x");
+
+    // Try parsing as ChunkAddress (XorName) first
+    let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+        NetworkAddress::from(chunk_addr)
+    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
+    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
+        // Default to GraphEntryAddress for public keys
+        NetworkAddress::from(GraphEntryAddress::new(public_key))
+    } else {
+        return Err(color_eyre::eyre::eyre!(
+            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
+        ));
+    };
+
+    // Get the holder status map
+    let mut holders_map = get_closest_nodes_status(client, addr, verbose).await?;
+
     // Sort peers by distance to target address
-    let mut sorted_peers = peers;
-    sorted_peers.sort_by_key(|peer| {
-        let peer_addr = NetworkAddress::from(peer.peer_id);
+    holders_map.sort_by_key(|status| {
+        let peer_addr = NetworkAddress::from(*status.peer_id());
         target_addr.distance(&peer_addr)
     });
 
-    println!("Found {} closest peers to {}:", sorted_peers.len(), addr);
-    println!();
-
-    // Check holding status for each peer
-    for (i, peer) in sorted_peers.iter().enumerate() {
-        let peer_addr = NetworkAddress::from(peer.peer_id);
+    // Print status for each peer
+    for (i, status) in holders_map.iter().enumerate() {
+        let peer_id = status.peer_id();
+        let peer_addr = NetworkAddress::from(*peer_id);
         let distance = target_addr.distance(&peer_addr);
 
         println!(
-            "{}. Peer ID: {} (distance: {distance:?}[{:?}])",
+            "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
             i + 1,
-            peer.peer_id,
             distance.ilog2()
         );
 
-        // Query the peer directly to check if it holds the record
-        match client
-            .get_record_from_peer(target_addr.clone(), peer.clone())
-            .await
-        {
-            Ok(Some(record)) => {
-                println!(
-                    "   Status: ✅ HOLDING record (size: {} bytes)",
-                    record.value.len()
-                );
+        // Print status from the map
+        match status {
+            ClosestPeerStatus::Holding { size, .. } => {
+                println!("   Status: ✅ HOLDING record (size: {size} bytes)");
             }
-            Ok(None) => {
+            ClosestPeerStatus::NotHolding { .. } => {
                 println!("   Status: ❌ NOT holding record");
             }
-            Err(e) => {
-                println!("   Status: ⚠️  Failed to query: {e}");
+            ClosestPeerStatus::FailedQuery { error, .. } => {
+                println!("   Status: ⚠️  Failed to query: {error}");
             }
         }
 
         if verbose {
             println!("   Addresses:");
-            for addr in &peer.addrs {
+            for addr in status.listen_addrs() {
                 println!("     - {addr}");
             }
         }
@@ -227,23 +344,23 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
 
     // Print header row with peer indices
     print!("     ");
-    for i in 0..sorted_peers.len() {
+    for i in 0..holders_map.len() {
         print!("Peer {:2} ", i + 1);
     }
     println!();
     print!("     ");
-    for _ in 0..sorted_peers.len() {
+    for _ in 0..holders_map.len() {
         print!("{} ", "-".repeat(7));
     }
     println!();
 
     // Print each row of the distance matrix
-    for (i, peer_i) in sorted_peers.iter().enumerate() {
+    for (i, status) in holders_map.iter().enumerate() {
         print!("P{:2}  ", i + 1);
-        let addr_i = NetworkAddress::from(peer_i.peer_id);
+        let addr_i = NetworkAddress::from(*status.peer_id());
 
-        for peer_j in &sorted_peers {
-            let addr_j = NetworkAddress::from(peer_j.peer_id);
+        for peer_j in holders_map.iter() {
+            let addr_j = NetworkAddress::from(*peer_j.peer_id());
             let distance = addr_i.distance(&addr_j);
 
             // Display distance with ilog2 for readability

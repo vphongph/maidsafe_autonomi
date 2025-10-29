@@ -257,7 +257,7 @@ impl Client {
             let analyze_tasks = batch.into_iter().map(|addr| {
                 let client = self.clone();
                 async move {
-                    println_if!(verbose, "Analyzing address: {addr}");
+                    println!("Analyzing address: {addr}");
                     info!("Analyzing address: {addr}");
                     let analysis = client.analyze_address(&addr, false).await;
                     info!("Analysis completed for address: {addr}, result: {analysis:?}");

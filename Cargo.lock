@@ -874,6 +874,7 @@ dependencies = [
  "criterion",
  "dirs-next",
  "eyre",
+ "futures",
  "hex",
  "indicatif",
  "prettytable",

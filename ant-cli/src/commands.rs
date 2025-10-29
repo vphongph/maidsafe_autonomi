@@ -74,6 +74,9 @@ pub enum SubCmd {
         /// Show all holders of the record at this address.
         #[arg(long)]
         holders: bool,
+        /// Recursively analyze all discovered addresses (chunks, pointers, etc.)
+        #[arg(short, long)]
+        recursive: bool,
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
@@ -654,7 +657,8 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             closest_nodes,
             holders,
             verbose,
-        }) => analyze::analyze(&addr, closest_nodes, holders, verbose, network_context).await,
+            recursive,
+        }) => analyze::analyze(&addr, closest_nodes, holders, recursive, verbose, network_context).await,
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()

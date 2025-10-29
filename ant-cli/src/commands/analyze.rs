@@ -36,12 +36,12 @@ pub async fn analyze(
         .await
         .map_err(|(err, _)| err)?;
 
-    if holders {
-        return print_holders(&client, addr, verbose).await;
+    if closest_nodes {
+        let _ = print_closest_nodes(&client, addr, verbose).await;
     }
 
-    if closest_nodes {
-        print_closest_nodes(&client, addr, verbose).await?;
+    if holders {
+        let _ = print_holders(&client, addr, verbose).await;
     }
 
     let analysis = client.analyze_address(addr, verbose).await;
@@ -161,7 +161,7 @@ async fn print_holders(client: &autonomi::Client, addr: &str, verbose: bool) -> 
         .map(autonomi::networking::Quorum::N)
         .expect("20 is non-zero");
 
-    let (record, holders) = match client.get_record_and_holders(network_addr, quorum).await {
+    let (record, holders) = match client.get_record_and_holders(network_addr.clone(), quorum).await {
         Ok((record, holders)) => (record, holders),
         Err(NetworkError::GetRecordTimeout(holders)) => {
             println_if_verbose!("Request timed out, showing partial results");
@@ -187,16 +187,26 @@ async fn print_holders(client: &autonomi::Client, addr: &str, verbose: bool) -> 
         return Ok(());
     }
 
-    // Sort holders by peer_id for consistent output
+    // Sort holders by distance to target address
     let mut sorted_holders = holders;
-    sorted_holders.sort();
+    sorted_holders.sort_by_key(|peer_id| {
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        network_addr.distance(&peer_addr)
+    });
 
     println!(
         "Found {} holders for record at {addr}:",
         sorted_holders.len()
     );
     for (i, peer_id) in sorted_holders.iter().enumerate() {
-        println!("{}. Peer ID: {peer_id}", i + 1);
+        let peer_addr: NetworkAddress = (*peer_id).into();
+        let distance = network_addr.distance(&peer_addr);
+
+        println!(
+            "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
+            i + 1,
+            distance.ilog2().unwrap_or(0)
+        );
     }
 
     Ok(())
@@ -259,7 +269,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
             "{}. Peer ID: {} (distance: {distance:?}[{:?}])",
             i + 1,
             peer.peer_id,
-            distance.ilog2()
+            distance.ilog2().unwrap_or(0)
         );
 
         // Query the peer directly to check if it holds the record
@@ -321,7 +331,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
             if addr_i == addr_j {
                 print!("   -    ");
             } else {
-                print!("{:?} ", distance.ilog2());
+                print!("{:?} ", distance.ilog2().unwrap_or(0));
             }
         }
         println!();

@@ -6,7 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+mod error;
 mod json;
+
+pub use error::{AnalysisErrorDisplay, NetworkErrorDisplay};
 
 use crate::actions::NetworkContext;
 use autonomi::PublicKey;
@@ -46,7 +49,7 @@ pub enum ClosestPeerStatus {
         peer_id: PeerId,
         target_address: NetworkAddress,
         listen_addrs: Vec<Multiaddr>,
-        error: String,
+        error: NetworkErrorDisplay,
     },
 }
 
@@ -509,7 +512,7 @@ pub async fn get_closest_nodes_status(
                     peer_id: peer.peer_id,
                     listen_addrs: peer.addrs.clone(),
                     target_address: target_addr.clone(),
-                    error: e.to_string(),
+                    error: NetworkErrorDisplay::from_network_error(&e),
                 },
             }
         }
@@ -712,7 +715,7 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
                 println!("   Status: ❌ NOT holding record");
             }
             ClosestPeerStatus::FailedQuery { error, .. } => {
-                println!("   Status: ⚠️  Failed to query: {error}");
+                println!("   Status: ⚠️  Failed to query: {error:?}");
             }
         }
 

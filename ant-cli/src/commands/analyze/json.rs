@@ -6,9 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use super::{AnalysisErrorDisplay, ClosestPeerStatus, NetworkErrorDisplay};
 use crate::commands::analyze::HolderStatus;
-
-use super::ClosestPeerStatus;
 use autonomi::client::analyze::{Analysis, AnalysisError};
 use autonomi::networking::NetworkAddress;
 use serde::Serialize;
@@ -33,10 +32,10 @@ pub struct AnalyzedAddress {
 /// Kademlia query result
 #[derive(Debug, Serialize)]
 pub struct KadMethod {
-    pub query_status: KadQueryStatus,
+    pub query_status: QueryStatus,
     pub holding_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_type: Option<String>,
+    pub error_type: Option<AnalysisErrorDisplay>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address_type: Option<String>,
     pub holders: Vec<KadHolders>,
@@ -53,6 +52,7 @@ pub struct KadHolders {
 /// Closest peers query result
 #[derive(Debug, Serialize)]
 pub struct ClosestMethod {
+    pub query_status: QueryStatus,
     pub closest_peers: Vec<ClosestPeer>,
     pub peer_count: usize,
 }
@@ -66,14 +66,14 @@ pub struct ClosestPeer {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_size_bytes: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_type: Option<String>,
+    pub error_type: Option<NetworkErrorDisplay>,
 }
 
 /// Status of the kademlia query
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[allow(dead_code)]
-pub enum KadQueryStatus {
+pub enum QueryStatus {
     Success,
     Error,
 }
@@ -146,9 +146,9 @@ impl KadMethod {
         };
 
         let query_status = if kad_holders.is_empty() && analysis.is_err() {
-            KadQueryStatus::Error
+            QueryStatus::Error
         } else {
-            KadQueryStatus::Success
+            QueryStatus::Success
         };
 
         let holding_count = if kad_holders.is_empty() {
@@ -168,7 +168,7 @@ impl KadMethod {
             Err(err) => Self {
                 query_status,
                 holding_count,
-                error_type: Some(map_analysis_error(err)),
+                error_type: Some(AnalysisErrorDisplay::from_analysis_error(err)),
                 address_type: None,
                 holders: kad_holders,
             },
@@ -179,12 +179,27 @@ impl KadMethod {
 impl ClosestMethod {
     fn from_peer_statuses(statuses: Vec<ClosestPeerStatus>, target_addr: &NetworkAddress) -> Self {
         let peer_count = statuses.len();
+
+        // Check if any peer has a failed query
+        let has_failed_query = statuses
+            .iter()
+            .any(|status| matches!(status, ClosestPeerStatus::FailedQuery { .. }));
+
+        // Determine query status: success if all peers are error-free (Holding or NotHolding)
+        // failure if even one peer had a FailedQuery
+        let query_status = if has_failed_query {
+            QueryStatus::Error
+        } else {
+            QueryStatus::Success
+        };
+
         let closest_peers = statuses
             .into_iter()
             .map(|status| ClosestPeer::from_status(status, target_addr))
             .collect();
 
         Self {
+            query_status,
             closest_peers,
             peer_count,
         }
@@ -236,15 +251,6 @@ fn get_analysis_type(analysis: &Analysis) -> String {
         Analysis::RawDataMap { .. } => "RawDataMap".to_string(),
         Analysis::PublicArchive { .. } => "PublicArchive".to_string(),
         Analysis::PrivateArchive(_) => "PrivateArchive".to_string(),
-    }
-}
-
-/// Map AnalysisError to simple error type strings
-fn map_analysis_error(error: &AnalysisError) -> String {
-    match error {
-        AnalysisError::UnrecognizedInput => "unrecognized_input".to_string(),
-        AnalysisError::GetError(_) => "get_error".to_string(),
-        AnalysisError::FailedGet => "failed_get".to_string(),
     }
 }
 

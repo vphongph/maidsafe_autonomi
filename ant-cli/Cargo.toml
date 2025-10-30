@@ -31,6 +31,7 @@ color-eyre = "0.6.3"
 comfy-table = "7.1"
 const-hex = "1.13.1"
 dirs-next = "~2.0.0"
+file-rotate = "0.7.3"
 hex = "0.4.3"
 futures = "~0.3.13"
 indicatif = { version = "0.17.5", features = ["tokio"] }

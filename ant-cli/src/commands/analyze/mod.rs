@@ -206,10 +206,8 @@ pub async fn analyze(
         None
     };
 
-    if let Some(json_path) = json_output_path {
-        output_json(addr, &results, closest_nodes_data, holders_data, &json_path)?;
-    } else if closest_nodes_data.is_some() || holders_data.is_some() {
-        print_summary(&results, closest_nodes_data, holders_data, verbose)?;
+    if closest_nodes_data.is_some() || holders_data.is_some() || recursive {
+        print_summary(&results, &closest_nodes_data, &holders_data, verbose)?;
     } else if let Some((_, analysis)) = results.iter().next() {
         match analysis {
             Ok(analysis) => {
@@ -235,6 +233,10 @@ pub async fn analyze(
         }
     } else {
         println!("No analysis results available.");
+    }
+
+    if let Some(json_path) = json_output_path {
+        output_json(addr, &results, closest_nodes_data, holders_data, &json_path)?;
     }
 
     Ok(())
@@ -729,8 +731,8 @@ async fn print_closest_nodes(client: &autonomi::Client, addr: &str, verbose: boo
 
 fn print_summary(
     results: &HashMap<String, Result<Analysis, AnalysisError>>,
-    closest_nodes_data: Option<HashMap<String, Vec<ClosestPeerStatus>>>,
-    holders_data: Option<HashMap<String, Vec<HolderStatus>>>,
+    closest_nodes_data: &Option<HashMap<String, Vec<ClosestPeerStatus>>>,
+    holders_data: &Option<HashMap<String, Vec<HolderStatus>>>,
     verbose: bool,
 ) -> Result<()> {
     // Build table rows
@@ -770,7 +772,7 @@ fn print_summary(
         let mut holders_distance_stats = None;
 
         // Set values if closest nodes data exists for this address
-        if let Some(ref closest_nodes_map) = closest_nodes_data
+        if let Some(closest_nodes_map) = closest_nodes_data
             && let Some(peer_statuses) = closest_nodes_map.get(address)
         {
             let total = peer_statuses.len();
@@ -792,7 +794,7 @@ fn print_summary(
         }
 
         // Set values if holders data exists for this address
-        if let Some(ref holders_map) = holders_data
+        if let Some(holders_map) = holders_data
             && let Some(holder_statuses) = holders_map.get(address)
         {
             let found_holders = holder_statuses.len();
@@ -848,7 +850,7 @@ fn print_summary(
     Ok(())
 }
 
-fn print_holders(holders_data: HashMap<String, Vec<HolderStatus>>) {
+fn print_holders(holders_data: &HashMap<String, Vec<HolderStatus>>) {
     for (addr_str, holders) in holders_data {
         let (target_addr, size) = if let Some(first) = holders.first() {
             (first.target_address.clone(), first.size)

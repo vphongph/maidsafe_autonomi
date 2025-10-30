@@ -875,6 +875,7 @@ dependencies = [
  "criterion",
  "dirs-next",
  "eyre",
+ "file-rotate",
  "futures",
  "hex",
  "indicatif",

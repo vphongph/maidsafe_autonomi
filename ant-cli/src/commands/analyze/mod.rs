@@ -26,6 +26,7 @@ use color_eyre::eyre::Result;
 use comfy_table::{Cell, CellAlignment, Table};
 use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const KAD_HOLDERS_QUERY_RANGE: u32 = 20;
@@ -107,8 +108,9 @@ pub async fn analyze(
     recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
-    json_output: bool,
+    json_output_path: Option<PathBuf>,
 ) -> Result<()> {
+    let json_output = json_output_path.is_some();
     let verbose_enabled = verbose && !json_output;
     println_if!(verbose_enabled, "Analyzing address: {addr}");
 
@@ -207,8 +209,8 @@ pub async fn analyze(
         None
     };
 
-    if json_output {
-        output_json(addr, &results, closest_nodes_data, holders_data)?;
+    if let Some(json_path) = json_output_path {
+        output_json(addr, &results, closest_nodes_data, holders_data, &json_path)?;
     } else if closest_nodes_data.is_some() || holders_data.is_some() {
         print_summary(&results, closest_nodes_data, holders_data, verbose)?;
     } else if let Some((_, analysis)) = results.iter().next() {
@@ -247,6 +249,7 @@ fn output_json(
     results: &HashMap<String, Result<Analysis, AnalysisError>>,
     closest_nodes_data: Option<HashMap<String, Vec<ClosestPeerStatus>>>,
     holders_data: Option<HashMap<String, Vec<HolderStatus>>>,
+    output_path: &Path,
 ) -> Result<()> {
     let mut json_output = json::JsonOutput::new(provided_address.to_string());
 
@@ -275,9 +278,11 @@ fn output_json(
         json_output.add_address(analyzed);
     }
 
-    // Output JSON to stdout
-    let json_str = serde_json::to_string_pretty(&json_output)?;
-    println!("{json_str}");
+    // Output JSON to file (append-only with rotation if directory)
+    let json_str = serde_json::to_string(&json_output)?;
+    let mut writer = json::JsonWriter::new(output_path)?;
+    writer.write_json(&json_str)?;
+    println!("JSON output written to: {}", output_path.display());
 
     Ok(())
 }

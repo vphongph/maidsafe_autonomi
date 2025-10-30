@@ -80,9 +80,11 @@ pub enum SubCmd {
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
-        /// Output results as JSON to stdout.
+        /// Output results as JSON to a file. Append-only writing.
+        /// If path is a file, appends to that file.
+        /// If path is a directory, enables file rotations (50MB max per file, 10 files max).
         #[arg(long)]
-        json: bool,
+        json: Option<PathBuf>,
     },
 }
 

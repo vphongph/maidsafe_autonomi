@@ -10,7 +10,11 @@ use super::{AnalysisErrorDisplay, ClosestPeerStatus, NetworkErrorDisplay};
 use crate::commands::analyze::{HolderStatus, KAD_HOLDERS_QUERY_RANGE};
 use autonomi::client::analyze::{Analysis, AnalysisError};
 use autonomi::networking::NetworkAddress;
+use color_eyre::eyre::Result;
+use file_rotate::{ContentLimit, FileRotate, compression::Compression, suffix::AppendCount};
 use serde::Serialize;
+use std::io::Write;
+use std::path::Path;
 
 /// Root JSON output structure
 #[derive(Debug, Serialize)]
@@ -274,4 +278,72 @@ fn get_analysis_type(analysis: &Analysis) -> String {
 /// Remove 0x prefix from hex strings if present
 fn strip_0x_prefix(s: &str) -> String {
     s.trim_start_matches("0x").to_string()
+}
+
+const MAX_FILE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
+const MAX_FILES: usize = 10;
+
+/// Writer for JSON output that supports both file and directory targets
+pub struct JsonWriter {
+    writer: WriterType,
+}
+
+enum WriterType {
+    /// Simple file writer (append-only)
+    File(std::fs::File),
+    /// Rotating file writer for directories
+    Rotating(FileRotate<AppendCount>),
+}
+
+impl JsonWriter {
+    /// Create a new JSON writer
+    ///
+    /// If path is a file, opens it in append mode.
+    /// If path is a directory, creates a rotating file appender with:
+    /// - 50 MB max per file
+    /// - 10 files max
+    /// - No compression
+    pub fn new(path: &Path) -> Result<Self> {
+        let writer = if path.is_dir() {
+            // Directory: use rotating writer
+            let json_file_path = path.join("analyze.json");
+            let file_rotate = FileRotate::new(
+                json_file_path,
+                AppendCount::new(MAX_FILES),
+                ContentLimit::BytesSurpassed(MAX_FILE_SIZE),
+                Compression::None,
+                #[cfg(unix)]
+                None,
+            );
+            WriterType::Rotating(file_rotate)
+        } else {
+            // File: use simple append mode
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)?;
+            WriterType::File(file)
+        };
+
+        Ok(Self { writer })
+    }
+
+    /// Write JSON string to the output
+    pub fn write_json(&mut self, json_str: &str) -> Result<()> {
+        match &mut self.writer {
+            WriterType::File(file) => {
+                writeln!(file, "{json_str}")?;
+                file.flush()?;
+            }
+            WriterType::Rotating(rotate) => {
+                writeln!(rotate, "{json_str}")?;
+                rotate.flush()?;
+            }
+        }
+        Ok(())
+    }
 }

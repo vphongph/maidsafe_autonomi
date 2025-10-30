@@ -111,8 +111,7 @@ pub async fn analyze(
     json_output_path: Option<PathBuf>,
 ) -> Result<()> {
     let json_output = json_output_path.is_some();
-    let verbose_enabled = verbose && !json_output;
-    println_if!(verbose_enabled, "Analyzing address: {addr}");
+    println!("Analyzing address: {addr}");
 
     // then connect to network and check data
     let client =
@@ -121,7 +120,7 @@ pub async fn analyze(
             .map_err(|(err, _)| err)?;
 
     let results = if recursive {
-        println_if!(verbose_enabled, "Starting recursive analysis...");
+        println!("Starting recursive analysis...");
         client
             .analyze_address_recursively(addr, verbose && !json_output)
             .await
@@ -134,8 +133,7 @@ pub async fn analyze(
 
     // Pre-compute closest nodes data if needed
     let closest_nodes_data = if closest_nodes {
-        println_if!(
-            !json_output,
+        println!(
             "Querying closest peers for all {} addresses...",
             results.len()
         );
@@ -156,8 +154,7 @@ pub async fn analyze(
                 .collect()
                 .await;
 
-        println_if!(
-            !json_output,
+        println!(
             "Completed querying closest peers for all {} addresses.",
             closest_nodes_results.len()
         );
@@ -374,33 +371,9 @@ async fn get_holders_status(
     addr: &str,
     verbose: bool,
 ) -> Result<Vec<HolderStatus>> {
-    macro_rules! println_if_verbose {
-        ($($arg:tt)*) => {
-            if verbose {
-                println!($($arg)*);
-            }
-        };
-    }
+    println_if!(verbose, "Querying holders of record at address...");
 
-    let hex_addr = addr.trim_start_matches("0x");
-
-    println_if_verbose!("Querying holders of record at address...");
-
-    // Try parsing as ChunkAddress (XorName) first
-    let network_addr: NetworkAddress = if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
-        println_if_verbose!("Identified as ChunkAddress");
-        chunk_addr.into()
-    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
-    } else if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
-        println_if_verbose!("Identified as PublicKey, using GraphEntryAddress");
-        // Default to GraphEntryAddress for public keys
-        let graph_entry_address = GraphEntryAddress::new(public_key);
-        graph_entry_address.into()
-    } else {
-        return Err(color_eyre::eyre::eyre!(
-            "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
-        ));
-    };
+    let network_addr = parse_network_address(addr)?;
 
     let quorum = std::num::NonZeroUsize::new(KAD_HOLDERS_QUERY_RANGE as usize)
         .map(autonomi::networking::Quorum::N)
@@ -412,7 +385,7 @@ async fn get_holders_status(
     {
         Ok((record, holders)) => (record, holders),
         Err(NetworkError::GetRecordTimeout(holders)) => {
-            println_if_verbose!("Request timed out, showing partial results");
+            println_if!(verbose, "Request timed out, showing partial results");
             (None, holders)
         }
         Err(NetworkError::GetRecordQuorumFailed {
@@ -420,7 +393,8 @@ async fn get_holders_status(
             expected_holders,
             holders,
         }) => {
-            println_if_verbose!(
+            println_if!(
+                verbose,
                 "Quorum not met (got {got_holders}/{expected_holders}), showing partial results"
             );
             (None, holders)
@@ -454,16 +428,7 @@ async fn get_holders_status(
         "Found {} holders for record at {addr}:",
         sorted_holders.len()
     );
-    for (i, peer_id) in sorted_holders.iter().enumerate() {
-        let peer_addr: NetworkAddress = (*peer_id).into();
-        let distance = network_addr.distance(&peer_addr);
-
-        println!(
-            "{}. Peer ID: {peer_id} (distance: {distance:?}[{:?}])",
-            i + 1,
-            distance.ilog2().unwrap_or(0)
-        );
-
+    for peer_id in sorted_holders.iter() {
         holders_status.push(HolderStatus {
             peer_id: *peer_id,
             target_address: network_addr.clone(),
@@ -492,7 +457,7 @@ pub async fn get_closest_nodes_status(
         .await
         .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
-    println!("Found {} closest peers to: {}", peers.len(), addr);
+    println!("Found {} closest peers to: {addr}", peers.len());
 
     // Query all peers concurrently
     let query_tasks = peers.iter().map(|peer| {
@@ -557,25 +522,12 @@ struct AnalysisTableRow {
     address: String,
     type_name: String,
     kad_query_status: String, // "✓ Found" or "✗ Not found"
+    size: Option<usize>,      // Record size from Analysis
     closest_peers_count: Option<(usize, usize)>, // (holding, total) e.g. (15, 20)
     target_distance_stats: Option<TargetDistanceStats>, // Distance from target to peers
     peer_distance_stats: Option<PeerDistanceStats>, // Distance among peers
-}
-
-/// Format histogram as compact text showing only non-zero buckets
-/// Example: "230-235: 2, 236-240: 6"
-fn format_histogram_compact(histogram: &[(String, usize)]) -> String {
-    let non_zero: Vec<String> = histogram
-        .iter()
-        .filter(|(_, count)| *count > 0)
-        .map(|(range, count)| format!("{range}: {count}"))
-        .collect();
-
-    if non_zero.is_empty() {
-        "N/A".to_string()
-    } else {
-        non_zero.join(", ")
-    }
+    holders_count: Option<(usize, u32)>, // (found holders, KAD_HOLDERS_QUERY_RANGE)
+    holders_distance_stats: Option<TargetDistanceStats>, // Distance from target to holder peers
 }
 
 /// Calculate distance statistics from target address to each peer
@@ -803,10 +755,19 @@ fn print_summary(
             Err(_) => ("Unknown".to_string(), "✗ Not found".to_string()),
         };
 
+        // Get size from holders data if available
+        let size = holders_data
+            .as_ref()
+            .and_then(|map| map.get(address))
+            .and_then(|holders| holders.first())
+            .map(|holder| holder.size);
+
         // Initialize with defaults
         let mut closest_peers_count = None;
         let mut target_distance_stats = None;
         let mut peer_distance_stats = None;
+        let mut holders_count = None;
+        let mut holders_distance_stats = None;
 
         // Set values if closest nodes data exists for this address
         if let Some(ref closest_nodes_map) = closest_nodes_data
@@ -830,19 +791,50 @@ fn print_summary(
             peer_distance_stats = Some(calculate_peer_distance_stats(peer_statuses));
         }
 
+        // Set values if holders data exists for this address
+        if let Some(ref holders_map) = holders_data
+            && let Some(holder_statuses) = holders_map.get(address)
+        {
+            let found_holders = holder_statuses.len();
+            holders_count = Some((found_holders, KAD_HOLDERS_QUERY_RANGE));
+
+            // Calculate holder distance stats
+            if let Some(target_addr) = holder_statuses.first().map(|h| &h.target_address) {
+                // Convert HolderStatus to ClosestPeerStatus for reusing distance calculation
+                let holder_peer_statuses: Vec<ClosestPeerStatus> = holder_statuses
+                    .iter()
+                    .map(|h| ClosestPeerStatus::Holding {
+                        peer_id: h.peer_id,
+                        target_address: h.target_address.clone(),
+                        listen_addrs: Vec::new(),
+                        size: h.size,
+                    })
+                    .collect();
+
+                holders_distance_stats = Some(calculate_target_distance_stats(
+                    &holder_peer_statuses,
+                    target_addr,
+                ));
+            }
+        }
+
         table_rows.push(AnalysisTableRow {
             address: address.clone(),
             type_name,
             kad_query_status: kad_status,
+            size,
             closest_peers_count,
             target_distance_stats,
             peer_distance_stats,
+            holders_count,
+            holders_distance_stats,
         });
     }
 
     // Print the consolidated table
     let with_closest_nodes = closest_nodes_data.is_some();
-    print_consolidated_table(&table_rows, with_closest_nodes);
+    let with_holders = holders_data.is_some();
+    print_consolidated_table(&table_rows, with_closest_nodes, with_holders);
 
     // Print verbose details if requested
     if verbose && with_closest_nodes {
@@ -890,78 +882,84 @@ fn print_holders(holders_data: HashMap<String, Vec<HolderStatus>>) {
 }
 
 /// Print the consolidated analysis table
-fn print_consolidated_table(rows: &[AnalysisTableRow], with_closest_nodes: bool) {
+fn print_consolidated_table(
+    rows: &[AnalysisTableRow],
+    with_closest_nodes: bool,
+    with_holders: bool,
+) {
     let mut table = Table::new();
 
-    if with_closest_nodes {
-        // Table with closest nodes information
-        table.set_header(vec![
-            Cell::new("Address").set_alignment(CellAlignment::Left),
-            Cell::new("Type").set_alignment(CellAlignment::Left),
-            Cell::new("Kad Query").set_alignment(CellAlignment::Left),
-            Cell::new("Closest Peers").set_alignment(CellAlignment::Left),
-            Cell::new("Target Distances (ilog2)").set_alignment(CellAlignment::Left),
-            Cell::new("Target Distance Hist").set_alignment(CellAlignment::Left),
-            Cell::new("Peer Distances (ilog2)").set_alignment(CellAlignment::Left),
-            Cell::new("Peer Distance Hist").set_alignment(CellAlignment::Left),
-        ]);
+    // Build header based on available data
+    let mut header = vec![
+        Cell::new("Address").set_alignment(CellAlignment::Left),
+        Cell::new("Type").set_alignment(CellAlignment::Left),
+        Cell::new("Kad Query").set_alignment(CellAlignment::Left),
+    ];
 
-        for row in rows {
+    if with_closest_nodes {
+        header.extend(vec![
+            Cell::new("Closest Peers").set_alignment(CellAlignment::Left),
+            Cell::new("Closest Distances (ilog2)").set_alignment(CellAlignment::Left),
+        ]);
+    }
+
+    if with_holders {
+        header.extend(vec![
+            Cell::new("Size").set_alignment(CellAlignment::Left),
+            Cell::new("Holders").set_alignment(CellAlignment::Left),
+            Cell::new("Holders Distances (ilog2)").set_alignment(CellAlignment::Left),
+        ]);
+    }
+
+    table.set_header(header);
+
+    // Add rows
+    for row in rows {
+        let mut cells = vec![
+            Cell::new(&row.address),
+            Cell::new(&row.type_name),
+            Cell::new(&row.kad_query_status),
+        ];
+
+        if with_closest_nodes {
             let closest_display = row
                 .closest_peers_count
                 .map(|(h, t)| format!("{h}/{t}"))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let target_distance_display = row
+            let closest_distance_display = row
                 .target_distance_stats
                 .as_ref()
                 .map(|stats| format!("min={} avg={} max={}", stats.min, stats.avg, stats.max))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let target_histogram_display = row
-                .target_distance_stats
-                .as_ref()
-                .map(|stats| format_histogram_compact(&stats.histogram))
-                .unwrap_or_default();
+            cells.push(Cell::new(closest_display));
+            cells.push(Cell::new(closest_distance_display));
+        }
 
-            let peer_distance_display = row
-                .peer_distance_stats
+        if with_holders {
+            let size_display = row
+                .size
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let holders_display = row
+                .holders_count
+                .map(|(h, max)| format!("{h}/{max}"))
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let holders_distance_display = row
+                .holders_distance_stats
                 .as_ref()
                 .map(|stats| format!("min={} avg={} max={}", stats.min, stats.avg, stats.max))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let peer_histogram_display = row
-                .peer_distance_stats
-                .as_ref()
-                .map(|stats| format_histogram_compact(&stats.histogram))
-                .unwrap_or_default();
-
-            table.add_row(vec![
-                Cell::new(&row.address),
-                Cell::new(&row.type_name),
-                Cell::new(&row.kad_query_status),
-                Cell::new(closest_display),
-                Cell::new(target_distance_display),
-                Cell::new(target_histogram_display),
-                Cell::new(peer_distance_display),
-                Cell::new(peer_histogram_display),
-            ]);
+            cells.push(Cell::new(size_display));
+            cells.push(Cell::new(holders_display));
+            cells.push(Cell::new(holders_distance_display));
         }
-    } else {
-        // Simple table without closest nodes information
-        table.set_header(vec![
-            Cell::new("Address").set_alignment(CellAlignment::Left),
-            Cell::new("Type").set_alignment(CellAlignment::Left),
-            Cell::new("Kad Query").set_alignment(CellAlignment::Left),
-        ]);
 
-        for row in rows {
-            table.add_row(vec![
-                Cell::new(&row.address),
-                Cell::new(&row.type_name),
-                Cell::new(&row.kad_query_status),
-            ]);
-        }
+        table.add_row(cells);
     }
 
     println!("\n{table}");

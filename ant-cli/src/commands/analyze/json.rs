@@ -72,6 +72,8 @@ pub struct ClosestMethod {
     pub query_status: QueryStatus,
     pub closest_peers: Vec<ClosestPeer>,
     pub peer_count: usize,
+    pub holders_among_7_closest: usize,
+    pub holders_among_20_closest: usize,
 }
 
 /// Individual peer information
@@ -214,6 +216,18 @@ impl ClosestMethod {
             QueryStatus::Success
         };
 
+        // Count holders among first 7 and all 20 peers
+        let holders_among_7_closest = statuses
+            .iter()
+            .take(7)
+            .filter(|status| matches!(status, ClosestPeerStatus::Holding { .. }))
+            .count();
+
+        let holders_among_20_closest = statuses
+            .iter()
+            .filter(|status| matches!(status, ClosestPeerStatus::Holding { .. }))
+            .count();
+
         let closest_peers = statuses
             .into_iter()
             .map(|status| ClosestPeer::from_status(status, target_addr))
@@ -223,6 +237,8 @@ impl ClosestMethod {
             query_status,
             closest_peers,
             peer_count,
+            holders_among_7_closest,
+            holders_among_20_closest,
         }
     }
 }

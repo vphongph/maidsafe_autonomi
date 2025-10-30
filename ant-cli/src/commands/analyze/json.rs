@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::{AnalysisErrorDisplay, ClosestPeerStatus, NetworkErrorDisplay};
-use crate::commands::analyze::HolderStatus;
+use crate::commands::analyze::{HolderStatus, KAD_HOLDERS_QUERY_RANGE};
 use autonomi::client::analyze::{Analysis, AnalysisError};
 use autonomi::networking::NetworkAddress;
 use serde::Serialize;
@@ -32,12 +32,25 @@ pub struct AnalyzedAddress {
 /// Kademlia query result
 #[derive(Debug, Serialize)]
 pub struct KadMethod {
+    pub analysis_query: KadAnalysisQuery,
+    pub holder_query: KadHolderQuery,
+}
+
+/// Kademlia analysis query result
+#[derive(Debug, Serialize)]
+pub struct KadAnalysisQuery {
     pub query_status: QueryStatus,
-    pub holding_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_type: Option<AnalysisErrorDisplay>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address_type: Option<String>,
+}
+
+/// Kademlia holder query result
+#[derive(Debug, Serialize)]
+pub struct KadHolderQuery {
+    pub query_range: u32,
+    pub holding_count: u32,
     pub holders: Vec<KadHolders>,
 }
 
@@ -71,7 +84,6 @@ pub struct ClosestPeer {
 
 /// Status of the kademlia query
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
 #[allow(dead_code)]
 pub enum QueryStatus {
     Success,
@@ -80,7 +92,6 @@ pub enum QueryStatus {
 
 /// Holding status for individual peers in closest peers query
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum ClosestPeerHoldingStatus {
     Holding,
     NotHolding,
@@ -127,6 +138,35 @@ impl KadMethod {
         holders: Option<Vec<HolderStatus>>,
         target_addr: &NetworkAddress,
     ) -> Self {
+        let analysis_query = KadAnalysisQuery::from_analysis(analysis);
+        let holder_query = KadHolderQuery::from_holders(holders, target_addr);
+
+        Self {
+            analysis_query,
+            holder_query,
+        }
+    }
+}
+
+impl KadAnalysisQuery {
+    fn from_analysis(analysis: &Result<Analysis, AnalysisError>) -> Self {
+        match analysis {
+            Ok(analysis) => Self {
+                query_status: QueryStatus::Success,
+                error_type: None,
+                address_type: Some(get_analysis_type(analysis)),
+            },
+            Err(err) => Self {
+                query_status: QueryStatus::Error,
+                error_type: Some(AnalysisErrorDisplay::from_analysis_error(err)),
+                address_type: None,
+            },
+        }
+    }
+}
+
+impl KadHolderQuery {
+    fn from_holders(holders: Option<Vec<HolderStatus>>, target_addr: &NetworkAddress) -> Self {
         let kad_holders = if let Some(holders) = holders {
             holders
                 .into_iter()
@@ -145,33 +185,10 @@ impl KadMethod {
             Vec::new()
         };
 
-        let query_status = if kad_holders.is_empty() && analysis.is_err() {
-            QueryStatus::Error
-        } else {
-            QueryStatus::Success
-        };
-
-        let holding_count = if kad_holders.is_empty() {
-            if analysis.is_ok() { 1 } else { 0 }
-        } else {
-            kad_holders.len() as u32
-        };
-
-        match analysis {
-            Ok(analysis) => Self {
-                query_status,
-                holding_count,
-                error_type: None,
-                address_type: Some(get_analysis_type(analysis)),
-                holders: kad_holders,
-            },
-            Err(err) => Self {
-                query_status,
-                holding_count,
-                error_type: Some(AnalysisErrorDisplay::from_analysis_error(err)),
-                address_type: None,
-                holders: kad_holders,
-            },
+        Self {
+            query_range: KAD_HOLDERS_QUERY_RANGE,
+            holding_count: kad_holders.len() as u32,
+            holders: kad_holders,
         }
     }
 }

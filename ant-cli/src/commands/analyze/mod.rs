@@ -28,6 +28,8 @@ use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::str::FromStr;
 
+const KAD_HOLDERS_QUERY_RANGE: u32 = 20;
+
 /// Status of a closest peer's record for a given address
 #[derive(Debug, Clone)]
 pub enum ClosestPeerStatus {
@@ -395,9 +397,9 @@ async fn get_holders_status(
         ));
     };
 
-    let quorum = std::num::NonZeroUsize::new(20)
+    let quorum = std::num::NonZeroUsize::new(KAD_HOLDERS_QUERY_RANGE as usize)
         .map(autonomi::networking::Quorum::N)
-        .expect("20 is non-zero");
+        .expect("KAD_HOLDERS_QUERY_RANGE is non-zero");
 
     let (record, holders) = match client
         .get_record_and_holders(network_addr.clone(), quorum)

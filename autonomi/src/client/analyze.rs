@@ -731,10 +731,16 @@ fn extract_addresses(analysis: &Analysis) -> Vec<String> {
                 addresses.push(chunk_addr.to_hex());
             }
         }
+        Analysis::PublicArchive { address, .. } => {
+            if let Some(addr) = address {
+                let addr = addr.to_hex();
+                info!("Extracting 1 address from PublicArchive: {addr}");
+                addresses.push(addr);
+            }
+        }
         Analysis::Chunk(_)
         | Analysis::Scratchpad(_)
         | Analysis::Register { .. }
-        | Analysis::PublicArchive { .. }
         | Analysis::PrivateArchive(_) => {
             // These types don't point to other data
         }

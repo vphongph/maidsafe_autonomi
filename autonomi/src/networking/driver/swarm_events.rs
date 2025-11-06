@@ -181,6 +181,10 @@ impl NetworkDriver {
                         .update_get_storage_proofs_from_peer(request_id, storage_proofs)?;
                 }
             }
+            Response::Query(QueryResponse::GetMerkleCandidateQuote(result)) => {
+                self.pending_tasks
+                    .update_get_merkle_candidate_quote(request_id, result)?;
+            }
             Response::Query(QueryResponse::PutRecord {
                 result,
                 peer_address: _,

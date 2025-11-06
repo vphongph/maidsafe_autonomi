@@ -57,6 +57,8 @@ const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600); // todo: t
 const PEER_CACHE_SIZE: usize = 2_000;
 /// Client with poor connection requires a longer time to transmit large sized recrod to production network, via put_record_to
 const CLIENT_SUBSTREAMS_TIMEOUT_S: Duration = Duration::from_secs(30);
+/// Periodically trigger the bootstrap process to try connect to more peers in the network.
+const BOOTSTRAP_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Driver for the Autonomi Client Network
 ///
@@ -208,6 +210,7 @@ impl NetworkDriver {
 
     /// Run the network runner, loops forever waiting for tasks and processing them
     pub async fn run(mut self) {
+        let mut bootstrap_interval = Some(tokio::time::interval(BOOTSTRAP_CHECK_INTERVAL));
         loop {
             tokio::select! {
                 // tasks sent by client
@@ -224,6 +227,18 @@ impl NetworkDriver {
                 swarm_event = self.swarm.select_next_some() => {
                     if let Err(e) = self.process_swarm_event(swarm_event) {
                         error!("Error processing swarm event: {e}");
+                    }
+                }
+                // Only call the async closure IF bootstrap_interval is Some. This prevents the tokio::select! from
+                // executing this branch once bootstrap_interval is set to None.
+                _ = async {
+                    #[allow(clippy::unwrap_used)]
+                    bootstrap_interval.as_mut().expect("bootstrap interval is checked before executing").tick().await
+                }, if bootstrap_interval.is_some() => {
+                    let completed = self.bootstrap.trigger_bootstrapping_process(&mut self.swarm, self.connections_made);
+                    if completed {
+                        info!("Initial bootstrap process completed. Marking bootstrap_interval as None.");
+                        bootstrap_interval = None;
                     }
                 }
             }

@@ -52,6 +52,8 @@ pub(crate) struct TaskHandler {
     get_record_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Option<Record>>>,
     get_storage_proofs_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>>>,
     get_closest_peers_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>>>,
+    get_merkle_candidate_quote:
+        HashMap<OutboundRequestId, OneShotTaskResult<MerklePaymentCandidateNode>>,
 }
 
 impl TaskHandler {

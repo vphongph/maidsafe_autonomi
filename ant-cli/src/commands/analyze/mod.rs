@@ -12,9 +12,12 @@ mod json;
 pub use error::{AnalysisErrorDisplay, NetworkErrorDisplay};
 
 use crate::actions::NetworkContext;
+use crate::commands::Quorum;
+use crate::wallet::load_wallet;
 use autonomi::PublicKey;
 use autonomi::chunk::ChunkAddress;
 use autonomi::client::analyze::Analysis;
+use autonomi::client::payment::PaymentOption;
 use autonomi::graph::GraphEntryAddress;
 use autonomi::networking::NetworkAddress;
 use autonomi::networking::PeerId;
@@ -55,6 +58,14 @@ pub enum ClosestPeerStatus {
         listen_addrs: Vec<Multiaddr>,
         error: NetworkErrorDisplay,
     },
+}
+
+/// Record that needs repair (less than 3 copies among closest 7)
+#[derive(Debug, Clone)]
+struct RecordToRepair {
+    address: String,
+    holders_count: usize,
+    record_data: Vec<u8>,
 }
 
 impl ClosestPeerStatus {
@@ -99,6 +110,7 @@ pub async fn analyze(
     closest_nodes: bool,
     holders: bool,
     nodes_health: bool,
+    repair: bool,
     recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
@@ -115,6 +127,10 @@ pub async fn analyze(
 
     if nodes_health {
         return print_nodes_health(&client, addr, verbose).await;
+    }
+
+    if repair && !closest_nodes {
+        println!("⚠️  Warning: --repair flag requires --closest-nodes to be set. Enabling --closest-nodes.");
     }
 
     let results = if recursive {
@@ -226,6 +242,11 @@ pub async fn analyze(
         }
     } else {
         println!("No analysis results available.");
+    }
+
+    // Handle repair if requested
+    if repair && closest_nodes && let Some(ref closest_data) = closest_nodes_data {
+        handle_repair(&client, &results, closest_data, verbose).await?;
     }
 
     if let Some(json_path) = json_output_path {
@@ -1165,5 +1186,121 @@ async fn print_nodes_health(client: &autonomi::Client, addr: &str, verbose: bool
         println!();
     }
 
+    Ok(())
+}
+
+/// Handle repair of records with insufficient copies
+async fn handle_repair(
+    client: &autonomi::Client,
+    _results: &HashMap<String, Result<Analysis, AnalysisError>>,
+    closest_data: &HashMap<String, Vec<ClosestPeerStatus>>,
+    verbose: bool,
+) -> Result<()> {
+    use std::io::Write;
+    
+    println!("\n{}", "=".repeat(80));
+    println!("REPAIR MODE: Checking for records with insufficient copies...");
+    println!("{}", "=".repeat(80));
+    
+    let mut records_to_repair: Vec<RecordToRepair> = Vec::new();
+    
+    // Identify records that need repair
+    for (addr_str, statuses) in closest_data {
+        let holders_count = statuses
+            .iter()
+            .filter(|s| matches!(s, ClosestPeerStatus::Holding { .. }))
+            .count();
+        
+        if holders_count < 3 {
+            if verbose {
+                println!("⚠️  Address {addr_str} has only {holders_count} holder(s) in closest 7");
+            }
+
+            // Try to get the record info from one of the holders
+            if let Some(ClosestPeerStatus::Holding { target_address, .. }) = 
+                statuses.iter().find(|s| matches!(s, ClosestPeerStatus::Holding { .. })) 
+            {
+                // Try to get the record data via kad query
+                match client.get_record_and_holders(target_address.clone(), Quorum::One).await {
+                    Ok((Some(record), _holders)) => {
+                        if verbose {
+                            println!("   ✅ Retrieved record {addr_str:?} with {} bytes", record.value.len());
+                        }
+                        records_to_repair.push(RecordToRepair {
+                            address: addr_str.clone(),
+                            holders_count,
+                            record_data: record.value,
+                        });
+                    }
+                    Ok((None, _holders)) => {
+                        println!("   ❌ Failed to retrieve record of {addr_str:?}");
+                    }
+                    Err(e) => {
+                        println!("   ❌ Error retrieving record {addr_str:?} {e}");
+                    }
+                }
+            } else {
+                println!("   鈿狅笍  No holders found for {addr_str}, cannot repair");
+            }
+        }
+    }
+    
+    println!("\nFound {} record(s) needing repair", records_to_repair.len());
+    
+    if records_to_repair.is_empty() {
+        println!("✅ All records have sufficient copies!");
+        return Ok(());
+    }
+    
+    // Create CSV report file
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let csv_path = format!("repair_report_{timestamp}.csv");
+    let mut csv_file = std::fs::File::create(&csv_path)?;
+    writeln!(csv_file, "address,original_holders_count,upload_status,cost_paid,error")?;
+    
+    println!("\nUploading {} record(s) for repair...", records_to_repair.len());
+
+    let wallet = load_wallet(client.evm_network())?;
+    let payment_option = PaymentOption::from(&wallet);
+    
+    // Upload records in batches
+    for record in &records_to_repair {
+        print!("  Repairing {} ({} holders)... ", record.address, record.holders_count);
+        std::io::stdout().flush()?;
+        
+        // Create a chunk from the record data
+        let chunk = autonomi::Chunk::new(autonomi::Bytes::from(record.record_data.clone()));
+        
+        // Upload the chunk
+        match client.chunk_put(&chunk, payment_option.clone()).await {
+            Ok((cost, _addr)) => {
+                println!("✅ Success (cost: {cost})");
+                writeln!(
+                    csv_file,
+                    "{},{},success,{},",
+                    record.address,
+                    record.holders_count,
+                    cost
+                )?;
+            }
+            Err(e) => {
+                println!("❌ Failed: {e}");
+                writeln!(
+                    csv_file,
+                    "{},{},failed,0,\"{}\"",
+                    record.address,
+                    record.holders_count,
+                    e.to_string().replace('"', "\"\"")
+                )?;
+            }
+        }
+    }
+    
+    csv_file.flush()?;
+    
+    println!("\n{}", "=".repeat(80));
+    println!("Repair complete! Report saved to: {csv_path}");
+    println!("{}", "=".repeat(80));
+    
     Ok(())
 }

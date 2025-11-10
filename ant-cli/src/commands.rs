@@ -77,6 +77,11 @@ pub enum SubCmd {
         /// Check health of closest nodes by requesting storage proofs for the target chunk address.
         #[arg(long)]
         nodes_health: bool,
+        /// Repair records with insufficient copies in closest group.
+        /// When analyzing with --closest-nodes, automatically re-upload records
+        /// that have less than 3 holders among the closest 7 nodes.
+        #[arg(long)]
+        repair: bool,
         /// Recursively analyze all discovered addresses (chunks, pointers, etc.)
         #[arg(short, long)]
         recursive: bool,
@@ -665,6 +670,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             closest_nodes,
             holders,
             nodes_health,
+            repair,
             verbose,
             recursive,
             json,
@@ -674,6 +680,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 closest_nodes,
                 holders,
                 nodes_health,
+                repair,
                 recursive,
                 verbose,
                 network_context,

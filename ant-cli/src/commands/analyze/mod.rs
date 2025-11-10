@@ -31,6 +31,7 @@ use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use tracing::info;
 
 const KAD_HOLDERS_QUERY_RANGE: u32 = 20;
 
@@ -66,6 +67,14 @@ struct RecordToRepair {
     address: String,
     holders_count: usize,
     record_data: Vec<u8>,
+}
+
+/// Result of a chunk re-upload operation
+#[derive(Debug)]
+struct ReuploadResult {
+    address: String,
+    holders_count: usize,
+    result: Result<(autonomi::AttoTokens, autonomi::chunk::ChunkAddress), autonomi::client::PutError>,
 }
 
 impl ClosestPeerStatus {
@@ -1189,6 +1198,40 @@ async fn print_nodes_health(client: &autonomi::Client, addr: &str, verbose: bool
     Ok(())
 }
 
+/// Re-upload chunks in parallel with max concurrency
+async fn reupload_chunks_in_parallel(
+    client: &autonomi::Client,
+    records_to_repair: Vec<RecordToRepair>,
+    payment_option: PaymentOption,
+    batch_size: usize,
+) -> Vec<ReuploadResult> {
+    let total = records_to_repair.len();
+    info!("Re-uploading {total} chunks with max concurrency of {batch_size}");
+    
+    let tasks = records_to_repair.into_iter().map(|record| {
+        let client = client.clone();
+        let payment_opt = payment_option.clone();
+        let address = record.address.clone();
+        let holders_count = record.holders_count;
+        
+        async move {
+            let chunk = autonomi::Chunk::new(autonomi::Bytes::from(record.record_data.clone()));
+            let result = client.chunk_put(&chunk, payment_opt).await;
+            
+            ReuploadResult {
+                address,
+                holders_count,
+                result,
+            }
+        }
+    });
+    
+    stream::iter(tasks)
+        .buffer_unordered(batch_size)
+        .collect()
+        .await
+}
+
 /// Handle repair of records with insufficient copies
 async fn handle_repair(
     client: &autonomi::Client,
@@ -1258,38 +1301,40 @@ async fn handle_repair(
     let mut csv_file = std::fs::File::create(&csv_path)?;
     writeln!(csv_file, "address,original_holders_count,upload_status,cost_paid,error")?;
     
-    println!("\nUploading {} record(s) for repair...", records_to_repair.len());
-
     let wallet = load_wallet(client.evm_network())?;
     let payment_option = PaymentOption::from(&wallet);
     
-    // Upload records in batches
-    for record in &records_to_repair {
-        print!("  Repairing {} ({} holders)... ", record.address, record.holders_count);
-        std::io::stdout().flush()?;
-        
-        // Create a chunk from the record data
-        let chunk = autonomi::Chunk::new(autonomi::Bytes::from(record.record_data.clone()));
-        
-        // Upload the chunk
-        match client.chunk_put(&chunk, payment_option.clone()).await {
+    println!("\nUploading {} record(s) for repair in parallel...", records_to_repair.len());
+    
+    // Upload records in parallel with max concurrency
+    const MAX_PARALLEL_UPLOADS: usize = 10;
+    let reupload_results = reupload_chunks_in_parallel(
+        client,
+        records_to_repair,
+        payment_option,
+        MAX_PARALLEL_UPLOADS,
+    ).await;
+    
+    // Write results to CSV
+    for result in &reupload_results {
+        match &result.result {
             Ok((cost, _addr)) => {
-                println!("✅ Success (cost: {cost})");
+                println!("  ✅ {} (cost: {cost})", result.address);
                 writeln!(
                     csv_file,
                     "{},{},success,{},",
-                    record.address,
-                    record.holders_count,
+                    result.address,
+                    result.holders_count,
                     cost
                 )?;
             }
             Err(e) => {
-                println!("❌ Failed: {e}");
+                println!("  ❌ {} - Failed: {e}", result.address);
                 writeln!(
                     csv_file,
                     "{},{},failed,0,\"{}\"",
-                    record.address,
-                    record.holders_count,
+                    result.address,
+                    result.holders_count,
                     e.to_string().replace('"', "\"\"")
                 )?;
             }

@@ -74,6 +74,9 @@ pub enum SubCmd {
         /// Show all holders of the record at this address.
         #[arg(long)]
         holders: bool,
+        /// Check health of closest nodes by requesting storage proofs for the target chunk address.
+        #[arg(long)]
+        nodes_health: bool,
         /// Recursively analyze all discovered addresses (chunks, pointers, etc.)
         #[arg(short, long)]
         recursive: bool,
@@ -661,6 +664,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             addr,
             closest_nodes,
             holders,
+            nodes_health,
             verbose,
             recursive,
             json,
@@ -669,6 +673,7 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 &addr,
                 closest_nodes,
                 holders,
+                nodes_health,
                 recursive,
                 verbose,
                 network_context,

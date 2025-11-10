@@ -409,6 +409,36 @@ impl NetworkDriver {
                 self.pending_tasks
                     .insert_query(req_id, NetworkTask::GetRecordFromPeer { addr, peer, resp });
             }
+            NetworkTask::GetStorageProofsFromPeer {
+                addr,
+                peer,
+                nonce,
+                difficulty,
+                resp,
+            } => {
+                let req = Request::Query(Query::GetStoreQuote {
+                    key: addr.clone(),
+                    data_type: 0, // Chunk type
+                    data_size: 0, // Not relevant for proof checking
+                    nonce: Some(ant_protocol::messages::Nonce::from(nonce)),
+                    difficulty,
+                });
+
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
+
+                self.pending_tasks.insert_query(
+                    req_id,
+                    NetworkTask::GetStorageProofsFromPeer {
+                        addr,
+                        peer,
+                        nonce,
+                        difficulty,
+                        resp,
+                    },
+                );
+            }
             NetworkTask::ConnectionsMade { resp } => {
                 // Send the current count of connections made
                 if let Err(e) = resp.send(Ok(self.connections_made)) {

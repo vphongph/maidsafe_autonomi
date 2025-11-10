@@ -50,6 +50,7 @@ pub(crate) struct TaskHandler {
     get_record_accumulator: HashMap<QueryId, HashMap<PeerId, Record>>,
     get_version: HashMap<OutboundRequestId, OneShotTaskResult<String>>,
     get_record_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Option<Record>>>,
+    get_storage_proofs_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>>>,
 }
 
 impl TaskHandler {
@@ -63,6 +64,7 @@ impl TaskHandler {
             get_record_accumulator: Default::default(),
             get_version: Default::default(),
             get_record_from_peer: Default::default(),
+            get_storage_proofs_from_peer: Default::default(),
         }
     }
 
@@ -77,6 +79,7 @@ impl TaskHandler {
             || self.put_record_req.contains_key(id)
             || self.get_version.contains_key(id)
             || self.get_record_from_peer.contains_key(id)
+            || self.get_storage_proofs_from_peer.contains_key(id)
     }
 
     pub fn insert_task(&mut self, id: QueryId, task: NetworkTask) {
@@ -114,6 +117,9 @@ impl TaskHandler {
             }
             NetworkTask::GetRecordFromPeer { resp, .. } => {
                 self.get_record_from_peer.insert(id, resp);
+            }
+            NetworkTask::GetStorageProofsFromPeer { resp, .. } => {
+                self.get_storage_proofs_from_peer.insert(id, resp);
             }
             _ => {}
         }
@@ -447,6 +453,25 @@ impl TaskHandler {
         Ok(())
     }
 
+    pub fn update_get_storage_proofs_from_peer(
+        &mut self,
+        id: OutboundRequestId,
+        storage_proofs: Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>,
+    ) -> Result<(), TaskHandlerError> {
+        let responder = self
+            .get_storage_proofs_from_peer
+            .remove(&id)
+            .ok_or(TaskHandlerError::UnknownQuery(format!(
+                "OutboundRequestId {id:?}"
+            )))?;
+
+        trace!("OutboundRequestId({id}): got {} storage proofs", storage_proofs.len());
+        responder
+            .send(Ok(storage_proofs))
+            .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        Ok(())
+    }
+
     pub fn terminate_query(
         &mut self,
         id: OutboundRequestId,
@@ -488,6 +513,14 @@ impl TaskHandler {
             );
             responder
                 .send(Ok(None))
+                .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        // Get storage proofs from peer case
+        } else if let Some(responder) = self.get_storage_proofs_from_peer.remove(&id) {
+            trace!(
+                "OutboundRequestId({id}): get storage proofs from peer got fatal error from peer {peer:?}: {error:?}"
+            );
+            responder
+                .send(Ok(vec![]))
                 .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
         } else {
             trace!(

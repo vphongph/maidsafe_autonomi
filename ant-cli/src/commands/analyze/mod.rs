@@ -93,10 +93,12 @@ macro_rules! println_if {
     };
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn analyze(
     addr: &str,
     closest_nodes: bool,
     holders: bool,
+    nodes_health: bool,
     recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
@@ -110,6 +112,10 @@ pub async fn analyze(
         crate::actions::connect_to_network_with_config(network_context, Default::default())
             .await
             .map_err(|(err, _)| err)?;
+
+    if nodes_health {
+        return print_nodes_health(&client, addr, verbose).await;
+    }
 
     let results = if recursive {
         println!("Starting recursive analysis...");
@@ -1061,6 +1067,101 @@ fn print_verbose_details(
         }
 
         println!("{}", "-".repeat(80));
+        println!();
+    }
+
+    Ok(())
+}
+
+async fn print_nodes_health(client: &autonomi::Client, addr: &str, verbose: bool) -> Result<()> {
+    macro_rules! println_if_verbose {
+        ($($arg:tt)*) => {
+            if verbose {
+                println!($($arg)*);
+            }
+        };
+    }
+
+    let hex_addr = addr.trim_start_matches("0x");
+
+    println_if_verbose!("Querying closest peers to address {addr:?}...");
+
+    // Only accept ChunkAddress for nodes-health
+    let target_addr = if let Ok(chunk_addr) = ChunkAddress::from_hex(hex_addr) {
+        println_if_verbose!("Identified as ChunkAddress");
+        NetworkAddress::from(chunk_addr)
+    } else {
+        return Err(color_eyre::eyre::eyre!(
+            "nodes-health requires a hex-encoded ChunkAddress"
+        ));
+    };
+
+    // Get closest group to the target addr
+    let peers = client
+        .get_closest_to_address(target_addr.clone(), None)
+        .await
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
+
+    // Sort peers by distance to target address
+    let mut sorted_peers = peers;
+    sorted_peers.sort_by_key(|peer| {
+        let peer_addr = NetworkAddress::from(peer.peer_id);
+        target_addr.distance(&peer_addr)
+    });
+
+    println!("Found {} closest peers to {}:", sorted_peers.len(), addr);
+    println!();
+
+    // Generate a random nonce for this health check
+    let nonce: u64 = rand::random();
+    let difficulty = 5;
+
+    println!("Requesting storage proofs with nonce: {nonce:?}, difficulty: {difficulty}");
+    println!();
+
+    // Check storage proofs for each peer
+    for (i, peer) in sorted_peers.iter().enumerate() {
+        let peer_addr = NetworkAddress::from(peer.peer_id);
+        let distance = target_addr.distance(&peer_addr);
+
+        println!("{}. Peer ID: {} (distance: {distance:?})", i + 1, peer.peer_id);
+
+        // Query the peer directly for storage proofs
+        match client
+            .get_storage_proofs_from_peer(target_addr.clone(), peer.clone(), nonce, difficulty)
+            .await
+        {
+            Ok(storage_proofs) => {
+                if storage_proofs.is_empty() {
+                    println!("   Status: ⚠️  No storage proofs received");
+                } else {
+                    println!("   Status: ✅ Received {} storage proofs", storage_proofs.len());
+                    if verbose {
+                        println!("   Storage Proofs:");
+                        for (addr, proof_result) in &storage_proofs {
+                            match proof_result {
+                                Ok(proof) => {
+                                    println!("     - {addr}: {proof:?}");
+                                }
+                                Err(e) => {
+                                    println!("     - {addr}: Error: {e}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("   Status: ❌ Failed to query: {e}");
+            }
+        }
+
+        if verbose {
+            println!("   Addresses:");
+            for addr in &peer.addrs {
+                println!("     - {addr}");
+            }
+        }
         println!();
     }
 

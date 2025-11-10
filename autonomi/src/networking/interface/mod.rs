@@ -10,8 +10,8 @@ use crate::networking::OneShotTaskResult;
 use ant_evm::PaymentQuote;
 use ant_protocol::NetworkAddress;
 use libp2p::{
-    PeerId,
     kad::{PeerInfo, Quorum, Record},
+    PeerId,
 };
 use std::num::NonZeroUsize;
 
@@ -79,6 +79,20 @@ pub(super) enum NetworkTask {
         peer: PeerInfo,
         #[debug(skip)]
         resp: OneShotTaskResult<Option<Record>>,
+    },
+    /// Get storage proofs directly from a specific peer using request/response
+    GetStorageProofsFromPeer {
+        addr: NetworkAddress,
+        peer: PeerInfo,
+        nonce: u64,
+        difficulty: usize,
+        #[debug(skip)]
+        resp: OneShotTaskResult<
+            Vec<(
+                NetworkAddress,
+                Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
+            )>,
+        >,
     },
     /// Get information about the amount of connections made
     ConnectionsMade {

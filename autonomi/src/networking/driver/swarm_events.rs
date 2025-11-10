@@ -173,10 +173,13 @@ impl NetworkDriver {
             Response::Query(QueryResponse::GetStoreQuote {
                 quote,
                 peer_address,
-                storage_proofs: _,
+                storage_proofs,
             }) => {
-                self.pending_tasks
-                    .update_get_quote(request_id, quote, peer_address)?;
+                if self.pending_tasks
+                    .update_get_quote(request_id, quote, peer_address).is_err() {
+                    self.pending_tasks
+                        .update_get_storage_proofs_from_peer(request_id, storage_proofs)?;
+                }
             }
             Response::Query(QueryResponse::PutRecord {
                 result,

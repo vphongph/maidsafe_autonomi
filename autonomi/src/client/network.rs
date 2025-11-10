@@ -58,6 +58,20 @@ impl Client {
             .await
     }
 
+    /// Get storage proofs directly from a specific peer.
+    /// Returns a vector of (NetworkAddress, ChunkProof) tuples
+    pub async fn get_storage_proofs_from_peer(
+        &self,
+        network_address: impl Into<NetworkAddress>,
+        peer: PeerInfo,
+        nonce: u64,
+        difficulty: usize,
+    ) -> Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError> {
+        self.network
+            .get_storage_proofs_from_peer(network_address.into(), peer, nonce, difficulty)
+            .await
+    }
+
     pub async fn get_node_version(&self, peer: PeerInfo) -> Result<PackageVersion, String> {
         self.network.get_node_version(peer).await
     }

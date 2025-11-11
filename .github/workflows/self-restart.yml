@@ -1,0 +1,241 @@
+name: Self Restart Test
+
+on:
+  merge_group:
+    branches: [main]
+  pull_request:
+    branches: ["*"]
+
+env:
+  ANT_DATA_PATH: /home/runner/.local/share/autonomi
+  NODE_DATA_PATH: /home/runner/.local/share/autonomi/node
+  SELF_RESTART_TEST_NODE_DATA_PATH: /home/runner/.local/share/autonomi/self_restart_node
+
+jobs:
+  self-restart-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Check we're on the right commit
+        run: git log -1 --oneline
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+
+      - name: install ripgrep
+        shell: bash
+        run: sudo apt-get install -y ripgrep
+
+      - name: Build binaries
+        run: cargo build --release --bin antnode --bin ant
+        timeout-minutes: 30
+
+      - name: Start a local network
+        uses: maidsafe/ant-local-testnet-action@main
+        with:
+          action: start
+          enable-evm-testnet: true
+          node-path: target/release/antnode
+          build: true
+
+      - name: Check ANT_PEERS was set
+        shell: bash
+        run: echo "The ANT_PEERS variable has been set to $ANT_PEERS"
+
+      - name: export default secret key
+        run: echo "SECRET_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Start a node instance with auto-restart after 2 minutes
+        run: |
+          mkdir -p $SELF_RESTART_TEST_NODE_DATA_PATH
+          ./target/release/antnode \
+            --root-dir $SELF_RESTART_TEST_NODE_DATA_PATH \
+            --log-output-dest $SELF_RESTART_TEST_NODE_DATA_PATH \
+            --local \
+            --rewards-address "0x03B770D9cD32077cC0bF330c13C114a87643B124" \
+            --auto-restart-delay 120 &
+          echo "Started node with auto-restart delay of 120 seconds"
+          sleep 10
+        env:
+          ANT_LOG: "all"
+
+      - name: Record initial PID
+        shell: bash
+        run: |
+          INITIAL_PID=$(cat $SELF_RESTART_TEST_NODE_DATA_PATH/antnode.pid)
+          echo "INITIAL_PID=$INITIAL_PID" >> $GITHUB_ENV
+          echo "Initial node PID: $INITIAL_PID"
+
+      - name: Verify node is running
+        shell: bash
+        run: |
+          if ps -p $INITIAL_PID > /dev/null; then
+            echo "Node is running with PID: $INITIAL_PID"
+            echo "All antnode processes:"
+            ps aux | grep "[a]ntnode" || echo "No antnode processes found in ps"
+          else
+            echo "Node process not found!"
+            exit 1
+          fi
+
+      - name: Wait for 1 minute (halfway to restart)
+        run: |
+          echo "Waiting 60 seconds (halfway to restart time)..."
+          sleep 60
+
+      - name: Verify node is still running with same PID
+        shell: bash
+        run: |
+          if ps -p $INITIAL_PID > /dev/null; then
+            echo "Node is still running with PID: $INITIAL_PID (as expected)"
+            echo "All antnode processes:"
+            ps aux | grep "[a]ntnode" || echo "No antnode processes found in ps"
+          else
+            echo "Node process terminated prematurely!"
+            echo "All antnode processes:"
+            ps aux | grep "[a]ntnode" || echo "No antnode processes found in ps"
+            exit 1
+          fi
+
+      - name: Wait additional time for restart to occur (90 seconds total from halfway point)
+        run: |
+          echo "Waiting additional 90 seconds for restart to occur..."
+          sleep 90
+          echo "Restart time should have elapsed. Checking processes..."
+          ps aux | grep "[a]ntnode" || echo "No antnode processes found in ps"
+          echo "Giving additional 10 seconds for new process to fully start and write PID..."
+          sleep 10
+
+      - name: Verify node restarted (new PID should be present)
+        shell: bash
+        run: |
+          echo "Checking for new node process..."
+          
+          # Wait up to 20 seconds for new PID file to be written
+          max_attempts=20
+          attempt=0
+          new_pid_found=false
+          
+          while [ $attempt -lt $max_attempts ]; do
+            if [ -f "$SELF_RESTART_TEST_NODE_DATA_PATH/antnode.pid" ]; then
+              NEW_PID=$(cat $SELF_RESTART_TEST_NODE_DATA_PATH/antnode.pid)
+              
+              # Check if PID changed
+              if [ "$NEW_PID" != "$INITIAL_PID" ]; then
+                echo "Found new PID: $NEW_PID (different from initial PID: $INITIAL_PID)"
+                new_pid_found=true
+                break
+              else
+                echo "Attempt $attempt: PID file still contains old PID: $NEW_PID"
+              fi
+            else
+              echo "Attempt $attempt: PID file not found yet"
+            fi
+            
+            attempt=$((attempt + 1))
+            sleep 1
+          done
+          
+          # Verify we found a new PID
+          if [ "$new_pid_found" = false ]; then
+            echo "ERROR: New PID not found after waiting"
+            ls -la $SELF_RESTART_TEST_NODE_DATA_PATH/
+            exit 1
+          fi
+          
+          # Verify the new process is actually running
+          if ps -p $NEW_PID > /dev/null; then
+            echo "SUCCESS: New node process is running with PID: $NEW_PID"
+          else
+            echo "ERROR: New PID found in file but process is not running!"
+            echo "Checking all antnode processes:"
+            ps aux | grep antnode || echo "No antnode processes found"
+            exit 1
+          fi
+          
+          echo "SUCCESS: Node restarted successfully! PID changed from $INITIAL_PID to $NEW_PID"
+
+      - name: Check for restart log messages
+        shell: bash
+        run: |
+          echo "Checking for auto-restart log messages..."
+          if rg "Auto-restart enabled" $SELF_RESTART_TEST_NODE_DATA_PATH; then
+            echo "✓ Found auto-restart enabled message"
+          else
+            echo "⚠ Warning: Auto-restart enabled message not found"
+          fi
+          
+          if rg "Auto-restart delay elapsed" $SELF_RESTART_TEST_NODE_DATA_PATH; then
+            echo "✓ Found auto-restart delay elapsed message"
+          else
+            echo "⚠ Warning: Auto-restart delay elapsed message not found"
+          fi
+          
+          if rg "Node is restarting" $SELF_RESTART_TEST_NODE_DATA_PATH; then
+            echo "✓ Found node restarting message"
+          else
+            echo "⚠ Warning: Node restarting message not found"
+          fi
+          
+          if rg "Successfully spawned new node process" $SELF_RESTART_TEST_NODE_DATA_PATH; then
+            echo "✓ Found successfully spawned new node process message"
+            # Extract the PID from the log message
+            spawned_pid=$(rg "Successfully spawned new node process with PID: (\d+)" -o -r '$1' $SELF_RESTART_TEST_NODE_DATA_PATH | head -1)
+            if [ -n "$spawned_pid" ]; then
+              echo "  Spawned PID from log: $spawned_pid"
+            fi
+          else
+            echo "⚠ Warning: Successfully spawned message not found"
+          fi
+          
+          if rg "A new node process has been started" $SELF_RESTART_TEST_NODE_DATA_PATH; then
+            echo "✓ Found new node process started message"
+          else
+            echo "ℹ Note: New node process message may be in different log"
+          fi
+
+      - name: Verify restarted node functionality by uploading a small file
+        run: |
+          # Create a small test file
+          echo "This is a test file to verify the restarted node works" > test_file.txt
+          ./target/release/ant --log-output-dest=data-dir --local file upload --public "./test_file.txt" --retry-failed 3
+        env:
+          ANT_LOG: "v"
+        timeout-minutes: 2
+
+      - name: Show self-restart test node logs
+        run: cat $SELF_RESTART_TEST_NODE_DATA_PATH/antnode.log
+        shell: bash
+        if: always()
+        continue-on-error: true
+
+      - name: Stop the local network and upload logs
+        if: always()
+        uses: maidsafe/ant-local-testnet-action@main
+        with:
+          action: stop
+          log_file_prefix: ant_test_logs_self_restart
+          build: true
+
+      - name: Move self_restart_node log to the working directory
+        run: |
+          ls -l $SELF_RESTART_TEST_NODE_DATA_PATH
+          mv $SELF_RESTART_TEST_NODE_DATA_PATH/antnode.log ./self_restart_node.log
+        continue-on-error: true
+        if: always()
+        timeout-minutes: 1
+
+      - name: Upload self_restart_node log
+        uses: actions/upload-artifact@main
+        with:
+          name: self_restart_test_node_log
+          path: self_restart_node.log
+        continue-on-error: true
+        if: always()
+

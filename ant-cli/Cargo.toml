@@ -25,6 +25,7 @@ harness = false
 [dependencies]
 ant-build-info = { path = "../ant-build-info", version = "0.1.29" }
 ant-logging = { path = "../ant-logging", version = "0.2.52" }
+ant-protocol = { path = "../ant-protocol", version = "1.0.9" }
 autonomi = { path = "../autonomi", version = "0.6.4", features = ["loud"] }
 chrono = "0.4"
 clap = { version = "4.2.1", features = ["derive"] }
@@ -54,6 +55,7 @@ tokio = { version = "1.43.1", features = [
 ] }
 tracing = { version = "~0.1.26" }
 walkdir = "2.5.0"
+xor_name = "5.0.0"
 
 [dev-dependencies]
 autonomi = { path = "../autonomi", version = "0.6.4" }

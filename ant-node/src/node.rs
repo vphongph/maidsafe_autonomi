@@ -564,6 +564,10 @@ impl Node {
                     Self::query_peers_version(network, peers).await;
                 });
             }
+            NetworkEvent::NetworkWideReplication { keys } => {
+                event_header = "NetworkWideReplication";
+                self.perform_network_wide_replication(keys);
+            }
         }
 
         trace!(

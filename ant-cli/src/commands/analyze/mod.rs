@@ -35,6 +35,8 @@ use xor_name::XorName;
 
 const KAD_HOLDERS_QUERY_RANGE: u32 = 20;
 
+type PeerResults = Vec<(PeerId, Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError>)>;
+
 /// Status of a closest peer's record for a given address
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -1250,10 +1252,9 @@ async fn perform_network_scan_round(
             });
         
         // Check if it matches the filter
-        if let (Some(filter_char), Some(addr_first_char)) = (addr_range, first_hex_char) {
-            if filter_char.to_ascii_lowercase() == addr_first_char {
+        if let (Some(filter_char), Some(addr_first_char)) = (addr_range, first_hex_char)
+            && filter_char.to_ascii_lowercase() == addr_first_char {
                 break addr;
-            }
         }
     };
 
@@ -1290,7 +1291,7 @@ async fn perform_network_scan_round(
         }
     });
     
-    let peer_results: Vec<(PeerId, Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError>)> = 
+    let peer_results: PeerResults = 
         stream::iter(tasks)
             .buffer_unordered(MAX_PARALLEL_PEER_QUERIES)
             .collect()
@@ -1383,7 +1384,7 @@ async fn perform_network_health_scan(
         health_lists.read_from_csv(white_csv, bad_csv)?;
         let white_count = health_lists.white_list.lock().expect("Failed to access global white_list").len();
         let bad_count = health_lists.bad_list.lock().expect("Failed to access global bad_list").len();
-        println!("Loaded {} white-listed and {} bad-listed chunks", white_count, bad_count);
+        println!("Loaded {white_count} white-listed and {bad_count} bad-listed chunks");
     }
 
     // Process scans in batches
@@ -1589,26 +1590,17 @@ async fn perform_network_health_scan(
                 } else if let Some(record) = record_data {
                     // Unhealthy, but we have record
                     if repair {
-                        if verbose {
-                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
-                                health_result.address, health_result.peer_results.len());
-                        } else {
-                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
-                                health_result.address, health_result.peer_results.len());
-                        }
+                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
+                            health_result.address, health_result.peer_results.len());
+
                         chunks_to_repair.push(RecordToRepair {
                             address: health_result.address,
                             holders_count: holder_count,
                             record_data: record,
                         });
                     } else {
-                        if verbose {
-                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), repair not enabled", 
-                                health_result.address, health_result.peer_results.len());
-                        } else {
-                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders)", 
-                                health_result.address, health_result.peer_results.len());
-                        }
+                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), repair not enabled", 
+                            health_result.address, health_result.peer_results.len());
                     }
                 } else {
                     // No record data found
@@ -1618,14 +1610,15 @@ async fn perform_network_health_scan(
             }
 
             // Re-upload chunks if repair is enabled
-            if repair && !chunks_to_repair.is_empty() {
+            if repair && !chunks_to_repair.is_empty()
+                && let Some(payment_option) = payment_option.clone() {
                 println!("\nBatch {}: Repairing {} chunks in parallel...", batch_num + 1, chunks_to_repair.len());
 
                 const MAX_PARALLEL_UPLOADS: usize = 10;
                 let reupload_results = reupload_chunks_in_parallel(
                     client,
                     chunks_to_repair,
-                    payment_option.clone().unwrap(),
+                    payment_option,
                     MAX_PARALLEL_UPLOADS,
                 ).await;
 
@@ -1669,8 +1662,8 @@ async fn perform_network_health_scan(
         println!("\nFlushing health lists to disk...");
         health_lists.write_to_csv(white_csv, bad_csv)?;
         
-        let current_white = health_lists.white_list.lock().unwrap().len();
-        let current_bad = health_lists.bad_list.lock().unwrap().len();
+        let current_white = health_lists.white_list.lock().expect("Failed to access global white_list").len();
+        let current_bad = health_lists.bad_list.lock().expect("Failed to access global bad_list").len();
         println!("Current status: {current_white} white-listed, {current_bad} bad-listed chunks");
     }
 
@@ -1685,8 +1678,8 @@ async fn perform_network_health_scan(
     println!("Total: {total_new_white} new white-listed, {total_new_bad} new bad-listed, {total_repaired} repaired");
     println!("{}", "=".repeat(80));
 
-    let final_white_count = health_lists.white_list.lock().unwrap().len();
-    let final_bad_count = health_lists.bad_list.lock().unwrap().len();
+    let final_white_count = health_lists.white_list.lock().expect("Failed to access global white_list").len();
+    let final_bad_count = health_lists.bad_list.lock().expect("Failed to access global bad_list").len();
     println!("\n{}", "=".repeat(80));
     println!("Final status: {final_white_count} white-listed, {final_bad_count} bad-listed chunks");
     println!("{}", "=".repeat(80));

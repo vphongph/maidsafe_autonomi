@@ -407,7 +407,8 @@ impl SwarmDriver {
             }
             LocalSwarmCmd::GetKCloseLocalPeersToTarget { key, sender } => {
                 cmd_string = "GetKCloseLocalPeersToTarget";
-                let closest_peers = self.get_closest_local_peers_to_target(&key, true, K_VALUE.get());
+                let closest_peers =
+                    self.get_closest_local_peers_to_target(&key, true, K_VALUE.get());
 
                 let _ = sender.send(closest_peers);
             }

@@ -673,9 +673,9 @@ impl Node {
                         key: Box::new(key.clone()),
                     }),
                     // Use `PutRecordFailed` as place holder
-                    Err(err) => Err(ProtocolError::PutRecordFailed(
-                        format!("Error to fetch local record for GetReplicatedRecord {err:?}")
-                    )),
+                    Err(err) => Err(ProtocolError::PutRecordFailed(format!(
+                        "Error to fetch local record for GetReplicatedRecord {err:?}"
+                    ))),
                 };
 
                 QueryResponse::GetReplicatedRecord(result)

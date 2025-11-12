@@ -10,13 +10,14 @@ use super::SwarmDriver;
 use crate::networking::driver::event::MsgResponder;
 use crate::networking::interface::NetworkSwarmCmd;
 use crate::networking::network::connection_action_logging;
-use crate::networking::{log_markers::Marker, NetworkError, NetworkEvent};
+use crate::networking::{NetworkError, NetworkEvent, log_markers::Marker};
 use ant_protocol::messages::ConnectionInfo;
 use ant_protocol::{
+    NetworkAddress,
     messages::{CmdResponse, Request, Response},
     storage::ValidationType,
-    NetworkAddress,
 };
+use libp2p::kad::{KBucketDistance as Distance, U256};
 use libp2p::request_response::{self, Message};
 
 impl SwarmDriver {
@@ -347,8 +348,37 @@ impl SwarmDriver {
         {
             let distance =
                 NetworkAddress::from(holder).distance(&NetworkAddress::from(self.self_peer_id));
-            info!("Holder {holder:?} is self or not in replication range. Distance is {distance:?}({:?})", distance.ilog2());
-            return Ok(());
+            info!(
+                "Holder {holder:?} is self or not within the 40 closest peers. Distance is {distance:?}({:?})",
+                distance.ilog2()
+            );
+            if !self.network_wide_replication.is_network_under_load() {
+                return Ok(());
+            }
+
+            // check if the holder is within 10x the distance to the farthest 40th peer.
+            let farthest_distance = closest_40_peers
+                .last()
+                .map(|(peer_id, _)| {
+                    NetworkAddress::from(*peer_id)
+                        .distance(&NetworkAddress::from(self.self_peer_id))
+                })
+                .unwrap_or(Distance(U256::MAX));
+            let holder_distance =
+                NetworkAddress::from(holder).distance(&NetworkAddress::from(self.self_peer_id));
+            // increases the ilog2 value by 3 to 4. check test_distance_multiplication_and_ilog2
+            let increased_distance = Distance(farthest_distance.0.saturating_mul(U256::from(10)));
+            if holder_distance.0 > increased_distance.0 {
+                debug!(
+                    "Holder {holder:?} is not within increased replication range {increased_distance:?}({:?}) during high network load",
+                    increased_distance.ilog2()
+                );
+                return Ok(());
+            }
+            info!(
+                "Holder {holder:?} is within increased replication range {increased_distance:?}({:?}) during high network load",
+                increased_distance.ilog2()
+            );
         }
 
         // On receive a replication_list from a close up peer, we undertake:

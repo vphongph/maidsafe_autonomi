@@ -336,12 +336,8 @@ impl ReplicationFetcher {
         closest_peers: Vec<NetworkAddress>,
     ) -> Vec<(PeerId, NetworkAddress, ValidationType)> {
         // Always trust the holder
-        let new_incoming_keys = self.in_range_new_keys(
-            holder,
-            incoming_keys,
-            locally_stored_keys,
-            closest_peers,
-        );
+        let new_incoming_keys =
+            self.in_range_new_keys(holder, incoming_keys, locally_stored_keys, closest_peers);
 
         // Requiring three replicas
         self.initial_majority_replicates(holder, new_incoming_keys)
@@ -467,12 +463,10 @@ impl ReplicationFetcher {
 
         // Sort closest_peers by distance to self
         closest_peers.sort_by_key(|peer| self_address.distance(peer));
-        
+
         // Get the distance to the farthest peer in closest_peers
-        let farthest_peer_distance = closest_peers
-            .last()
-            .map(|peer| self_address.distance(peer));
-        
+        let farthest_peer_distance = closest_peers.last().map(|peer| self_address.distance(peer));
+
         // Filter out those out_of_range ones among the incoming_keys.
         // A key is in range if it's closer to self than the farthest peer in closest_peers
         if let Some(max_distance) = farthest_peer_distance {
@@ -482,7 +476,6 @@ impl ReplicationFetcher {
                     "Distance to target {addr:?} is {distance:?}, max peer distance: {max_distance:?}"
                 );
                 let is_in_range = distance <= max_distance;
-                
                 if !is_in_range {
                     out_of_range_keys.push(addr.clone());
                     debug!(
@@ -695,10 +688,7 @@ mod tests {
     use ant_protocol::{NetworkAddress, storage::ValidationType};
     use eyre::Result;
     use libp2p::{PeerId, kad::RecordKey};
-    use std::{
-        collections::HashMap,
-        time::Duration,
-    };
+    use std::{collections::HashMap, time::Duration};
     use tokio::{sync::mpsc, time::sleep};
 
     #[tokio::test]
@@ -840,11 +830,12 @@ mod tests {
 
         // Sort closest_peers by distance to self
         closest_k_peers.sort_by_key(|peer| self_address.distance(peer));
-        
+
         // Get the distance to the farthest peer in closest_peers
         let distance_range = closest_k_peers
             .last()
-            .map(|peer| self_address.distance(peer)).unwrap();
+            .map(|peer| self_address.distance(peer))
+            .unwrap();
 
         let mut incoming_keys = Vec::new();
         let mut in_range_keys = 0;

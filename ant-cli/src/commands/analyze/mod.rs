@@ -136,6 +136,7 @@ pub async fn analyze(
     holders: bool,
     nodes_health: bool,
     repair: bool,
+    addr_range: Option<char>,
     recursive: bool,
     verbose: bool,
     network_context: NetworkContext,
@@ -151,7 +152,7 @@ pub async fn analyze(
             .map_err(|(err, _)| err)?;
 
     if nodes_health {
-        return print_nodes_health(&client, addr, repair, verbose).await;
+        return print_nodes_health(&client, addr, repair, addr_range, verbose).await;
     }
 
     if repair && !closest_nodes {
@@ -1221,14 +1222,43 @@ async fn perform_network_scan_round(
     client: &autonomi::Client,
     round_id: usize,
     health_lists: ChunkHealthLists,
+    addr_range: Option<char>,
     verbose: bool,
 ) -> Result<NetworkScanResult> {
-    // Generate a random target address
+    // Generate a random target address, optionally filtering by first hex character
     let mut rng = rand::thread_rng();
-    let target_addr = NetworkAddress::from(XorName::random(&mut rng));
+    let target_addr = loop {
+        let addr = NetworkAddress::from(XorName::random(&mut rng));
+        
+        // If no filter is specified, accept any address
+        if addr_range.is_none() {
+            break addr;
+        }
+        
+        // Extract the first hex character from the address string
+        // Format like: NetworkAddress::ChunkAddress(d381843d...) - (9d8bbfc9...)
+        // We need to extract the hex string after the first '('
+        let addr_str = format!("{addr:?}");
+        let first_hex_char = addr_str
+            .split('(')
+            .nth(1) // Get the part after the first '('
+            .and_then(|hex_part| {
+                hex_part
+                    .chars()
+                    .find(|c| c.is_ascii_hexdigit())
+                    .map(|c| c.to_ascii_lowercase())
+            });
+        
+        // Check if it matches the filter
+        if let (Some(filter_char), Some(addr_first_char)) = (addr_range, first_hex_char) {
+            if filter_char.to_ascii_lowercase() == addr_first_char {
+                break addr;
+            }
+        }
+    };
 
     if verbose {
-        println!("Round {round_id}: Target address: {:?}", target_addr);
+        println!("Round {round_id}: Target address: {target_addr:?}");
     }
 
     // Get closest 7 nodes to the target
@@ -1324,10 +1354,22 @@ async fn perform_network_health_scan(
     client: &autonomi::Client,
     num_rounds: u32,
     repair: bool,
+    addr_range: Option<char>,
     verbose: bool,
 ) -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("NETWORK HEALTH SCAN: {num_rounds} rounds");
+    if let Some(filter_char) = addr_range {
+        // Validate the filter character
+        if !filter_char.is_ascii_hexdigit() {
+            return Err(color_eyre::eyre::eyre!(
+                "Invalid addr_range '{}': must be a hex character (0-9, a-f)", 
+                filter_char
+            ));
+        }
+        println!("Address range filter: only targeting addresses starting with '{}'", 
+            filter_char.to_ascii_lowercase());
+    }
     println!("{}", "=".repeat(80));
 
     let mut health_lists = ChunkHealthLists::new();
@@ -1390,7 +1432,7 @@ async fn perform_network_health_scan(
                 let client = client.clone();
                 let lists = health_lists.clone();
                 async move {
-                    perform_network_scan_round(&client, round_id as usize, lists, verbose).await
+                    perform_network_scan_round(&client, round_id as usize, lists, addr_range, verbose).await
                 }
             })
             .collect();
@@ -1652,7 +1694,13 @@ async fn perform_network_health_scan(
     Ok(())
 }
 
-async fn print_nodes_health(client: &autonomi::Client, addr: &str, repair: bool, verbose: bool) -> Result<()> {
+async fn print_nodes_health(
+    client: &autonomi::Client, 
+    addr: &str, 
+    repair: bool, 
+    addr_range: Option<char>,
+    verbose: bool
+) -> Result<()> {
     macro_rules! println_if_verbose {
         ($($arg:tt)*) => {
             if verbose {
@@ -1665,7 +1713,7 @@ async fn print_nodes_health(client: &autonomi::Client, addr: &str, repair: bool,
 
     // Check if the input is a u32 for network scanning
     if let Ok(num_rounds) = hex_addr.parse::<u32>() {
-        return perform_network_health_scan(client, num_rounds, repair, verbose).await;
+        return perform_network_health_scan(client, num_rounds, repair, addr_range, verbose).await;
     }
 
     println_if_verbose!("Querying closest peers to address {addr:?}...");

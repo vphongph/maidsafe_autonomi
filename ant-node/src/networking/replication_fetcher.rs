@@ -342,10 +342,9 @@ impl ReplicationFetcher {
             locally_stored_keys,
             closest_peers,
         );
-        new_incoming_keys
-            .into_iter()
-            .map(|(addr, val_type)| (*holder, addr, val_type))
-            .collect()
+
+        // Requiring three replicas
+        self.initial_majority_replicates(holder, new_incoming_keys)
 
         // match self.is_peer_trustworthy(holder) {
         //     Some(true) => {
@@ -396,7 +395,6 @@ impl ReplicationFetcher {
 
     // Accumulates initial replicates when doesn't have enough knowledge of peers scores.
     // Returns with entries that reached majority copies.
-    #[allow(dead_code)]
     fn initial_majority_replicates(
         &mut self,
         holder: &PeerId,
@@ -730,22 +728,34 @@ mod tests {
             incoming_keys.push((key, ValidationType::Chunk));
         });
 
-        let replication_src = PeerId::random();
-        replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
-        replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
+        // let replication_src = PeerId::random();
+        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
+        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
 
-        let keys_to_fetch = replication_fetcher.add_keys(
-            replication_src,
-            incoming_keys,
-            &locally_stored_keys,
-            false,
-            vec![farthest_peer.clone()],
-        );
+        // Adding multiple times to trigger the majority replicas
+        let mut keys_to_fetch = Vec::new();
+        for i in 0..5 {
+            let replication_src = PeerId::random();
+            keys_to_fetch = replication_fetcher.add_keys(
+                replication_src,
+                incoming_keys.clone(),
+                &locally_stored_keys,
+                false,
+                vec![farthest_peer.clone()],
+            );
+            if !keys_to_fetch.is_empty() {
+                break;
+            }
+            if i > 3 {
+                panic!("Majority replicas shall not be higher than {i}");
+            }
+        }
+
         assert_eq!(keys_to_fetch.len(), MAX_PARALLEL_FETCH);
 
-        let replication_src_1 = PeerId::random();
-        replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
-        replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
+        // let replication_src_1 = PeerId::random();
+        // replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
+        // replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
         // we should not fetch anymore keys
         let key_1 = loop {
             let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
@@ -763,16 +773,23 @@ mod tests {
                 break candidate_key;
             }
         };
-        let keys_to_fetch = replication_fetcher.add_keys(
-            replication_src_1,
-            vec![
-                (key_1, ValidationType::Chunk),
-                (key_2, ValidationType::Chunk),
-            ],
-            &locally_stored_keys,
-            false,
-            vec![farthest_peer],
-        );
+
+        // Adding multiple times
+        let mut keys_to_fetch = Vec::new();
+        for _i in 0..4 {
+            let replication_src_1 = PeerId::random();
+            keys_to_fetch = replication_fetcher.add_keys(
+                replication_src_1,
+                vec![
+                    (key_1.clone(), ValidationType::Chunk),
+                    (key_2.clone(), ValidationType::Chunk),
+                ],
+                &locally_stored_keys,
+                false,
+                vec![farthest_peer.clone()],
+            );
+        }
+
         assert!(keys_to_fetch.is_empty());
 
         // Fresh replication shall be fetched immediately
@@ -784,6 +801,8 @@ mod tests {
                 break candidate_key;
             }
         };
+
+        let replication_src = PeerId::random();
         let keys_to_fetch = replication_fetcher.add_keys(
             replication_src,
             vec![(key, ValidationType::Chunk)],
@@ -843,26 +862,39 @@ mod tests {
             incoming_keys.push((key, ValidationType::Chunk));
         });
 
-        let replication_src = PeerId::random();
-        replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
-        replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
+        // let replication_src = PeerId::random();
+        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
+        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
 
-        let keys_to_fetch = replication_fetcher.add_keys(
-            replication_src,
-            incoming_keys,
-            &Default::default(),
-            false,
-            closest_k_peers,
-        );
+        // Adding multiple times to trigger the majority replicas
+        let mut keys_to_fetch = Vec::new();
+        for i in 0..5 {
+            let replication_src = PeerId::random();
+            keys_to_fetch = replication_fetcher.add_keys(
+                replication_src,
+                incoming_keys.clone(),
+                &Default::default(),
+                false,
+                closest_k_peers.clone(),
+            );
+            if !keys_to_fetch.is_empty() {
+                break;
+            }
+            if i > 3 {
+                panic!("Majority replicas shall not be higher than {i}");
+            }
+        }
         assert_eq!(
             keys_to_fetch.len(),
             replication_fetcher.on_going_fetches.len(),
             "keys to fetch and ongoing fetches should match"
         );
+
+        // replication_fetcher holds entries of `(key, peer_id)`, hence need a multiples here
         assert_eq!(
-            in_range_keys,
-            keys_to_fetch.len() + replication_fetcher.to_be_fetched.len(),
-            "all keys should be in range and in the fetcher"
+            in_range_keys * 2,
+            replication_fetcher.on_going_fetches.len() + replication_fetcher.to_be_fetched.len(),
+            "all keys to fetch should be in range"
         );
     }
 }

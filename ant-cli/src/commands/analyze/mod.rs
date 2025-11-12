@@ -90,7 +90,6 @@ struct PeerRecordResult {
 #[derive(Debug)]
 struct HealthCheckResult {
     address: String,
-    #[allow(dead_code)]
     network_address: NetworkAddress,
     peer_results: Vec<PeerRecordResult>,
 }
@@ -1603,6 +1602,28 @@ async fn perform_network_health_scan(
                             health_result.address, health_result.peer_results.len());
                     }
                 } else {
+                    // Try to get the record data via kad query
+                    match client.get_record_and_holders(health_result.network_address, Quorum::One).await {
+                        Ok((Some(record), _holders)) => {
+                            if verbose {
+                                println!("   ✅ Retrieved record {} with {} bytes via kad query", health_result.address, record.value.len());
+                            }
+                            chunks_to_repair.push(RecordToRepair {
+                                address: health_result.address.clone(),
+                                // Holders among closest_7
+                                holders_count: 0,
+                                record_data: record,
+                            });
+                        }
+                        Ok((None, _holders)) => {
+                            println!("   ❌ Failed to retrieve record of {} via kad query", health_result.address);
+                        }
+                        Err(e) => {
+                            println!("   ❌ Error retrieving record {} via kad query {e}", health_result.address);
+                        }
+                    }
+
+
                     // No record data found
                     println!("  ❌ {} - No record data found from any of {} peers", 
                         health_result.address, health_result.peer_results.len());

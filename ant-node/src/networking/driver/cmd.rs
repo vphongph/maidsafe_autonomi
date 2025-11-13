@@ -217,6 +217,10 @@ impl SwarmDriver {
                     .store_mut()
                     .payment_received();
             }
+            LocalSwarmCmd::RecordNotAtTargetLocation => {
+                cmd_string = "RecordNotAtTargetLocation";
+                self.network_wide_replication.set_network_under_load();
+            }
             LocalSwarmCmd::GetLocalRecord { key, sender } => {
                 cmd_string = "GetLocalRecord";
                 let record = self

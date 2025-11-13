@@ -9,6 +9,7 @@
 use crate::networking::{Addresses, Network};
 use crate::{error::Result, node::Node};
 use ant_evm::ProofOfPayment;
+use ant_protocol::CLOSE_GROUP_SIZE;
 use ant_protocol::messages::Cmd;
 use ant_protocol::{
     NetworkAddress, PrettyPrintRecordKey,
@@ -267,7 +268,7 @@ impl Node {
                 // sort by distance to the key
                 peers
                     .sort_by_key(|(peer_id, _addrs)| key.distance(&NetworkAddress::from(*peer_id)));
-                peers.truncate(ant_protocol::constants::CLOSE_GROUP_SIZE);
+                peers.truncate(CLOSE_GROUP_SIZE);
                 peers
             }
             Err(err) => {
@@ -317,6 +318,13 @@ impl Node {
                     );
                 }
             }
+        }
+
+        if to_replicate.len() >= (CLOSE_GROUP_SIZE / 2 + 1) {
+            info!(
+                "Some peers do not have the record {key:?} during network wide replication, notifying the swarm"
+            );
+            network.notify_record_not_at_target_location();
         }
 
         for peer in to_replicate {

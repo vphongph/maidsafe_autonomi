@@ -632,7 +632,7 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
 
     // Remove `--first` argument. If node is restarted, it is not the first anymore.
     args.retain(|arg| arg != "--first");
-    
+
     // Remove arguments that will be re-added with correct values to avoid duplicates
     let args_to_remove = ["--auto-restart-delay", "--root-dir", "--port"];
     for arg_name in &args_to_remove {
@@ -643,7 +643,7 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
             }
         }
     }
-    
+
     info!("Cleaned args for restart: {args:?}");
 
     // Convert current exe path to string, log an error and return if it fails
@@ -714,8 +714,14 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
     // Execute the command
     let _handle = match cmd.spawn() {
         Ok(child) => {
-            info!("Successfully spawned new node process with PID: {}", child.id());
-            println!("Successfully spawned new node process with PID: {}", child.id());
+            info!(
+                "Successfully spawned new node process with PID: {}",
+                child.id()
+            );
+            println!(
+                "Successfully spawned new node process with PID: {}",
+                child.id()
+            );
             child
         }
         Err(e) => {

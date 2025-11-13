@@ -454,6 +454,30 @@ impl Network {
         rx.await?
     }
 
+    /// Get storage proofs directly from a specific peer on the Network
+    /// Returns a vector of (NetworkAddress, ChunkProof) tuples
+    pub async fn get_storage_proofs_from_peer(
+        &self,
+        addr: NetworkAddress,
+        peer: PeerInfo,
+        nonce: u64,
+        difficulty: usize,
+    ) -> Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetStorageProofsFromPeer {
+            addr,
+            peer,
+            nonce,
+            difficulty,
+            resp: tx,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        rx.await?
+    }
+
     /// Get a quote for a record from a Peer on the Network
     /// Returns an Option:
     /// - Some(PaymentQuote) if the quote is successfully received

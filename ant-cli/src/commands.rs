@@ -74,6 +74,18 @@ pub enum SubCmd {
         /// Show all holders of the record at this address.
         #[arg(long)]
         holders: bool,
+        /// Check health of closest nodes by requesting storage proofs for the target chunk address.
+        #[arg(long)]
+        nodes_health: bool,
+        /// Repair records with insufficient copies in closest group.
+        /// When analyzing with --closest-nodes, automatically re-upload records
+        /// that have less than 3 holders among the closest 7 nodes.
+        #[arg(long)]
+        repair: bool,
+        /// Filter network scan to only target addresses starting with this hex character (0-9, a-f).
+        /// Only applies when using --nodes-health with a number of rounds.
+        #[arg(long)]
+        addr_range: Option<char>,
         /// Recursively analyze all discovered addresses (chunks, pointers, etc.)
         #[arg(short, long)]
         recursive: bool,
@@ -661,6 +673,9 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
             addr,
             closest_nodes,
             holders,
+            nodes_health,
+            repair,
+            addr_range,
             verbose,
             recursive,
             json,
@@ -669,6 +684,9 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 &addr,
                 closest_nodes,
                 holders,
+                nodes_health,
+                repair,
+                addr_range,
                 recursive,
                 verbose,
                 network_context,

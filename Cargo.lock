@@ -867,7 +867,9 @@ version = "0.4.10"
 dependencies = [
  "ant-build-info",
  "ant-logging",
+ "ant-protocol",
  "autonomi",
+ "chrono",
  "clap",
  "color-eyre",
  "comfy-table",
@@ -891,6 +893,7 @@ dependencies = [
  "tokio",
  "tracing",
  "walkdir",
+ "xor_name",
 ]
 
 [[package]]

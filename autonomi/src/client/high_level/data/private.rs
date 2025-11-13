@@ -44,7 +44,12 @@ impl Client {
         let chunk_count = datamap.infos().len();
 
         if chunk_count > *crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE {
-            return Err(GetError::TooLargeForMemory);
+            warn!(
+                "Data map {:?} has {chunk_count} chunks, which exceeds the maximum allowed in-memory download size of {} chunks",
+                data_map.0.address(),
+                *crate::client::config::MAX_IN_MEMORY_DOWNLOAD_SIZE
+            );
+            return Err(GetError::TooLargeForMemory(datamap));
         }
 
         datamap.child = None;

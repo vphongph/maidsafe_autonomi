@@ -46,7 +46,7 @@ impl AnalysisErrorDisplay {
                 GetError::RecordKindMismatch(_) => Self::RecordKindMismatch,
                 GetError::Configuration(_) => Self::Configuration,
                 GetError::UnrecognizedDataMap(_) => Self::UnrecognizedDataMap,
-                GetError::TooLargeForMemory => Self::TooLargeForMemory,
+                GetError::TooLargeForMemory(_) => Self::TooLargeForMemory,
             },
         }
     }

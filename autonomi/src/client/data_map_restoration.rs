@@ -39,7 +39,10 @@ impl Client {
             info!("Restoring from new root data_map:\n{data_map:?}");
             let file_data_map = self.fetch_new_data_map(&data_map)?;
 
-            info!("Fetched file data_map of new version: \n{file_data_map:?}");
+            info!(
+                "Fetched file data_map from {:?} of new version: \n{file_data_map:?}",
+                data_map_chunk.0.address()
+            );
             return Ok(file_data_map);
         }
 

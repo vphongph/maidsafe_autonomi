@@ -55,6 +55,7 @@ use ant_evm::EvmNetwork;
 use config::ClientConfig;
 use payment::PayError;
 use quote::CostError;
+use self_encryption::DataMap;
 use std::collections::HashSet;
 use tokio::sync::mpsc;
 
@@ -177,7 +178,7 @@ pub enum GetError {
     #[error(
         "DataMap points to a file too large to be handled in memory, you can increase the MAX_IN_MEMORY_DOWNLOAD_SIZE env var or use streaming to avoid this error."
     )]
-    TooLargeForMemory,
+    TooLargeForMemory(DataMap),
 }
 
 impl Client {

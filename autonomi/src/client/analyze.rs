@@ -413,7 +413,7 @@ async fn analyze_datamap(
     println_if!(verbose, "Fetching data from the Network...");
     let data = match client.data_get(datamap).await {
         Ok(data) => data,
-        Err(GetError::TooLargeForMemory) => {
+        Err(GetError::TooLargeForMemory(data_map)) => {
             println_if!(
                 verbose,
                 "Datamap points to a large sized file, not suitable for in-memory fetch."
@@ -421,12 +421,12 @@ async fn analyze_datamap(
             let analysis = match stored_at {
                 Some(addr) => Analysis::DataMap {
                     address: addr,
-                    chunks: chunk_list_from_datamap(map),
+                    chunks: chunk_list_from_datamap(data_map),
                     data: None,
                     points_to_a_data_map,
                 },
                 None => Analysis::RawDataMap {
-                    chunks: chunk_list_from_datamap(map),
+                    chunks: chunk_list_from_datamap(data_map),
                     data: None,
                     points_to_a_data_map,
                 },
@@ -542,7 +542,7 @@ async fn analyze_datamap_old(
     println_if!(verbose, "Fetching data from the Network...");
     let data = match client.data_get(datamap).await {
         Ok(data) => data,
-        Err(GetError::TooLargeForMemory) => {
+        Err(GetError::TooLargeForMemory(data_map)) => {
             println_if!(
                 verbose,
                 "Datamap points to a large sized file, not suitable for in-memory fetch."

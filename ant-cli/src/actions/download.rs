@@ -135,7 +135,7 @@ async fn download_public(
 
     let data = match client.data_get_public(&address).await {
         Ok(data) => data,
-        Err(GetError::TooLargeForMemory) => {
+        Err(GetError::TooLargeForMemory(_)) => {
             println!("Detected large file at: {addr}, downloading via streaming");
             info!("Detected large file at: {addr}, downloading via streaming");
             client

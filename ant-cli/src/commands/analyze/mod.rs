@@ -16,11 +16,12 @@ use crate::commands::Quorum;
 use crate::wallet::load_wallet;
 use autonomi::PublicKey;
 use autonomi::chunk::ChunkAddress;
-use autonomi::client::analyze::Analysis;
+use autonomi::client::analyze::{Analysis, AnalysisError};
+use autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE;
 use autonomi::client::payment::PaymentOption;
 use autonomi::graph::GraphEntryAddress;
 use autonomi::{
-    Multiaddr, RewardsAddress, SecretKey, Wallet, client::analyze::AnalysisError,
+    Multiaddr, RewardsAddress, SecretKey, Wallet,
     networking::{NetworkAddress, NetworkError, PeerId, Record},
 };
 use color_eyre::eyre::Result;
@@ -34,6 +35,9 @@ use tracing::info;
 use xor_name::XorName;
 
 const KAD_HOLDERS_QUERY_RANGE: u32 = 20;
+
+// Upload records in parallel with max concurrency
+const MAX_PARALLEL_UPLOADS: usize = 20;
 
 type PeerResults = Vec<(PeerId, Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError>)>;
 
@@ -191,7 +195,7 @@ pub async fn analyze(
 
         let closest_nodes_results: Vec<(String, Result<Vec<ClosestPeerStatus>>)> =
             stream::iter(query_tasks)
-                .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+                .buffered(*CHUNK_DOWNLOAD_BATCH_SIZE)
                 .collect()
                 .await;
 
@@ -228,7 +232,7 @@ pub async fn analyze(
         });
 
         let holders_results: Vec<(String, Result<Vec<HolderStatus>>)> = stream::iter(query_tasks)
-            .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+            .buffered(*CHUNK_DOWNLOAD_BATCH_SIZE)
             .collect()
             .await;
         println!(
@@ -322,34 +326,44 @@ fn output_json(
     let json_str = serde_json::to_string(&json_output)?;
     let mut writer = json::JsonWriter::new(output_path)?;
     writer.write_json(&json_str)?;
-    
+
     // Also write the transformed JSON output in parallel
     writer.write_transformed_json(&json_output)?;
-    
+
     println!("JSON output written to: {}", output_path.display());
-    
+
     // Print transformed output location
     if output_path.is_dir() {
-        println!("Transformed JSON output written to: {}", output_path.join("transformedJson.json").display());
+        println!(
+            "Transformed JSON output written to: {}",
+            output_path.join("transformedJson.json").display()
+        );
     } else {
         let transformed_path = if let Some(parent) = output_path.parent() {
-            let file_name = output_path.file_stem()
+            let file_name = output_path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("analyze");
-            let ext = output_path.extension()
+            let ext = output_path
+                .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("json");
             parent.join(format!("{file_name}Transformed.{ext}"))
         } else {
-            let file_name = output_path.file_stem()
+            let file_name = output_path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("analyze");
-            let ext = output_path.extension()
+            let ext = output_path
+                .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("json");
             Path::new(&format!("{file_name}Transformed.{ext}")).to_path_buf()
         };
-        println!("Transformed JSON output written to: {}", transformed_path.display());
+        println!(
+            "Transformed JSON output written to: {}",
+            transformed_path.display()
+        );
     }
 
     Ok(())
@@ -562,7 +576,7 @@ pub async fn get_closest_nodes_status(
     });
 
     let closest_peers_statuses: Vec<ClosestPeerStatus> = stream::iter(query_tasks)
-        .buffered(*autonomi::client::config::CHUNK_DOWNLOAD_BATCH_SIZE)
+        .buffered(*CHUNK_DOWNLOAD_BATCH_SIZE)
         .collect()
         .await;
 
@@ -1387,10 +1401,9 @@ async fn perform_network_health_scan(
     }
 
     // Process scans in batches
-    const MAX_PARALLEL_SCANS: usize = 20;
-    let total_batches = num_rounds.div_ceil(MAX_PARALLEL_SCANS as u32);
-    
-    println!("\nStarting {num_rounds} scan rounds in {total_batches} batches (max {MAX_PARALLEL_SCANS} concurrent per batch)...");
+    let batch_size = *CHUNK_DOWNLOAD_BATCH_SIZE as u32;
+    let total_batches = num_rounds.div_ceil(batch_size);
+    println!("\nStarting {num_rounds} scan rounds in {total_batches} batches (max {batch_size} concurrent per batch)...");
 
     let mut total_new_white = 0;
     let mut total_new_bad = 0;
@@ -1418,8 +1431,8 @@ async fn perform_network_health_scan(
     };
 
     for batch_num in 0..total_batches {
-        let batch_start = batch_num * MAX_PARALLEL_SCANS as u32;
-        let batch_end = ((batch_num + 1) * MAX_PARALLEL_SCANS as u32).min(num_rounds);
+        let batch_start = batch_num * (*CHUNK_DOWNLOAD_BATCH_SIZE  as u32);
+        let batch_end = ((batch_num + 1) * (*CHUNK_DOWNLOAD_BATCH_SIZE  as u32)).min(num_rounds);
 
         println!("\n{}", "=".repeat(80));
         println!("BATCH {}/{total_batches}: Processing rounds {batch_start} to {}", 
@@ -1439,7 +1452,7 @@ async fn perform_network_health_scan(
 
         // Execute scans in parallel for this batch
         let scan_results: Vec<Result<NetworkScanResult>> = stream::iter(tasks)
-            .buffer_unordered(MAX_PARALLEL_SCANS)
+            .buffer_unordered(*CHUNK_DOWNLOAD_BATCH_SIZE)
             .collect()
             .await;
 
@@ -1534,9 +1547,8 @@ async fn perform_network_health_scan(
                 .collect();
 
             // Execute health checks in parallel
-            const MAX_PARALLEL_HEALTH_CHECKS: usize = 10;
             let health_check_results: Vec<HealthCheckResult> = stream::iter(health_check_tasks)
-                .buffer_unordered(MAX_PARALLEL_HEALTH_CHECKS)
+                .buffer_unordered(*CHUNK_DOWNLOAD_BATCH_SIZE)
                 .collect()
                 .await;
 
@@ -1635,7 +1647,6 @@ async fn perform_network_health_scan(
                 && let Some(payment_option) = payment_option.clone() {
                 println!("\nBatch {}: Repairing {} chunks in parallel...", batch_num + 1, chunks_to_repair.len());
 
-                const MAX_PARALLEL_UPLOADS: usize = 10;
                 let reupload_results = reupload_chunks_in_parallel(
                     client,
                     chunks_to_repair,
@@ -1885,10 +1896,10 @@ async fn handle_repair(
                 println!("⚠️  Address {addr_str} has only {holders_count} holder(s) in closest 7");
             }
 
-            // Try to get the record info from one of the holders
-            if let Some(ClosestPeerStatus::Holding { target_address, .. }) = 
-                statuses.iter().find(|s| matches!(s, ClosestPeerStatus::Holding { .. })) 
-            {
+            // Get target_address from the first entry (all variants have this field)
+            if let Some(first_status) = statuses.first() {
+                let target_address = first_status.target_address();
+                
                 // Try to get the record data via kad query
                 match client.get_record_and_holders(target_address.clone(), Quorum::One).await {
                     Ok((Some(record), _holders)) => {
@@ -1909,7 +1920,7 @@ async fn handle_repair(
                     }
                 }
             } else {
-                println!("   鈿狅笍  No holders found for {addr_str}, cannot repair");
+                println!("   ⚠️  No status entries found for {addr_str}, cannot repair");
             }
         }
     }
@@ -1932,8 +1943,6 @@ async fn handle_repair(
     
     println!("\nUploading {} record(s) for repair in parallel...", records_to_repair.len());
     
-    // Upload records in parallel with max concurrency
-    const MAX_PARALLEL_UPLOADS: usize = 10;
     let reupload_results = reupload_chunks_in_parallel(
         client,
         records_to_repair,

@@ -564,6 +564,10 @@ impl Node {
                     Self::query_peers_version(network, peers).await;
                 });
             }
+            NetworkEvent::NetworkWideReplication { keys } => {
+                event_header = "NetworkWideReplication";
+                self.perform_network_wide_replication(keys);
+            }
         }
 
         trace!(
@@ -669,9 +673,9 @@ impl Node {
                         key: Box::new(key.clone()),
                     }),
                     // Use `PutRecordFailed` as place holder
-                    Err(err) => Err(ProtocolError::PutRecordFailed(
-                        format!("Error to fetch local record for GetReplicatedRecord {err:?}")
-                    )),
+                    Err(err) => Err(ProtocolError::PutRecordFailed(format!(
+                        "Error to fetch local record for GetReplicatedRecord {err:?}"
+                    ))),
                 };
 
                 QueryResponse::GetReplicatedRecord(result)

@@ -13,13 +13,13 @@ use std::{
 
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::{
-    storage::{DataTypes, ValidationType},
     NetworkAddress, PrettyPrintRecordKey,
+    storage::{DataTypes, ValidationType},
 };
 use libp2p::{
+    PeerId,
     core::Multiaddr,
     kad::{KBucketDistance as Distance, Record, RecordKey},
-    PeerId,
 };
 use tokio::sync::oneshot;
 
@@ -161,6 +161,8 @@ pub(crate) enum LocalSwarmCmd {
     RemovePeer {
         peer: PeerId,
     },
+    /// Some records were not found at their target location
+    RecordNotAtTargetLocation,
 }
 
 /// Debug impl for LocalSwarmCmd to avoid printing full Record, instead only RecodKey
@@ -283,6 +285,9 @@ impl Debug for LocalSwarmCmd {
             }
             LocalSwarmCmd::RemovePeer { peer } => {
                 write!(f, "LocalSwarmCmd::RemovePeer({peer:?})")
+            }
+            LocalSwarmCmd::RecordNotAtTargetLocation => {
+                write!(f, "LocalSwarmCmd::RecordNotAtTargetLocation")
             }
         }
     }

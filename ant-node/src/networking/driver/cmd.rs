@@ -217,6 +217,10 @@ impl SwarmDriver {
                     .store_mut()
                     .payment_received();
             }
+            LocalSwarmCmd::RecordNotAtTargetLocation => {
+                cmd_string = "RecordNotAtTargetLocation";
+                self.network_wide_replication.set_network_under_load();
+            }
             LocalSwarmCmd::GetLocalRecord { key, sender } => {
                 cmd_string = "GetLocalRecord";
                 let record = self
@@ -407,7 +411,8 @@ impl SwarmDriver {
             }
             LocalSwarmCmd::GetKCloseLocalPeersToTarget { key, sender } => {
                 cmd_string = "GetKCloseLocalPeersToTarget";
-                let closest_peers = self.get_closest_local_peers_to_target(&key, true, K_VALUE.get());
+                let closest_peers =
+                    self.get_closest_local_peers_to_target(&key, true, K_VALUE.get());
 
                 let _ = sender.send(closest_peers);
             }

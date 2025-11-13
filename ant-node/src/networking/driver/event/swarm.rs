@@ -497,7 +497,9 @@ impl SwarmDriver {
                 }
 
                 if let Some((addr, remote_peer_id)) = redial {
-                    info!("Attempting to dial corrected peer {remote_peer_id:?} at {addr:?}, after received WrongPeerId from {failed_peer_id:?}");
+                    info!(
+                        "Attempting to dial corrected peer {remote_peer_id:?} at {addr:?}, after received WrongPeerId from {failed_peer_id:?}"
+                    );
 
                     if let Err(err) = self.swarm.dial(
                         DialOpts::peer_id(remote_peer_id)
@@ -506,7 +508,9 @@ impl SwarmDriver {
                             .addresses(vec![addr.clone()])
                             .build(),
                     ) {
-                        warn!("Failed to dial to {remote_peer_id:?} at {addr:?}: {err:?}, during WrongPeerId correction of {failed_peer_id:?}");
+                        warn!(
+                            "Failed to dial to {remote_peer_id:?} at {addr:?}: {err:?}, during WrongPeerId correction of {failed_peer_id:?}"
+                        );
                     }
                 }
             }

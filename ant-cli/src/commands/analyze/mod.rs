@@ -134,6 +134,199 @@ macro_rules! println_if {
     };
 }
 
+// ============================================================================
+// Helper Functions for Network Health Scanning
+// ============================================================================
+
+/// Parse a string address into a NetworkAddress
+fn parse_network_address(addr: &str) -> Result<NetworkAddress> {
+    let hex_addr = addr.trim_start_matches("0x");
+
+    // Try parsing as ChunkAddress first
+    if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
+        return Ok(NetworkAddress::from(chunk_addr));
+    }
+
+    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
+    if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
+        return Ok(NetworkAddress::from(GraphEntryAddress::new(public_key)));
+    }
+
+    // Try parsing from NetworkAddress debug format:
+    // NetworkAddress::RecordKey("e9d7b3208bcb7ef566102027ca9a7f3ced7c0f8abf87c9bb0ef9130b625572f2") - (...)
+    if let Some(start) = addr.find('"')
+        && let Some(end) = addr[start + 1..].find('"') {
+        let hex_str = &addr[start + 1..start + 1 + end];
+        
+        // Try parsing the extracted hex string as ChunkAddress
+        if let Ok(chunk_addr) = ChunkAddress::from_hex(hex_str) {
+            return Ok(NetworkAddress::from(chunk_addr));
+        }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+        "Could not parse address. Expected a hex-encoded ChunkAddress, PublicKey, or NetworkAddress debug format"
+    ))
+}
+
+/// Perform health check for a single address by querying closest 7 peers
+async fn perform_health_check_for_address(
+    client: &autonomi::Client,
+    net_addr: NetworkAddress,
+) -> HealthCheckResult {
+    let addr_str = format!("{net_addr:?}");
+    
+    // Get closest 7 nodes to this address
+    let closest_peers = match client.get_closest_to_address(net_addr.clone(), None).await {
+        Ok(peers) => peers,
+        Err(_e) => {
+            return HealthCheckResult {
+                address: addr_str,
+                network_address: net_addr,
+                peer_results: vec![],
+            };
+        }
+    };
+
+    // Query each peer in parallel
+    let peer_query_tasks = closest_peers.iter().map(|peer_info| {
+        let client = client.clone();
+        let net_addr = net_addr.clone();
+        let peer_info = peer_info.clone();
+        let peer_id = peer_info.peer_id;
+        
+        async move {
+            let result = client.get_record_from_peer(net_addr, peer_info).await;
+            PeerRecordResult {
+                peer_id,
+                result,
+            }
+        }
+    });
+
+    // Execute peer queries in parallel (up to 7 concurrent)
+    let peer_results: Vec<PeerRecordResult> = stream::iter(peer_query_tasks)
+        .buffer_unordered(7)
+        .collect()
+        .await;
+
+    HealthCheckResult {
+        address: addr_str,
+        network_address: net_addr,
+        peer_results,
+    }
+}
+
+/// Execute health checks for multiple addresses in parallel
+async fn execute_health_checks_in_parallel(
+    client: &autonomi::Client,
+    addresses: Vec<NetworkAddress>,
+    max_concurrent: usize,
+) -> Vec<HealthCheckResult> {
+    let health_check_tasks: Vec<_> = addresses
+        .into_iter()
+        .map(|net_addr| {
+            let client = client.clone();
+            async move {
+                perform_health_check_for_address(&client, net_addr).await
+            }
+        })
+        .collect();
+
+    stream::iter(health_check_tasks)
+        .buffer_unordered(max_concurrent)
+        .collect()
+        .await
+}
+
+/// Process health check results and categorize chunks
+/// Returns (holder_count, record_data)
+fn process_health_check_result(
+    health_result: &HealthCheckResult,
+    verbose: bool,
+) -> (usize, Option<Record>) {
+    let mut holder_count = 0;
+    let mut record_data: Option<Record> = None;
+
+    for peer_result in &health_result.peer_results {
+        match &peer_result.result {
+            Ok(Some(record)) => {
+                holder_count += 1;
+                if record_data.is_none() {
+                    record_data = Some(record.clone());
+                }
+                if verbose {
+                    println!("    Peer {} holds the record", peer_result.peer_id);
+                }
+            }
+            Ok(None) => {
+                if verbose {
+                    println!("    Peer {} does not hold the record", peer_result.peer_id);
+                }
+            }
+            Err(e) => {
+                if verbose {
+                    println!("    Peer {} query failed: {e}", peer_result.peer_id);
+                }
+            }
+        }
+    }
+    
+    (holder_count, record_data)
+}
+
+/// Write repair results to CSV file
+fn write_repair_results_to_csv(
+    repair_file: &mut std::fs::File,
+    results: &[ReuploadResult],
+    batch_id: Option<usize>,
+) -> Result<()> {
+    use std::io::Write;
+    
+    for result in results {
+        match &result.result {
+            Ok((cost, _addr)) => {
+                if let Some(batch) = batch_id {
+                    writeln!(
+                        repair_file,
+                        "{batch},{},{},success,{cost},",
+                        result.address,
+                        result.holders_count,
+                    )?;
+                } else {
+                    writeln!(
+                        repair_file,
+                        "{},{},success,{cost},",
+                        result.address,
+                        result.holders_count,
+                    )?;
+                }
+            }
+            Err(e) => {
+                if let Some(batch) = batch_id {
+                    writeln!(
+                        repair_file,
+                        "{batch},{},{},failed,0,\"{}\"",
+                        result.address,
+                        result.holders_count,
+                        e.to_string().replace('"', "\"\"")
+                    )?;
+                } else {
+                    writeln!(
+                        repair_file,
+                        "{},{},failed,0,\"{}\"",
+                        result.address,
+                        result.holders_count,
+                        e.to_string().replace('"', "\"\"")
+                    )?;
+                }
+            }
+        }
+    }
+    repair_file.flush()?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn analyze(
     addr: &str,
@@ -367,25 +560,6 @@ fn output_json(
     }
 
     Ok(())
-}
-
-/// Parse a string address into a NetworkAddress
-fn parse_network_address(addr: &str) -> Result<NetworkAddress> {
-    let hex_addr = addr.trim_start_matches("0x");
-
-    // Try parsing as ChunkAddress first
-    if let Ok(chunk_addr) = ChunkAddress::from_hex(addr) {
-        return Ok(NetworkAddress::from(chunk_addr));
-    }
-
-    // Try parsing as PublicKey (could be GraphEntry, Pointer, or Scratchpad)
-    if let Ok(public_key) = PublicKey::from_hex(hex_addr) {
-        return Ok(NetworkAddress::from(GraphEntryAddress::new(public_key)));
-    }
-
-    Err(color_eyre::eyre::eyre!(
-        "Could not parse address. Expected a hex-encoded ChunkAddress or PublicKey"
-    ))
 }
 
 fn try_other_types(addr: &str, verbose: bool) {
@@ -1416,14 +1590,13 @@ async fn perform_network_health_scan(
         println!("INITIAL CHECK: Verifying {} existing bad-listed chunks", bad_entries.len());
         println!("{}", "=".repeat(80));
 
-        // Convert string addresses to NetworkAddress
+        // Convert string addresses to NetworkAddress using helper
         let bad_addresses: Vec<NetworkAddress> = bad_entries
             .iter()
-            .filter_map(|addr_str| {
-                // Try to parse as different address types
-                if let Ok(chunk_addr) = ChunkAddress::from_hex(addr_str.trim_start_matches("0x")) {
-                    Some(NetworkAddress::from(chunk_addr))
-                } else {
+            .filter_map(|addr_str| match parse_network_address(addr_str) {
+                Ok(addr) => Some(addr),
+                Err(e) => {
+                    println!("When parsing NetworkAddress from {addr_str}, failed with error {e:?}");
                     None
                 }
             })
@@ -1432,64 +1605,13 @@ async fn perform_network_health_scan(
         if !bad_addresses.is_empty() {
             println!("\nChecking {} bad-listed chunks in parallel...", bad_addresses.len());
 
-            // Create health check tasks for all bad addresses
-            let health_check_tasks: Vec<_> = bad_addresses
-                .iter()
-                .map(|net_addr| {
-                    let client = client.clone();
-                    let net_addr = net_addr.clone();
-                    async move {
-                        let addr_str = format!("{net_addr:?}");
-                        
-                        // Get closest 7 nodes to this address
-                        let closest_peers = match client.get_closest_to_address(net_addr.clone(), None).await {
-                            Ok(peers) => peers,
-                            Err(_e) => {
-                                return HealthCheckResult {
-                                    address: addr_str,
-                                    network_address: net_addr,
-                                    peer_results: vec![],
-                                };
-                            }
-                        };
-
-                        // Query each peer in parallel
-                        let peer_query_tasks = closest_peers.iter().map(|peer_info| {
-                            let client = client.clone();
-                            let net_addr = net_addr.clone();
-                            let peer_info = peer_info.clone();
-                            let peer_id = peer_info.peer_id;
-                            
-                            async move {
-                                let result = client.get_record_from_peer(net_addr, peer_info).await;
-                                PeerRecordResult {
-                                    peer_id,
-                                    result,
-                                }
-                            }
-                        });
-
-                        // Execute peer queries in parallel (up to 7 concurrent)
-                        let peer_results: Vec<PeerRecordResult> = stream::iter(peer_query_tasks)
-                            .buffer_unordered(7)
-                            .collect()
-                            .await;
-
-                        HealthCheckResult {
-                            address: addr_str,
-                            network_address: net_addr,
-                            peer_results,
-                        }
-                    }
-                })
-                .collect();
-
-            // Execute health checks in parallel
+            // Execute health checks in parallel using helper
             const MAX_PARALLEL_INITIAL_CHECKS: usize = 20;
-            let health_check_results: Vec<HealthCheckResult> = stream::iter(health_check_tasks)
-                .buffer_unordered(MAX_PARALLEL_INITIAL_CHECKS)
-                .collect()
-                .await;
+            let health_check_results = execute_health_checks_in_parallel(
+                client,
+                bad_addresses,
+                MAX_PARALLEL_INITIAL_CHECKS,
+            ).await;
 
             println!("\nProcessing {} health check results...", health_check_results.len());
 
@@ -1499,18 +1621,8 @@ async fn perform_network_health_scan(
             let mut still_bad = 0;
 
             for health_result in health_check_results {
-                // Count successful holders among closest 7
-                let mut holder_count = 0;
-                let mut record_data: Option<Record> = None;
-
-                for peer_result in &health_result.peer_results {
-                    if let Ok(Some(record)) = &peer_result.result {
-                        holder_count += 1;
-                        if record_data.is_none() {
-                            record_data = Some(record.clone());
-                        }
-                    }
-                }
+                // Use helper to process health check result
+                let (holder_count, record_data) = process_health_check_result(&health_result, verbose);
 
                 // Evaluate health
                 if holder_count >= 3 {
@@ -1563,8 +1675,7 @@ async fn perform_network_health_scan(
                 }
             }
 
-            println!("\nInitial check complete: {} moved to white list, {} still unhealthy", 
-                moved_to_white, still_bad);
+            println!("\nInitial check complete: {moved_to_white} moved to white list, {still_bad} still unhealthy");
 
             // Repair unhealthy chunks if needed
             if repair && !chunks_to_repair.is_empty() {
@@ -1590,32 +1701,14 @@ async fn perform_network_health_scan(
                 use std::io::Write;
                 writeln!(repair_file, "address,original_holders_count,upload_status,cost_paid,error")?;
 
+                // Print results and write to CSV
                 for result in &reupload_results {
                     match &result.result {
-                        Ok((cost, _addr)) => {
-                            println!("  ✅ {} (cost: {cost})", result.address);
-                            writeln!(
-                                repair_file,
-                                "{},{},success,{},",
-                                result.address,
-                                result.holders_count,
-                                cost
-                            )?;
-                        }
-                        Err(e) => {
-                            println!("  ❌ {} - Failed: {e}", result.address);
-                            writeln!(
-                                repair_file,
-                                "{},{},failed,0,\"{}\"",
-                                result.address,
-                                result.holders_count,
-                                e.to_string().replace('"', "\"\"")
-                            )?;
-                        }
+                        Ok((cost, _addr)) => println!("  ✅ {} (cost: {cost})", result.address),
+                        Err(e) => println!("  ❌ {} - Failed: {e}", result.address),
                     }
                 }
-
-                repair_file.flush()?;
+                write_repair_results_to_csv(&mut repair_file, &reupload_results, None)?;
                 println!("\nInitial repair report saved to: {repair_csv}");
             }
 
@@ -1718,64 +1811,13 @@ async fn perform_network_health_scan(
         if !batch_bad_chunks.is_empty() {
             println!("\nChecking {} bad-listed chunks from batch {} in parallel...", batch_bad_chunks.len(), batch_num + 1);
             
-            // Create health check tasks: get closest 7 and query each peer
-            let health_check_tasks: Vec<_> = batch_bad_chunks
-                .iter()
-                .map(|net_addr| {
-                    let client = client.clone();
-                    let net_addr = net_addr.clone();
-                    async move {
-                        let addr_str = format!("{net_addr:?}");
-                        
-                        // Get closest 7 nodes to this address
-                        let closest_peers = match client.get_closest_to_address(net_addr.clone(), None).await {
-                            Ok(peers) => peers,
-                            Err(_e) => {
-                                // Return empty result if we can't get closest peers
-                                return HealthCheckResult {
-                                    address: addr_str,
-                                    network_address: net_addr,
-                                    peer_results: vec![],
-                                };
-                            }
-                        };
-
-                        // Query each peer in parallel
-                        let peer_query_tasks = closest_peers.iter().map(|peer_info| {
-                            let client = client.clone();
-                            let net_addr = net_addr.clone();
-                            let peer_info = peer_info.clone();
-                            let peer_id = peer_info.peer_id;
-                            
-                            async move {
-                                let result = client.get_record_from_peer(net_addr, peer_info).await;
-                                PeerRecordResult {
-                                    peer_id,
-                                    result,
-                                }
-                            }
-                        });
-
-                        // Execute peer queries in parallel (up to 7 concurrent)
-                        let peer_results: Vec<PeerRecordResult> = stream::iter(peer_query_tasks)
-                            .buffer_unordered(7)
-                            .collect()
-                            .await;
-
-                        HealthCheckResult {
-                            address: addr_str,
-                            network_address: net_addr,
-                            peer_results,
-                        }
-                    }
-                })
-                .collect();
-
-            // Execute health checks in parallel
-            let health_check_results: Vec<HealthCheckResult> = stream::iter(health_check_tasks)
-                .buffer_unordered(*CHUNK_DOWNLOAD_BATCH_SIZE)
-                .collect()
-                .await;
+            // Execute health checks in parallel using helper
+            let batch_bad_vec: Vec<NetworkAddress> = batch_bad_chunks.into_iter().collect();
+            let health_check_results = execute_health_checks_in_parallel(
+                client,
+                batch_bad_vec,
+                *CHUNK_DOWNLOAD_BATCH_SIZE,
+            ).await;
 
             // Process health check results
             let mut chunks_to_repair: Vec<RecordToRepair> = Vec::new();
@@ -1783,34 +1825,8 @@ async fn perform_network_health_scan(
             println!("\nProcessing {} health check results...", health_check_results.len());
 
             for health_result in health_check_results {
-                // Count successful holders among closest 7
-                let mut holder_count = 0;
-                let mut record_data: Option<Record> = None;
-
-                for peer_result in &health_result.peer_results {
-                    match &peer_result.result {
-                        Ok(Some(record)) => {
-                            holder_count += 1;
-                            // Store the first successful record data
-                            if record_data.is_none() {
-                                record_data = Some(record.clone());
-                            }
-                            if verbose {
-                                println!("    Peer {} holds the record", peer_result.peer_id);
-                            }
-                        }
-                        Ok(None) => {
-                            if verbose {
-                                println!("    Peer {} does not hold the record", peer_result.peer_id);
-                            }
-                        }
-                        Err(e) => {
-                            if verbose {
-                                println!("    Peer {} query failed: {e}", peer_result.peer_id);
-                            }
-                        }
-                    }
-                }
+                // Use helper to process health check result
+                let (holder_count, record_data) = process_health_check_result(&health_result, verbose);
 
                 // Evaluate health based on holder count
                 if holder_count >= 3 {
@@ -1881,34 +1897,13 @@ async fn perform_network_health_scan(
 
                 // Write results to repair report
                 if let Some((ref mut file, _)) = repair_file {
-                    use std::io::Write;
                     for result in &reupload_results {
                         match &result.result {
-                            Ok((cost, _addr)) => {
-                                println!("  ✅ {} (cost: {cost})", result.address);
-                                writeln!(
-                                    file,
-                                    "{},{},{},success,{},",
-                                    batch_num + 1,
-                                    result.address,
-                                    result.holders_count,
-                                    cost
-                                )?;
-                            }
-                            Err(e) => {
-                                println!("  ❌ {} - Failed: {e}", result.address);
-                                writeln!(
-                                    file,
-                                    "{},{},{},failed,0,\"{}\"",
-                                    batch_num + 1,
-                                    result.address,
-                                    result.holders_count,
-                                    e.to_string().replace('"', "\"\"")
-                                )?;
-                            }
+                            Ok((cost, _addr)) => println!("  ✅ {} (cost: {cost})", result.address),
+                            Err(e) => println!("  ❌ {} - Failed: {e}", result.address),
                         }
                     }
-                    file.flush()?;
+                    write_repair_results_to_csv(file, &reupload_results, Some(batch_num as usize + 1))?;
                 }
 
                 total_repaired += reupload_results.len();
@@ -2178,30 +2173,11 @@ async fn handle_repair(
     // Write results to CSV
     for result in &reupload_results {
         match &result.result {
-            Ok((cost, _addr)) => {
-                println!("  ✅ {} (cost: {cost})", result.address);
-                writeln!(
-                    csv_file,
-                    "{},{},success,{},",
-                    result.address,
-                    result.holders_count,
-                    cost
-                )?;
-            }
-            Err(e) => {
-                println!("  ❌ {} - Failed: {e}", result.address);
-                writeln!(
-                    csv_file,
-                    "{},{},failed,0,\"{}\"",
-                    result.address,
-                    result.holders_count,
-                    e.to_string().replace('"', "\"\"")
-                )?;
-            }
+            Ok((cost, _addr)) => println!("  ✅ {} (cost: {cost})", result.address),
+            Err(e) => println!("  ❌ {} - Failed: {e}", result.address),
         }
     }
-    
-    csv_file.flush()?;
+    write_repair_results_to_csv(&mut csv_file, &reupload_results, None)?;
     
     println!("\n{}", "=".repeat(80));
     println!("Repair complete! Report saved to: {csv_path}");

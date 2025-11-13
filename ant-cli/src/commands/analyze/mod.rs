@@ -1392,12 +1392,237 @@ async fn perform_network_health_scan(
     let white_csv = "chunk_whitelist.csv";
     let bad_csv = "chunk_badlist.csv";
 
-    if std::path::Path::new(white_csv).exists() || std::path::Path::new(bad_csv).exists() {
+    let initial_bad_list_check = if std::path::Path::new(white_csv).exists() || std::path::Path::new(bad_csv).exists() {
         println!("Loading existing health lists from disk...");
         health_lists.read_from_csv(white_csv, bad_csv)?;
         let white_count = health_lists.white_list.lock().expect("Failed to access global white_list").len();
         let bad_count = health_lists.bad_list.lock().expect("Failed to access global bad_list").len();
         println!("Loaded {white_count} white-listed and {bad_count} bad-listed chunks");
+        
+        // Get snapshot of bad_list for initial health check
+        if bad_count > 0 {
+            let bad = health_lists.bad_list.lock().expect("Failed to access global bad_list");
+            Some(bad.iter().cloned().collect::<Vec<String>>())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Perform initial health check on existing bad_list entries
+    if let Some(bad_entries) = initial_bad_list_check {
+        println!("\n{}", "=".repeat(80));
+        println!("INITIAL CHECK: Verifying {} existing bad-listed chunks", bad_entries.len());
+        println!("{}", "=".repeat(80));
+
+        // Convert string addresses to NetworkAddress
+        let bad_addresses: Vec<NetworkAddress> = bad_entries
+            .iter()
+            .filter_map(|addr_str| {
+                // Try to parse as different address types
+                if let Ok(chunk_addr) = ChunkAddress::from_hex(addr_str.trim_start_matches("0x")) {
+                    Some(NetworkAddress::from(chunk_addr))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !bad_addresses.is_empty() {
+            println!("\nChecking {} bad-listed chunks in parallel...", bad_addresses.len());
+
+            // Create health check tasks for all bad addresses
+            let health_check_tasks: Vec<_> = bad_addresses
+                .iter()
+                .map(|net_addr| {
+                    let client = client.clone();
+                    let net_addr = net_addr.clone();
+                    async move {
+                        let addr_str = format!("{net_addr:?}");
+                        
+                        // Get closest 7 nodes to this address
+                        let closest_peers = match client.get_closest_to_address(net_addr.clone(), None).await {
+                            Ok(peers) => peers,
+                            Err(_e) => {
+                                return HealthCheckResult {
+                                    address: addr_str,
+                                    network_address: net_addr,
+                                    peer_results: vec![],
+                                };
+                            }
+                        };
+
+                        // Query each peer in parallel
+                        let peer_query_tasks = closest_peers.iter().map(|peer_info| {
+                            let client = client.clone();
+                            let net_addr = net_addr.clone();
+                            let peer_info = peer_info.clone();
+                            let peer_id = peer_info.peer_id;
+                            
+                            async move {
+                                let result = client.get_record_from_peer(net_addr, peer_info).await;
+                                PeerRecordResult {
+                                    peer_id,
+                                    result,
+                                }
+                            }
+                        });
+
+                        // Execute peer queries in parallel (up to 7 concurrent)
+                        let peer_results: Vec<PeerRecordResult> = stream::iter(peer_query_tasks)
+                            .buffer_unordered(7)
+                            .collect()
+                            .await;
+
+                        HealthCheckResult {
+                            address: addr_str,
+                            network_address: net_addr,
+                            peer_results,
+                        }
+                    }
+                })
+                .collect();
+
+            // Execute health checks in parallel
+            const MAX_PARALLEL_INITIAL_CHECKS: usize = 20;
+            let health_check_results: Vec<HealthCheckResult> = stream::iter(health_check_tasks)
+                .buffer_unordered(MAX_PARALLEL_INITIAL_CHECKS)
+                .collect()
+                .await;
+
+            println!("\nProcessing {} health check results...", health_check_results.len());
+
+            // Process results
+            let mut chunks_to_repair: Vec<RecordToRepair> = Vec::new();
+            let mut moved_to_white = 0;
+            let mut still_bad = 0;
+
+            for health_result in health_check_results {
+                // Count successful holders among closest 7
+                let mut holder_count = 0;
+                let mut record_data: Option<Record> = None;
+
+                for peer_result in &health_result.peer_results {
+                    if let Ok(Some(record)) = &peer_result.result {
+                        holder_count += 1;
+                        if record_data.is_none() {
+                            record_data = Some(record.clone());
+                        }
+                    }
+                }
+
+                // Evaluate health
+                if holder_count >= 3 {
+                    // Good health, move to white list
+                    health_lists.add_to_white_list(health_result.address.clone());
+                    moved_to_white += 1;
+                    println!("  ✅ {} - Healthy ({holder_count}/{} holders), moved to white list", 
+                        health_result.address, health_result.peer_results.len());
+                } else if let Some(record) = record_data {
+                    // Unhealthy, but we have data
+                    still_bad += 1;
+                    if repair {
+                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
+                            health_result.address, health_result.peer_results.len());
+                        chunks_to_repair.push(RecordToRepair {
+                            address: health_result.address,
+                            holders_count: holder_count,
+                            record_data: record,
+                        });
+                    } else {
+                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), repair not enabled", 
+                            health_result.address, health_result.peer_results.len());
+                    }
+                } else {
+                    // Try kad query as fallback
+                    still_bad += 1;
+                    if repair {
+                        match client.get_record_and_holders(health_result.network_address, Quorum::One).await {
+                            Ok((Some(record), _holders)) => {
+                                if verbose {
+                                    println!("   ✅ Retrieved record {} via kad query", health_result.address);
+                                }
+                                chunks_to_repair.push(RecordToRepair {
+                                    address: health_result.address.clone(),
+                                    holders_count: 0,
+                                    record_data: record,
+                                });
+                            }
+                            Ok((None, _holders)) => {
+                                println!("  ❌ {} - No record data found", health_result.address);
+                            }
+                            Err(e) => {
+                                println!("  ❌ {} - Error: {e}", health_result.address);
+                            }
+                        }
+                    } else {
+                        println!("  ❌ {} - No record data found from any of {} peers", 
+                            health_result.address, health_result.peer_results.len());
+                    }
+                }
+            }
+
+            println!("\nInitial check complete: {} moved to white list, {} still unhealthy", 
+                moved_to_white, still_bad);
+
+            // Repair unhealthy chunks if needed
+            if repair && !chunks_to_repair.is_empty() {
+                println!("\n{}", "=".repeat(80));
+                println!("INITIAL REPAIR: Re-uploading {} chunks...", chunks_to_repair.len());
+                println!("{}", "=".repeat(80));
+
+                let wallet = load_wallet(client.evm_network())?;
+                let payment_option = PaymentOption::from(&wallet);
+
+                const MAX_PARALLEL_UPLOADS: usize = 10;
+                let reupload_results = reupload_chunks_in_parallel(
+                    client,
+                    chunks_to_repair,
+                    payment_option,
+                    MAX_PARALLEL_UPLOADS,
+                ).await;
+
+                // Create repair report for initial check
+                let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                let repair_csv = format!("initial_repair_{timestamp}.csv");
+                let mut repair_file = std::fs::File::create(&repair_csv)?;
+                use std::io::Write;
+                writeln!(repair_file, "address,original_holders_count,upload_status,cost_paid,error")?;
+
+                for result in &reupload_results {
+                    match &result.result {
+                        Ok((cost, _addr)) => {
+                            println!("  ✅ {} (cost: {cost})", result.address);
+                            writeln!(
+                                repair_file,
+                                "{},{},success,{},",
+                                result.address,
+                                result.holders_count,
+                                cost
+                            )?;
+                        }
+                        Err(e) => {
+                            println!("  ❌ {} - Failed: {e}", result.address);
+                            writeln!(
+                                repair_file,
+                                "{},{},failed,0,\"{}\"",
+                                result.address,
+                                result.holders_count,
+                                e.to_string().replace('"', "\"\"")
+                            )?;
+                        }
+                    }
+                }
+
+                repair_file.flush()?;
+                println!("\nInitial repair report saved to: {repair_csv}");
+            }
+
+            // Write updated lists to disk
+            println!("\nUpdating health lists on disk...");
+            health_lists.write_to_csv(white_csv, bad_csv)?;
+        }
     }
 
     // Process scans in batches

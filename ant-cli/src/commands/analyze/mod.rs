@@ -1895,10 +1895,10 @@ async fn handle_repair(
                 println!("⚠️  Address {addr_str} has only {holders_count} holder(s) in closest 7");
             }
 
-            // Try to get the record info from one of the holders
-            if let Some(ClosestPeerStatus::Holding { target_address, .. }) = 
-                statuses.iter().find(|s| matches!(s, ClosestPeerStatus::Holding { .. })) 
-            {
+            // Get target_address from the first entry (all variants have this field)
+            if let Some(first_status) = statuses.first() {
+                let target_address = first_status.target_address();
+                
                 // Try to get the record data via kad query
                 match client.get_record_and_holders(target_address.clone(), Quorum::One).await {
                     Ok((Some(record), _holders)) => {
@@ -1919,7 +1919,7 @@ async fn handle_repair(
                     }
                 }
             } else {
-                println!("   鈿狅笍  No holders found for {addr_str}, cannot repair");
+                println!("   ⚠️  No status entries found for {addr_str}, cannot repair");
             }
         }
     }

@@ -16,6 +16,12 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// The duration within which network-wide replication should be completed (4 days in seconds)
+const REPLICATION_DEADLINE_SECS: u64 = 4 * 24 * 60 * 60;
+
+/// The duration after which the network load flag is reset (72 hours in seconds)
+const NETWORK_LOAD_TIMEOUT_SECS: u64 = 72 * 60 * 60;
+
 pub(crate) struct NetworkWideReplication {
     last_record_count: usize,
     pending_records: VecDeque<(NetworkAddress, ValidationType)>,
@@ -28,7 +34,8 @@ pub(crate) struct NetworkWideReplication {
 
 impl NetworkWideReplication {
     pub(crate) fn new(event_sender: mpsc::Sender<NetworkEvent>) -> Self {
-        let complete_replication_within = Instant::now() + Duration::from_secs(7 * 24 * 60 * 60); // 7 days
+        let complete_replication_within =
+            Instant::now() + Duration::from_secs(REPLICATION_DEADLINE_SECS);
         Self {
             pending_records: VecDeque::new(),
             completed_records: Vec::new(),
@@ -106,7 +113,8 @@ impl NetworkWideReplication {
     pub(crate) async fn execute(&mut self, swarm: &mut Swarm<NodeBehaviour>) -> Result<()> {
         // reset network load flag after 72 hours
         if let Some(last_time) = self.network_is_under_load
-            && Instant::now().duration_since(last_time) > Duration::from_secs(72 * 60 * 60)
+            && Instant::now().duration_since(last_time)
+                > Duration::from_secs(NETWORK_LOAD_TIMEOUT_SECS)
         {
             self.network_is_under_load = None;
         }
@@ -191,7 +199,7 @@ impl NetworkWideReplication {
             );
             // Reset for a new 7-day cycle
             self.completed_records.clear();
-            self.complete_replication_within = now + Duration::from_secs(7 * 24 * 60 * 60);
+            self.complete_replication_within = now + Duration::from_secs(REPLICATION_DEADLINE_SECS);
             self.last_replication_time = None;
         }
 
@@ -204,14 +212,13 @@ mod tests {
     use super::*;
 
     const EXECUTE_INTERVAL_SECS: u64 = NETWORK_WIDE_REPLICATION_INTERVAL.as_secs(); // 15 minutes
-    const SEVEN_DAYS_SECS: u64 = 7 * 24 * 60 * 60;
 
     // Boundary/Invalid Input Tests
     #[test]
     fn keys_to_send_should_be_none_when_no_pending_keys() {
         let result = NetworkWideReplication::calculate_keys_to_send(
             0,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             None,
             EXECUTE_INTERVAL_SECS,
         );
@@ -269,7 +276,7 @@ mod tests {
     fn keys_to_send_should_be_1_during_first_send() {
         let result = NetworkWideReplication::calculate_keys_to_send(
             7,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             None, // first send
             EXECUTE_INTERVAL_SECS,
         );
@@ -279,10 +286,10 @@ mod tests {
     #[test]
     fn keys_to_send_should_be_1_when_exactly_one_interval_elapsed() {
         // 7 keys over 7 days = target interval of 24 hours (86400 secs)
-        let target_interval = SEVEN_DAYS_SECS / 7;
+        let target_interval = REPLICATION_DEADLINE_SECS / 7;
         let result = NetworkWideReplication::calculate_keys_to_send(
             7,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             Some(Duration::from_secs(target_interval)), // exactly 1 interval
             EXECUTE_INTERVAL_SECS,
         );
@@ -292,10 +299,10 @@ mod tests {
     #[test]
     fn keys_to_send_should_be_none_when_not_enough_time_elapsed() {
         // 7 keys over 7 days = target interval of 24 hours (86400 secs)
-        let target_interval = SEVEN_DAYS_SECS / 7;
+        let target_interval = REPLICATION_DEADLINE_SECS / 7;
         let result = NetworkWideReplication::calculate_keys_to_send(
             7,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             Some(Duration::from_secs(target_interval / 2)), // only half interval
             EXECUTE_INTERVAL_SECS,
         );
@@ -305,10 +312,10 @@ mod tests {
     #[test]
     fn keys_to_send_should_be_3_when_three_intervals_elapsed() {
         // 7 keys over 7 days = target interval of 24 hours (86400 secs)
-        let target_interval = SEVEN_DAYS_SECS / 7;
+        let target_interval = REPLICATION_DEADLINE_SECS / 7;
         let result = NetworkWideReplication::calculate_keys_to_send(
             7,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             Some(Duration::from_secs(target_interval * 3)), // 3 intervals
             EXECUTE_INTERVAL_SECS,
         );
@@ -342,10 +349,10 @@ mod tests {
     #[test]
     fn keys_to_send_should_cap_at_pending_count_when_many_intervals_passed() {
         // Only 5 keys pending but 100 intervals passed
-        let target_interval = SEVEN_DAYS_SECS / 5;
+        let target_interval = REPLICATION_DEADLINE_SECS / 5;
         let result = NetworkWideReplication::calculate_keys_to_send(
             5,
-            SEVEN_DAYS_SECS,
+            REPLICATION_DEADLINE_SECS,
             Some(Duration::from_secs(target_interval * 100)),
             EXECUTE_INTERVAL_SECS,
         );

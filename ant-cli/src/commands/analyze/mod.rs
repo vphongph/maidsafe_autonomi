@@ -637,14 +637,14 @@ async fn get_record_with_best_effort(
         .map(autonomi::networking::Quorum::N)
         .expect("KAD_HOLDERS_QUERY_RANGE is non-zero");
 
-    match client
+    let (record_opt, holders) = match client
         .get_record_and_holders(addr.clone(), quorum)
         .await
     {
-        Ok((record, holders)) => Ok((record, holders)),
+        Ok((record, holders)) => (record, holders),
         Err(NetworkError::GetRecordTimeout(holders)) => {
             println_if!(verbose, "Request timed out, showing partial results");
-            Ok((None, holders))
+            (None, holders)
         }
         Err(NetworkError::GetRecordQuorumFailed {
             got_holders,
@@ -656,11 +656,62 @@ async fn get_record_with_best_effort(
                 "Quorum not met (got {got_holders}/{expected_holders}), showing partial results"
             );
             let record = holders.values().next().cloned();
-            Ok((record, holders.keys().cloned().collect()))
+            (record, holders.keys().cloned().collect())
         }
         Err(e) => {
-            Err(color_eyre::eyre::eyre!("Failed to get record holders: {e}"))
+            println_if!(verbose, "Failed to get record holders: {e}, trying direct peer queries...");
+            (None, vec![])
         }
+    };
+
+    // If we got a record, return it
+    if record_opt.is_some() {
+        return Ok((record_opt, holders));
+    }
+
+    // Fallback: Try to fetch from closest 20 nodes directly
+    println_if!(verbose, "No record found via DHT, querying closest 20 nodes directly...");
+    
+    let closest_peers = match client.get_closest_to_address(addr.clone(), Some(KAD_HOLDERS_QUERY_RANGE as usize)).await {
+        Ok(peers) => peers,
+        Err(e) => {
+            println_if!(verbose, "Failed to get closest peers of {addr:?}: {e}");
+            return Ok((None, holders));
+        }
+    };
+
+    println_if!(verbose, "Querying {} closest peers of {addr:?} in parallel...", closest_peers.len());
+
+    // Query all closest peers in parallel
+    let query_tasks = closest_peers.iter().map(|peer| {
+        let client = client.clone();
+        let addr = addr.clone();
+        let peer = peer.clone();
+        async move {
+            match client.get_record_from_peer(addr, peer.clone()).await {
+                Ok(Some(record)) => Some((record, peer.peer_id)),
+                Ok(None) => None,
+                Err(_) => None,
+            }
+        }
+    });
+
+    let results: Vec<Option<(Record, PeerId)>> = stream::iter(query_tasks)
+        .buffered(*CHUNK_DOWNLOAD_BATCH_SIZE)
+        .collect()
+        .await;
+
+    // Collect all successful results (peers that returned a record)
+    let successful_results: Vec<(Record, PeerId)> = results.into_iter().flatten().collect();
+
+    if let Some((record, peer_id)) = successful_results.first() {
+        println_if!(verbose, "✅ Using closest_20, Retrieved record {addr:?} from peer {peer_id}");
+        // Return peer IDs of all peers that successfully returned a record
+        let holder_peer_ids: Vec<PeerId> = successful_results.iter().map(|(_, pid)| *pid).collect();
+        Ok((Some(record.clone()), holder_peer_ids))
+    } else {
+        println_if!(verbose, "❌ All {} closest peers of {addr:?} failed to return the record", closest_peers.len());
+        Ok((None, vec![]))
     }
 }
 
@@ -724,7 +775,7 @@ pub async fn get_closest_nodes_status(
 
     // Get closest group to the target addr
     let peers = client
-        .get_closest_to_address(target_addr.clone(), Some(20))
+        .get_closest_to_address(target_addr.clone(), Some(KAD_HOLDERS_QUERY_RANGE as usize))
         .await
         .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
@@ -1336,17 +1387,46 @@ impl ChunkHealthLists {
         }
     }
 
+    /// Convert address format between ChunkAddress and RecordKey
+    /// ChunkAddress: NetworkAddress::ChunkAddress(hex) - (...)
+    /// RecordKey: NetworkAddress::RecordKey("hex") - (...)
+    fn convert_address_format(addr: &str) -> String {
+        if addr.contains("ChunkAddress(") {
+            // ChunkAddress(hex) -> RecordKey("hex")
+            // Add quotes around the hex string
+            addr.replace("ChunkAddress(", "RecordKey(\"")
+                .replacen(")", "\")", 1) // Only replace first occurrence
+        } else if addr.contains("RecordKey(\"") {
+            // RecordKey("hex") -> ChunkAddress(hex)
+            // Remove quotes around the hex string
+            addr.replace("RecordKey(\"", "ChunkAddress(")
+                .replacen("\")", ")", 1) // Only replace first occurrence
+        } else {
+            // If format doesn't match, return as-is
+            addr.to_string()
+        }
+    }
+
     fn add_to_white_list(&self, addr: String) {
         let mut white = self.white_list.lock().expect("Failed to access global white_list");
         let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
+        
+        // Remove from bad list - try both original and alternate format
         bad.remove(&addr);
+        // Try alternate format: ChunkAddress <-> RecordKey
+        let alternate = Self::convert_address_format(&addr);
+        bad.remove(&alternate);
+        
         white.insert(addr);
     }
 
     fn add_to_bad_list(&self, addr: String) {
         let white = self.white_list.lock().expect("Failed to access global white_list");
         let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
-        if !white.contains(&addr) {
+        
+        // Check white list - try both original and alternate format
+        let alternate = Self::convert_address_format(&addr);
+        if !white.contains(&addr) && !white.contains(&alternate) {
             bad.insert(addr);
         }
     }
@@ -1354,7 +1434,12 @@ impl ChunkHealthLists {
     fn is_in_any_list(&self, addr: &str) -> bool {
         let white = self.white_list.lock().expect("Failed to access global white_list");
         let bad = self.bad_list.lock().expect("Failed to access global bad_list");
-        white.contains(addr) || bad.contains(addr)
+        
+        // Check both original and alternate format
+        let alternate = Self::convert_address_format(addr);
+
+        white.contains(addr) || bad.contains(addr) 
+            || white.contains(&alternate) || bad.contains(&alternate)
     }
 
     fn write_to_csv(&self, white_path: &str, bad_path: &str) -> Result<()> {
@@ -1384,24 +1469,22 @@ impl ChunkHealthLists {
 
         if let Ok(file) = File::open(white_path) {
             let reader = BufReader::new(file);
-            let mut white = self.white_list.lock().expect("Failed to access global white_list");
             for addr in reader.lines().skip(1).flatten() {
                 // Skip header
                 let addr = addr.trim();
                 if !addr.is_empty() {
-                    white.insert(addr.to_string());
+                    self.add_to_white_list(addr.to_string());
                 }
             }
         }
 
         if let Ok(file) = File::open(bad_path) {
             let reader = BufReader::new(file);
-            let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
             for addr in reader.lines().skip(1).flatten() {
                 // Skip header
                 let addr = addr.trim();
                 if !addr.is_empty() {
-                    bad.insert(addr.to_string());
+                    self.add_to_bad_list(addr.to_string());
                 }
             }
         }
@@ -1635,7 +1718,7 @@ async fn perform_network_health_scan(
 
             for (batch_idx, batch) in bad_addresses.chunks(BATCH_SIZE).enumerate() {
                 let batch_num = batch_idx + 1;
-                let total_batches = (bad_addresses.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+                let total_batches = bad_addresses.len().div_ceil(BATCH_SIZE);
                 
                 println!("\n{}", "=".repeat(80));
                 println!("Processing batch {}/{} ({} addresses)...", batch_num, total_batches, batch.len());
@@ -1686,7 +1769,7 @@ async fn perform_network_health_scan(
                             match get_record_with_best_effort(client, health_result.network_address, verbose).await {
                                 Ok((Some(record), _holders)) => {
                                     if verbose {
-                                        println!("   ✅ Retrieved record {} via kad query", health_result.address);
+                                        println!("   ✅ Retrieved record {} via best effort", health_result.address);
                                     }
                                     chunks_to_repair.push(RecordToRepair {
                                         address: health_result.address.clone(),
@@ -1721,7 +1804,7 @@ async fn perform_network_health_scan(
                     let reupload_results = reupload_chunks_in_parallel(
                         client,
                         chunks_to_repair,
-                        payment_option.clone().unwrap(),
+                        payment_option.clone().expect("Payment option shall be set for repair!"),
                         MAX_PARALLEL_UPLOADS,
                     ).await;
 
@@ -1903,7 +1986,7 @@ async fn perform_network_health_scan(
                     match get_record_with_best_effort(client, health_result.network_address, verbose).await {
                         Ok((Some(record), _holders)) => {
                             if verbose {
-                                println!("   ✅ Retrieved record {} with {} bytes via kad query", health_result.address, record.value.len());
+                                println!("   ✅ Retrieved record {} with {} bytes via best effort", health_result.address, record.value.len());
                             }
                             chunks_to_repair.push(RecordToRepair {
                                 address: health_result.address.clone(),
@@ -2167,7 +2250,7 @@ async fn handle_repair(
                 match get_record_with_best_effort(client, target_address.clone(), verbose).await {
                     Ok((Some(record), _holders)) => {
                         if verbose {
-                            println!("   ✅ Retrieved record {addr_str:?} with {} bytes", record.value.len());
+                            println!("   ✅ Retrieved record {addr_str:?} with {} bytes via best effort", record.value.len());
                         }
                         records_to_repair.push(RecordToRepair {
                             address: addr_str.clone(),

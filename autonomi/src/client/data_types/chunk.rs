@@ -138,16 +138,77 @@ impl Client {
         }
     }
 
+    /// Helper function to fetch a record from the closest peers directly.
+    /// This is useful as a fallback when normal DHT queries fail.
+    /// 
+    /// Returns the first successfully retrieved record, or None if all peers fail.
+    async fn fetch_record_from_closest_peers(
+        &self,
+        key: NetworkAddress,
+        num_peers: usize,
+    ) -> Option<Record> {
+        debug!("Querying closest {num_peers} nodes directly for {key:?}");
+        
+        let closest_peers = match self.network.get_closest_peers(key.clone(), Some(num_peers)).await {
+            Ok(peers) => peers,
+            Err(e) => {
+                error!("Failed to get closest peers for {key:?}: {e}");
+                return None;
+            }
+        };
+
+        debug!("Querying {} closest peers in parallel for {key:?}", closest_peers.len());
+        
+        // Create query tasks for all closest peers
+        let mut query_tasks = vec![];
+        for peer in closest_peers.iter() {
+            let network = self.network.clone();
+            let key = key.clone();
+            let peer = peer.clone();
+            query_tasks.push(async move {
+                network.get_record_from_peer(key, peer).await
+            });
+        }
+
+        // Process tasks with max concurrency of num_peers
+        let results = process_tasks_with_max_concurrency(query_tasks, num_peers).await;
+
+        // Find the first successful record
+        for result in results.into_iter() {
+            match result {
+                Ok(Some(record)) => {
+                    debug!("✅ Retrieved record {key:?} from one of the closest {num_peers} peers");
+                    return Some(record);
+                }
+                _ => continue,
+            }
+        }
+
+        error!("❌ All {} closest peers failed to return the record {key:?}", closest_peers.len());
+        None
+    }
+
     async fn fetch_chunk_from_network(&self, addr: &ChunkAddress) -> Result<Chunk, GetError> {
         let key = NetworkAddress::from(*addr);
         debug!("Fetching chunk from network at: {key:?}");
 
-        let record = self
+        // Try normal fetch first
+        let record_result = self
             .network
-            .get_record_with_retries(key, &self.config.chunks)
+            .get_record_with_retries(key.clone(), &self.config.chunks)
             .await
-            .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?
-            .ok_or(GetError::RecordNotFound)?;
+            .inspect_err(|err| error!("Error fetching chunk: {err:?}"));
+
+        let record = match record_result {
+            Ok(Some(record)) => record,
+            Ok(None) | Err(_) => {
+                // Fallback: Try fetching from closest 20 nodes directly
+                debug!("Normal fetch failed, trying fallback for {key:?}");
+                self.fetch_record_from_closest_peers(key, 20)
+                    .await
+                    .ok_or(GetError::RecordNotFound)?
+            }
+        };
 
         let header = RecordHeader::from_record(&record)?;
 

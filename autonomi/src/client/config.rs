@@ -8,7 +8,7 @@
 
 use crate::networking::{Quorum, RetryStrategy, Strategy};
 pub use ant_bootstrap::{
-    Bootstrap, BootstrapConfig, InitialPeersConfig, error::Error as BootstrapError,
+    error::Error as BootstrapError, Bootstrap, BootstrapConfig, InitialPeersConfig,
 };
 use ant_evm::EvmNetwork;
 use evmlib::contract::payment_vault::MAX_TRANSFERS_PER_TRANSACTION;
@@ -160,7 +160,7 @@ impl Default for ClientOperatingStrategy {
                 put_retry: RetryStrategy::Balanced,
                 verification_quorum: Quorum::N(two),
                 get_quorum: Quorum::One, // chunks are content addressed so one is enough as there is no fork possible
-                get_retry: RetryStrategy::Quick,
+                get_retry: RetryStrategy::None, // leave to the fall-back approach of fetching from closest_20
             },
             graph_entry: Strategy {
                 put_quorum: Quorum::Majority,

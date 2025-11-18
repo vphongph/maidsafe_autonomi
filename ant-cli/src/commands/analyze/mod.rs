@@ -12,7 +12,6 @@ mod json;
 pub use error::{AnalysisErrorDisplay, NetworkErrorDisplay};
 
 use crate::actions::NetworkContext;
-use crate::commands::Quorum;
 use crate::wallet::load_wallet;
 use autonomi::PublicKey;
 use autonomi::chunk::ChunkAddress;
@@ -369,6 +368,9 @@ pub async fn analyze(
         map
     };
 
+    // Only being verbose when handling single address
+    let single_addr_verbose = results.len() == 1;
+
     // Pre-compute closest nodes data if needed
     let closest_nodes_data = if closest_nodes {
         println!(
@@ -381,7 +383,7 @@ pub async fn analyze(
             let client = client.clone();
             let addr = addr.clone();
             async move {
-                let result = get_closest_nodes_status(&client, &addr, false).await;
+                let result = get_closest_nodes_status(&client, &addr, single_addr_verbose).await;
                 (addr, result)
             }
         });
@@ -419,7 +421,7 @@ pub async fn analyze(
             let client = client.clone();
             let addr = addr.clone();
             async move {
-                let result = get_holders_status(&client, &addr, false).await;
+                let result = get_holders_status(&client, &addr, single_addr_verbose).await;
                 (addr, result)
             }
         });
@@ -622,24 +624,21 @@ fn try_other_types(addr: &str, verbose: bool) {
     println!("⚠️ Unrecognized input");
 }
 
-/// Get holders (along query path) status for an address
-///
-/// Returns a vector of HolderStatus for the given address
-async fn get_holders_status(
+/// Get record from network with best effort
+async fn get_record_with_best_effort(
     client: &autonomi::Client,
-    addr: &str,
+    addr: NetworkAddress,
     verbose: bool,
-) -> Result<Vec<HolderStatus>> {
-    println_if!(verbose, "Querying holders of record at address...");
+) -> Result<(Option<Record>, Vec<PeerId>)> {
+    println_if!(verbose, "Getting record with best effort at address {addr} ...");
 
-    let network_addr = parse_network_address(addr)?;
-
+    // `Quorum::N(20)` will be better than `Quorum::One` to drain the network to look for the record
     let quorum = std::num::NonZeroUsize::new(KAD_HOLDERS_QUERY_RANGE as usize)
         .map(autonomi::networking::Quorum::N)
         .expect("KAD_HOLDERS_QUERY_RANGE is non-zero");
 
-    let (record, holders) = match client
-        .get_record_and_holders(network_addr.clone(), quorum)
+    let (record_opt, holders) = match client
+        .get_record_and_holders(addr.clone(), quorum)
         .await
     {
         Ok((record, holders)) => (record, holders),
@@ -656,12 +655,76 @@ async fn get_holders_status(
                 verbose,
                 "Quorum not met (got {got_holders}/{expected_holders}), showing partial results"
             );
-            (None, holders)
+            let record = holders.values().next().cloned();
+            (record, holders.keys().cloned().collect())
         }
         Err(e) => {
-            return Err(color_eyre::eyre::eyre!("Failed to get record holders: {e}"));
+            println_if!(verbose, "Failed to get record holders: {e}, trying direct peer queries...");
+            (None, vec![])
         }
     };
+
+    // If we got a record, return it
+    if record_opt.is_some() {
+        return Ok((record_opt, holders));
+    }
+
+    // Fallback: Try to fetch from closest 20 nodes directly
+    println_if!(verbose, "No record found via DHT, querying closest 20 nodes directly...");
+    
+    let closest_peers = match client.get_closest_to_address(addr.clone(), Some(KAD_HOLDERS_QUERY_RANGE as usize)).await {
+        Ok(peers) => peers,
+        Err(e) => {
+            println_if!(verbose, "Failed to get closest peers of {addr:?}: {e}");
+            return Ok((None, holders));
+        }
+    };
+
+    println_if!(verbose, "Querying {} closest peers of {addr:?} in parallel...", closest_peers.len());
+
+    // Query all closest peers in parallel
+    let query_tasks = closest_peers.iter().map(|peer| {
+        let client = client.clone();
+        let addr = addr.clone();
+        let peer = peer.clone();
+        async move {
+            match client.get_record_from_peer(addr, peer.clone()).await {
+                Ok(Some(record)) => Some((record, peer.peer_id)),
+                Ok(None) => None,
+                Err(_) => None,
+            }
+        }
+    });
+
+    let results: Vec<Option<(Record, PeerId)>> = stream::iter(query_tasks)
+        .buffered(*CHUNK_DOWNLOAD_BATCH_SIZE)
+        .collect()
+        .await;
+
+    // Collect all successful results (peers that returned a record)
+    let successful_results: Vec<(Record, PeerId)> = results.into_iter().flatten().collect();
+
+    if let Some((record, peer_id)) = successful_results.first() {
+        println_if!(verbose, "✅ Using closest_20, Retrieved record {addr:?} from peer {peer_id}");
+        // Return peer IDs of all peers that successfully returned a record
+        let holder_peer_ids: Vec<PeerId> = successful_results.iter().map(|(_, pid)| *pid).collect();
+        Ok((Some(record.clone()), holder_peer_ids))
+    } else {
+        println_if!(verbose, "❌ All {} closest peers of {addr:?} failed to return the record", closest_peers.len());
+        Ok((None, vec![]))
+    }
+}
+
+/// Get holders (along query path) status for an address
+///
+/// Returns a vector of HolderStatus for the given address
+async fn get_holders_status(
+    client: &autonomi::Client,
+    addr: &str,
+    verbose: bool,
+) -> Result<Vec<HolderStatus>> {
+    let network_addr = parse_network_address(addr)?;
+    let (record, holders) = get_record_with_best_effort(client, network_addr.clone(), verbose).await?;
 
     let mut holders_status = vec![];
 
@@ -712,7 +775,7 @@ pub async fn get_closest_nodes_status(
 
     // Get closest group to the target addr
     let peers = client
-        .get_closest_to_address(target_addr.clone(), Some(20))
+        .get_closest_to_address(target_addr.clone(), Some(KAD_HOLDERS_QUERY_RANGE as usize))
         .await
         .map_err(|e| color_eyre::eyre::eyre!("Failed to get closest peers: {e}"))?;
 
@@ -1324,17 +1387,46 @@ impl ChunkHealthLists {
         }
     }
 
+    /// Convert address format between ChunkAddress and RecordKey
+    /// ChunkAddress: NetworkAddress::ChunkAddress(hex) - (...)
+    /// RecordKey: NetworkAddress::RecordKey("hex") - (...)
+    fn convert_address_format(addr: &str) -> String {
+        if addr.contains("ChunkAddress(") {
+            // ChunkAddress(hex) -> RecordKey("hex")
+            // Add quotes around the hex string
+            addr.replace("ChunkAddress(", "RecordKey(\"")
+                .replacen(")", "\")", 1) // Only replace first occurrence
+        } else if addr.contains("RecordKey(\"") {
+            // RecordKey("hex") -> ChunkAddress(hex)
+            // Remove quotes around the hex string
+            addr.replace("RecordKey(\"", "ChunkAddress(")
+                .replacen("\")", ")", 1) // Only replace first occurrence
+        } else {
+            // If format doesn't match, return as-is
+            addr.to_string()
+        }
+    }
+
     fn add_to_white_list(&self, addr: String) {
         let mut white = self.white_list.lock().expect("Failed to access global white_list");
         let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
+        
+        // Remove from bad list - try both original and alternate format
         bad.remove(&addr);
+        // Try alternate format: ChunkAddress <-> RecordKey
+        let alternate = Self::convert_address_format(&addr);
+        bad.remove(&alternate);
+        
         white.insert(addr);
     }
 
     fn add_to_bad_list(&self, addr: String) {
         let white = self.white_list.lock().expect("Failed to access global white_list");
         let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
-        if !white.contains(&addr) {
+        
+        // Check white list - try both original and alternate format
+        let alternate = Self::convert_address_format(&addr);
+        if !white.contains(&addr) && !white.contains(&alternate) {
             bad.insert(addr);
         }
     }
@@ -1342,7 +1434,12 @@ impl ChunkHealthLists {
     fn is_in_any_list(&self, addr: &str) -> bool {
         let white = self.white_list.lock().expect("Failed to access global white_list");
         let bad = self.bad_list.lock().expect("Failed to access global bad_list");
-        white.contains(addr) || bad.contains(addr)
+        
+        // Check both original and alternate format
+        let alternate = Self::convert_address_format(addr);
+
+        white.contains(addr) || bad.contains(addr) 
+            || white.contains(&alternate) || bad.contains(&alternate)
     }
 
     fn write_to_csv(&self, white_path: &str, bad_path: &str) -> Result<()> {
@@ -1372,24 +1469,22 @@ impl ChunkHealthLists {
 
         if let Ok(file) = File::open(white_path) {
             let reader = BufReader::new(file);
-            let mut white = self.white_list.lock().expect("Failed to access global white_list");
             for addr in reader.lines().skip(1).flatten() {
                 // Skip header
                 let addr = addr.trim();
                 if !addr.is_empty() {
-                    white.insert(addr.to_string());
+                    self.add_to_white_list(addr.to_string());
                 }
             }
         }
 
         if let Ok(file) = File::open(bad_path) {
             let reader = BufReader::new(file);
-            let mut bad = self.bad_list.lock().expect("Failed to access global bad_list");
             for addr in reader.lines().skip(1).flatten() {
                 // Skip header
                 let addr = addr.trim();
                 if !addr.is_empty() {
-                    bad.insert(addr.to_string());
+                    self.add_to_bad_list(addr.to_string());
                 }
             }
         }
@@ -1603,118 +1698,150 @@ async fn perform_network_health_scan(
             .collect();
 
         if !bad_addresses.is_empty() {
-            println!("\nChecking {} bad-listed chunks in parallel...", bad_addresses.len());
+            println!("\nChecking {} bad-listed chunks in batches...", bad_addresses.len());
 
-            // Execute health checks in parallel using helper
+            // Process in batches to avoid memory spikes with large address lists
+            const BATCH_SIZE: usize = 60;
             const MAX_PARALLEL_INITIAL_CHECKS: usize = 20;
-            let health_check_results = execute_health_checks_in_parallel(
-                client,
-                bad_addresses,
-                MAX_PARALLEL_INITIAL_CHECKS,
-            ).await;
+            
+            let mut total_moved_to_white = 0;
+            let mut total_still_bad = 0;
+            let mut all_reupload_results: Vec<ReuploadResult> = Vec::new();
+            
+            // Prepare wallet and payment option once if repair is enabled
+            let payment_option = if repair {
+                let wallet = load_wallet(client.evm_network())?;
+                Some(PaymentOption::from(&wallet))
+            } else {
+                None
+            };
 
-            println!("\nProcessing {} health check results...", health_check_results.len());
-
-            // Process results
-            let mut chunks_to_repair: Vec<RecordToRepair> = Vec::new();
-            let mut moved_to_white = 0;
-            let mut still_bad = 0;
-
-            for health_result in health_check_results {
-                // Use helper to process health check result
-                let (holder_count, record_data) = process_health_check_result(&health_result, verbose);
-
-                // Evaluate health
-                if holder_count >= 3 {
-                    // Good health, move to white list
-                    health_lists.add_to_white_list(health_result.address.clone());
-                    moved_to_white += 1;
-                    println!("  ✅ {} - Healthy ({holder_count}/{} holders), moved to white list", 
-                        health_result.address, health_result.peer_results.len());
-                } else if let Some(record) = record_data {
-                    // Unhealthy, but we have data
-                    still_bad += 1;
-                    if repair {
-                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
-                            health_result.address, health_result.peer_results.len());
-                        chunks_to_repair.push(RecordToRepair {
-                            address: health_result.address,
-                            holders_count: holder_count,
-                            record_data: record,
-                        });
-                    } else {
-                        println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), repair not enabled", 
-                            health_result.address, health_result.peer_results.len());
-                    }
-                } else {
-                    // Try kad query as fallback
-                    still_bad += 1;
-                    if repair {
-                        match client.get_record_and_holders(health_result.network_address, Quorum::One).await {
-                            Ok((Some(record), _holders)) => {
-                                if verbose {
-                                    println!("   ✅ Retrieved record {} via kad query", health_result.address);
-                                }
-                                chunks_to_repair.push(RecordToRepair {
-                                    address: health_result.address.clone(),
-                                    holders_count: 0,
-                                    record_data: record,
-                                });
-                            }
-                            Ok((None, _holders)) => {
-                                println!("  ❌ {} - No record data found", health_result.address);
-                            }
-                            Err(e) => {
-                                println!("  ❌ {} - Error: {e}", health_result.address);
-                            }
-                        }
-                    } else {
-                        println!("  ❌ {} - No record data found from any of {} peers", 
-                            health_result.address, health_result.peer_results.len());
-                    }
-                }
-            }
-
-            println!("\nInitial check complete: {moved_to_white} moved to white list, {still_bad} still unhealthy");
-
-            // Repair unhealthy chunks if needed
-            if repair && !chunks_to_repair.is_empty() {
+            for (batch_idx, batch) in bad_addresses.chunks(BATCH_SIZE).enumerate() {
+                let batch_num = batch_idx + 1;
+                let total_batches = bad_addresses.len().div_ceil(BATCH_SIZE);
+                
                 println!("\n{}", "=".repeat(80));
-                println!("INITIAL REPAIR: Re-uploading {} chunks...", chunks_to_repair.len());
+                println!("Processing batch {}/{} ({} addresses)...", batch_num, total_batches, batch.len());
                 println!("{}", "=".repeat(80));
 
-                let wallet = load_wallet(client.evm_network())?;
-                let payment_option = PaymentOption::from(&wallet);
-
-                const MAX_PARALLEL_UPLOADS: usize = 10;
-                let reupload_results = reupload_chunks_in_parallel(
+                // Execute health checks for this batch
+                let health_check_results = execute_health_checks_in_parallel(
                     client,
-                    chunks_to_repair,
-                    payment_option,
-                    MAX_PARALLEL_UPLOADS,
+                    batch.to_vec(),
+                    MAX_PARALLEL_INITIAL_CHECKS,
                 ).await;
 
-                // Create repair report for initial check
+                // Process results for this batch
+                let mut chunks_to_repair: Vec<RecordToRepair> = Vec::new();
+                let mut batch_moved_to_white = 0;
+                let mut batch_still_bad = 0;
+
+                for health_result in health_check_results {
+                    // Use helper to process health check result
+                    let (holder_count, record_data) = process_health_check_result(&health_result, verbose);
+
+                    // Evaluate health
+                    if holder_count >= 3 {
+                        // Good health, move to white list
+                        health_lists.add_to_white_list(health_result.address.clone());
+                        batch_moved_to_white += 1;
+                        println!("  ✅ {} - Healthy ({holder_count}/{} holders), moved to white list", 
+                            health_result.address, health_result.peer_results.len());
+                    } else if let Some(record) = record_data {
+                        // Unhealthy, but we have data
+                        batch_still_bad += 1;
+                        if repair {
+                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), queuing for repair", 
+                                health_result.address, health_result.peer_results.len());
+                            chunks_to_repair.push(RecordToRepair {
+                                address: health_result.address,
+                                holders_count: holder_count,
+                                record_data: record,
+                            });
+                        } else {
+                            println!("  ⚠️  {} - Unhealthy ({holder_count}/{} holders), repair not enabled", 
+                                health_result.address, health_result.peer_results.len());
+                        }
+                    } else {
+                        // Try kad query as fallback
+                        batch_still_bad += 1;
+                        if repair {
+                            match get_record_with_best_effort(client, health_result.network_address, verbose).await {
+                                Ok((Some(record), _holders)) => {
+                                    if verbose {
+                                        println!("   ✅ Retrieved record {} via best effort", health_result.address);
+                                    }
+                                    chunks_to_repair.push(RecordToRepair {
+                                        address: health_result.address.clone(),
+                                        holders_count: 0,
+                                        record_data: record,
+                                    });
+                                }
+                                Ok((None, _holders)) => {
+                                    println!("  ❌ {} - No record data found", health_result.address);
+                                }
+                                Err(e) => {
+                                    println!("  ❌ {} - Error: {e}", health_result.address);
+                                }
+                            }
+                        } else {
+                            println!("  ❌ {} - No record data found from any of {} peers", 
+                                health_result.address, health_result.peer_results.len());
+                        }
+                    }
+                }
+
+                total_moved_to_white += batch_moved_to_white;
+                total_still_bad += batch_still_bad;
+
+                println!("\nBatch {batch_num} complete: {batch_moved_to_white} moved to white list, {batch_still_bad} still unhealthy");
+
+                // Repair unhealthy chunks in this batch immediately
+                if repair && !chunks_to_repair.is_empty() {
+                    println!("\nRepairing {} chunks from batch {batch_num}...", chunks_to_repair.len());
+
+                    const MAX_PARALLEL_UPLOADS: usize = 10;
+                    let reupload_results = reupload_chunks_in_parallel(
+                        client,
+                        chunks_to_repair,
+                        payment_option.clone().expect("Payment option shall be set for repair!"),
+                        MAX_PARALLEL_UPLOADS,
+                    ).await;
+
+                    // Print results for this batch
+                    for result in &reupload_results {
+                        match &result.result {
+                            Ok((cost, _addr)) => println!("  ✅ {} (cost: {cost})", result.address),
+                            Err(e) => println!("  ❌ {} - Failed: {e}", result.address),
+                        }
+                    }
+
+                    // Accumulate results for final report
+                    all_reupload_results.extend(reupload_results);
+                }
+
+                // Write updated lists to disk after each batch
+                if verbose {
+                    println!("Updating health lists on disk after batch {batch_num}...");
+                }
+                health_lists.write_to_csv(white_csv, bad_csv)?;
+            }
+
+            println!("\n{}", "=".repeat(80));
+            println!("INITIAL CHECK COMPLETE");
+            println!("{}", "=".repeat(80));
+            println!("Total: {total_moved_to_white} moved to white list, {total_still_bad} still unhealthy");
+
+            // Write consolidated repair report if repairs were performed
+            if repair && !all_reupload_results.is_empty() {
                 let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
                 let repair_csv = format!("initial_repair_{timestamp}.csv");
                 let mut repair_file = std::fs::File::create(&repair_csv)?;
                 use std::io::Write;
                 writeln!(repair_file, "address,original_holders_count,upload_status,cost_paid,error")?;
-
-                // Print results and write to CSV
-                for result in &reupload_results {
-                    match &result.result {
-                        Ok((cost, _addr)) => println!("  ✅ {} (cost: {cost})", result.address),
-                        Err(e) => println!("  ❌ {} - Failed: {e}", result.address),
-                    }
-                }
-                write_repair_results_to_csv(&mut repair_file, &reupload_results, None)?;
+                write_repair_results_to_csv(&mut repair_file, &all_reupload_results, None)?;
                 println!("\nInitial repair report saved to: {repair_csv}");
             }
-
-            // Write updated lists to disk
-            println!("\nUpdating health lists on disk...");
-            health_lists.write_to_csv(white_csv, bad_csv)?;
         }
     }
 
@@ -1856,10 +1983,10 @@ async fn perform_network_health_scan(
                     }
                 } else {
                     // Try to get the record data via kad query
-                    match client.get_record_and_holders(health_result.network_address, Quorum::One).await {
+                    match get_record_with_best_effort(client, health_result.network_address, verbose).await {
                         Ok((Some(record), _holders)) => {
                             if verbose {
-                                println!("   ✅ Retrieved record {} with {} bytes via kad query", health_result.address, record.value.len());
+                                println!("   ✅ Retrieved record {} with {} bytes via best effort", health_result.address, record.value.len());
                             }
                             chunks_to_repair.push(RecordToRepair {
                                 address: health_result.address.clone(),
@@ -2119,12 +2246,11 @@ async fn handle_repair(
             // Get target_address from the first entry (all variants have this field)
             if let Some(first_status) = statuses.first() {
                 let target_address = first_status.target_address();
-                
                 // Try to get the record data via kad query
-                match client.get_record_and_holders(target_address.clone(), Quorum::One).await {
+                match get_record_with_best_effort(client, target_address.clone(), verbose).await {
                     Ok((Some(record), _holders)) => {
                         if verbose {
-                            println!("   ✅ Retrieved record {addr_str:?} with {} bytes", record.value.len());
+                            println!("   ✅ Retrieved record {addr_str:?} with {} bytes via best effort", record.value.len());
                         }
                         records_to_repair.push(RecordToRepair {
                             address: addr_str.clone(),

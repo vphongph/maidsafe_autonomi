@@ -16,6 +16,7 @@ extern crate tracing;
 mod log;
 mod rpc_service;
 mod subcommands;
+mod upgrade;
 
 use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
@@ -26,7 +27,7 @@ use ant_evm::{EvmNetwork, RewardsAddress, get_evm_network};
 use ant_logging::metrics::init_metrics;
 use ant_logging::{Level, LogFormat, LogOutputDest, ReloadHandle};
 use ant_node::utils::{get_antnode_root_dir, get_root_dir_and_keypair};
-use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver};
+use ant_node::{Marker, NodeBuilder, NodeEvent, NodeEventsReceiver, RunningNode};
 use ant_protocol::{
     node_rpc::{NodeCtrl, StopResult},
     version,
@@ -35,8 +36,11 @@ use clap::{Parser, command};
 use color_eyre::{Result, eyre::eyre};
 use const_hex::traits::FromHex;
 use libp2p::PeerId;
+use rand::Rng;
 use std::{
+    collections::hash_map::DefaultHasher,
     env,
+    hash::{Hash, Hasher},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     process::{Command, Stdio},
@@ -48,6 +52,10 @@ use tokio::{
     time::sleep,
 };
 use tracing_appender::non_blocking::WorkerGuard;
+
+/// Default network size estimate used when the actual size cannot be determined.
+/// This represents a baseline network of 100,000 nodes.
+const DEFAULT_NETWORK_SIZE: usize = 100_000;
 
 #[derive(Debug, Clone)]
 pub enum LogOutputDestArg {
@@ -224,14 +232,46 @@ struct Opt {
     /// Set this to true if you want the node to write the cache files in the older formats.
     #[clap(long, default_value_t = false)]
     write_older_cache_files: bool,
+}
 
-    /// Enable automatic self-restart after specified duration (in seconds).
-    ///
-    /// When set, the node will automatically restart itself after the specified
-    /// number of seconds. This is useful for testing restart behavior.
-    /// For example, `--auto-restart-delay 120` will restart the node after 2 minutes.
-    #[clap(long, verbatim_doc_comment)]
-    auto_restart_delay: Option<u64>,
+/// Calculates a deterministic restart delay based on peer ID and network size.
+///
+/// This algorithm ensures that node upgrades are staggered across the network to prevent
+/// many nodes from restarting simultaneously.
+///
+/// The delay is calculated as follows:
+/// 1. Hash the node's peer ID to get a deterministic value unique to this node
+/// 2. Calculate a time range in hours based on network size: min(72, network_size/100_000 + 1)
+///    - Smaller networks (< 100k nodes) get 1-2 hour windows
+///    - Larger networks get progressively longer windows, capped at 72 hours (3 days)
+/// 3. Use the hash modulo the time range to assign this node a specific delay
+///
+/// This approach provides:
+/// - Deterministic delays: Same peer ID always gets the same delay for a given network size
+/// - Even distribution: Hash modulo spreads nodes uniformly across the time window
+/// - Network-aware scaling: Larger networks get longer upgrade windows
+///
+/// # Arguments
+/// * `running_node` - The node to calculate the restart delay for
+///
+/// # Returns
+/// A `Duration` representing when this node should restart for an upgrade
+async fn calculate_restart_delay(running_node: &RunningNode) -> Duration {
+    let peer_id = running_node.peer_id();
+    let est_network_size = running_node
+        .get_estimated_network_size()
+        .await
+        .unwrap_or(DEFAULT_NETWORK_SIZE);
+
+    let mut hasher = DefaultHasher::new();
+    peer_id.hash(&mut hasher);
+    let hash_value = hasher.finish();
+
+    let time_range_hours = std::cmp::min(72, (est_network_size / DEFAULT_NETWORK_SIZE) + 1);
+    let time_range_seconds = time_range_hours * 3600;
+    let upgrade_time_seconds = (hash_value as usize) % time_range_seconds;
+
+    Duration::from_secs(upgrade_time_seconds as u64)
 }
 
 fn main() -> Result<()> {
@@ -262,7 +302,6 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // evm config
     let rewards_address = RewardsAddress::from_hex(opt.rewards_address.as_ref().expect(
         "the following required arguments were not provided: --rewards-address <REWARDS_ADDRESS>",
     ))?;
@@ -349,14 +388,8 @@ fn main() -> Result<()> {
         };
         #[cfg(feature = "open-metrics")]
         node_builder.metrics_server_port(metrics_server_port);
-        let restart_options = run_node(
-            node_builder,
-            opt.rpc,
-            &log_output_dest,
-            log_reload_handle,
-            opt.auto_restart_delay,
-        )
-        .await?;
+        let restart_options =
+            run_node(node_builder, opt.rpc, &log_output_dest, log_reload_handle).await?;
 
         Ok::<_, eyre::Report>(restart_options)
     })?;
@@ -385,7 +418,6 @@ async fn run_node(
     rpc: Option<SocketAddr>,
     log_output_dest: &str,
     log_reload_handle: ReloadHandle,
-    auto_restart_delay: Option<u64>,
 ) -> Result<Option<(bool, PathBuf, u16)>> {
     let started_instant = std::time::Instant::now();
 
@@ -448,24 +480,39 @@ You can check your reward balance by running:
         );
     }
 
-    // If auto-restart delay is specified, spawn a task to trigger restart after the delay
-    if let Some(delay_secs) = auto_restart_delay {
+    #[cfg(unix)]
+    {
         let ctrl_tx_restart = ctrl_tx.clone();
+        let running_node_clone = running_node.clone();
         tokio::spawn(async move {
-            let delay = Duration::from_secs(delay_secs);
-            info!("Auto-restart enabled: node will restart in {delay:?}");
-            println!("Auto-restart enabled: node will restart in {delay:?}");
-            sleep(delay).await;
-            info!("Auto-restart delay elapsed, triggering node restart");
-            println!("Auto-restart delay elapsed, triggering node restart");
-            if let Err(err) = ctrl_tx_restart
-                .send(NodeCtrl::Restart {
-                    delay: Duration::from_secs(1),
-                    retain_peer_id: true,
-                })
-                .await
-            {
-                error!("Failed to send auto-restart command: {err}");
+            loop {
+                // 72 hours (259200 seconds) with ±5% randomization to prevent simultaneous upgrades
+                let base_delay = 259200;
+                let variance = rand::thread_rng().gen_range(-12960..=12960);
+                let delay_secs = (base_delay + variance) as u64;
+                sleep(Duration::from_secs(delay_secs)).await;
+                match upgrade::perform_upgrade().await {
+                    Ok(()) => {
+                        info!("Upgrade successful. Triggering restart...");
+
+                        let delay = calculate_restart_delay(&running_node_clone).await;
+                        info!("Calculated restart delay: {delay:?}");
+
+                        if let Err(err) = ctrl_tx_restart
+                            .send(NodeCtrl::Restart {
+                                delay,
+                                retain_peer_id: true,
+                            })
+                            .await
+                        {
+                            error!("Failed to send restart command: {err}");
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        debug!("Upgrade check: {e}");
+                    }
+                }
             }
         });
     }
@@ -617,11 +664,10 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
     Ok((output_dest.to_string(), reload_handle, log_appender_guard))
 }
 
-/// Starts a new process running the binary with the same args as
-/// the current process
-/// Optionally provide the node's root dir and listen port to retain it's PeerId
+/// Starts a new process running the binary with the same args as the current process.
+///
+/// Optionally provide the node's root dir and listen port to retain its PeerId.
 fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
-    // Retrieve the current executable's path
     let current_exe = env::current_exe().expect("could not get current executable path");
 
     // Retrieve the command-line arguments passed to this process

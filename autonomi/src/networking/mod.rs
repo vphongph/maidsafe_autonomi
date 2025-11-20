@@ -279,21 +279,8 @@ impl Network {
         // collect results
         let mut ok_res = vec![];
         let mut err_res = vec![];
-        let mut old_nodes_tasks = vec![];
         while let Some((res, peer)) = tasks.next().await {
             match res {
-                // redirect to old protocol on old nodes
-                Err(NetworkError::IncompatibleNetworkProtocol) => {
-                    let record_clone = record.clone();
-                    let self_clone = self.clone();
-                    let handle = tokio::spawn(async move {
-                        let res = self_clone
-                            .put_record_kad(record_clone, vec![peer.clone()], Quorum::One)
-                            .await;
-                        (res, peer)
-                    });
-                    old_nodes_tasks.push(handle);
-                }
                 // accumulate oks until Quorum is met
                 Ok(()) => {
                     ok_res.push(peer);
@@ -302,31 +289,6 @@ impl Network {
                     }
                 }
                 Err(e) => err_res.push((peer.peer_id, e.to_string())),
-            }
-        }
-        let new_nodes_ok = ok_res.len();
-
-        // complete with answers from old nodes
-        let mut old_nodes_futures = FuturesUnordered::new();
-        for handle in old_nodes_tasks {
-            old_nodes_futures.push(handle);
-        }
-        while let Some(join_result) = old_nodes_futures.next().await {
-            if let Ok((res, peer)) = join_result {
-                match res {
-                    // accumulate oks until Quorum is met
-                    Ok(()) => {
-                        ok_res.push(peer);
-                        if ok_res.len() >= expected_holders.get() {
-                            let old_nodes_ok = ok_res.len() - new_nodes_ok;
-                            trace!(
-                                "Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok"
-                            );
-                            return Ok(());
-                        }
-                    }
-                    Err(e) => err_res.push((peer.peer_id, e.to_string())),
-                }
             }
         }
 
@@ -352,39 +314,6 @@ impl Network {
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
 
         rx.await?
-    }
-
-    async fn put_record_kad(
-        &self,
-        record: Record,
-        to: Vec<PeerInfo>,
-        quorum: Quorum,
-    ) -> Result<(), NetworkError> {
-        let (tx, rx) = oneshot::channel();
-        let network_address = NetworkAddress::from(&record.key);
-        let task = NetworkTask::PutRecordKad {
-            record,
-            to,
-            quorum,
-            resp: tx,
-        };
-        self.task_sender
-            .send(task)
-            .await
-            .map_err(|_| NetworkError::NetworkDriverOffline)?;
-
-        let res = rx.await?;
-
-        // In poor network conditions PutRecordQuorumFailed is unreliable.
-        // To eliminate false positives, we do a manual record existence check after the put.
-        if let Err(NetworkError::PutRecordQuorumFailed(_, _)) = res {
-            match self.get_record_and_holders(network_address, quorum).await {
-                Ok((Some(_), _)) => return Ok(()),
-                _ => return res,
-            }
-        }
-
-        res
     }
 
     /// Get the closest peers to an address on the Network

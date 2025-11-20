@@ -41,6 +41,7 @@ pub(super) enum NetworkTask {
         resp: OneShotTaskResult<(Option<Record>, Vec<PeerId>)>,
     },
     /// cf [`crate::driver::task_handler::TaskHandler::update_put_record_kad`]
+    #[allow(dead_code)]
     PutRecordKad {
         #[debug(skip)]
         record: Record,

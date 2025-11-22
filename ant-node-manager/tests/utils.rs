@@ -9,12 +9,11 @@
 #![allow(clippy::unused_async)]
 
 use ant_service_management::StatusSummary;
-use assert_cmd::{assert::OutputAssertExt, cargo::CommandCargoExt};
+use assert_cmd::cargo::cargo_bin_cmd;
 use color_eyre::{Result, eyre::eyre};
-use std::process::Command;
 
 pub async fn get_service_status() -> Result<StatusSummary> {
-    let mut cmd = Command::cargo_bin("antctl")?;
+    let mut cmd = cargo_bin_cmd!("antctl");
     let output = cmd
         .arg("status")
         .arg("--json")

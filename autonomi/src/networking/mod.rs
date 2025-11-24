@@ -419,9 +419,10 @@ impl Network {
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
 
-        let mut candidates = match rx.await? {
+        let candidates = match rx.await? {
             Ok(peers) => {
                 if peers.len() < n.get() {
+                    info!("Kad get_closest network query giving less candidates ({}/{})", peers.len(), n.get());
                     return Err(NetworkError::InsufficientPeers {
                         got_peers: peers.len(),
                         expected_peers: n.get(),
@@ -439,7 +440,8 @@ impl Network {
             let network = self.clone();
             let addr = addr.clone();
             let peer = peer.clone();
-            let n_value = n.get();
+            // Get some extra to ensure enough candidates can be built up
+            let n_value = n.get() + 2;
             query_tasks.push(async move {
                 let result = network.get_closest_peers_from_peer(addr, peer.clone(), Some(n_value)).await;
                 (peer.peer_id, result)
@@ -453,14 +455,10 @@ impl Network {
         // Count peer appearances across all successful responses
         // Also collect addresses from peer responses (more accurate than DHT cached ones)
         let mut peer_counts: HashMap<PeerId, usize> = HashMap::new();
-        let mut peer_responded: HashSet<PeerId> = HashSet::new();
         let mut peer_addrs: HashMap<PeerId, HashSet<Multiaddr>> = HashMap::new();
 
         for (responder_peer_id, result) in results.iter() {
             if let Ok(peers_list) = result {
-                // Count this peer as having responded
-                let _ = peer_responded.insert(*responder_peer_id);
-                
                 // Count appearances in the response and collect addresses
                 for (peer_addr, addrs) in peers_list {
                     if let Some(peer_id) = peer_addr.as_peer_id() {
@@ -481,42 +479,61 @@ impl Network {
         // Calculate majority threshold
         let majority = n.get().div_ceil(2);
         
-        // Filter candidates: must have responded and appear in at least majority of responses
-        candidates.retain(|peer| {
-            peer_responded.contains(&peer.peer_id)
-            && peer_counts.get(&peer.peer_id).is_some_and(|&count| count >= majority)
-        });
+        // Build verified candidates from peers that responded and appear in majority of responses
+        // Use the more accurate addresses collected from peer responses
+        let mut verified_candidates: Vec<PeerInfo> = Vec::new();
+        
+        for (peer_id, &count) in peer_counts.iter() {
+            if count >= majority {
+                // Use addresses from peer responses if available, otherwise use original
+                let addrs = if let Some(addrs_set) = peer_addrs.get(peer_id) {
+                    addrs_set.iter().cloned().collect()
+                } else {
+                    // Fallback to original candidate addresses if available
+                    candidates
+                        .iter()
+                        .find(|c| c.peer_id == *peer_id)
+                        .map(|c| c.addrs.clone())
+                        .unwrap_or_default()
+                };
 
-        debug!(
-            "Verified {} out of {} candidates (needed {} successful responses for majority)",
-            candidates.len(),
-            n.get(),
-            majority
-        );
-
-        if candidates.len() < n.get() {
-            return Err(NetworkError::InsufficientPeers {
-                got_peers: candidates.len(),
-                expected_peers: n.get(),
-                peers: candidates,
-            });
-        }
-
-        // Update candidates with more accurate addresses collected from peer responses
-        for peer in &mut candidates {
-            if let Some(addrs_set) = peer_addrs.get(&peer.peer_id) {
-                peer.addrs = addrs_set.iter().cloned().collect();
-                debug!(
-                    "Updated peer {:?} with {} addresses from responses",
-                    peer.peer_id,
-                    peer.addrs.len()
-                );
+                verified_candidates.push(PeerInfo {
+                    peer_id: *peer_id,
+                    addrs,
+                });
             }
         }
 
-        candidates.truncate(n.get());
+        debug!(
+            "Found {} verified candidates from {} original (needed {} for majority)",
+            verified_candidates.len(),
+            candidates.len(),
+            majority
+        );
 
-        Ok(candidates)
+        if verified_candidates.len() < n.get() {
+            return Err(NetworkError::InsufficientPeers {
+                got_peers: verified_candidates.len(),
+                expected_peers: n.get(),
+                peers: verified_candidates,
+            });
+        }
+
+        // Sort candidates by distance to target address
+        verified_candidates.sort_by_key(|peer| {
+            let peer_addr = NetworkAddress::from(peer.peer_id);
+            addr.distance(&peer_addr)
+        });
+
+        debug!(
+            "Sorted {} verified candidates by distance to target",
+            verified_candidates.len()
+        );
+
+        // Take the closest N peers
+        verified_candidates.truncate(n.get());
+
+        Ok(verified_candidates)
     }
 
     /// Get a record directly from a specific peer on the Network

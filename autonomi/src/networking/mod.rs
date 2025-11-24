@@ -429,10 +429,19 @@ impl Network {
                         peers,
                     });
                 }
+              
                 peers
             }
             Err(e) => return Err(e),
         };
+
+        // Log initial candidates with distances
+        trace!("Initial candidates from Kad query targeting {addr:?}:");
+        for peer in &candidates {
+            let peer_addr = NetworkAddress::from(peer.peer_id);
+            let distance = addr.distance(&peer_addr);
+            trace!("  Candidate peer: {:?}, distance: {:?}", peer.peer_id, distance);
+        }
 
         // Verify candidates by querying them individually for their closest peers
         let mut query_tasks = vec![];
@@ -459,9 +468,15 @@ impl Network {
 
         for (responder_peer_id, result) in results.iter() {
             if let Ok(peers_list) = result {
+                // Log the responder and their returned peer list
+                trace!("Closegroup to {addr:?} responded from peer {responder_peer_id:?}:");
+                
                 // Count appearances in the response and collect addresses
                 for (peer_addr, addrs) in peers_list {
                     if let Some(peer_id) = peer_addr.as_peer_id() {
+                        let distance = addr.distance(peer_addr);
+                        trace!("  Reported peer: {peer_id:?}, distance: {distance:?}");
+
                         *peer_counts.entry(peer_id).or_insert(0) += 1;
                         
                         // Aggregate unique addresses for this peer

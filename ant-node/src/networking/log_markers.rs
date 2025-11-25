@@ -31,10 +31,11 @@ pub(crate) enum Marker<'a> {
         within_responsible_distance: bool,
     },
     /// Replication sender range check result
-    ReplicationSenderInRange {
+    ReplicationSenderRange {
         sender: &'a PeerId,
         keys_count: usize,
-        in_range: bool,
+        within_closest_group: bool,
+        within_extended_distance_range: bool,
         network_under_load: bool,
     },
     /// Incoming replication keys statistics

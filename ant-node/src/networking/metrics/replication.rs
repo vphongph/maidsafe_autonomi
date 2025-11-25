@@ -23,8 +23,20 @@ pub(crate) enum Range {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(crate) struct ReplicationSenderRangeLabels {
-    pub(crate) in_range: bool,
-    pub(crate) network_under_load: bool,
+    pub(crate) within_closest_group: bool,
+    pub(crate) within_extended_distance_range: bool,
+    pub(crate) network_load: bool,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub(crate) struct ReplicationSenderOutcomeLabels {
+    pub(crate) outcome: ReplicationSenderOutcome,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelValue)]
+pub(crate) enum ReplicationSenderOutcome {
+    Accepted,
+    Rejected,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelSet)]

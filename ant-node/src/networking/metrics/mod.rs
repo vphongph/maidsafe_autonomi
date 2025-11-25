@@ -64,6 +64,11 @@ pub(crate) struct NetworkMetricsRecorder {
     // replication metrics
     pub(crate) replicate_candidates: Family<replication::ReplicateCandidateLabels, Gauge>,
     pub(crate) replication_sender_range: Family<replication::ReplicationSenderRangeLabels, Counter>,
+    pub(crate) replication_sender_close_group_threshold: Gauge,
+    pub(crate) replication_sender_extended_distance_multiplier: Gauge,
+    pub(crate) replication_sender_extended_distance_ilog2: Gauge,
+    pub(crate) replication_sender_outcome:
+        Family<replication::ReplicationSenderOutcomeLabels, Counter>,
     pub(crate) replication_keys_incoming_percentages:
         Family<replication::IncomingKeysMetricLabels, Gauge<f64, AtomicU64>>,
     pub(crate) distance_range: Gauge,
@@ -220,9 +225,37 @@ impl NetworkMetricsRecorder {
 
         let replication_sender_range = Family::default();
         sub_registry.register(
-            "replication_sender_range",
-            "The number of replication requests received from senders within or outside our replication range",
+            "replication_sender_range_v2",
+            "The number of replication requests received from senders from within closest group, extended distance range, or outside both",
             replication_sender_range.clone(),
+        );
+
+        let replication_sender_close_group_threshold = Gauge::default();
+        sub_registry.register(
+            "replication_sender_close_group_threshold",
+            "The number of closest peers considered as the close group for replication sender checks",
+            replication_sender_close_group_threshold.clone(),
+        );
+
+        let replication_sender_extended_distance_multiplier = Gauge::default();
+        sub_registry.register(
+            "replication_sender_extended_distance_multiplier",
+            "The multiplier applied to the distance range to determine the extended distance range for replication sender checks when the network is under load",
+            replication_sender_extended_distance_multiplier.clone(),
+        );
+
+        let replication_sender_extended_distance_ilog2 = Gauge::default();
+        sub_registry.register(
+            "replication_sender_extended_distance_ilog2",
+            "The ilog2 value of the extended distance range used for replication sender checks when the network is under load",
+            replication_sender_extended_distance_ilog2.clone(),
+        );
+
+        let replication_sender_outcome = Family::default();
+        sub_registry.register(
+            "replication_sender_outcome",
+            "The outcome of replication sender checks, whether the sender was accepted or rejected",
+            replication_sender_outcome.clone(),
         );
 
         let replication_keys_incoming_percentages = Family::default();
@@ -318,6 +351,10 @@ impl NetworkMetricsRecorder {
 
             replicate_candidates,
             replication_sender_range,
+            replication_sender_close_group_threshold,
+            replication_sender_extended_distance_multiplier,
+            replication_sender_extended_distance_ilog2,
+            replication_sender_outcome,
             replication_keys_incoming_percentages,
             replication_stats_window: Arc::new(Mutex::new(
                 replication::ReplicationStatsWindow::new(),
@@ -423,18 +460,30 @@ impl NetworkMetricsRecorder {
                     .get_or_create(&replication::ReplicateCandidateLabels { range })
                     .inc();
             }
-            Marker::ReplicationSenderInRange {
+            Marker::ReplicationSenderRange {
                 sender: _,
                 keys_count: _,
-                in_range,
+                within_closest_group,
+                within_extended_distance_range,
                 network_under_load,
             } => {
                 let _ = self
                     .replication_sender_range
                     .get_or_create(&replication::ReplicationSenderRangeLabels {
-                        in_range,
-                        network_under_load,
+                        within_closest_group,
+                        within_extended_distance_range,
+                        network_load: network_under_load,
                     })
+                    .inc();
+
+                let outcome = if within_closest_group || within_extended_distance_range {
+                    replication::ReplicationSenderOutcome::Accepted
+                } else {
+                    replication::ReplicationSenderOutcome::Rejected
+                };
+                let _ = self
+                    .replication_sender_outcome
+                    .get_or_create(&replication::ReplicationSenderOutcomeLabels { outcome })
                     .inc();
             }
             Marker::IncomingReplicationKeysStats {

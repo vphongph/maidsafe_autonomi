@@ -283,6 +283,8 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let opt = Opt::parse();
 
+    println!("Welcome to antnode");
+
     let network_id = if let Some(network_id) = opt.network_id {
         network_id
     } else if opt.alpha {

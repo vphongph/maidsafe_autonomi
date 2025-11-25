@@ -3,43 +3,43 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      build-nat-detection:
-        description: Build nat-detection binary
+      release-nat-detection:
+        description: Release nat-detection binary
         type: boolean
         required: false
         default: true
-      build-node-launchpad:
-        description: Build node-launchpad binary
+      release-node-launchpad:
+        description: Release node-launchpad binary
         type: boolean
         required: false
         default: true
-      build-ant:
-        description: Build ant binary
+      release-ant:
+        description: Release ant binary
         type: boolean
         required: false
         default: true
-      build-antnode:
-        description: Build antnode binary
+      release-antnode:
+        description: Release antnode binary
         type: boolean
         required: false
         default: true
-      build-antctl:
-        description: Build antctl binary
+      release-antctl:
+        description: Release antctl binary
         type: boolean
         required: false
         default: true
-      build-antctld:
-        description: Build antctld binary
+      release-antctld:
+        description: Release antctld binary
         type: boolean
         required: false
         default: true
-      build-antnode-rpc-client:
-        description: Build antnode_rpc_client binary
+      release-antnode-rpc-client:
+        description: Release antnode_rpc_client binary
         type: boolean
         required: false
         default: true
-      build-evm-testnet:
-        description: Build evm-testnet binary
+      release-evm-testnet:
+        description: Release evm-testnet binary
         type: boolean
         required: false
         default: true
@@ -83,14 +83,14 @@ jobs:
       - name: build release artifacts
         shell: bash
         run: |
-          export BUILD_NAT_DETECTION="${{ inputs.build-nat-detection }}"
-          export BUILD_NODE_LAUNCHPAD="${{ inputs.build-node-launchpad }}"
-          export BUILD_ANT="${{ inputs.build-ant }}"
-          export BUILD_ANTNODE="${{ inputs.build-antnode }}"
-          export BUILD_ANTCTL="${{ inputs.build-antctl }}"
-          export BUILD_ANTCTLD="${{ inputs.build-antctld }}"
-          export BUILD_ANTNODE_RPC_CLIENT="${{ inputs.build-antnode-rpc-client }}"
-          export BUILD_EVM_TESTNET="${{ inputs.build-evm-testnet }}"
+          export RELEASE_NAT_DETECTION="${{ inputs.release-nat-detection }}"
+          export RELEASE_NODE_LAUNCHPAD="${{ inputs.release-node-launchpad }}"
+          export RELEASE_ANT="${{ inputs.release-ant }}"
+          export RELEASE_ANTNODE="${{ inputs.release-antnode }}"
+          export RELEASE_ANTCTL="${{ inputs.release-antctl }}"
+          export RELEASE_ANTCTLD="${{ inputs.release-antctld }}"
+          export RELEASE_ANTNODE_RPC_CLIENT="${{ inputs.release-antnode-rpc-client }}"
+          export RELEASE_EVM_TESTNET="${{ inputs.release-evm-testnet }}"
 
           just build-release-artifacts "${{ matrix.target }}"
 
@@ -139,35 +139,35 @@ jobs:
             echo "Downloaded ${bin_name} version ${version} from S3"
           }
 
-          if [[ "${{ inputs.build-nat-detection }}" != "true" ]]; then
+          if [[ "${{ inputs.release-nat-detection }}" != "true" ]]; then
             download_from_s3 "nat-detection" "nat-detection" "nat-detection"
           fi
 
-          if [[ "${{ inputs.build-node-launchpad }}" != "true" ]]; then
+          if [[ "${{ inputs.release-node-launchpad }}" != "true" ]]; then
             download_from_s3 "node-launchpad" "node-launchpad" "node-launchpad"
           fi
 
-          if [[ "${{ inputs.build-ant }}" != "true" ]]; then
+          if [[ "${{ inputs.release-ant }}" != "true" ]]; then
             download_from_s3 "ant" "ant-cli" "autonomi-cli"
           fi
 
-          if [[ "${{ inputs.build-antnode }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antnode }}" != "true" ]]; then
             download_from_s3 "antnode" "ant-node" "antnode"
           fi
 
-          if [[ "${{ inputs.build-antctl }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antctl }}" != "true" ]]; then
             download_from_s3 "antctl" "ant-node-manager" "antctl"
           fi
 
-          if [[ "${{ inputs.build-antctld }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antctld }}" != "true" ]]; then
             download_from_s3 "antctld" "ant-node-manager" "antctl"
           fi
 
-          if [[ "${{ inputs.build-antnode-rpc-client }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antnode-rpc-client }}" != "true" ]]; then
             download_from_s3 "antnode_rpc_client" "ant-node-rpc-client" "antnode-rpc-client"
           fi
 
-          if [[ "${{ inputs.build-evm-testnet }}" != "true" ]]; then
+          if [[ "${{ inputs.release-evm-testnet }}" != "true" ]]; then
             download_from_s3 "evm-testnet" "evm-testnet" "evm-testnet"
           fi
 
@@ -196,14 +196,14 @@ jobs:
     needs: [ build ]
     environment: ${{ github.ref == 'refs/heads/stable' && 'stable' || 'release-candidate' }}
     env:
-      BUILD_ANT: ${{ inputs.build-ant }}
-      BUILD_ANTNODE: ${{ inputs.build-antnode }}
-      BUILD_ANTCTL: ${{ inputs.build-antctl }}
-      BUILD_ANTCTLD: ${{ inputs.build-antctld }}
-      BUILD_ANTNODE_RPC_CLIENT: ${{ inputs.build-antnode-rpc-client }}
-      BUILD_EVM_TESTNET: ${{ inputs.build-evm-testnet }}
-      BUILD_NAT_DETECTION: ${{ inputs.build-nat-detection }}
-      BUILD_NODE_LAUNCHPAD: ${{ inputs.build-node-launchpad }}
+      RELEASE_ANT: ${{ inputs.release-ant }}
+      RELEASE_ANTNODE: ${{ inputs.release-antnode }}
+      RELEASE_ANTCTL: ${{ inputs.release-antctl }}
+      RELEASE_ANTCTLD: ${{ inputs.release-antctld }}
+      RELEASE_ANTNODE_RPC_CLIENT: ${{ inputs.release-antnode-rpc-client }}
+      RELEASE_EVM_TESTNET: ${{ inputs.release-evm-testnet }}
+      RELEASE_NAT_DETECTION: ${{ inputs.release-nat-detection }}
+      RELEASE_NODE_LAUNCHPAD: ${{ inputs.release-node-launchpad }}
       SM_HOST: ${{ secrets.SM_HOST }}
       SM_API_KEY: ${{ secrets.SM_API_KEY }}
       SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
@@ -276,14 +276,14 @@ jobs:
 
           # Define which binaries should be signed based on build flags
           $binaryMap = @{
-            "nat-detection.exe" = $env:BUILD_NAT_DETECTION
-            "node-launchpad.exe" = $env:BUILD_NODE_LAUNCHPAD
-            "ant.exe" = $env:BUILD_ANT
-            "antnode.exe" = $env:BUILD_ANTNODE
-            "antctl.exe" = $env:BUILD_ANTCTL
-            "antctld.exe" = $env:BUILD_ANTCTLD
-            "antnode_rpc_client.exe" = $env:BUILD_ANTNODE_RPC_CLIENT
-            "evm-testnet.exe" = $env:BUILD_EVM_TESTNET
+            "nat-detection.exe" = $env:RELEASE_NAT_DETECTION
+            "node-launchpad.exe" = $env:RELEASE_NODE_LAUNCHPAD
+            "ant.exe" = $env:RELEASE_ANT
+            "antnode.exe" = $env:RELEASE_ANTNODE
+            "antctl.exe" = $env:RELEASE_ANTCTL
+            "antctld.exe" = $env:RELEASE_ANTCTLD
+            "antnode_rpc_client.exe" = $env:RELEASE_ANTNODE_RPC_CLIENT
+            "evm-testnet.exe" = $env:RELEASE_EVM_TESTNET
           }
 
           # Filter files to only those that were built in this run
@@ -372,14 +372,14 @@ jobs:
 
           # Define which binaries should be verified based on build flags
           $binaryMap = @{
-            "nat-detection.exe" = $env:BUILD_NAT_DETECTION
-            "node-launchpad.exe" = $env:BUILD_NODE_LAUNCHPAD
-            "ant.exe" = $env:BUILD_ANT
-            "antnode.exe" = $env:BUILD_ANTNODE
-            "antctl.exe" = $env:BUILD_ANTCTL
-            "antctld.exe" = $env:BUILD_ANTCTLD
-            "antnode_rpc_client.exe" = $env:BUILD_ANTNODE_RPC_CLIENT
-            "evm-testnet.exe" = $env:BUILD_EVM_TESTNET
+            "nat-detection.exe" = $env:RELEASE_NAT_DETECTION
+            "node-launchpad.exe" = $env:RELEASE_NODE_LAUNCHPAD
+            "ant.exe" = $env:RELEASE_ANT
+            "antnode.exe" = $env:RELEASE_ANTNODE
+            "antctl.exe" = $env:RELEASE_ANTCTL
+            "antctld.exe" = $env:RELEASE_ANTCTLD
+            "antnode_rpc_client.exe" = $env:RELEASE_ANTNODE_RPC_CLIENT
+            "evm-testnet.exe" = $env:RELEASE_EVM_TESTNET
           }
 
           # Filter files to only those that were built and signed in this run
@@ -495,14 +495,14 @@ jobs:
         run: |
           # Replace only the binaries that were built and signed in this run
           binaries=(
-            "nat-detection:${{ inputs.build-nat-detection }}"
-            "node-launchpad:${{ inputs.build-node-launchpad }}"
-            "ant:${{ inputs.build-ant }}"
-            "antnode:${{ inputs.build-antnode }}"
-            "antctl:${{ inputs.build-antctl }}"
-            "antctld:${{ inputs.build-antctld }}"
-            "antnode_rpc_client:${{ inputs.build-antnode-rpc-client }}"
-            "evm-testnet:${{ inputs.build-evm-testnet }}"
+            "nat-detection:${{ inputs.release-nat-detection }}"
+            "node-launchpad:${{ inputs.release-node-launchpad }}"
+            "ant:${{ inputs.release-ant }}"
+            "antnode:${{ inputs.release-antnode }}"
+            "antctl:${{ inputs.release-antctl }}"
+            "antctld:${{ inputs.release-antctld }}"
+            "antnode_rpc_client:${{ inputs.release-antnode-rpc-client }}"
+            "evm-testnet:${{ inputs.release-evm-testnet }}"
           )
 
           for entry in "${binaries[@]}"; do
@@ -592,14 +592,14 @@ jobs:
         run: |
           # Replace only the binaries that were built and signed in this run
           binaries=(
-            "nat-detection:${{ inputs.build-nat-detection }}"
-            "node-launchpad:${{ inputs.build-node-launchpad }}"
-            "ant:${{ inputs.build-ant }}"
-            "antnode:${{ inputs.build-antnode }}"
-            "antctl:${{ inputs.build-antctl }}"
-            "antctld:${{ inputs.build-antctld }}"
-            "antnode_rpc_client:${{ inputs.build-antnode-rpc-client }}"
-            "evm-testnet:${{ inputs.build-evm-testnet }}"
+            "nat-detection:${{ inputs.release-nat-detection }}"
+            "node-launchpad:${{ inputs.release-node-launchpad }}"
+            "ant:${{ inputs.release-ant }}"
+            "antnode:${{ inputs.release-antnode }}"
+            "antctl:${{ inputs.release-antctl }}"
+            "antctld:${{ inputs.release-antctld }}"
+            "antnode_rpc_client:${{ inputs.release-antnode-rpc-client }}"
+            "evm-testnet:${{ inputs.release-evm-testnet }}"
           )
 
           for entry in "${binaries[@]}"; do

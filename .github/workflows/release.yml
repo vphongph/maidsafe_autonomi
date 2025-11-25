@@ -178,14 +178,6 @@ jobs:
             artifacts
             !artifacts/.cargo-lock
 
-      - name: post notification to slack on failure
-        if: ${{ failure() }}
-        uses: bryannice/gitactions-slack-notification@2.0.0
-        env:
-          SLACK_INCOMING_WEBHOOK: ${{ secrets.SLACK_GH_ACTIONS_WEBHOOK_URL }}
-          SLACK_MESSAGE: "Please check the logs for the run at ${{ env.WORKFLOW_URL }}/${{ github.run_id }}"
-          SLACK_TITLE: "Release Failed"
-
   s3-release:
     if: ${{
         github.repository_owner == 'maidsafe' &&
@@ -339,14 +331,6 @@ jobs:
             cd packaged_architectures
             ls | xargs gh release upload ${{ env.RELEASE_PREFIX }}-${{ env.PACKAGE_VERSION }}
           )
-
-      - name: post notification to slack on failure
-        if: ${{ failure() }}
-        uses: bryannice/gitactions-slack-notification@2.0.0
-        env:
-          SLACK_INCOMING_WEBHOOK: ${{ secrets.SLACK_GH_ACTIONS_WEBHOOK_URL }}
-          SLACK_MESSAGE: "Please check the logs for the run at ${{ env.WORKFLOW_URL }}/${{ github.run_id }}"
-          SLACK_TITLE: "Release Failed"
 
   # publish-crates:
   #   if: ${{ github.repository_owner == 'maidsafe' && github.ref == 'refs/heads/stable' }}

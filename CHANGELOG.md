@@ -7,6 +7,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-11-25
+
+### API
+
+#### Added
+
+- `Client::analyze_address_recursively` method for recursively analyzing addresses by following all
+  discovered addresses, returning a map of analyses.
+- `Client::get_record_from_peer` method to retrieve a record directly from a specific peer.
+- `Client::get_record_and_holders` method that returns both the record and a list of peer holders,
+  supporting custom quorum requirements.
+- `Client::get_storage_proofs_from_peer` method to retrieve storage proofs from a specific peer.
+- `encrypt_directory_files` function now publicly exported from the `self_encryption` module for
+  external directory encryption operations.
+- `EncryptionStream` type now publicly exported from the `self_encryption` module.
+- `DataMap` field added to `GetError::TooLargeForMemory` variant to provide the data map when a
+  file is too large for in-memory processing. [BREAKING]
+
+#### Changed
+
+- `Client::get_closest_to_address` now accepts an optional `count` parameter to specify the number
+  of peers to retrieve; if `None`, returns `CLOSE_GROUP+2` peers. [BREAKING]
+- `Analysis` enum now uses `custom_debug::Debug` for improved debug output.
+- `Analysis::DataMap` and `Analysis::File` variants now skip the `data` field in debug output to
+  reduce noise when debugging large data structures.
+- `Analysis::Chunk` display no longer prints chunk content in hex format.
+- Chunk retrieval strategy changed to use fallback approach with `closest_20` peers when normal DHT
+  queries fail, and chunk get retry strategy set to `RetryStrategy::None` to rely on this fallback.
+- Maximum stream data size reduced to 1 MB for both client and node connections to optimize network
+  performance.
+
+#### Removed
+
+- Upload fallback approach removed to ensure proper replication with multiple copies instead of
+  only a single copy being uploaded.
+
+#### Fixed
+
+- Parallel download and upload task execution that was previously processing tasks sequentially
+  instead of concurrently.
+- Symlink handling in self-encryption to skip encryption of both symlinks and directories.
+
+### Network
+
+#### Added
+
+- Network-wide replication of all node keys to improve data availability.
+- Dynamic replication range expansion when the network is under load.
+- Self-restart capability for nodes with CI testing to verify functionality.
+
+#### Changed
+
+- Replication range expanded to give holders more trust in data availability.
+- Network-wide replication deadline decreased to 4 days to ensure fresher data distribution.
+- Replication now requires three replicas restored to maintain data redundancy.
+- GetReplicatedRecord request error responses made more accurate for better diagnostics.
+
+#### Fixed
+
+- Out-of-sync record store indexing cache is now properly pruned to maintain consistency.
+- Replication behavior modified according to review feedback for improved efficiency.
+
+### Ant Client
+
+#### Added
+
+- The `analyze` command now supports extensive new functionality for network health monitoring:
+    + Recursive analysis of addresses to trace data relationships.
+    + Holder query capabilities to identify which nodes store specific data.
+    + JSON output format with file rotation for storing analysis results.
+    + Holder distance calculations showing both distance to target and peer-to-peer distances.
+    + Consolidated statistics for closest peers during recursive queries.
+    + Support for analyzing large datamaps that do not fit in memory.
+    + The `--closest-range` flag to configure the range of peers queried during analysis.
+    + The `--addr-range` flag during blind scan operations to specify address ranges.
+    + Repair functionality during analyze operations to re-upload missing chunks.
+    + Continuous blind scan capability for ongoing network monitoring.
+    + Close group record holding status checking to verify proper data distribution.
+- Chunk bad list entry revalidation when loaded from disk.
+- Support for checking and displaying fallen nodes in JSON output.
+
+#### Changed
+
+- Analyze functionality refactored into its own module for better code organization.
+- The `analyze` command uses `comfytable` crate for improved table formatting in stdout.
+- Blind scan operations now use the same `CHUNK_DOWNLOAD_BATCH_SIZE` environment variable as
+  regular downloads for consistency.
+- Bad list rechecking is now performed in batches to prevent memory spikes during validation.
+- Helper functions encapsulated to reduce code duplication in analyze operations.
+- Re-upload functionality split out for better parallelism during repair operations.
+
+#### Fixed
+
+- The `analyze` command properly obtains target addresses from all enum entry types.
+- Public archive address extraction now returns correct addresses.
+- During blind scan operations, the command will fetch from the network if data cannot be
+  retrieved from the closest 7 peers.
+- Bad list and white list loading no longer creates duplicated entries.
+- Analysis output is printed to screen before storing to JSON file.
+- Kad `get_record` queries now use `Quorum::N(20)` to fetch records in a best-effort manner.
+
+### Launchpad
+
+#### Added
+
+- Automatic permission elevation for Windows to simplify node management.
+
+#### Changed
+
+- Removed custom panic handler in favor of using the `ant-logging` crate for consistent error
+  handling and logging.
+
+### General
+
+#### Changed
+
+- Logging path handling improved for tokio tests with dynamic file or directory-based logging.
+- Metrics initialization now properly uses the metrics feature flag.
+
 ## 2025-11-06
 
 ### API

@@ -39,7 +39,7 @@ use std::{
     env,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::Command,
     time::Duration,
 };
 use tokio::{
@@ -224,14 +224,6 @@ struct Opt {
     /// Set this to true if you want the node to write the cache files in the older formats.
     #[clap(long, default_value_t = false)]
     write_older_cache_files: bool,
-
-    /// Enable automatic self-restart after specified duration (in seconds).
-    ///
-    /// When set, the node will automatically restart itself after the specified
-    /// number of seconds. This is useful for testing restart behavior.
-    /// For example, `--auto-restart-delay 120` will restart the node after 2 minutes.
-    #[clap(long, verbatim_doc_comment)]
-    auto_restart_delay: Option<u64>,
 }
 
 fn main() -> Result<()> {
@@ -349,14 +341,8 @@ fn main() -> Result<()> {
         };
         #[cfg(feature = "open-metrics")]
         node_builder.metrics_server_port(metrics_server_port);
-        let restart_options = run_node(
-            node_builder,
-            opt.rpc,
-            &log_output_dest,
-            log_reload_handle,
-            opt.auto_restart_delay,
-        )
-        .await?;
+        let restart_options =
+            run_node(node_builder, opt.rpc, &log_output_dest, log_reload_handle).await?;
 
         Ok::<_, eyre::Report>(restart_options)
     })?;
@@ -385,7 +371,6 @@ async fn run_node(
     rpc: Option<SocketAddr>,
     log_output_dest: &str,
     log_reload_handle: ReloadHandle,
-    auto_restart_delay: Option<u64>,
 ) -> Result<Option<(bool, PathBuf, u16)>> {
     let started_instant = std::time::Instant::now();
 
@@ -442,32 +427,10 @@ You can check your reward balance by running:
             addr,
             log_output_dest,
             running_node.clone(),
-            ctrl_tx.clone(),
+            ctrl_tx,
             started_instant,
             log_reload_handle,
         );
-    }
-
-    // If auto-restart delay is specified, spawn a task to trigger restart after the delay
-    if let Some(delay_secs) = auto_restart_delay {
-        let ctrl_tx_restart = ctrl_tx.clone();
-        tokio::spawn(async move {
-            let delay = Duration::from_secs(delay_secs);
-            info!("Auto-restart enabled: node will restart in {delay:?}");
-            println!("Auto-restart enabled: node will restart in {delay:?}");
-            sleep(delay).await;
-            info!("Auto-restart delay elapsed, triggering node restart");
-            println!("Auto-restart delay elapsed, triggering node restart");
-            if let Err(err) = ctrl_tx_restart
-                .send(NodeCtrl::Restart {
-                    delay: Duration::from_secs(1),
-                    retain_peer_id: true,
-                })
-                .await
-            {
-                error!("Failed to send auto-restart command: {err}");
-            }
-        });
     }
 
     // Keep the node and gRPC service (if enabled) running.
@@ -633,19 +596,6 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
     // Remove `--first` argument. If node is restarted, it is not the first anymore.
     args.retain(|arg| arg != "--first");
 
-    // Remove arguments that will be re-added with correct values to avoid duplicates
-    let args_to_remove = ["--auto-restart-delay", "--root-dir", "--port"];
-    for arg_name in &args_to_remove {
-        while let Some(pos) = args.iter().position(|arg| arg == arg_name) {
-            args.remove(pos); // Remove the flag
-            if pos < args.len() && !args[pos].starts_with("--") {
-                args.remove(pos); // Remove the value (if it doesn't look like another flag)
-            }
-        }
-    }
-
-    info!("Cleaned args for restart: {args:?}");
-
     // Convert current exe path to string, log an error and return if it fails
     let current_exe = match current_exe.to_str() {
         Some(s) => {
@@ -673,38 +623,9 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
 
     if retain_peer_id {
         cmd.arg("--root-dir");
-        cmd.arg(&root_dir); // Pass PathBuf directly, don't use Debug format which adds quotes
+        cmd.arg(format!("{root_dir:?}"));
         cmd.arg("--port");
         cmd.arg(port.to_string());
-        info!(
-            "Adding restart-specific args: --root-dir {} --port {}",
-            root_dir.display(),
-            port
-        );
-    }
-
-    // Detach the new process so it runs independently
-    // Redirect stdin, stdout, stderr to null to fully detach
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::null());
-
-    // Platform-specific process detachment using safe APIs
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Create a new process group (safe API, no unsafe required)
-        // Setting process group to 0 makes the child the leader of a new process group
-        cmd.process_group(0);
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // Create a new process group on Windows
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
     }
 
     warn!(
@@ -713,17 +634,7 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
     );
     // Execute the command
     let _handle = match cmd.spawn() {
-        Ok(child) => {
-            info!(
-                "Successfully spawned new node process with PID: {}",
-                child.id()
-            );
-            println!(
-                "Successfully spawned new node process with PID: {}",
-                child.id()
-            );
-            child
-        }
+        Ok(status) => status,
         Err(e) => {
             // Do not return an error as this isn't a critical failure.
             // The current node can continue.
@@ -733,7 +644,4 @@ fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
             return;
         }
     };
-
-    // Give the new process a moment to start before this process exits
-    std::thread::sleep(Duration::from_millis(500));
 }

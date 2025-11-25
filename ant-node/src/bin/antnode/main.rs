@@ -504,15 +504,25 @@ You can check your reward balance by running:
                 let variance = rand::thread_rng().gen_range(-12960..=12960);
                 let delay_secs = (base_delay + variance) as u64;
                 sleep(Duration::from_secs(delay_secs)).await;
+                let upgrade_check_delay_secs = (base_delay + variance) as u64;
+                let upgrade_check_wake_time =
+                    chrono::Utc::now() + chrono::Duration::seconds(upgrade_check_delay_secs as i64);
+                info!(
+                    "Next upgrade check scheduled for {}",
+                    upgrade_check_wake_time
+                );
+                sleep(Duration::from_secs(upgrade_check_delay_secs)).await;
+
                 match upgrade::perform_upgrade().await {
                     Ok(()) => {
-                        let delay = calculate_restart_delay(&running_node_clone).await;
-                        info!("Calculated delay: {delay:?}");
+                        let node_restart_delay = calculate_restart_delay(&running_node_clone).await;
+                        let node_restart_wake_time = chrono::Utc::now() + node_restart_delay;
+                        info!("Node will restart for upgrade at {node_restart_wake_time}");
 
                         let node_ctrl = if stop_on_upgrade {
                             info!("Upgrade successful. Triggering stop...");
                             NodeCtrl::Stop {
-                                delay,
+                                delay: node_restart_delay,
                                 result: StopResult::Success(
                                     "Upgrade completed successfully".to_string(),
                                 ),
@@ -520,7 +530,7 @@ You can check your reward balance by running:
                         } else {
                             info!("Upgrade successful. Triggering restart...");
                             NodeCtrl::Restart {
-                                delay,
+                                delay: node_restart_delay,
                                 retain_peer_id: true,
                             }
                         };

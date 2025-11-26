@@ -42,6 +42,8 @@ pub(crate) enum Marker<'a> {
     IncomingReplicationKeysStats {
         holder: PeerId,
         total_keys: usize,
+        locally_present_keys: usize,
+        fetch_in_progress_keys: usize,
         new_keys: usize,
         out_of_range_keys: usize,
     },
@@ -53,6 +55,8 @@ impl Marker<'_> {
         if let Marker::IncomingReplicationKeysStats {
             holder: _,
             total_keys: _,
+            locally_present_keys: _,
+            fetch_in_progress_keys: _,
             new_keys,
             out_of_range_keys,
         } = self

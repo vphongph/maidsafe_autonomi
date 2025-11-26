@@ -45,17 +45,29 @@ pub(crate) struct IncomingKeysMetricLabels {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum IncomingMetricType {
     NewKeysPercent,
+    LocallyStoredKeysPercent,
+    FetchInProgressKeysPercent,
     OutOfRangeKeysPercent,
 }
 
 const STATS_WINDOW_SIZE: usize = 50;
 
+/// Entry for tracking replication key statistics
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ReplicationStatsEntry {
+    pub(crate) total_keys: usize,
+    pub(crate) new_keys: usize,
+    pub(crate) locally_stored_keys: usize,
+    pub(crate) fetch_in_progress_keys: usize,
+    pub(crate) out_of_range_keys: usize,
+}
+
 /// Sliding window for tracking replication statistics
 pub(crate) struct ReplicationStatsWindow {
-    // Stores (total_keys, new_keys, out_of_range_keys) for last N requests
-    window: VecDeque<(usize, usize, usize)>,
+    window: VecDeque<ReplicationStatsEntry>,
 }
 
 impl ReplicationStatsWindow {
@@ -66,52 +78,55 @@ impl ReplicationStatsWindow {
     }
 
     /// Add a new entry to the sliding window
-    pub(crate) fn add_entry(
-        &mut self,
-        total_keys: usize,
-        new_keys: usize,
-        out_of_range_keys: usize,
-    ) {
+    pub(crate) fn add_entry(&mut self, entry: ReplicationStatsEntry) {
         if self.window.len() >= STATS_WINDOW_SIZE {
             let _ = self.window.pop_front();
         }
-        self.window
-            .push_back((total_keys, new_keys, out_of_range_keys));
+        self.window.push_back(entry);
     }
 
     /// Calculate the percentage of new keys across the window
     pub(crate) fn calculate_new_keys_percent(&self) -> f64 {
-        if self.window.is_empty() {
-            return 0.0;
-        }
+        self.calculate_percent(|entry| entry.new_keys)
+    }
 
-        let (total_keys, total_new_keys) = self.window.iter().fold(
-            (0usize, 0usize),
-            |(acc_total, acc_new), &(total, new, _)| (acc_total + total, acc_new + new),
-        );
+    /// Calculate the percentage of locally stored keys across the window
+    pub(crate) fn calculate_locally_stored_keys_percent(&self) -> f64 {
+        self.calculate_percent(|entry| entry.locally_stored_keys)
+    }
 
-        if total_keys == 0 {
-            return 0.0;
-        }
-
-        (total_new_keys as f64 / total_keys as f64) * 100.0
+    /// Calculate the percentage of fetch in progress keys across the window
+    pub(crate) fn calculate_fetch_in_progress_keys_percent(&self) -> f64 {
+        self.calculate_percent(|entry| entry.fetch_in_progress_keys)
     }
 
     /// Calculate the percentage of out-of-range keys across the window
     pub(crate) fn calculate_out_of_range_percent(&self) -> f64 {
+        self.calculate_percent(|entry| entry.out_of_range_keys)
+    }
+
+    fn calculate_percent<F>(&self, field_selector: F) -> f64
+    where
+        F: Fn(&ReplicationStatsEntry) -> usize,
+    {
         if self.window.is_empty() {
             return 0.0;
         }
 
-        let (total_keys, total_out_of_range) = self.window.iter().fold(
-            (0usize, 0usize),
-            |(acc_total, acc_oor), &(total, _, oor)| (acc_total + total, acc_oor + oor),
-        );
+        let (total_keys, selected_total) =
+            self.window
+                .iter()
+                .fold((0usize, 0usize), |(acc_total, acc_selected), entry| {
+                    (
+                        acc_total + entry.total_keys,
+                        acc_selected + field_selector(entry),
+                    )
+                });
 
         if total_keys == 0 {
             return 0.0;
         }
 
-        (total_out_of_range as f64 / total_keys as f64) * 100.0
+        (selected_total as f64 / total_keys as f64) * 100.0
     }
 }

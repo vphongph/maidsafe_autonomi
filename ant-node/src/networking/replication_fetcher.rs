@@ -463,18 +463,22 @@ impl ReplicationFetcher {
 
         // Avoid multiple allocations by using with_capacity
         let mut new_incoming_keys = Vec::with_capacity(incoming_keys.len());
-        let mut out_of_range_keys = Vec::new();
-
+        let mut out_of_range_keys_count = 0;
+        let mut locally_present_count = 0;
+        let mut fetch_in_progress_count = 0;
         // Single pass filtering instead of multiple retain() calls
         for (addr, record_type) in incoming_keys {
             let key = addr.to_record_key();
 
             // Skip if locally stored or already pending fetch
-            if locally_stored_keys.contains_key(&key)
-                || self
-                    .to_be_fetched
-                    .contains_key(&(key.clone(), record_type.clone(), *holder))
+            if locally_stored_keys.contains_key(&key) {
+                locally_present_count += 1;
+                continue;
+            } else if self
+                .to_be_fetched
+                .contains_key(&(key.clone(), record_type.clone(), *holder))
             {
+                fetch_in_progress_count += 1;
                 continue;
             }
 
@@ -497,7 +501,7 @@ impl ReplicationFetcher {
                 );
                 let is_in_range = distance <= max_distance;
                 if !is_in_range {
-                    out_of_range_keys.push(addr.clone());
+                    out_of_range_keys_count += 1;
                     debug!(
                         "Record {addr:?} is out of range (distance: {distance:?} > {max_distance:?})"
                     );
@@ -513,8 +517,10 @@ impl ReplicationFetcher {
         let marker = Marker::IncomingReplicationKeysStats {
             holder: *holder,
             total_keys: total_incoming_keys,
+            locally_present_keys: locally_present_count,
+            fetch_in_progress_keys: fetch_in_progress_count,
             new_keys: new_incoming_keys.len(),
-            out_of_range_keys: out_of_range_keys.len(),
+            out_of_range_keys: out_of_range_keys_count,
         };
         marker.log();
 

@@ -490,14 +490,25 @@ impl NetworkMetricsRecorder {
                 holder: _,
                 total_keys,
                 new_keys,
+                locally_present_keys,
+                fetch_in_progress_keys,
                 out_of_range_keys,
             } => {
                 // Update the sliding window with new data
                 if let Ok(mut window) = self.replication_stats_window.lock() {
-                    window.add_entry(total_keys, new_keys, out_of_range_keys);
+                    window.add_entry(replication::ReplicationStatsEntry {
+                        total_keys,
+                        new_keys,
+                        locally_stored_keys: locally_present_keys,
+                        fetch_in_progress_keys,
+                        out_of_range_keys,
+                    });
 
                     // Recalculate and update percentages
                     let new_keys_percent = window.calculate_new_keys_percent();
+                    let locally_stored_percent = window.calculate_locally_stored_keys_percent();
+                    let fetch_in_progress_percent =
+                        window.calculate_fetch_in_progress_keys_percent();
                     let out_of_range_percent = window.calculate_out_of_range_percent();
 
                     // Update metrics
@@ -507,6 +518,21 @@ impl NetworkMetricsRecorder {
                             metric_type: replication::IncomingMetricType::NewKeysPercent,
                         })
                         .set(new_keys_percent);
+
+                    let _ = self
+                        .replication_keys_incoming_percentages
+                        .get_or_create(&replication::IncomingKeysMetricLabels {
+                            metric_type: replication::IncomingMetricType::LocallyStoredKeysPercent,
+                        })
+                        .set(locally_stored_percent);
+
+                    let _ = self
+                        .replication_keys_incoming_percentages
+                        .get_or_create(&replication::IncomingKeysMetricLabels {
+                            metric_type:
+                                replication::IncomingMetricType::FetchInProgressKeysPercent,
+                        })
+                        .set(fetch_in_progress_percent);
 
                     let _ = self
                         .replication_keys_incoming_percentages

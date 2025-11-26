@@ -218,7 +218,7 @@ impl NetworkMetricsRecorder {
         // ==== Replication metrics =====
         let replicate_candidates = Family::default();
         sub_registry.register(
-            "replicate_candidates",
+            "replicate_candidates_v2",
             "The number of times a list of peers have been candidates for replication within or outside responsible distance",
             replicate_candidates.clone(),
         );
@@ -232,42 +232,42 @@ impl NetworkMetricsRecorder {
 
         let replication_sender_close_group_threshold = Gauge::default();
         sub_registry.register(
-            "replication_sender_close_group_threshold",
+            "replication_sender_close_group_threshold_v2",
             "The number of closest peers considered as the close group for replication sender checks",
             replication_sender_close_group_threshold.clone(),
         );
 
         let replication_sender_extended_distance_multiplier = Gauge::default();
         sub_registry.register(
-            "replication_sender_extended_distance_multiplier",
+            "replication_sender_extended_distance_multiplier_v2",
             "The multiplier applied to the distance range to determine the extended distance range for replication sender checks when the network is under load",
             replication_sender_extended_distance_multiplier.clone(),
         );
 
         let replication_sender_extended_distance_ilog2 = Gauge::default();
         sub_registry.register(
-            "replication_sender_extended_distance_ilog2",
+            "replication_sender_extended_distance_ilog2_v2",
             "The ilog2 value of the extended distance range used for replication sender checks when the network is under load",
             replication_sender_extended_distance_ilog2.clone(),
         );
 
         let replication_sender_outcome = Family::default();
         sub_registry.register(
-            "replication_sender_outcome",
+            "replication_sender_outcome_v2",
             "The outcome of replication sender checks, whether the sender was accepted or rejected",
             replication_sender_outcome.clone(),
         );
 
         let replication_keys_incoming_percentages = Family::default();
         sub_registry.register(
-            "replication_keys_incoming_percentages",
+            "replication_keys_incoming_percentages_v2",
             "Percentage of new keys and out-of-range keys in incoming replication requests (calculated over a sliding window of last 50 requests)",
             replication_keys_incoming_percentages.clone(),
         );
 
         let distance_range = Gauge::default();
         sub_registry.register(
-            "distance_range",
+            "distance_range_v2",
             "The ilog2 value of the distance range used for replication",
             distance_range.clone(),
         );

@@ -113,7 +113,7 @@ impl NodeMetricsRecorder {
             5.0 / CLOSE_GROUP_SIZE as f64,
         ]);
         sub_registry.register(
-            "network_wide_replication_holders",
+            "network_wide_replication_holders_v2",
             "The histogram of fraction of holders for a record during network wide replication. I.e, number of holders / CLOSE_GROUP_SIZE",
             network_wide_replication_holders.clone(),
         );

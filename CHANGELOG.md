@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
-## 2025-11-25
+## 2025-11-27
 
 ### API
 
@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `encrypt_directory_files` function now publicly exported from the `self_encryption` module for
   external directory encryption operations.
 - `EncryptionStream` type now publicly exported from the `self_encryption` module.
-- `DataMap` field added to `GetError::TooLargeForMemory` variant to provide the data map when a
-  file is too large for in-memory processing. [BREAKING]
+- `DataMap` field added to `GetError::TooLargeForMemory` variant to provide the data map when a file
+  is too large for in-memory processing. [BREAKING]
 
 #### Changed
 
@@ -40,13 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Removed
 
-- Upload fallback approach removed to ensure proper replication with multiple copies instead of
-  only a single copy being uploaded.
+- Upload fallback approach removed to ensure proper replication with multiple copies instead of only
+  a single copy being uploaded.
 
 #### Fixed
 
-- Parallel download and upload task execution that was previously processing tasks sequentially
-  instead of concurrently.
 - Symlink handling in self-encryption to skip encryption of both symlinks and directories.
 
 ### Network
@@ -55,64 +53,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Network-wide replication of all node keys to improve data availability.
 - Dynamic replication range expansion when the network is under load.
-- Self-restart capability for nodes with CI testing to verify functionality.
 
 #### Changed
 
 - Replication range expanded to give holders more trust in data availability.
 - Network-wide replication deadline decreased to 4 days to ensure fresher data distribution.
-- Replication now requires three replicas restored to maintain data redundancy.
-- GetReplicatedRecord request error responses made more accurate for better diagnostics.
+- `GetReplicatedRecord` request error responses made more accurate for better diagnostics.
 
 #### Fixed
 
-- Out-of-sync record store indexing cache is now properly pruned to maintain consistency.
-- Replication behavior modified according to review feedback for improved efficiency.
+- Replication behaviour modified according to review feedback for improved efficiency.
 
 ### Ant Client
 
 #### Added
 
 - The `analyze` command now supports extensive new functionality for network health monitoring:
-    + Recursive analysis of addresses to trace data relationships.
-    + Holder query capabilities to identify which nodes store specific data.
-    + JSON output format with file rotation for storing analysis results.
-    + Holder distance calculations showing both distance to target and peer-to-peer distances.
-    + Consolidated statistics for closest peers during recursive queries.
-    + Support for analyzing large datamaps that do not fit in memory.
-    + The `--closest-range` flag to configure the range of peers queried during analysis.
-    + The `--addr-range` flag during blind scan operations to specify address ranges.
-    + Repair functionality during analyze operations to re-upload missing chunks.
-    + Continuous blind scan capability for ongoing network monitoring.
-    + Close group record holding status checking to verify proper data distribution.
-- Chunk bad list entry revalidation when loaded from disk.
-- Support for checking and displaying fallen nodes in JSON output.
+    + Use the `--recursive` flag to recursively analyze datamaps and other data structures to fetch
+      all referenced data.
+    + Use the `--holders` flag to see the peers holding that piece of data.
+    + Use the `--closest-nodes` flag to query the closest peers to check if they're holding that
+      piece of data.
+    + Use the `--json` to display all analyzed information as json.
+    + Use the `--addr-range` flag during blind scan operations to specify address ranges.
 
 #### Changed
 
 - Analyze functionality refactored into its own module for better code organization.
-- The `analyze` command uses `comfytable` crate for improved table formatting in stdout.
-- Blind scan operations now use the same `CHUNK_DOWNLOAD_BATCH_SIZE` environment variable as
-  regular downloads for consistency.
-- Bad list rechecking is now performed in batches to prevent memory spikes during validation.
-- Helper functions encapsulated to reduce code duplication in analyze operations.
-- Re-upload functionality split out for better parallelism during repair operations.
 
 #### Fixed
 
 - The `analyze` command properly obtains target addresses from all enum entry types.
 - Public archive address extraction now returns correct addresses.
-- During blind scan operations, the command will fetch from the network if data cannot be
-  retrieved from the closest 7 peers.
-- Bad list and white list loading no longer creates duplicated entries.
 - Analysis output is printed to screen before storing to JSON file.
-- Kad `get_record` queries now use `Quorum::N(20)` to fetch records in a best-effort manner.
+- KAD `get_record` queries now use `Quorum::N(20)` to fetch records in a best-effort manner.
 
 ### Launchpad
 
 #### Added
 
-- Automatic permission elevation for Windows to simplify node management.
+- Automatic permission elevation on Windows; the user can now simply double click on the exe to run
+  it, rather than running from an elevated cmd.exe or Powershell session.
 
 #### Changed
 

@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.4.11-rc.1"
+version = "0.4.11"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "ant-logging"
-version = "0.3.0-rc.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.4.8-rc.1"
+version = "0.4.8"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -1665,7 +1665,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "autonomi"
-version = "0.7.0-rc.1"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "ant-bootstrap",
@@ -1708,7 +1708,7 @@ dependencies = [
 
 [[package]]
 name = "autonomi-nodejs"
-version = "0.3.0-rc.1"
+version = "0.3.0"
 dependencies = [
  "autonomi",
  "bytes",
@@ -6626,7 +6626,7 @@ dependencies = [
 
 [[package]]
 name = "node-launchpad"
-version = "0.5.12-rc.1"
+version = "0.5.12"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",

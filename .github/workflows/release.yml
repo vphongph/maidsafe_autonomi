@@ -3,43 +3,43 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      build-nat-detection:
-        description: Build nat-detection binary
+      release-nat-detection:
+        description: Release nat-detection binary
         type: boolean
         required: false
         default: true
-      build-node-launchpad:
-        description: Build node-launchpad binary
+      release-node-launchpad:
+        description: Release node-launchpad binary
         type: boolean
         required: false
         default: true
-      build-ant:
-        description: Build ant binary
+      release-ant:
+        description: Release ant binary
         type: boolean
         required: false
         default: true
-      build-antnode:
-        description: Build antnode binary
+      release-antnode:
+        description: Release antnode binary
         type: boolean
         required: false
         default: true
-      build-antctl:
-        description: Build antctl binary
+      release-antctl:
+        description: Release antctl binary
         type: boolean
         required: false
         default: true
-      build-antctld:
-        description: Build antctld binary
+      release-antctld:
+        description: Release antctld binary
         type: boolean
         required: false
         default: true
-      build-antnode-rpc-client:
-        description: Build antnode_rpc_client binary
+      release-antnode-rpc-client:
+        description: Release antnode_rpc_client binary
         type: boolean
         required: false
         default: true
-      build-evm-testnet:
-        description: Build evm-testnet binary
+      release-evm-testnet:
+        description: Release evm-testnet binary
         type: boolean
         required: false
         default: true
@@ -83,14 +83,14 @@ jobs:
       - name: build release artifacts
         shell: bash
         run: |
-          export BUILD_NAT_DETECTION="${{ inputs.build-nat-detection }}"
-          export BUILD_NODE_LAUNCHPAD="${{ inputs.build-node-launchpad }}"
-          export BUILD_ANT="${{ inputs.build-ant }}"
-          export BUILD_ANTNODE="${{ inputs.build-antnode }}"
-          export BUILD_ANTCTL="${{ inputs.build-antctl }}"
-          export BUILD_ANTCTLD="${{ inputs.build-antctld }}"
-          export BUILD_ANTNODE_RPC_CLIENT="${{ inputs.build-antnode-rpc-client }}"
-          export BUILD_EVM_TESTNET="${{ inputs.build-evm-testnet }}"
+          export RELEASE_NAT_DETECTION="${{ inputs.release-nat-detection }}"
+          export RELEASE_NODE_LAUNCHPAD="${{ inputs.release-node-launchpad }}"
+          export RELEASE_ANT="${{ inputs.release-ant }}"
+          export RELEASE_ANTNODE="${{ inputs.release-antnode }}"
+          export RELEASE_ANTCTL="${{ inputs.release-antctl }}"
+          export RELEASE_ANTCTLD="${{ inputs.release-antctld }}"
+          export RELEASE_ANTNODE_RPC_CLIENT="${{ inputs.release-antnode-rpc-client }}"
+          export RELEASE_EVM_TESTNET="${{ inputs.release-evm-testnet }}"
 
           just build-release-artifacts "${{ matrix.target }}"
 
@@ -139,35 +139,35 @@ jobs:
             echo "Downloaded ${bin_name} version ${version} from S3"
           }
 
-          if [[ "${{ inputs.build-nat-detection }}" != "true" ]]; then
+          if [[ "${{ inputs.release-nat-detection }}" != "true" ]]; then
             download_from_s3 "nat-detection" "nat-detection" "nat-detection"
           fi
 
-          if [[ "${{ inputs.build-node-launchpad }}" != "true" ]]; then
+          if [[ "${{ inputs.release-node-launchpad }}" != "true" ]]; then
             download_from_s3 "node-launchpad" "node-launchpad" "node-launchpad"
           fi
 
-          if [[ "${{ inputs.build-ant }}" != "true" ]]; then
+          if [[ "${{ inputs.release-ant }}" != "true" ]]; then
             download_from_s3 "ant" "ant-cli" "autonomi-cli"
           fi
 
-          if [[ "${{ inputs.build-antnode }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antnode }}" != "true" ]]; then
             download_from_s3 "antnode" "ant-node" "antnode"
           fi
 
-          if [[ "${{ inputs.build-antctl }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antctl }}" != "true" ]]; then
             download_from_s3 "antctl" "ant-node-manager" "antctl"
           fi
 
-          if [[ "${{ inputs.build-antctld }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antctld }}" != "true" ]]; then
             download_from_s3 "antctld" "ant-node-manager" "antctl"
           fi
 
-          if [[ "${{ inputs.build-antnode-rpc-client }}" != "true" ]]; then
+          if [[ "${{ inputs.release-antnode-rpc-client }}" != "true" ]]; then
             download_from_s3 "antnode_rpc_client" "ant-node-rpc-client" "antnode-rpc-client"
           fi
 
-          if [[ "${{ inputs.build-evm-testnet }}" != "true" ]]; then
+          if [[ "${{ inputs.release-evm-testnet }}" != "true" ]]; then
             download_from_s3 "evm-testnet" "evm-testnet" "evm-testnet"
           fi
 
@@ -178,13 +178,249 @@ jobs:
             artifacts
             !artifacts/.cargo-lock
 
-      - name: post notification to slack on failure
-        if: ${{ failure() }}
-        uses: bryannice/gitactions-slack-notification@2.0.0
-        env:
-          SLACK_INCOMING_WEBHOOK: ${{ secrets.SLACK_GH_ACTIONS_WEBHOOK_URL }}
-          SLACK_MESSAGE: "Please check the logs for the run at ${{ env.WORKFLOW_URL }}/${{ github.run_id }}"
-          SLACK_TITLE: "Release Failed"
+  sign-windows-binaries:
+    if: ${{
+        github.repository_owner == 'maidsafe' &&
+        (github.ref == 'refs/heads/stable' || startsWith(github.ref, 'refs/heads/rc'))
+      }}
+    name: sign windows binaries
+    runs-on: windows-latest
+    needs: [ build ]
+    environment: ${{ github.ref == 'refs/heads/stable' && 'stable' || 'release-candidate' }}
+    env:
+      RELEASE_ANT: ${{ inputs.release-ant }}
+      RELEASE_ANTNODE: ${{ inputs.release-antnode }}
+      RELEASE_ANTCTL: ${{ inputs.release-antctl }}
+      RELEASE_ANTCTLD: ${{ inputs.release-antctld }}
+      RELEASE_ANTNODE_RPC_CLIENT: ${{ inputs.release-antnode-rpc-client }}
+      RELEASE_EVM_TESTNET: ${{ inputs.release-evm-testnet }}
+      RELEASE_NAT_DETECTION: ${{ inputs.release-nat-detection }}
+      RELEASE_NODE_LAUNCHPAD: ${{ inputs.release-node-launchpad }}
+      SM_HOST: ${{ secrets.SM_HOST }}
+      SM_API_KEY: ${{ secrets.SM_API_KEY }}
+      SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+      SM_KEYPAIR_ALIAS: ${{ secrets.SM_KEYPAIR_ALIAS }}
+      SM_LOG_LEVEL: trace
+      SM_LOG_FILE: ${{ github.workspace }}\smctl-signing.log
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@master
+        with:
+          name: autonomi-x86_64-pc-windows-msvc
+          path: artifacts/x86_64-pc-windows-msvc/release
+
+      - name: Create client certificate file from base64
+        id: prepare_cert
+        shell: pwsh
+        run: |
+          $raw = @'
+          ${{ secrets.SM_CLIENT_CERT_B64 }}
+          '@
+
+          $clean = ($raw -replace '\s','')
+
+          if ([string]::IsNullOrWhiteSpace($clean)) {
+            Write-Error "SM_CLIENT_CERT_B64 is empty after normalization."
+            exit 1
+          }
+
+          try {
+            $certBytes = [Convert]::FromBase64String($clean)
+          } catch {
+            Write-Error "SM_CLIENT_CERT_B64 is not valid Base64. Ensure you pasted a base64-encoded P12."
+            exit 1
+          }
+
+          $certPath = Join-Path $env:RUNNER_TEMP "Certificate.p12"
+          [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+
+          if (-not (Test-Path $certPath)) {
+            Write-Error "Failed to create certificate file at: $certPath"
+            exit 1
+          }
+
+          "SM_CLIENT_CERT_FILE=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          "cert_path=$certPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sm_client_cert_b64=$clean" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Setup DigiCert Software Trust Manager tools (installs smctl)
+        uses: digicert/ssm-code-signing@v1.1.1
+        with:
+          sm_host: ${{ secrets.SM_HOST }}
+          sm_api_key: ${{ secrets.SM_API_KEY }}
+          sm_client_cert_b64: ${{ steps.prepare_cert.outputs.sm_client_cert_b64 }}
+          sm_client_cert_password: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Verify smctl installation and certificate access
+        shell: pwsh
+        run: |
+          smctl -v
+          smctl healthcheck
+          smctl keypair ls
+
+      - name: Sign Windows executables
+        shell: pwsh
+        run: |
+          $artifactsPath = "artifacts\x86_64-pc-windows-msvc\release"
+          $allFiles = Get-ChildItem $artifactsPath -Filter *.exe -Recurse
+
+          # Define which binaries should be signed based on build flags
+          $binaryMap = @{
+            "nat-detection.exe" = $env:RELEASE_NAT_DETECTION
+            "node-launchpad.exe" = $env:RELEASE_NODE_LAUNCHPAD
+            "ant.exe" = $env:RELEASE_ANT
+            "antnode.exe" = $env:RELEASE_ANTNODE
+            "antctl.exe" = $env:RELEASE_ANTCTL
+            "antctld.exe" = $env:RELEASE_ANTCTLD
+            "antnode_rpc_client.exe" = $env:RELEASE_ANTNODE_RPC_CLIENT
+            "evm-testnet.exe" = $env:RELEASE_EVM_TESTNET
+          }
+
+          # Filter files to only those that were built in this run
+          $files = $allFiles | Where-Object {
+            $fileName = $_.Name
+            $shouldBuild = $binaryMap[$fileName]
+            if ($shouldBuild -eq "true") {
+              return $true
+            }
+            Write-Host "Skipping $fileName (not built in this run)"
+            return $false
+          }
+
+          if ($files.Count -eq 0) {
+            Write-Host "No executables to sign (none were built in this run)"
+            exit 0
+          }
+
+          Write-Host "Found $($files.Count) executable(s) to sign:"
+          $files | ForEach-Object { Write-Host "  - $($_.Name)" }
+          Write-Host ""
+
+          $smHostValue = $env:SM_HOST
+          $smApiKey = $env:SM_API_KEY
+          $smClientCertFile = $env:SM_CLIENT_CERT_FILE
+          $smClientCertPassword = $env:SM_CLIENT_CERT_PASSWORD
+          $smKeypairAlias = $env:SM_KEYPAIR_ALIAS
+          $smLogLevel = $env:SM_LOG_LEVEL
+          $smLogFile = $env:SM_LOG_FILE
+
+          $jobs = @()
+          $maxParallel = 3
+
+          foreach ($f in $files) {
+            # Wait if we've hit the parallel limit
+            while ((Get-Job -State Running).Count -ge $maxParallel) {
+              Start-Sleep -Milliseconds 500
+            }
+
+            Write-Host "Starting signing job for: $($f.Name)"
+            $job = Start-Job -ScriptBlock {
+              param($filePath, $alias, $smHostValue, $apiKey, $certFile, $certPassword, $logLevel, $logFile)
+
+              $env:SM_HOST = $smHostValue
+              $env:SM_API_KEY = $apiKey
+              $env:SM_CLIENT_CERT_FILE = $certFile
+              $env:SM_CLIENT_CERT_PASSWORD = $certPassword
+              $env:SM_KEYPAIR_ALIAS = $alias
+              $env:SM_LOG_LEVEL = $logLevel
+              $env:SM_LOG_FILE = $logFile
+
+              $result = & smctl sign --keypair-alias "$alias" --input "$filePath" 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                throw "Signing failed for $filePath : $result"
+              }
+              return "Successfully signed: $filePath"
+            } -ArgumentList $f.FullName, $smKeypairAlias, $smHostValue, $smApiKey, $smClientCertFile, $smClientCertPassword, $smLogLevel, $smLogFile
+
+            $jobs += $job
+          }
+
+          $failed = @()
+          foreach ($job in $jobs) {
+            $result = Receive-Job -Job $job -Wait
+            if ($job.State -eq 'Failed') {
+              $failed += $job.ChildJobs[0].JobStateInfo.Reason.Message
+            } else {
+              Write-Host $result
+            }
+            Remove-Job -Job $job
+          }
+
+          if ($failed.Count -gt 0) {
+            Write-Error ("Signing failed for the following files:`n" + ($failed -join "`n"))
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "All files signed successfully!"
+
+      - name: Verify signatures (Authenticode)
+        shell: pwsh
+        run: |
+          $artifactsPath = "artifacts\x86_64-pc-windows-msvc\release"
+          $allFiles = Get-ChildItem $artifactsPath -Filter *.exe -Recurse
+
+          # Define which binaries should be verified based on build flags
+          $binaryMap = @{
+            "nat-detection.exe" = $env:RELEASE_NAT_DETECTION
+            "node-launchpad.exe" = $env:RELEASE_NODE_LAUNCHPAD
+            "ant.exe" = $env:RELEASE_ANT
+            "antnode.exe" = $env:RELEASE_ANTNODE
+            "antctl.exe" = $env:RELEASE_ANTCTL
+            "antctld.exe" = $env:RELEASE_ANTCTLD
+            "antnode_rpc_client.exe" = $env:RELEASE_ANTNODE_RPC_CLIENT
+            "evm-testnet.exe" = $env:RELEASE_EVM_TESTNET
+          }
+
+          # Filter files to only those that were built and signed in this run
+          $files = $allFiles | Where-Object {
+            $fileName = $_.Name
+            $shouldBuild = $binaryMap[$fileName]
+            return $shouldBuild -eq "true"
+          }
+
+          if ($files.Count -eq 0) {
+            Write-Host "No executables to verify (none were built in this run)"
+            exit 0
+          }
+
+          $bad = @()
+          $verified = 0
+
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            "{0} -> {1}" -f $f.Name, $sig.Status | Write-Host
+
+            if ($sig.Status -eq "Valid") {
+              $verified++
+              Write-Host "  Signer: $($sig.SignerCertificate.Subject)"
+              Write-Host "  Issuer: $($sig.SignerCertificate.Issuer)"
+            } else {
+              $bad += $f.Name
+            }
+          }
+
+          Write-Host "`nVerification Summary: $verified/$($files.Count) files verified successfully"
+
+          if ($bad.Count -gt 0) {
+            Write-Error ("Signature validation failed for:`n" + ($bad -join "`n"))
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autonomi-x86_64-pc-windows-msvc-signed
+          path: artifacts/x86_64-pc-windows-msvc/release
+
+      - name: Upload signing logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signing-logs
+          path: ${{ github.workspace }}\smctl-signing.log
+          if-no-files-found: ignore
 
   s3-release:
     if: ${{
@@ -193,7 +429,7 @@ jobs:
       }}
     name: s3 release
     runs-on: ubuntu-latest
-    needs: [ build ]
+    needs: [build, sign-windows-binaries]
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.S3_DEPLOY_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_DEPLOY_AWS_SECRET_ACCESS_KEY }}
@@ -204,6 +440,10 @@ jobs:
         with:
           name: autonomi-x86_64-pc-windows-msvc
           path: artifacts/x86_64-pc-windows-msvc/release
+      - uses: actions/download-artifact@master
+        with:
+          name: autonomi-x86_64-pc-windows-msvc-signed
+          path: artifacts/x86_64-pc-windows-msvc-signed/release
       - uses: actions/download-artifact@master
         with:
           name: autonomi-x86_64-unknown-linux-musl
@@ -233,6 +473,39 @@ jobs:
       - name: install just
         shell: bash
         run: cargo binstall --no-confirm just
+
+      - name: replace unsigned Windows binaries with signed ones
+        shell: bash
+        run: |
+          # Replace only the binaries that were built and signed in this run
+          binaries=(
+            "nat-detection:${{ inputs.release-nat-detection }}"
+            "node-launchpad:${{ inputs.release-node-launchpad }}"
+            "ant:${{ inputs.release-ant }}"
+            "antnode:${{ inputs.release-antnode }}"
+            "antctl:${{ inputs.release-antctl }}"
+            "antctld:${{ inputs.release-antctld }}"
+            "antnode_rpc_client:${{ inputs.release-antnode-rpc-client }}"
+            "evm-testnet:${{ inputs.release-evm-testnet }}"
+          )
+
+          for entry in "${binaries[@]}"; do
+            binary="${entry%%:*}"
+            should_build="${entry##*:}"
+
+            if [[ "$should_build" == "true" ]]; then
+              echo "Replacing ${binary}.exe with signed version"
+              if [[ -f "artifacts/x86_64-pc-windows-msvc-signed/release/${binary}.exe" ]]; then
+                cp "artifacts/x86_64-pc-windows-msvc-signed/release/${binary}.exe" \
+                   "artifacts/x86_64-pc-windows-msvc/release/${binary}.exe"
+              else
+                echo "Signed binary ${binary}.exe not found"
+                exit 1
+              fi
+            else
+              echo "Skipping ${binary}.exe (not built in this run)"
+            fi
+          done
 
       - name: upload binaries to S3
         shell: bash
@@ -257,13 +530,17 @@ jobs:
       }}
     name: github release
     runs-on: ubuntu-latest
-    needs: [ build ]
+    needs: [build, sign-windows-binaries]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@master
         with:
           name: autonomi-x86_64-pc-windows-msvc
           path: artifacts/x86_64-pc-windows-msvc/release
+      - uses: actions/download-artifact@master
+        with:
+          name: autonomi-x86_64-pc-windows-msvc-signed
+          path: artifacts/x86_64-pc-windows-msvc-signed/release
       - uses: actions/download-artifact@master
         with:
           name: autonomi-x86_64-unknown-linux-musl
@@ -293,6 +570,38 @@ jobs:
       - name: install just
         shell: bash
         run: cargo binstall --no-confirm just
+
+      - name: replace unsigned Windows binaries with signed ones
+        shell: bash
+        run: |
+          # Replace only the binaries that were built and signed in this run
+          binaries=(
+            "nat-detection:${{ inputs.release-nat-detection }}"
+            "node-launchpad:${{ inputs.release-node-launchpad }}"
+            "ant:${{ inputs.release-ant }}"
+            "antnode:${{ inputs.release-antnode }}"
+            "antctl:${{ inputs.release-antctl }}"
+            "antctld:${{ inputs.release-antctld }}"
+            "antnode_rpc_client:${{ inputs.release-antnode-rpc-client }}"
+            "evm-testnet:${{ inputs.release-evm-testnet }}"
+          )
+
+          for entry in "${binaries[@]}"; do
+            binary="${entry%%:*}"
+            should_build="${entry##*:}"
+
+            if [[ "$should_build" == "true" ]]; then
+              echo "Replacing ${binary}.exe with signed version"
+              if [[ -f "artifacts/x86_64-pc-windows-msvc-signed/release/${binary}.exe" ]]; then
+                cp "artifacts/x86_64-pc-windows-msvc-signed/release/${binary}.exe" \
+                   "artifacts/x86_64-pc-windows-msvc/release/${binary}.exe"
+              else
+                echo "Warning: Signed binary ${binary}.exe not found"
+              fi
+            else
+              echo "Skipping ${binary}.exe (not built in this run)"
+            fi
+          done
 
       - name: set stable release prefix
         if: ${{ github.ref == 'refs/heads/stable' }}
@@ -339,14 +648,6 @@ jobs:
             cd packaged_architectures
             ls | xargs gh release upload ${{ env.RELEASE_PREFIX }}-${{ env.PACKAGE_VERSION }}
           )
-
-      - name: post notification to slack on failure
-        if: ${{ failure() }}
-        uses: bryannice/gitactions-slack-notification@2.0.0
-        env:
-          SLACK_INCOMING_WEBHOOK: ${{ secrets.SLACK_GH_ACTIONS_WEBHOOK_URL }}
-          SLACK_MESSAGE: "Please check the logs for the run at ${{ env.WORKFLOW_URL }}/${{ github.run_id }}"
-          SLACK_TITLE: "Release Failed"
 
   # publish-crates:
   #   if: ${{ github.repository_owner == 'maidsafe' && github.ref == 'refs/heads/stable' }}

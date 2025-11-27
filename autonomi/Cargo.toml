@@ -26,7 +26,7 @@ extension-module = ["pyo3/extension-module", "pyo3-async-runtimes"]
 loud = []
 
 [dependencies]
-ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.11" }
+ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.12" }
 ant-evm = { path = "../ant-evm", version = "0.1.17" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.9" }
 bip39 = "2.0.0"

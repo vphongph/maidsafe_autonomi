@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "ant-bootstrap"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-manager"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-rpc-client"
-version = "0.6.48"
+version = "0.6.49"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -1155,7 +1155,7 @@ dependencies = [
 
 [[package]]
 name = "ant-service-management"
-version = "0.4.16"
+version = "0.4.17"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",

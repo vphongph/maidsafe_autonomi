@@ -24,14 +24,16 @@ pub use access::data_dir;
 pub use access::keys;
 pub use access::user_data;
 
-use clap::Parser;
-use color_eyre::Result;
-
+#[cfg(feature = "metrics")]
 use ant_logging::metrics::init_metrics;
 use ant_logging::{LogBuilder, LogFormat, ReloadHandle, WorkerGuard};
 use autonomi::version;
+use clap::Parser;
+use color_eyre::Result;
 use opt::{NetworkId, Opt};
 use tracing::Level;
+
+use crate::commands::SubCmd;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -73,6 +75,7 @@ async fn main() -> Result<()> {
 
     let _log_guards = init_logging_and_metrics(&opt)?;
     if opt.peers.local {
+        #[cfg(feature = "metrics")]
         tokio::spawn(init_metrics(std::process::id()));
         opt.network_id = NetworkId::local();
     }
@@ -101,8 +104,14 @@ fn init_logging_and_metrics(opt: &Opt) -> Result<(ReloadHandle, Option<WorkerGua
         // bins
         ("ant".to_string(), Level::TRACE),
     ];
+    let mute = opt
+        .command
+        .as_ref()
+        .map(|cmd| matches!(cmd, SubCmd::Analyze { .. }))
+        .unwrap_or(false);
     let mut log_builder = LogBuilder::new(logging_targets);
     log_builder.output_dest(opt.log_output_dest.clone());
+    log_builder.print_updates_to_stdout(!mute);
     log_builder.format(opt.log_format.unwrap_or(LogFormat::Default));
     let guards = log_builder.initialize()?;
     Ok(guards)

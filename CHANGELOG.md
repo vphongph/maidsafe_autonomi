@@ -7,6 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-11-27
+
+### API
+
+#### Added
+
+- `Client::analyze_address_recursively` method for recursively analyzing addresses by following all
+  discovered addresses, returning a map of analyses.
+- `Client::get_record_from_peer` method to retrieve a record directly from a specific peer.
+- `Client::get_record_and_holders` method that returns both the record and a list of peer holders,
+  supporting custom quorum requirements.
+- `Client::get_storage_proofs_from_peer` method to retrieve storage proofs from a specific peer.
+- `encrypt_directory_files` function now publicly exported from the `self_encryption` module for
+  external directory encryption operations.
+- `EncryptionStream` type now publicly exported from the `self_encryption` module.
+- `DataMap` field added to `GetError::TooLargeForMemory` variant to provide the data map when a file
+  is too large for in-memory processing. [BREAKING]
+
+#### Changed
+
+- `Client::get_closest_to_address` now accepts an optional `count` parameter to specify the number
+  of peers to retrieve; if `None`, returns `CLOSE_GROUP+2` peers. [BREAKING]
+- `Analysis` enum now uses `custom_debug::Debug` for improved debug output.
+- `Analysis::DataMap` and `Analysis::File` variants now skip the `data` field in debug output to
+  reduce noise when debugging large data structures.
+- `Analysis::Chunk` display no longer prints chunk content in hex format.
+- Chunk retrieval strategy changed to use fallback approach with `closest_20` peers when normal DHT
+  queries fail, and chunk get retry strategy set to `RetryStrategy::None` to rely on this fallback.
+- Maximum stream data size reduced to 1 MB for both client and node connections to optimize network
+  performance.
+
+#### Removed
+
+- Upload fallback approach removed to ensure proper replication with multiple copies instead of only
+  a single copy being uploaded.
+
+#### Fixed
+
+- Symlink handling in self-encryption to skip encryption of both symlinks and directories.
+
+### Network
+
+#### Added
+
+- Network-wide replication of all node keys to improve data availability.
+- Dynamic replication range expansion when the network is under load.
+
+#### Changed
+
+- Replication range expanded to give holders more trust in data availability.
+- Network-wide replication deadline decreased to 4 days to ensure fresher data distribution.
+- `GetReplicatedRecord` request error responses made more accurate for better diagnostics.
+
+#### Fixed
+
+- Replication behaviour modified according to review feedback for improved efficiency.
+
+### Ant Client
+
+#### Added
+
+- The `analyze` command now supports extensive new functionality for network health monitoring:
+    + Use the `--recursive` flag to recursively analyze datamaps and other data structures to fetch
+      all referenced data.
+    + Use the `--holders` flag to see the peers holding that piece of data.
+    + Use the `--closest-nodes` flag to query the closest peers to check if they're holding that
+      piece of data.
+    + Use the `--json` to display all analyzed information as json.
+    + Use the `--addr-range` flag during blind scan operations to specify address ranges.
+
+#### Changed
+
+- Analyze functionality refactored into its own module for better code organization.
+
+#### Fixed
+
+- The `analyze` command properly obtains target addresses from all enum entry types.
+- Public archive address extraction now returns correct addresses.
+- Analysis output is printed to screen before storing to JSON file.
+- KAD `get_record` queries now use `Quorum::N(20)` to fetch records in a best-effort manner.
+
+### Launchpad
+
+#### Added
+
+- Automatic permission elevation on Windows; the user can now simply double click on the exe to run
+  it, rather than running from an elevated cmd.exe or Powershell session.
+
+#### Changed
+
+- Removed custom panic handler in favor of using the `ant-logging` crate for consistent error
+  handling and logging.
+
+### General
+
+#### Changed
+
+- Logging path handling improved for tokio tests with dynamic file or directory-based logging.
+- Metrics initialization now properly uses the metrics feature flag.
+
 ## 2025-11-06
 
 ### API

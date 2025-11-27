@@ -17,7 +17,11 @@ use ant_protocol::{
     messages::{CmdResponse, Request, Response},
     storage::ValidationType,
 };
+use libp2p::kad::{KBucketDistance as Distance, U256};
 use libp2p::request_response::{self, Message};
+
+const REPLICATION_SENDER_CLOSE_GROUP_THRESHOLD: usize = 40;
+const REPLICATION_SENDER_EXTENDED_DISTANCE_MULTIPLIER: usize = 10;
 
 impl SwarmDriver {
     /// Forwards `Request` to the upper layers using `Sender<NetworkEvent>`. Sends `Response` to the peers
@@ -337,19 +341,102 @@ impl SwarmDriver {
             incoming_keys.len()
         );
 
-        // accept replication requests from the K_VALUE peers away,
+        // accept replication requests from the 40 peers away,
         // giving us some margin for replication
-        let closest_k_peers = self.get_closest_k_local_peers_to_self();
-        if !closest_k_peers
+        let closest_40_peers =
+            self.get_closest_local_peers_to_self(REPLICATION_SENDER_CLOSE_GROUP_THRESHOLD);
+
+        #[cfg(feature = "open-metrics")]
+        if let Some(metrics_recorder) = self.metrics_recorder.as_ref() {
+            let _ = metrics_recorder
+                .replication_sender_close_group_threshold
+                .set(REPLICATION_SENDER_CLOSE_GROUP_THRESHOLD as i64);
+            let _ = metrics_recorder
+                .replication_sender_extended_distance_multiplier
+                .set(REPLICATION_SENDER_EXTENDED_DISTANCE_MULTIPLIER as i64);
+        }
+
+        let mut within_closest_group = true; // set to false below if checks fail
+        let mut within_extended_distance_range = false; // set to true below if checks pass
+        if !closest_40_peers
             .iter()
             .any(|(peer_id, _)| peer_id == &holder)
             || holder == self.self_peer_id
         {
-            debug!("Holder {holder:?} is self or not in replication range.");
-            return Ok(());
+            let distance =
+                NetworkAddress::from(holder).distance(&NetworkAddress::from(self.self_peer_id));
+            info!(
+                "Holder {holder:?} is self or not within the 40 closest peers. Distance is {distance:?}({:?})",
+                distance.ilog2()
+            );
+            within_closest_group = false;
+            if !self.network_wide_replication.is_network_under_load() {
+                self.record_metrics(Marker::ReplicationSenderRange {
+                    sender: &holder,
+                    keys_count: incoming_keys.len(),
+                    within_closest_group,
+                    within_extended_distance_range,
+                    network_under_load: false,
+                });
+                return Ok(());
+            }
+
+            // check if the holder is within 10x the distance to the farthest 40th peer.
+            let farthest_distance = closest_40_peers
+                .last()
+                .map(|(peer_id, _)| {
+                    NetworkAddress::from(*peer_id)
+                        .distance(&NetworkAddress::from(self.self_peer_id))
+                })
+                .unwrap_or(Distance(U256::MAX));
+            let holder_distance =
+                NetworkAddress::from(holder).distance(&NetworkAddress::from(self.self_peer_id));
+            // increases the ilog2 value by 3 to 4. check test_distance_multiplication_and_ilog2
+            let increased_distance = Distance(
+                farthest_distance
+                    .0
+                    .saturating_mul(U256::from(REPLICATION_SENDER_EXTENDED_DISTANCE_MULTIPLIER)),
+            );
+            #[cfg(feature = "open-metrics")]
+            if let Some(metrics_recorder) = self.metrics_recorder.as_ref()
+                && let Some(farthest_ilog2) = farthest_distance.ilog2()
+            {
+                let _ = metrics_recorder
+                    .replication_sender_extended_distance_ilog2
+                    .set(farthest_ilog2 as i64);
+            }
+
+            if holder_distance.0 > increased_distance.0 {
+                debug!(
+                    "Holder {holder:?} is not within increased replication range {increased_distance:?}({:?}) during high network load",
+                    increased_distance.ilog2()
+                );
+
+                self.record_metrics(Marker::ReplicationSenderRange {
+                    sender: &holder,
+                    keys_count: incoming_keys.len(),
+                    within_closest_group,
+                    within_extended_distance_range,
+                    network_under_load: true,
+                });
+                return Ok(());
+            }
+            info!(
+                "Holder {holder:?} is within increased replication range {increased_distance:?}({:?}) during high network load",
+                increased_distance.ilog2()
+            );
+            within_extended_distance_range = true;
         }
 
-        // On receive a replication_list from a close_group peer, we undertake:
+        self.record_metrics(Marker::ReplicationSenderRange {
+            sender: &holder,
+            keys_count: incoming_keys.len(),
+            within_closest_group,
+            within_extended_distance_range,
+            network_under_load: self.network_wide_replication.is_network_under_load(),
+        });
+
+        // On receive a replication_list from a close up peer, we undertake:
         //   1, For those keys that we don't have:
         //        fetch them if close enough to us
         //   2, For those GraphEntry that we have that differ in the hash, we fetch the other version
@@ -365,10 +452,12 @@ impl SwarmDriver {
             incoming_keys,
             all_keys,
             is_fresh_replicate,
-            closest_k_peers
+            closest_40_peers
                 .iter()
                 .map(|(peer_id, _addrs)| NetworkAddress::from(*peer_id))
                 .collect(),
+            #[cfg(feature = "open-metrics")]
+            self.metrics_recorder.as_ref(),
         );
         if keys_to_fetch.is_empty() {
             debug!("no waiting keys to fetch from the network");

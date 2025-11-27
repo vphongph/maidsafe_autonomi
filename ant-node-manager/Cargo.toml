@@ -32,7 +32,7 @@ websockets = []
 ant-bootstrap = { path = "../ant-bootstrap", version = "0.2.11" }
 ant-build-info = { path = "../ant-build-info", version = "0.1.29" }
 ant-evm = { path = "../ant-evm", version = "0.1.17" }
-ant-logging = { path = "../ant-logging", version = "0.2.52" }
+ant-logging = { path = "../ant-logging", version = "0.3.0" }
 ant-protocol = { path = "../ant-protocol", version = "1.0.9" }
 ant-releases = { version = "0.4.1" }
 ant-service-management = { path = "../ant-service-management", version = "0.4.16" }
@@ -72,7 +72,7 @@ users = "0.11"
 which = "6.0.1"
 
 [dev-dependencies]
-assert_cmd = "2.0.12"
+assert_cmd = "2.1.1"
 assert_fs = "1.0.13"
 assert_matches = "1.5.0"
 async-trait = "0.1"

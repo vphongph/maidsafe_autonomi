@@ -103,7 +103,28 @@ impl NetworkDriver {
         info!("Client Peer ID: {peer_id}");
 
         // set transport
-        let quic_config = libp2p::quic::Config::new(&keypair);
+        let mut quic_config = libp2p::quic::Config::new(&keypair);
+        
+        // CRITICAL: Set to 1MB for maximum node compatibility.
+        // Testing shows that 1MB works with ALL nodes, while higher values (16MB, 32MB) cause 
+        // QUIC negotiation failures. This is because most nodes use libp2p's default QUIC config
+        // (~1-2MB), and large mismatches in max_stream_data between client and node can cause
+        // the QUIC handshake to fail or timeout.
+        //
+        // Why this works for 4MB records: QUIC streams can transfer data larger than the 
+        // initial window through flow control updates during the transfer. The max_stream_data
+        // is the initial/minimum window, not a hard limit on total transfer size.
+        let max_stream_data = std::env::var("ANT_MAX_STREAM_DATA")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(1024 * 1024); // 1 MB - proven to work with all nodes
+        
+        quic_config.max_stream_data = max_stream_data;
+        
+        info!("Client QUIC max_stream_data: {} bytes ({:.2} MB)", 
+              max_stream_data, 
+              max_stream_data as f64 / (1024.0 * 1024.0));
+        
         let transport_gen = QuicTransport::new(quic_config);
         let trans = transport_gen.map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
         let transport = trans.boxed();
@@ -394,6 +415,50 @@ impl NetworkDriver {
 
                 self.pending_tasks
                     .insert_query(req_id, NetworkTask::GetVersion { peer, resp });
+            }
+            NetworkTask::GetRecordFromPeer { addr, peer, resp } => {
+                let req = Request::Query(Query::GetReplicatedRecord {
+                    // using the recipient's address as the requester as a placeholder
+                    requester: NetworkAddress::from(peer.peer_id),
+                    key: addr.clone(),
+                });
+
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
+
+                self.pending_tasks
+                    .insert_query(req_id, NetworkTask::GetRecordFromPeer { addr, peer, resp });
+            }
+            NetworkTask::GetStorageProofsFromPeer {
+                addr,
+                peer,
+                nonce,
+                difficulty,
+                resp,
+            } => {
+                let req = Request::Query(Query::GetStoreQuote {
+                    key: addr.clone(),
+                    data_type: 0, // Chunk type
+                    data_size: 0, // Not relevant for proof checking
+                    nonce: Some(ant_protocol::messages::Nonce::from(nonce)),
+                    difficulty,
+                });
+
+                let req_id =
+                    self.req()
+                        .send_request_with_addresses(&peer.peer_id, req, peer.addrs.clone());
+
+                self.pending_tasks.insert_query(
+                    req_id,
+                    NetworkTask::GetStorageProofsFromPeer {
+                        addr,
+                        peer,
+                        nonce,
+                        difficulty,
+                        resp,
+                    },
+                );
             }
             NetworkTask::ConnectionsMade { resp } => {
                 // Send the current count of connections made

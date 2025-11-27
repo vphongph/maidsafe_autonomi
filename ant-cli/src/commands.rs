@@ -71,9 +71,32 @@ pub enum SubCmd {
         /// Show closest nodes to this address instead of analyzing it.
         #[arg(long)]
         closest_nodes: bool,
+        /// Show all holders of the record at this address.
+        #[arg(long)]
+        holders: bool,
+        /// Check health of closest nodes by requesting storage proofs for the target chunk address.
+        #[arg(long)]
+        nodes_health: bool,
+        /// Repair records with insufficient copies in closest group.
+        /// When analyzing with --closest-nodes, automatically re-upload records
+        /// that have less than 3 holders among the closest 7 nodes.
+        #[arg(long)]
+        repair: bool,
+        /// Filter network scan to only target addresses starting with this hex character (0-9, a-f).
+        /// Only applies when using --nodes-health with a number of rounds.
+        #[arg(long)]
+        addr_range: Option<char>,
+        /// Recursively analyze all discovered addresses (chunks, pointers, etc.)
+        #[arg(short, long)]
+        recursive: bool,
         /// Verbose output. Detailed description of the analysis.
         #[arg(short, long)]
         verbose: bool,
+        /// Output results as JSON to a file. Append-only writing.
+        /// If path is a file, appends to that file.
+        /// If path is a directory, enables file rotations (50MB max per file, 10 files max).
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
 }
 
@@ -649,8 +672,28 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
         Some(SubCmd::Analyze {
             addr,
             closest_nodes,
+            holders,
+            nodes_health,
+            repair,
+            addr_range,
             verbose,
-        }) => analyze::analyze(&addr, closest_nodes, verbose, network_context).await,
+            recursive,
+            json,
+        }) => {
+            analyze::analyze(
+                &addr,
+                closest_nodes,
+                holders,
+                nodes_health,
+                repair,
+                addr_range,
+                recursive,
+                verbose,
+                network_context,
+                json,
+            )
+            .await
+        }
         None => {
             // If no subcommand is given, default to clap's error behaviour.
             Opt::command()

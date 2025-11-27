@@ -67,6 +67,8 @@ pub enum NetworkError {
     /// Incompatible network protocol, either the client or the nodes are outdated
     #[error("Incompatible network protocol, either the client or the nodes are outdated")]
     IncompatibleNetworkProtocol,
+    #[error("Provided NonZeroUsize is invalid: {0}")]
+    InvalidNonZeroUsize(String),
 
     /// Error getting closest peers
     #[error("Get closest peers request timeout")]
@@ -117,11 +119,12 @@ pub enum NetworkError {
     #[error("Get record timed out, peers found holding the record at timeout: {0:?}")]
     GetRecordTimeout(Vec<PeerId>),
     #[error(
-        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}"
+        "Failed to get enough holders for the get record request. Expected: {expected_holders}, got: {got_holders}, holders: {holders:?}"
     )]
     GetRecordQuorumFailed {
         got_holders: usize,
         expected_holders: usize,
+        holders: HashMap<PeerId, Record>,
     },
     #[error("Failed to get record: {0}")]
     GetRecordError(String),
@@ -255,7 +258,8 @@ impl Network {
         // For data_type like ScratchPad, it is observed the holders will be 7
         // which result in the expected_holders to be 4, and could result in false alert.
         let candidates = std::cmp::min(CLOSE_GROUP_SIZE, to.len());
-        let total = NonZeroUsize::new(candidates).ok_or(NetworkError::PutRecordMissingTargets)?;
+        let total = NonZeroUsize::new(candidates)
+            .ok_or(NetworkError::InvalidNonZeroUsize(candidates.to_string()))?;
         let expected_holders = expected_holders(quorum, total);
 
         trace!(
@@ -275,21 +279,8 @@ impl Network {
         // collect results
         let mut ok_res = vec![];
         let mut err_res = vec![];
-        let mut old_nodes_tasks = vec![];
         while let Some((res, peer)) = tasks.next().await {
             match res {
-                // redirect to old protocol on old nodes
-                Err(NetworkError::IncompatibleNetworkProtocol) => {
-                    let record_clone = record.clone();
-                    let self_clone = self.clone();
-                    let handle = tokio::spawn(async move {
-                        let res = self_clone
-                            .put_record_kad(record_clone, vec![peer.clone()], Quorum::One)
-                            .await;
-                        (res, peer)
-                    });
-                    old_nodes_tasks.push(handle);
-                }
                 // accumulate oks until Quorum is met
                 Ok(()) => {
                     ok_res.push(peer);
@@ -298,31 +289,6 @@ impl Network {
                     }
                 }
                 Err(e) => err_res.push((peer.peer_id, e.to_string())),
-            }
-        }
-        let new_nodes_ok = ok_res.len();
-
-        // complete with answers from old nodes
-        let mut old_nodes_futures = FuturesUnordered::new();
-        for handle in old_nodes_tasks {
-            old_nodes_futures.push(handle);
-        }
-        while let Some(join_result) = old_nodes_futures.next().await {
-            if let Ok((res, peer)) = join_result {
-                match res {
-                    // accumulate oks until Quorum is met
-                    Ok(()) => {
-                        ok_res.push(peer);
-                        if ok_res.len() >= expected_holders.get() {
-                            let old_nodes_ok = ok_res.len() - new_nodes_ok;
-                            trace!(
-                                "Put record {key} completed with {new_nodes_ok} new nodes ok and {old_nodes_ok} old nodes ok"
-                            );
-                            return Ok(());
-                        }
-                    }
-                    Err(e) => err_res.push((peer.peer_id, e.to_string())),
-                }
             }
         }
 
@@ -350,46 +316,19 @@ impl Network {
         rx.await?
     }
 
-    async fn put_record_kad(
-        &self,
-        record: Record,
-        to: Vec<PeerInfo>,
-        quorum: Quorum,
-    ) -> Result<(), NetworkError> {
-        let (tx, rx) = oneshot::channel();
-        let network_address = NetworkAddress::from(&record.key);
-        let task = NetworkTask::PutRecordKad {
-            record,
-            to,
-            quorum,
-            resp: tx,
-        };
-        self.task_sender
-            .send(task)
-            .await
-            .map_err(|_| NetworkError::NetworkDriverOffline)?;
-
-        let res = rx.await?;
-
-        // In poor network conditions PutRecordQuorumFailed is unreliable.
-        // To eliminate false positives, we do a manual record existence check after the put.
-        if let Err(NetworkError::PutRecordQuorumFailed(_, _)) = res {
-            match self.get_record_and_holders(network_address, quorum).await {
-                Ok((Some(_), _)) => return Ok(()),
-                _ => return res,
-            }
-        }
-
-        res
-    }
-
     /// Get the closest peers to an address on the Network
     /// Defaults to N_CLOSEST_PEERS peers.
     pub async fn get_closest_peers(
         &self,
         addr: NetworkAddress,
+        count: Option<usize>,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
-        self.get_closest_n_peers(addr, N_CLOSEST_PEERS).await
+        let count = if let Some(c) = count {
+            NonZeroUsize::new(c).ok_or(NetworkError::InvalidNonZeroUsize(c.to_string()))?
+        } else {
+            N_CLOSEST_PEERS
+        };
+        self.get_closest_n_peers(addr, count).await
     }
 
     /// Get the N closest peers to an address on the Network
@@ -420,6 +359,52 @@ impl Network {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Get a record directly from a specific peer on the Network
+    /// Returns:
+    /// - Some(Record) if the peer holds the record
+    /// - None if the peer doesn't hold the record or the request fails
+    pub async fn get_record_from_peer(
+        &self,
+        addr: NetworkAddress,
+        peer: PeerInfo,
+    ) -> Result<Option<Record>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetRecordFromPeer {
+            addr,
+            peer,
+            resp: tx,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        rx.await?
+    }
+
+    /// Get storage proofs directly from a specific peer on the Network
+    /// Returns a vector of (NetworkAddress, ChunkProof) tuples
+    pub async fn get_storage_proofs_from_peer(
+        &self,
+        addr: NetworkAddress,
+        peer: PeerInfo,
+        nonce: u64,
+        difficulty: usize,
+    ) -> Result<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetStorageProofsFromPeer {
+            addr,
+            peer,
+            nonce,
+            difficulty,
+            resp: tx,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        rx.await?
     }
 
     /// Get a quote for a record from a Peer on the Network
@@ -460,7 +445,9 @@ impl Network {
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
         // request 7 quotes, hope that at least 5 respond
         let minimum_quotes = CLOSE_GROUP_SIZE;
-        let closest_peers = self.get_closest_peers_with_retries(addr.clone()).await?;
+        let closest_peers = self
+            .get_closest_peers_with_retries(addr.clone(), None)
+            .await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
         debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
 

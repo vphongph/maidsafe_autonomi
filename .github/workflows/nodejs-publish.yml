@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 23
       - run: corepack enable
@@ -41,7 +41,7 @@ jobs:
         run: npm install
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: ./${{ inputs.app_name }}-nodejs/artifacts
           pattern: bindings-*-${{ inputs.app_name }}

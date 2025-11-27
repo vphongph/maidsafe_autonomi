@@ -21,10 +21,15 @@ where
         "Processing {} tasks with max concurrency of {batch_size}",
         tasks.len()
     );
-    stream::iter(tasks)
+    let result: Vec<R> = stream::iter(tasks)
         .buffer_unordered(batch_size)
         .collect()
-        .await
+        .await;
+    info!(
+        "Completed {} tasks in parallel.",
+        result.len()
+    );
+    result
 }
 
 /// Extracts gas fee values from an error message string.

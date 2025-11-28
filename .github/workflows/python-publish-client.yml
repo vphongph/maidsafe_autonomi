@@ -29,12 +29,19 @@ jobs:
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel before upload
+        run: |
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python${{ matrix.python-version }} -m zipfile -t "$wheel"
+          done
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
+          compression-level: 0
 
   windows:
     runs-on: windows-latest
@@ -57,12 +64,20 @@ jobs:
           args: --release --out dist
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel before upload
+        run: |
+          foreach ($wheel in Get-ChildItem ./autonomi/dist/*.whl) {
+            Write-Host "Validating $wheel..."
+            python -m zipfile -t $wheel
+          }
+        shell: pwsh
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
           name: wheels-windows-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
+          compression-level: 0
 
   linux:
     runs-on: ubuntu-latest
@@ -92,12 +107,19 @@ jobs:
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel before upload
+        run: |
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python${{ matrix.python-version }} -m zipfile -t "$wheel"
+          done
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
           name: wheels-linux-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
+          compression-level: 0
 
   musllinux:
     runs-on: ubuntu-latest
@@ -131,12 +153,19 @@ jobs:
           args: --release --out dist -i python${{ matrix.python-version }}
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel before upload
+        run: |
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python3 -m zipfile -t "$wheel"
+          done
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
           name: wheels-musllinux-${{ matrix.target }}-py${{ matrix.python-version }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
+          compression-level: 0
 
   sdist:
     runs-on: ubuntu-latest
@@ -233,6 +262,7 @@ jobs:
           name: wheels
           path: build/autonomi/dist/*.tar.gz
           if-no-files-found: error
+          compression-level: 0
 
   release:
     name: Release
@@ -242,13 +272,27 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v5
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
       - name: Display structure of downloaded files
         run: ls -R dist
+      - name: Validate all wheels after download
+        run: |
+          pip install twine
+          echo "Validating wheel integrity..."
+          for wheel in dist/*.whl; do
+            echo "Checking $wheel..."
+            python -m zipfile -t "$wheel" || { echo "FAILED: $wheel is corrupted!"; exit 1; }
+          done
+          echo "All wheels validated successfully"
+          echo "Running twine check..."
+          twine check dist/*
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

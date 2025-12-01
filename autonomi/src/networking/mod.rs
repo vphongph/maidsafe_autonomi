@@ -406,7 +406,8 @@ impl Network {
     /// This function verifies the candidates by:
     /// 1. Getting N candidates via Kademlia
     /// 2. Querying each candidate for their view of closest peers
-    /// 3. Only returning peers that responded and appear in majority of responses
+    /// 3. N Candidates are collected from the aggregated results, prefering high witness among the close group
+    /// 4. Peers are returned in the ascending order of distance to the target
     pub async fn get_closest_n_peers(
         &self,
         addr: NetworkAddress,
@@ -471,6 +472,17 @@ impl Network {
                 // Log the responder and their returned peer list
                 trace!("Closegroup to {addr:?} responded from peer {responder_peer_id:?}:");
                 
+                // Add the responder itself with higher weight to peer_counts since it successfully responded
+                *peer_counts.entry(*responder_peer_id).or_insert(0) += 2;
+                
+                // Add the responder's addresses from candidates
+                if let Some(responder_info) = candidates.iter().find(|p| p.peer_id == *responder_peer_id) {
+                    let addr_set = peer_addrs.entry(*responder_peer_id).or_default();
+                    for addr in &responder_info.addrs {
+                        addr_set.insert(addr.clone());
+                    }
+                }
+                
                 // Count appearances in the response and collect addresses
                 for (peer_addr, addrs) in peers_list {
                     if let Some(peer_id) = peer_addr.as_peer_id() {
@@ -491,40 +503,57 @@ impl Network {
             }
         }
 
-        // Calculate majority threshold
-        let majority = n.get().div_ceil(2);
-        
-        // Build verified candidates from peers that responded and appear in majority of responses
-        // Use the more accurate addresses collected from peer responses
-        let mut verified_candidates: Vec<PeerInfo> = Vec::new();
-        
-        for (peer_id, &count) in peer_counts.iter() {
-            if count >= majority {
+        // Build all candidates from peer_counts with their counts and distances
+        let mut candidate_with_metrics: Vec<_> = peer_counts
+            .iter()
+            .map(|(peer_id, &count)| {
+                let peer_addr = NetworkAddress::from(*peer_id);
+                let distance = addr.distance(&peer_addr);
+                (*peer_id, count, distance)
+            })
+            .collect();
+
+        // Sort by count (high to low), then by distance (low to high)
+        candidate_with_metrics.sort_by(|a, b| {
+            // First compare by count (descending)
+            match b.1.cmp(&a.1) {
+                std::cmp::Ordering::Equal => {
+                    // If counts are equal, compare by distance (ascending)
+                    a.2.cmp(&b.2)
+                }
+                other => other,
+            }
+        });
+
+        debug!(
+            "Sorted {} candidates by count and distance to target",
+            candidate_with_metrics.len()
+        );
+
+        // Take the first N candidates and build PeerInfo
+        let mut verified_candidates: Vec<PeerInfo> = candidate_with_metrics
+            .into_iter()
+            .take(n.get())
+            .map(|(peer_id, count, distance)| {
+                trace!(
+                    "Selected candidate: {peer_id:?}, count: {count}, distance: {distance:?}"
+                );
+
                 // Use addresses from peer responses if available, otherwise use original
-                let addrs = if let Some(addrs_set) = peer_addrs.get(peer_id) {
+                let addrs = if let Some(addrs_set) = peer_addrs.get(&peer_id) {
                     addrs_set.iter().cloned().collect()
                 } else {
                     // Fallback to original candidate addresses if available
                     candidates
                         .iter()
-                        .find(|c| c.peer_id == *peer_id)
+                        .find(|c| c.peer_id == peer_id)
                         .map(|c| c.addrs.clone())
                         .unwrap_or_default()
                 };
 
-                verified_candidates.push(PeerInfo {
-                    peer_id: *peer_id,
-                    addrs,
-                });
-            }
-        }
-
-        debug!(
-            "Found {} verified candidates from {} original (needed {} for majority)",
-            verified_candidates.len(),
-            candidates.len(),
-            majority
-        );
+                PeerInfo { peer_id, addrs }
+            })
+            .collect();
 
         if verified_candidates.len() < n.get() {
             return Err(NetworkError::InsufficientPeers {
@@ -534,19 +563,16 @@ impl Network {
             });
         }
 
-        // Sort candidates by distance to target address
+        // Sort final candidates by distance to target (low to high)
         verified_candidates.sort_by_key(|peer| {
             let peer_addr = NetworkAddress::from(peer.peer_id);
             addr.distance(&peer_addr)
         });
 
         debug!(
-            "Sorted {} verified candidates by distance to target",
+            "Final {} candidates sorted by distance to target",
             verified_candidates.len()
         );
-
-        // Take the closest N peers
-        verified_candidates.truncate(n.get());
 
         Ok(verified_candidates)
     }

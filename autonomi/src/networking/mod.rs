@@ -681,10 +681,10 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
-        // request 7 quotes, hope that at least 5 respond
+        // request 10 quotes, hope that at least 5 respond
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self
-            .get_closest_peers_with_retries(addr.clone(), None)
+            .get_closest_peers_with_retries(addr.clone(), Some(10))
             .await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
         debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");

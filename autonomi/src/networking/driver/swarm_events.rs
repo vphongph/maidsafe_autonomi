@@ -177,7 +177,7 @@ impl NetworkDriver {
             }) => {
                 if self.pending_tasks
                     .update_get_quote(request_id, quote, peer_address).is_err() {
-                    self.pending_tasks
+                self.pending_tasks
                         .update_get_storage_proofs_from_peer(request_id, storage_proofs)?;
                 }
             }

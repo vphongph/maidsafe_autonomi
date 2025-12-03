@@ -3496,6 +3496,7 @@ version = "0.4.5"
 dependencies = [
  "alloy",
  "dirs-next",
+ "exponential-backoff",
  "hex",
  "rand 0.8.5",
  "serde",

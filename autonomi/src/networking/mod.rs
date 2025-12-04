@@ -37,7 +37,7 @@ use driver::NetworkDriver;
 use futures::stream::{FuturesUnordered, StreamExt};
 use interface::NetworkTask;
 use libp2p::kad::NoKnownPeers;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -332,33 +332,178 @@ impl Network {
     }
 
     /// Get the N closest peers to an address on the Network
+    /// This function verifies the candidates by:
+    /// 1. Getting N candidates via Kademlia
+    /// 2. Querying each candidate for their view of closest peers
+    /// 3. N Candidates are collected from the aggregated results, prefering high witness among the close group
+    /// 4. Peers are returned in the ascending order of distance to the target
     pub async fn get_closest_n_peers(
         &self,
         addr: NetworkAddress,
         n: NonZeroUsize,
     ) -> Result<Vec<PeerInfo>, NetworkError> {
         let (tx, rx) = oneshot::channel();
-        let task = NetworkTask::GetClosestPeers { addr, resp: tx, n };
+        let task = NetworkTask::GetClosestPeers { addr: addr.clone(), resp: tx, n };
         self.task_sender
             .send(task)
             .await
             .map_err(|_| NetworkError::NetworkDriverOffline)?;
 
-        match rx.await? {
-            Ok(mut peers) => {
+        let candidates = match rx.await? {
+            Ok(peers) => {
                 if peers.len() < n.get() {
+                    info!("Kad get_closest network query giving less candidates ({}/{})", peers.len(), n.get());
                     return Err(NetworkError::InsufficientPeers {
                         got_peers: peers.len(),
                         expected_peers: n.get(),
                         peers,
                     });
                 }
-                // We sometimes receive more peers than requested (with empty addrs)
-                peers.truncate(n.get());
-                Ok(peers)
+              
+                peers
             }
-            Err(e) => Err(e),
+            Err(e) => return Err(e),
+        };
+
+        // Log initial candidates with distances
+        trace!("Initial candidates from Kad query targeting {addr:?}:");
+        for peer in &candidates {
+            let peer_addr = NetworkAddress::from(peer.peer_id);
+            let distance = addr.distance(&peer_addr);
+            trace!("  Candidate peer: {:?}, distance: {:?}", peer.peer_id, distance);
         }
+
+        // Verify candidates by querying them individually for their closest peers
+        let mut query_tasks = vec![];
+        for peer in &candidates {
+            let network = self.clone();
+            let addr = addr.clone();
+            let peer = peer.clone();
+            // Get some extra to ensure enough candidates can be built up
+            let n_value = n.get() + 2;
+            query_tasks.push(async move {
+                let result = network.get_closest_peers_from_peer(addr, peer.clone(), Some(n_value)).await;
+                (peer.peer_id, result)
+            });
+        }
+
+        // Process queries in parallel
+        // returned with: `Vec<(PeerId, Result<Vec<(NetworkAddress, Vec<Multiaddr>)>, NetworkError>)>`
+        let results = crate::utils::process_tasks_with_max_concurrency(query_tasks, n.get()).await;
+
+        // Count peer appearances across all successful responses
+        // Also collect addresses from peer responses (more accurate than DHT cached ones)
+        let mut peer_counts: HashMap<PeerId, usize> = HashMap::new();
+        let mut peer_addrs: HashMap<PeerId, HashSet<Multiaddr>> = HashMap::new();
+
+        for (responder_peer_id, result) in results.iter() {
+            if let Ok(peers_list) = result {
+                // Log the responder and their returned peer list
+                trace!("Closegroup to {addr:?} responded from peer {responder_peer_id:?}:");
+                
+                // Add the responder itself with higher weight to peer_counts since it successfully responded
+                *peer_counts.entry(*responder_peer_id).or_insert(0) += 2;
+                
+                // Add the responder's addresses from candidates
+                if let Some(responder_info) = candidates.iter().find(|p| p.peer_id == *responder_peer_id) {
+                    let addr_set = peer_addrs.entry(*responder_peer_id).or_default();
+                    for addr in &responder_info.addrs {
+                        addr_set.insert(addr.clone());
+                    }
+                }
+                
+                // Count appearances in the response and collect addresses
+                for (peer_addr, addrs) in peers_list {
+                    if let Some(peer_id) = peer_addr.as_peer_id() {
+                        let distance = addr.distance(peer_addr);
+                        trace!("  Reported peer: {peer_id:?}, distance: {distance:?}");
+
+                        *peer_counts.entry(peer_id).or_insert(0) += 1;
+                        
+                        // Aggregate unique addresses for this peer
+                        let addr_set = peer_addrs.entry(peer_id).or_default();
+                        for addr in addrs {
+                            addr_set.insert(addr.clone());
+                        }
+                    }
+                }
+            } else {
+                info!("Failed to get closest peers from node {responder_peer_id:?}");
+            }
+        }
+
+        // Build all candidates from peer_counts with their counts and distances
+        let mut candidate_with_metrics: Vec<_> = peer_counts
+            .iter()
+            .map(|(peer_id, &count)| {
+                let peer_addr = NetworkAddress::from(*peer_id);
+                let distance = addr.distance(&peer_addr);
+                (*peer_id, count, distance)
+            })
+            .collect();
+
+        // Sort by count (high to low), then by distance (low to high)
+        candidate_with_metrics.sort_by(|a, b| {
+            // First compare by count (descending)
+            match b.1.cmp(&a.1) {
+                std::cmp::Ordering::Equal => {
+                    // If counts are equal, compare by distance (ascending)
+                    a.2.cmp(&b.2)
+                }
+                other => other,
+            }
+        });
+
+        debug!(
+            "Sorted {} candidates by count and distance to target",
+            candidate_with_metrics.len()
+        );
+
+        // Take the first N candidates and build PeerInfo
+        let mut verified_candidates: Vec<PeerInfo> = candidate_with_metrics
+            .into_iter()
+            .take(n.get())
+            .map(|(peer_id, count, distance)| {
+                trace!(
+                    "Selected candidate: {peer_id:?}, count: {count}, distance: {distance:?}"
+                );
+
+                // Use addresses from peer responses if available, otherwise use original
+                let addrs = if let Some(addrs_set) = peer_addrs.get(&peer_id) {
+                    addrs_set.iter().cloned().collect()
+                } else {
+                    // Fallback to original candidate addresses if available
+                    candidates
+                        .iter()
+                        .find(|c| c.peer_id == peer_id)
+                        .map(|c| c.addrs.clone())
+                        .unwrap_or_default()
+                };
+
+                PeerInfo { peer_id, addrs }
+            })
+            .collect();
+
+        if verified_candidates.len() < n.get() {
+            return Err(NetworkError::InsufficientPeers {
+                got_peers: verified_candidates.len(),
+                expected_peers: n.get(),
+                peers: verified_candidates,
+            });
+        }
+
+        // Sort final candidates by distance to target (low to high)
+        verified_candidates.sort_by_key(|peer| {
+            let peer_addr = NetworkAddress::from(peer.peer_id);
+            addr.distance(&peer_addr)
+        });
+
+        debug!(
+            "Final {} candidates sorted by distance to target",
+            verified_candidates.len()
+        );
+
+        Ok(verified_candidates)
     }
 
     /// Get a record directly from a specific peer on the Network
@@ -374,6 +519,28 @@ impl Network {
         let task = NetworkTask::GetRecordFromPeer {
             addr,
             peer,
+            resp: tx,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+        rx.await?
+    }
+
+    /// Get closest peers from a specific peer on the Network
+    /// Returns a list of `(NetworkAddress, Vec<Multiaddr>)` tuples
+    pub async fn get_closest_peers_from_peer(
+        &self,
+        addr: NetworkAddress,
+        peer: PeerInfo,
+        num_of_peers: Option<usize>,
+    ) -> Result<Vec<(NetworkAddress, Vec<Multiaddr>)>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetClosestPeersFromPeer {
+            addr,
+            peer,
+            num_of_peers,
             resp: tx,
         };
         self.task_sender
@@ -443,10 +610,10 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
-        // request 7 quotes, hope that at least 5 respond
+        // request 10 quotes, hope that at least 5 respond
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self
-            .get_closest_peers_with_retries(addr.clone(), None)
+            .get_closest_peers_with_retries(addr.clone(), Some(10))
             .await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
         debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");

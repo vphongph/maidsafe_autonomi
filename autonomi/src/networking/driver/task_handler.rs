@@ -50,8 +50,19 @@ pub(crate) struct TaskHandler {
     get_record_accumulator: HashMap<QueryId, HashMap<PeerId, Record>>,
     get_version: HashMap<OutboundRequestId, OneShotTaskResult<String>>,
     get_record_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Option<Record>>>,
-    get_storage_proofs_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>>>,
-    get_closest_peers_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>>>,
+    get_storage_proofs_from_peer: HashMap<
+        OutboundRequestId,
+        OneShotTaskResult<
+            Vec<(
+                NetworkAddress,
+                Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
+            )>,
+        >,
+    >,
+    get_closest_peers_from_peer: HashMap<
+        OutboundRequestId,
+        OneShotTaskResult<Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>>,
+    >,
     get_merkle_candidate_quote:
         HashMap<OutboundRequestId, OneShotTaskResult<MerklePaymentCandidateNode>>,
 }
@@ -69,6 +80,7 @@ impl TaskHandler {
             get_record_from_peer: Default::default(),
             get_storage_proofs_from_peer: Default::default(),
             get_closest_peers_from_peer: Default::default(),
+            get_merkle_candidate_quote: Default::default(),
         }
     }
 
@@ -463,16 +475,22 @@ impl TaskHandler {
     pub fn update_get_storage_proofs_from_peer(
         &mut self,
         id: OutboundRequestId,
-        storage_proofs: Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>,
+        storage_proofs: Vec<(
+            NetworkAddress,
+            Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
+        )>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self
-            .get_storage_proofs_from_peer
-            .remove(&id)
-            .ok_or(TaskHandlerError::UnknownQuery(format!(
-                "OutboundRequestId {id:?}"
-            )))?;
+        let responder =
+            self.get_storage_proofs_from_peer
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
 
-        trace!("OutboundRequestId({id}): got {} storage proofs", storage_proofs.len());
+        trace!(
+            "OutboundRequestId({id}): got {} storage proofs",
+            storage_proofs.len()
+        );
         responder
             .send(Ok(storage_proofs))
             .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
@@ -484,12 +502,12 @@ impl TaskHandler {
         id: OutboundRequestId,
         peers: Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self
-            .get_closest_peers_from_peer
-            .remove(&id)
-            .ok_or(TaskHandlerError::UnknownQuery(format!(
-                "OutboundRequestId {id:?}"
-            )))?;
+        let responder =
+            self.get_closest_peers_from_peer
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
 
         trace!("OutboundRequestId({id}): got {} closest peers", peers.len());
         responder

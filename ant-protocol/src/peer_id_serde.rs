@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-//! Helper module for serializing/deserializing Vec<PeerId>
+//! Helper module for serializing/deserializing `Vec<PeerId>`
 
 use libp2p::PeerId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

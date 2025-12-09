@@ -1290,15 +1290,8 @@ impl Node {
         let reached_validity_threshold = legitimate_paid_nodes > validity_threshold;
 
         if !reached_validity_threshold {
-            // Log detailed comparison for debugging
-            Self::log_topology_verification_failure(
-                &paid_peer_ids,
-                &closest_peer_ids,
-                &reward_pool_address,
-                legitimate_paid_nodes,
-                paid_nodes_count,
-                validity_threshold,
-                &pretty_key,
+            warn!(
+                "Network topology verification failed for {pretty_key:?}: only {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in closest {closest_len} (need >{validity_threshold})"
             );
 
             return Err(PutValidationError::TopologyVerificationFailed {
@@ -1317,70 +1310,6 @@ impl Node {
 
         info!("Merkle payment verified successfully for {pretty_key:?}");
         Ok(())
-    }
-
-    /// Log detailed comparison of paid nodes vs closest peers when topology verification fails.
-    /// This helps debug network topology divergence issues.
-    fn log_topology_verification_failure(
-        paid_peer_ids: &[PeerId],
-        closest_peer_ids: &HashSet<PeerId>,
-        reward_pool_address: &NetworkAddress,
-        legitimate_paid_nodes: usize,
-        paid_nodes_count: usize,
-        validity_threshold: usize,
-        pretty_key: &PrettyPrintRecordKey,
-    ) {
-        // Create list of paid nodes with their distances
-        let mut paid_nodes_with_distance: Vec<_> = paid_peer_ids
-            .iter()
-            .map(|peer_id| {
-                let peer_addr = NetworkAddress::from(*peer_id);
-                let distance = peer_addr.distance(reward_pool_address);
-                let in_closest = closest_peer_ids.contains(peer_id);
-                (*peer_id, distance, in_closest)
-            })
-            .collect();
-        paid_nodes_with_distance.sort_by(|a, b| a.1.cmp(&b.1));
-
-        // Create list of closest peers with their distances
-        let mut closest_peers_with_distance: Vec<_> = closest_peer_ids
-            .iter()
-            .map(|peer_id| {
-                let peer_addr = NetworkAddress::from(*peer_id);
-                let distance = peer_addr.distance(reward_pool_address);
-                let is_paid = paid_peer_ids.contains(peer_id);
-                (*peer_id, distance, is_paid)
-            })
-            .collect();
-        closest_peers_with_distance.sort_by(|a, b| a.1.cmp(&b.1));
-
-        // Log the detailed comparison
-        warn!("Network topology verification FAILED for {pretty_key:?}");
-        warn!("Target address (reward_pool): {reward_pool_address:?}");
-        warn!(
-            "Validity: {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in closest {} (need >{validity_threshold})",
-            closest_peer_ids.len()
-        );
-        warn!("--- PAID NODES (sorted by distance to reward pool) ---");
-        for (i, (peer_id, distance, in_closest)) in paid_nodes_with_distance.iter().enumerate() {
-            warn!(
-                "  [{:2}] PeerId: {:?}, Distance(ilog2): {:?}, InClosest: {}",
-                i + 1,
-                peer_id,
-                distance.ilog2(),
-                if *in_closest { "YES" } else { "NO" }
-            );
-        }
-        warn!("--- CLOSEST PEERS (sorted by distance to reward pool) ---");
-        for (i, (peer_id, distance, is_paid)) in closest_peers_with_distance.iter().enumerate() {
-            warn!(
-                "  [{:2}] PeerId: {:?}, Distance(ilog2): {:?}, IsPaid: {}",
-                i + 1,
-                peer_id,
-                distance.ilog2(),
-                if *is_paid { "YES" } else { "NO" }
-            );
-        }
     }
 
     /// Verify that all paid nodes are within a reasonable distance to the target address.

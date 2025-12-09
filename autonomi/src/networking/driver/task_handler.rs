@@ -384,7 +384,7 @@ impl TaskHandler {
                 responder
                     .send(Err(NetworkError::TopologyVerificationFailed {
                         rejecting_node: peer_info.peer_id,
-                        target_address,
+                        target_address: *target_address,
                         valid_count,
                         total_paid,
                         closest_count,

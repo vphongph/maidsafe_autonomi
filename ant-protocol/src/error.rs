@@ -80,10 +80,12 @@ pub enum Error {
     FailedToSignMerkleCandidate(String),
     #[error("Merkle payment verification failed: {0}")]
     MerklePaymentVerificationFailed(String),
-    #[error("Topology verification failed: only {valid_count}/{total_paid} paid nodes in closest {closest_count}")]
+    #[error(
+        "Topology verification failed: only {valid_count}/{total_paid} paid nodes in closest {closest_count}"
+    )]
     TopologyVerificationFailed {
         /// Target address for distance calculations (reward pool midpoint)
-        target_address: NetworkAddress,
+        target_address: Box<NetworkAddress>,
         /// Number of paid nodes that were in the node's closest peers
         valid_count: usize,
         /// Total number of nodes that were paid
@@ -91,8 +93,10 @@ pub enum Error {
         /// Number of closest peers the node has
         closest_count: usize,
         /// The node's view of closest peers to the target
+        #[serde(with = "crate::peer_id_serde")]
         node_peers: Vec<libp2p::PeerId>,
         /// The peers that were paid (client's view)
+        #[serde(with = "crate::peer_id_serde")]
         paid_peers: Vec<libp2p::PeerId>,
     },
 

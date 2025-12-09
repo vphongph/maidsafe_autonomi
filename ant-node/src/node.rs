@@ -763,7 +763,7 @@ impl Node {
                             },
                         ));
                         Err(ProtocolError::TopologyVerificationFailed {
-                            target_address,
+                            target_address: Box::new(target_address),
                             valid_count,
                             total_paid,
                             closest_count,

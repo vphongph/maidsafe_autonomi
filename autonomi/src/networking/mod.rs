@@ -72,10 +72,9 @@ fn format_topology_error(
     // Summary line
     writeln!(
         &mut output,
-        "at node {:?}: only {}/{} paid nodes in node's closest {} (need >50%)",
-        rejecting_node, valid_count, total_paid, closest_count
+        "at node {rejecting_node:?}: only {valid_count}/{total_paid} paid nodes in node's closest {closest_count} (need >50%)"
     ).ok();
-    writeln!(&mut output, "Target address: {:?}", target_address).ok();
+    writeln!(&mut output, "Target address: {target_address:?}").ok();
 
     // Node's view (sorted by distance)
     writeln!(&mut output, "\nNode's closest peers (sorted by distance to target):").ok();

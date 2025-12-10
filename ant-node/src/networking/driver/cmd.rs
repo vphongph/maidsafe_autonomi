@@ -445,7 +445,6 @@ impl SwarmDriver {
                 cmd_string = "AddPeerToBlockList";
                 self.record_metrics(Marker::PeerConsideredAsBad { bad_peer: &peer_id });
                 let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
-                let _ = self.blocked_peers.insert(peer_id);
             }
             LocalSwarmCmd::RecordNodeIssue { peer_id, issue } => {
                 cmd_string = "RecordNodeIssues";

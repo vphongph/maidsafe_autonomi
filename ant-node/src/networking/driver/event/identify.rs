@@ -89,7 +89,7 @@ impl SwarmDriver {
         connection_id: libp2p::swarm::ConnectionId,
     ) {
         debug!("identify: received info from {peer_id:?} on {connection_id:?}. Info: {info:?}");
-        if self.blocked_peers.contains(&peer_id) {
+        if self.swarm.behaviour_mut().blocklist.blocked_peers().contains(&peer_id) {
             warn!(
                 "identify: rejecting {peer_id:?} since it is already present in our blacklist."
             );
@@ -120,7 +120,6 @@ impl SwarmDriver {
             });
             // Block the peer from any further communication.
             let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
-            let _ = self.blocked_peers.insert(peer_id);
             if let Some(dead_peer) = self.swarm.behaviour_mut().kademlia.remove_peer(&peer_id) {
                 error!(
                     "Clearing out a protocol mismatch peer from RT. The peer pushed an incorrect identify info after being added: {peer_id:?}"

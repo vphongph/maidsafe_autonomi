@@ -440,7 +440,6 @@ fn init_swarm_driver(
         handled_times: 0,
         hard_disk_write_error: 0,
         bad_nodes: Default::default(),
-        blocked_peers: HashSet::new(),
         quotes_history: Default::default(),
         replication_targets: Default::default(),
         last_replication: None,

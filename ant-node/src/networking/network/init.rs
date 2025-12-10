@@ -49,7 +49,6 @@ use libp2p::{core::muxing::StreamMuxerBox, relay};
 use prometheus_client::metrics::info::Info;
 use std::time::Instant;
 use std::{
-    collections::HashSet,
     convert::TryInto,
     fmt::Debug,
     fs,

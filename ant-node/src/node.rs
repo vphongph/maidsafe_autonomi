@@ -23,7 +23,7 @@ use ant_protocol::{
     CLOSE_GROUP_SIZE, NetworkAddress, PrettyPrintRecordKey,
     error::Error as ProtocolError,
     messages::{ChunkProof, CmdResponse, Nonce, Query, QueryResponse, Request, Response},
-    storage::ValidationType,
+    storage::{try_deserialize_record, Chunk, ValidationType},
 };
 use bytes::Bytes;
 use futures::stream::{self, StreamExt};
@@ -1319,8 +1319,8 @@ impl Node {
             requester: NetworkAddress::from(network.peer_id()),
             key: record_address.clone(),
         });
-        let pretty_key =
-            PrettyPrintRecordKey::from(&record_address.to_record_key()).into_owned();
+        let expected_key = record_address.to_record_key();
+        let pretty_key = PrettyPrintRecordKey::from(&expected_key).into_owned();
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -1347,8 +1347,18 @@ impl Node {
             match res {
                 (peer_id, _addrs, Ok((Response::Query(QueryResponse::GetReplicatedRecord(result)), _))) => {
                     match result {
-                        Ok((_holder, _value)) => {
-                            successes.push(peer_id);
+                        Ok((_holder, value)) => {
+                            // Try to deserialize the record and ensure the Chunk content matches
+                            let record = Record::new(record_address.to_record_key(), value.to_vec());
+                            if let Ok(chunk) = try_deserialize_record::<Chunk>(&record) 
+                            && chunk.network_address().to_record_key() == expected_key {
+                                successes.push(peer_id);
+                            } else {
+                                warn!(
+                                    "Peer {peer_id:?} responded with an incorrect chunk copy of {pretty_key:?}."
+                                );
+                                failures.push(peer_id);
+                            }
                         }
                         Err(err) => {
                             info!(

@@ -7,6 +7,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-12-11
+
+### API
+
+#### Added
+
+- Merkle payment support for batch payments through cryptographic proof verification.
+- `MerklePaymentOption` enum to enable merkle payment mode in upload operations.
+- `MerkleUploadError` and `MerkleUploadErrorWithReceipt` error types for merkle-specific upload
+  failures.
+- `MerklePaymentError` for merkle payment processing errors.
+- `MerklePaymentReceipt` type to track successful merkle payment transactions.
+- `MerklePutError` for merkle-specific put operation failures.
+- `Client::upload_with_merkle_payments` method to upload data using merkle batch payment mode.
+- `Client::put_with_merkle_payment` method for storing individual records with merkle payment
+  proofs.
+
+### Protocol
+
+#### Added
+
+- `Query::GetMerkleCandidateQuote` query variant for requesting merkle payment candidate quotes from
+  nodes.
+- Includes `key` (target address for topology verification), `data_type`, `data_size`, and
+  `merkle_payment_timestamp` fields.
+- Node signs its current state (metrics + reward address) with the provided timestamp, creating a
+  cryptographic commitment binding PeerId to RewardsAddress.
+- `RecordKind::DataWithMerklePayment` variant for records paid via merkle proofs.
+- Uses index range starting at `RECORD_KIND_MERKLE_PAYMENT_STARTING_INDEX` (20) to differentiate
+  from traditional payment records.
+- Merkle payment timestamp verification to ensure payments are neither expired nor in the future.
+
+#### Changed
+
+- Record serialization now supports merkle payment proof headers alongside data payloads.
+- `RecordHeader` serialization extended to handle merkle payment record types.
+
+### Network
+
+#### Added
+
+- Merkle payment proof verification in `PutValidation` for all data types
+- `PutValidationError::MerklePaymentVerificationFailed` error variant for failed merkle proof
+  validations.
+- Merkle payment quote generation signed with node metrics and reward address.
+- Cryptographic verification of merkle proofs against on-chain merkle tree roots.
+- Merkle payment expiration validation to reject expired payment proofs.
+- Support for deserializing records containing `(MerklePaymentProof, T)` tuples where `T` is the
+  data type.
+- The `antnode` binary now supports automatic upgrades on macOS and Linux. Every 3 days the node
+  will check for the availability of a new version. If available, the new version will be downloaded
+  and the current binary will be replaced (this is permitted for running processes on Unix-based
+  systems and it also works with symlinks). Each node is then assigned a restart time based on its
+  peer ID and the network size. This ensures the restarts will be spread out quite evenly. When the
+  node restarts it will retain its peer ID and data.
+
+#### Changed
+
+- Put record validation now branches on `RecordKind::DataWithMerklePayment` to verify merkle proofs
+  before accepting records.
+- Node quote responses now include merkle payment candidate signatures when requested via
+  `GetMerkleCandidateQuote`.
+- Payment proof structure extended to accommodate merkle tree proofs alongside traditional payment
+  receipts.
+
+### Payments
+
+#### Added
+
+- `ant-evm::merkle_payments` module providing core merkle payment infrastructure:
+  - `MerkleTree` for constructing and managing merkle trees with up to `MAX_LEAVES` (1024) leaves.
+  - `MerkleBranch` type representing the path from a leaf to the root in a merkle tree.
+  - `MerklePaymentProof` containing the merkle branch, on-chain commitment info, and signatures.
+  - `MerklePaymentCandidateNode` representing a node's signed commitment for merkle payment selection.
+  - `MerklePaymentCandidatePool` for organizing candidates into payment pools.
+  - `verify_merkle_proof` function for cryptographic verification of merkle proofs.
+  - `MidpointProof` for proving the midpoint of merkle tree ranges.
+- `MERKLE_PAYMENT_EXPIRATION` constant defining the validity period for merkle payment proofs.
+- `MAX_MERKLE_DEPTH` constant defining the maximum depth of merkle trees.
+- `CANDIDATES_PER_POOL` constant for pool organization.
+- `MerklePaymentVerificationError` for merkle-specific verification failures.
+- `PoolCommitment` type for on-chain merkle root commitments.
+- `OnChainPaymentInfo` containing merkle root and payment metadata from smart contracts.
+- `expected_reward_pools` function to calculate expected number of reward pools based on data size.
+
+#### Changed
+
+- EVM network configuration now includes optional `merkle_payments_address` for merkle payment vault
+  contracts.
+- Wallet and testnet setup extended to support merkle payment contract deployment and interaction.
+
+### Client
+
+#### Changed
+
+- Upload strategy now supports both traditional per-chunk payments and merkle batch payments.
+- The client will now carry out a check of its close group candidates to see whether each peer is
+  known by the others in the group. This improves uploads because more robust nodes will be chosen,
+  and in turn downloads will also be more stable.
+- The quoting candidate range is extended from 7 to 10 peers to attempt to provide more stability.
+
+### Antctl
+
+#### Changed
+
+- The service definitions emitted by the `add` command now use an 'on success' restart policy
+  on Unix platforms. This is to allow the service manager to restart the node for use with automatic
+  upgrades. Before upgrading to the new version of `antctl`, users should use `antctl reset` with
+  their current version to clear any existing node deployments. The new node is not compatible with
+  the old service definitions produced by `antctl`. New deployments can then be created with the new
+  version of `antctl`. [BREAKING]
+- The `add` command will assign a random port in the service definition rather than
+  delegating that to the node. This is to ensure the node will restart with the same port when it is
+  automatically upgraded.
+- The `status` command now obtains the version number of each service. This makes the command work
+  naturally with automatic upgrades.
+
+### Launchpad
+
+#### Changed
+
+- As with the `antctl` change above, old service definitions are not compatible with the new version
+  of the nodes to have automatic upgrades work correctly. Before upgrading to the new
+  `node-launchpad`, users should use the reset command with `Ctrl+R` to clear out their current node
+  deployments. New deployments can then be created with the new version of `node-launchpad`.
+  [BREAKING]
+- The `Status` panel will update with the new node versions when automatic upgrades take place in
+  the background.
+ 
 ## 2025-11-27
 
 ### API

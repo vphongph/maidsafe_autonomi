@@ -620,7 +620,6 @@ mod tests {
         cache1.sync(&cache2, 10, 10);
         let result: HashSet<_> = cache1
             .get_all_addrs()
-            .cloned()
             .map(|addr| addr.to_string())
             .collect();
         assert_eq!(result.len(), 3, "should merge and deduplicate addresses");

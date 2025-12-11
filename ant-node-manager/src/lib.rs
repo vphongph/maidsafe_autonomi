@@ -835,6 +835,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -955,6 +956,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1035,6 +1037,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1160,6 +1163,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1253,6 +1257,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1363,6 +1368,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1472,6 +1478,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1546,6 +1553,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1610,6 +1618,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1674,6 +1683,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1741,6 +1751,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -1819,6 +1830,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             listen_addr: None,
@@ -1965,6 +1977,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -2067,6 +2080,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -2221,6 +2235,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -2380,6 +2395,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -2531,6 +2547,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -2692,6 +2709,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: InitialPeersConfig::default(),
@@ -5871,6 +5889,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6056,6 +6075,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6491,6 +6511,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6561,6 +6582,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6648,6 +6670,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6730,6 +6753,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -6808,6 +6832,7 @@ mod tests {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),

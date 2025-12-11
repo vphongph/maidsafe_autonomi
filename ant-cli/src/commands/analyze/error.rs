@@ -77,6 +77,8 @@ pub enum NetworkErrorDisplay {
     GetRecordQuorumFailed,
     GetRecordError,
     InvalidRetryStrategy,
+    InvalidNodeMerkleCandidate,
+    TopologyVerificationFailed,
 }
 
 impl NetworkErrorDisplay {
@@ -106,6 +108,8 @@ impl NetworkErrorDisplay {
             NetworkError::GetRecordQuorumFailed { .. } => Self::GetRecordQuorumFailed,
             NetworkError::GetRecordError(_) => Self::GetRecordError,
             NetworkError::InvalidRetryStrategy => Self::InvalidRetryStrategy,
+            NetworkError::InvalidNodeMerkleCandidate(_) => Self::InvalidNodeMerkleCandidate,
+            NetworkError::TopologyVerificationFailed { .. } => Self::TopologyVerificationFailed,
         }
     }
 }

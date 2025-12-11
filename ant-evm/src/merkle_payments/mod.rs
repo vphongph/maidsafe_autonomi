@@ -11,9 +11,12 @@ mod merkle_tree;
 
 // Re-export types from evmlib (minimal types)
 pub use evmlib::merkle_batch_payment::{
-    CANDIDATES_PER_POOL, MAX_MERKLE_DEPTH, OnChainPaymentInfo, PoolCommitment, SmartContractError,
+    CANDIDATES_PER_POOL, MAX_MERKLE_DEPTH, OnChainPaymentInfo, PoolCommitment,
     expected_reward_pools,
 };
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use evmlib::merkle_batch_payment::SmartContractError;
 
 // Export ant-evm specific types (nodes, pools, proofs with signatures)
 pub use merkle_payment::{

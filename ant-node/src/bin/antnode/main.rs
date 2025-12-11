@@ -16,6 +16,8 @@ extern crate tracing;
 mod log;
 mod rpc_service;
 mod subcommands;
+#[cfg(unix)]
+mod upgrade;
 
 use crate::log::{reset_critical_failure, set_critical_failure};
 use crate::subcommands::EvmNetworkCommand;
@@ -31,14 +33,16 @@ use ant_protocol::{
     node_rpc::{NodeCtrl, StopResult},
     version,
 };
-use clap::{Parser, command};
+use clap::Parser;
 use color_eyre::{Result, eyre::eyre};
 use const_hex::traits::FromHex;
 use libp2p::PeerId;
+#[cfg(unix)]
+use rand::Rng;
 use std::{
     env,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     time::Duration,
 };
@@ -224,6 +228,12 @@ struct Opt {
     /// Set this to true if you want the node to write the cache files in the older formats.
     #[clap(long, default_value_t = false)]
     write_older_cache_files: bool,
+
+    /// Stop the node instead of restarting after a successful upgrade.
+    ///
+    /// Useful when running under a service manager that handles restarts.
+    #[clap(long, default_value_t = false)]
+    stop_on_upgrade: bool,
 }
 
 fn main() -> Result<()> {
@@ -254,7 +264,6 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // evm config
     let rewards_address = RewardsAddress::from_hex(opt.rewards_address.as_ref().expect(
         "the following required arguments were not provided: --rewards-address <REWARDS_ADDRESS>",
     ))?;
@@ -341,8 +350,14 @@ fn main() -> Result<()> {
         };
         #[cfg(feature = "open-metrics")]
         node_builder.metrics_server_port(metrics_server_port);
-        let restart_options =
-            run_node(node_builder, opt.rpc, &log_output_dest, log_reload_handle).await?;
+        let restart_options = run_node(
+            node_builder,
+            opt.rpc,
+            &log_output_dest,
+            log_reload_handle,
+            opt.stop_on_upgrade,
+        )
+        .await?;
 
         Ok::<_, eyre::Report>(restart_options)
     })?;
@@ -351,8 +366,8 @@ fn main() -> Result<()> {
     rt.shutdown_timeout(Duration::from_secs(2));
 
     // Restart only if we received a restart command.
-    if let Some((retain_peer_id, root_dir, port)) = restart_options {
-        start_new_node_process(retain_peer_id, root_dir, port);
+    if let Some((root_dir, port)) = restart_options {
+        start_new_node_process(root_dir, port);
         println!("A new node process has been started successfully.");
     } else {
         println!("The node process has been stopped.");
@@ -363,7 +378,7 @@ fn main() -> Result<()> {
 
 /// Start a node with the given configuration.
 /// Returns:
-/// - `Ok(Some(_))` if we receive a restart request.
+/// - `Ok(Some((root_dir, port)))` if we receive a restart request.
 /// - `Ok(None)` if we want to shutdown the node.
 /// - `Err(_)` if we want to shutdown the node with an error.
 async fn run_node(
@@ -371,7 +386,8 @@ async fn run_node(
     rpc: Option<SocketAddr>,
     log_output_dest: &str,
     log_reload_handle: ReloadHandle,
-) -> Result<Option<(bool, PathBuf, u16)>> {
+    #[cfg_attr(not(unix), allow(unused_variables))] stop_on_upgrade: bool,
+) -> Result<Option<(PathBuf, u16)>> {
     let started_instant = std::time::Instant::now();
 
     reset_critical_failure(log_output_dest);
@@ -422,15 +438,72 @@ You can check your reward balance by running:
     });
 
     // Start up gRPC interface if enabled by user
+    let ctrl_tx_rpc = ctrl_tx.clone();
     if let Some(addr) = rpc {
         rpc_service::start_rpc_service(
             addr,
             log_output_dest,
             running_node.clone(),
-            ctrl_tx,
+            ctrl_tx_rpc,
             started_instant,
             log_reload_handle,
         );
+    }
+
+    #[cfg(unix)]
+    {
+        let ctrl_tx_restart = ctrl_tx.clone();
+        let running_node_clone = running_node.clone();
+        tokio::spawn(async move {
+            // 72 hours (259200 seconds) with ±5% randomization to prevent simultaneous upgrades
+            let base_delay = 259200;
+            let variance = rand::thread_rng().gen_range(-12960..=12960);
+            let upgrade_check_delay_secs = (base_delay + variance) as u64;
+            loop {
+                let upgrade_check_wake_time =
+                    chrono::Utc::now() + chrono::Duration::seconds(upgrade_check_delay_secs as i64);
+                info!(
+                    "Next upgrade check scheduled for {}",
+                    upgrade_check_wake_time
+                );
+                sleep(Duration::from_secs(upgrade_check_delay_secs)).await;
+
+                match upgrade::perform_upgrade().await {
+                    Ok(()) => {
+                        let node_restart_delay =
+                            upgrade::calculate_restart_delay(&running_node_clone).await;
+                        let node_restart_wake_time = chrono::Utc::now() + node_restart_delay;
+                        info!("Node will stop/restart for upgrade at {node_restart_wake_time}");
+                        sleep(node_restart_delay).await;
+
+                        let node_ctrl = if stop_on_upgrade {
+                            NodeCtrl::Stop {
+                                delay: Duration::from_secs(0),
+                                result: StopResult::Success(
+                                    "Upgrade completed successfully".to_string(),
+                                ),
+                            }
+                        } else {
+                            NodeCtrl::Restart {
+                                delay: Duration::from_secs(0),
+                                retain_peer_id: true,
+                            }
+                        };
+
+                        if let Err(err) = ctrl_tx_restart.send(node_ctrl).await {
+                            error!("Failed to send control command: {err}");
+                        }
+                        break;
+                    }
+                    Err(upgrade::UpgradeError::AlreadyLatest) => {
+                        info!("Already running latest version");
+                    }
+                    Err(e) => {
+                        warn!("Error during upgrade process: {e}");
+                    }
+                }
+            }
+        });
     }
 
     // Keep the node and gRPC service (if enabled) running.
@@ -439,7 +512,7 @@ You can check your reward balance by running:
         match ctrl_rx.recv().await {
             Some(NodeCtrl::Restart {
                 delay,
-                retain_peer_id,
+                retain_peer_id: _,
             }) => {
                 let root_dir = running_node.root_dir_path();
                 let node_port = running_node.get_node_listening_port().await?;
@@ -449,7 +522,7 @@ You can check your reward balance by running:
                 println!("{msg} Node path: {log_output_dest}");
                 sleep(delay).await;
 
-                return Ok(Some((retain_peer_id, root_dir, node_port)));
+                return Ok(Some((root_dir, node_port)));
             }
             Some(NodeCtrl::Stop { delay, result }) => {
                 let msg = format!("Node is stopping in {delay:?}...");
@@ -580,67 +653,69 @@ fn init_logging(opt: &Opt, peer_id: PeerId) -> Result<(String, ReloadHandle, Opt
     Ok((output_dest.to_string(), reload_handle, log_appender_guard))
 }
 
-/// Starts a new process running the binary with the same args as
-/// the current process
-/// Optionally provide the node's root dir and listen port to retain it's PeerId
-fn start_new_node_process(retain_peer_id: bool, root_dir: PathBuf, port: u16) {
-    // Retrieve the current executable's path
-    let current_exe = env::current_exe().expect("could not get current executable path");
-
-    // Retrieve the command-line arguments passed to this process
-    let mut args: Vec<String> = env::args().collect();
-
-    info!("Original args are: {args:?}");
-    info!("Current exe is: {current_exe:?}");
-
-    // Remove `--first` argument. If node is restarted, it is not the first anymore.
-    args.retain(|arg| arg != "--first");
-
-    // Convert current exe path to string, log an error and return if it fails
-    let current_exe = match current_exe.to_str() {
-        Some(s) => {
-            // remove "(deleted)" string from current exe path
-            if s.contains(" (deleted)") {
-                warn!(
-                    "The current executable path contains ' (deleted)', which may lead to unexpected behavior. This has been removed from the exe location string"
-                );
-                s.replace(" (deleted)", "")
-            } else {
-                s.to_string()
-            }
-        }
-        None => {
-            error!("Failed to convert current executable path to string");
-            return;
-        }
+/// Starts a new process running the binary with the same args as the current process.
+/// Injects `--root-dir` and `--port` at the beginning if they are not already present,
+/// to ensure the node retains its peer ID on restart.
+fn start_new_node_process(root_dir: PathBuf, port: u16) {
+    // The invoked path is the path the process was actually launched with. In the case where a
+    // symlink was used, this path will be different from the current exe path, which is the source
+    // of the symlink, or the canonical path. The invoked path will be preferred for the automatic
+    // upgrading process, to support the use of symlinked binaries.
+    let invoked_path = env::args().next().expect("failed to get invoked path");
+    let current_exe_path = env::current_exe().expect("could not get current executable path");
+    let executable_path = if Path::new(&invoked_path).exists() {
+        invoked_path
+    } else {
+        current_exe_path.to_string_lossy().to_string()
     };
 
-    // Create a new Command instance to run the current executable
-    let mut cmd = Command::new(current_exe);
+    let mut args: Vec<String> = env::args().collect();
+    debug!("Arguments used for the initial process: {args:?}");
 
-    // Set the arguments for the new Command
-    cmd.args(&args[1..]); // Exclude the first argument (binary path)
+    // Handle "(deleted)" suffix
+    let executable_path = if executable_path.contains(" (deleted)") {
+        warn!(
+            "The executable path contains ' (deleted)', which indicates the binary was replaced.
+             This has been removed from the exe location string"
+        );
+        executable_path.replace(" (deleted)", "")
+    } else {
+        executable_path
+    };
 
-    if retain_peer_id {
-        cmd.arg("--root-dir");
-        cmd.arg(format!("{root_dir:?}"));
-        cmd.arg("--port");
-        cmd.arg(port.to_string());
+    // Remove the --first flag: it's only valid for the initial start.
+    args.retain(|arg| arg != "--first");
+
+    let has_root_dir = args.iter().any(|arg| arg == "--root-dir");
+    let has_port = args.iter().any(|arg| arg == "--port");
+    let mut final_args = Vec::new();
+
+    // To have the restarted node retain its peer ID, inject --root-dir and --port at the beginning
+    // if they are not already present.
+    // The arguments must be at the beginning rather than appended at the end because the EVM
+    // options must be at the end.
+    if !has_root_dir {
+        final_args.push("--root-dir".to_string());
+        final_args.push(root_dir.to_string_lossy().to_string());
+    }
+    if !has_port {
+        final_args.push("--port".to_string());
+        final_args.push(port.to_string());
     }
 
-    warn!(
-        "Attempting to start a new process as node process loop has been broken: {:?}",
-        cmd
-    );
-    // Execute the command
+    final_args.extend_from_slice(&args[1..]);
+
+    let mut cmd = Command::new(&executable_path);
+    cmd.args(&final_args);
+
+    info!("A new process will be launched: {cmd:?}");
     let _handle = match cmd.spawn() {
         Ok(status) => status,
         Err(e) => {
             // Do not return an error as this isn't a critical failure.
             // The current node can continue.
-            eprintln!("Failed to execute hard-restart command: {e:?}");
-            error!("Failed to execute hard-restart command: {e:?}");
-
+            eprintln!("Failed to execute restart: {e:?}");
+            error!("Failed to execute restart: {e:?}");
             return;
         }
     };

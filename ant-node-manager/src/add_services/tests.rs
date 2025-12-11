@@ -27,7 +27,7 @@ use assert_matches::assert_matches;
 use color_eyre::Result;
 use mockall::{Sequence, mock, predicate::*};
 use predicates::prelude::*;
-use service_manager::ServiceInstallCtx;
+use service_manager::{RestartPolicy, ServiceInstallCtx};
 use std::{
     ffi::OsString,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -51,9 +51,11 @@ mock! {
         fn get_available_port(&self) -> ServiceControlResult<u16>;
         fn install(&self, install_ctx: ServiceInstallCtx, user_mode: bool) -> ServiceControlResult<()>;
         fn get_process_pid(&self, bin_path: &Path) -> ServiceControlResult<u32>;
+        fn get_process_version(&self, pid: u32) -> ServiceControlResult<Option<String>>;
         fn start(&self, service_name: &str, user_mode: bool) -> ServiceControlResult<()>;
         fn stop(&self, service_name: &str, user_mode: bool) -> ServiceControlResult<()>;
         fn uninstall(&self, service_name: &str, user_mode: bool) -> ServiceControlResult<()>;
+        fn verify_process_by_pid(&self, pid: u32, expected_name: &str) -> ServiceControlResult<bool>;
         fn wait(&self, delay: u64);
     }
 }
@@ -82,6 +84,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
     let antnode_download_path = temp_dir.child(ANTNODE_FILE_NAME);
     antnode_download_path.write_binary(b"fake antnode bin")?;
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let mut mock_service_control = MockServiceControl::new();
@@ -90,6 +93,11 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(8081))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     let init_peers_config = InitialPeersConfig {
@@ -114,6 +122,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -124,7 +133,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
         name: "antnode1".to_string(),
         network_id: None,
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: init_peers_config.clone(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -135,6 +144,8 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -180,11 +191,13 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -228,6 +241,7 @@ async fn add_genesis_node_should_use_latest_version_and_add_one_service() -> Res
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC"
             )?,
+            merkle_payments_address: None,
         })
     );
     assert_eq!(
@@ -247,6 +261,7 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
     let mock_service_control = MockServiceControl::new();
 
     let latest_version = "0.96.4";
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
 
     let init_peers_config = InitialPeersConfig {
         first: true,
@@ -271,6 +286,7 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: init_peers_config.clone(),
@@ -349,11 +365,13 @@ async fn add_genesis_node_should_return_an_error_if_there_is_already_a_genesis_n
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -375,6 +393,7 @@ async fn add_genesis_node_should_return_an_error_if_count_is_greater_than_1() ->
     let node_reg_path = tmp_data_dir.child("node_reg.json");
     let mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let init_peers_config = InitialPeersConfig {
@@ -431,11 +450,13 @@ async fn add_genesis_node_should_return_an_error_if_count_is_greater_than_1() ->
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -459,6 +480,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
     let mut mock_service_control = MockServiceControl::new();
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -476,6 +498,11 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -490,6 +517,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -500,7 +528,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
         antnode_path: node_data_dir
@@ -511,6 +539,8 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -527,6 +557,11 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         .times(1)
         .returning(|| Ok(8083))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13001))
+        .in_sequence(&mut seq);
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
         autostart: false,
@@ -540,6 +575,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode2"),
@@ -550,7 +586,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         network_id: None,
         name: "antnode2".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13001),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8083),
@@ -561,6 +597,8 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -577,6 +615,11 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         .times(1)
         .returning(|| Ok(8085))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13002))
+        .in_sequence(&mut seq);
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
         autostart: false,
@@ -590,6 +633,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_format: None,
@@ -600,7 +644,7 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         network_id: None,
         name: "antnode3".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13002),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8085),
@@ -611,6 +655,8 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -657,11 +703,13 @@ async fn add_node_should_use_latest_version_and_add_three_services() -> Result<(
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -742,6 +790,7 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
         ("RUST_LOG".to_owned(), "libp2p=debug".to_owned()),
     ]);
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
@@ -760,6 +809,11 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
         autostart: false,
@@ -773,6 +827,7 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -783,7 +838,7 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
@@ -794,6 +849,8 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -839,11 +896,13 @@ async fn add_node_should_update_the_environment_variables_inside_node_registry()
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -890,6 +949,7 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let latest_version = "0.96.4";
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
@@ -906,6 +966,7 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -951,6 +1012,11 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
         .times(1)
         .returning(|| Ok(8083))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
         autostart: false,
@@ -964,6 +1030,7 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode2"),
@@ -974,7 +1041,7 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
         network_id: None,
         name: "antnode2".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8083),
@@ -985,6 +1052,8 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -1031,11 +1100,13 @@ async fn add_new_node_should_add_another_service() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1075,6 +1146,7 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1100,6 +1172,11 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -1127,8 +1204,11 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
                             .to_string(),
                     ),
                     OsString::from("--first"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1145,9 +1225,9 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1190,11 +1270,13 @@ async fn add_node_should_create_service_file_with_first_arg() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1221,6 +1303,7 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1250,6 +1333,11 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     mock_service_control
         .expect_install()
@@ -1278,8 +1366,11 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
                     OsString::from("--peer"),
                     OsString::from(
                         "/ip4/127.0.0.1/tcp/8080/p2p/12D3KooWRBhwfeP2Y4TCx1SM6s9rUoHhR5STiGwxBhgFRcw3UERE"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1296,9 +1387,9 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1341,11 +1432,13 @@ async fn add_node_should_create_service_file_with_peers_args() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1372,6 +1465,7 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1397,6 +1491,11 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -1424,8 +1523,11 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
                             .to_string(),
                     ),
                     OsString::from("--local"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1442,9 +1544,9 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1487,11 +1589,13 @@ async fn add_node_should_create_service_file_with_local_arg() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1518,6 +1622,7 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1547,6 +1652,11 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     mock_service_control
         .expect_install()
@@ -1574,8 +1684,11 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
                     ),
                     OsString::from("--network-contacts-url"),
                     OsString::from("http://localhost:8080/contacts,http://localhost:8081/contacts"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1592,9 +1705,9 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1637,11 +1750,13 @@ async fn add_node_should_create_service_file_with_network_contacts_url_arg() -> 
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1668,6 +1783,7 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1693,6 +1809,11 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -1720,8 +1841,11 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
                             .to_string(),
                     ),
                     OsString::from("--ignore-cache"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1738,9 +1862,9 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1783,11 +1907,13 @@ async fn add_node_should_create_service_file_with_ignore_cache_arg() -> Result<(
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1814,6 +1940,7 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1839,6 +1966,11 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -1867,8 +1999,11 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
                     ),
                     OsString::from("--bootstrap-cache-dir"),
                     OsString::from("/path/to/bootstrap/cache"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -1885,9 +2020,9 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -1930,11 +2065,13 @@ async fn add_node_should_create_service_file_with_custom_bootstrap_cache_path() 
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -1964,6 +2101,7 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -1980,6 +2118,11 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -2008,8 +2151,11 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
                     ),
                     OsString::from("--network-id"),
                     OsString::from("5"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -2026,9 +2172,9 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -2071,11 +2217,13 @@ async fn add_node_should_create_service_file_with_network_id() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -2101,6 +2249,7 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -2119,6 +2268,11 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(12001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -2147,8 +2301,11 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
                     ),
                     OsString::from("--ip"),
                     OsString::from(custom_ip.to_string()),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -2165,9 +2322,9 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -2210,11 +2367,13 @@ async fn add_node_should_use_custom_ip() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -2240,6 +2399,7 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -2272,6 +2432,7 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -2293,6 +2454,8 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -2339,11 +2502,13 @@ async fn add_node_should_use_custom_ports_for_one_service() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -2369,6 +2534,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -2415,6 +2581,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     OsString::from("12000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -2431,9 +2598,9 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -2474,6 +2641,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     OsString::from("12001"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -2490,9 +2658,9 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     .to_path_buf()
                     .join("antnode2")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -2533,6 +2701,7 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     OsString::from("12002"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -2549,9 +2718,9 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                     .to_path_buf()
                     .join("antnode3")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -2594,11 +2763,13 @@ async fn add_node_should_use_a_custom_port_range() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -2625,6 +2796,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -2640,6 +2812,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -2716,11 +2889,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_is_used() -> R
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &MockServiceControl::new(),
@@ -2742,6 +2917,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -2757,6 +2933,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -2833,11 +3010,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_port_in_range_is_us
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry,
         &MockServiceControl::new(),
@@ -2859,6 +3038,7 @@ async fn add_node_should_return_an_error_if_port_and_node_count_do_not_match() -
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -2905,11 +3085,13 @@ async fn add_node_should_return_an_error_if_port_and_node_count_do_not_match() -
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &MockServiceControl::new(),
@@ -2936,6 +3118,7 @@ async fn add_node_should_return_an_error_if_multiple_services_are_specified_with
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -2982,11 +3165,13 @@ async fn add_node_should_return_an_error_if_multiple_services_are_specified_with
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry,
         &MockServiceControl::new(),
@@ -3014,6 +3199,7 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -3027,10 +3213,10 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
     let mut seq = Sequence::new();
 
     // First service
-    let mut ports = vec![Ok(8081), Ok(15001)].into_iter();
+    let mut ports = vec![Ok(8081), Ok(15001), Ok(13000)].into_iter();
     mock_service_control
         .expect_get_available_port()
-        .times(2)
+        .times(3)
         .returning(move || ports.next().unwrap())
         .in_sequence(&mut seq);
     mock_service_control
@@ -3057,10 +3243,13 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--metrics-server-port"),
                     OsString::from("15001"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3077,9 +3266,9 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3122,11 +3311,13 @@ async fn add_node_should_set_random_ports_if_enable_metrics_server_is_true() -> 
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -3146,6 +3337,7 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
@@ -3163,6 +3355,11 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(8081))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -3189,10 +3386,13 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--max-archived-log-files"),
                     OsString::from("20"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3209,9 +3409,9 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3254,11 +3454,13 @@ async fn add_node_should_set_max_archived_log_files() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -3277,6 +3479,7 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
@@ -3296,6 +3499,11 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(8081))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -3322,10 +3530,13 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--max-log-files"),
                     OsString::from("20"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3342,9 +3553,9 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3387,11 +3598,13 @@ async fn add_node_should_set_max_log_files() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -3410,6 +3623,7 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -3429,6 +3643,11 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(15000))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
     mock_service_control
         .expect_install()
@@ -3454,10 +3673,13 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--metrics-server-port"),
                     OsString::from("12000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3474,9 +3696,9 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3488,6 +3710,11 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(15001))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13001))
         .in_sequence(&mut seq);
     mock_service_control
         .expect_install()
@@ -3513,10 +3740,13 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13001"),
                     OsString::from("--metrics-server-port"),
                     OsString::from("12001"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3533,9 +3763,9 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                     .to_path_buf()
                     .join("antnode2")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3547,6 +3777,11 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(15002))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13002))
         .in_sequence(&mut seq);
     mock_service_control
         .expect_install()
@@ -3572,10 +3807,13 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13002"),
                     OsString::from("--metrics-server-port"),
                     OsString::from("12002"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3592,9 +3830,9 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                     .to_path_buf()
                     .join("antnode3")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3637,11 +3875,13 @@ async fn add_node_should_use_a_custom_port_range_for_metrics_server() -> Result<
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -3666,6 +3906,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -3681,6 +3922,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -3757,11 +3999,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_is_use
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry,
         &MockServiceControl::new(),
@@ -3784,6 +4028,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -3799,6 +4044,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -3875,11 +4121,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_metrics_port_in_ran
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry,
         &MockServiceControl::new(),
@@ -3903,6 +4151,7 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
 
     let mut mock_service_control = MockServiceControl::new();
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
 
     let latest_version = "0.96.4";
@@ -3941,8 +4190,11 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -3959,9 +4211,9 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -3993,8 +4245,11 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13001"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -4011,9 +4266,9 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                     .to_path_buf()
                     .join("antnode2")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -4045,8 +4300,11 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13002"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -4063,9 +4321,9 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                     .to_path_buf()
                     .join("antnode3")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -4088,7 +4346,7 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
             metrics_port: None,
             network_id: None,
             node_ip: None,
-            node_port: None,
+            node_port: Some(PortRange::Range(13000, 13002)),
             init_peers_config: InitialPeersConfig::default(),
             rpc_address: None,
             rpc_port: Some(PortRange::Range(20000, 20002)),
@@ -4108,11 +4366,13 @@ async fn add_node_should_use_a_custom_port_range_for_the_rpc_server() -> Result<
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -4147,6 +4407,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -4162,6 +4423,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -4238,11 +4500,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_is_used() 
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry,
         &MockServiceControl::new(),
@@ -4265,6 +4529,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
     node_registry
         .push_node(NodeServiceData {
@@ -4280,6 +4545,7 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             relay: false,
             initial_peers_config: Default::default(),
@@ -4356,11 +4622,13 @@ async fn add_node_should_return_an_error_if_duplicate_custom_rpc_port_in_range_i
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &MockServiceControl::new(),
@@ -4382,6 +4650,7 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -4402,6 +4671,11 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -4416,6 +4690,7 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -4426,7 +4701,7 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
@@ -4437,6 +4712,8 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
         service_user: Some(get_username()),
         no_upnp: true,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -4482,11 +4759,13 @@ async fn add_node_should_disable_upnp_and_relay_if_nat_status_is_public() -> Res
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -4506,6 +4785,7 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -4526,6 +4806,11 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -4540,6 +4825,7 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -4550,7 +4836,7 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
@@ -4561,6 +4847,8 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -4606,11 +4894,13 @@ async fn add_node_should_not_set_no_upnp_if_nat_status_is_upnp() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -4630,6 +4920,7 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -4649,6 +4940,11 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -4663,6 +4959,7 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: true,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -4673,7 +4970,7 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
@@ -4684,6 +4981,8 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: true,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -4729,11 +5028,13 @@ async fn add_node_should_enable_relay_if_nat_status_is_private() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -4754,6 +5055,7 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -4774,6 +5076,11 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
         autostart: false,
@@ -4787,6 +5094,7 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: true,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -4797,7 +5105,7 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12001),
@@ -4808,6 +5116,8 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
         service_user: Some(get_username()),
         no_upnp: true,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
     mock_service_control
@@ -4853,11 +5163,13 @@ async fn add_node_should_set_relay_and_no_upnp_if_nat_status_is_none_but_auto_se
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -4877,6 +5189,7 @@ async fn add_daemon_should_add_a_daemon_service() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let daemon_install_dir = temp_dir.child("install");
@@ -4905,9 +5218,9 @@ async fn add_daemon_should_add_a_daemon_service() -> Result<()> {
                 environment: Some(vec![("ANT_LOG".to_string(), "ALL".to_string())]),
                 label: "antctld".parse()?,
                 program: daemon_install_path.to_path_buf(),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: false,
             }),
             eq(false),
         )
@@ -5012,6 +5325,7 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5033,6 +5347,11 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -5047,6 +5366,7 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -5057,7 +5377,7 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -5068,6 +5388,8 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -5114,11 +5436,13 @@ async fn add_node_should_not_delete_the_source_binary_if_path_arg_is_used() -> R
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5136,6 +5460,7 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5157,6 +5482,11 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -5172,6 +5502,7 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
         log_format: None,
@@ -5181,7 +5512,7 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -5192,6 +5523,8 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -5238,11 +5571,13 @@ async fn add_node_should_apply_the_relay_flag_if_it_is_used() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5261,6 +5596,7 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5282,6 +5618,11 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -5296,6 +5637,7 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: true,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -5306,7 +5648,7 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -5317,6 +5659,8 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: false,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -5363,11 +5707,13 @@ async fn add_node_should_add_the_node_in_user_mode() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5383,6 +5729,7 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5403,6 +5750,11 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -5417,6 +5769,7 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: true,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -5427,7 +5780,7 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -5438,6 +5791,8 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
         service_user: Some(get_username()),
         no_upnp: true,
         write_older_cache_files: false,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -5484,11 +5839,13 @@ async fn add_node_should_add_the_node_with_no_upnp_flag() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5508,6 +5865,7 @@ async fn add_node_should_auto_restart() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let latest_version = "0.96.4";
     let temp_dir = assert_fs::TempDir::new()?;
     let node_data_dir = temp_dir.child("data");
@@ -5525,6 +5883,11 @@ async fn add_node_should_auto_restart() -> Result<()> {
         .expect_get_available_port()
         .times(1)
         .returning(|| Ok(8081))
+        .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
         .in_sequence(&mut seq);
 
     mock_service_control
@@ -5550,8 +5913,11 @@ async fn add_node_should_auto_restart() -> Result<()> {
                             .to_string_lossy()
                             .to_string(),
                     ),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -5568,9 +5934,9 @@ async fn add_node_should_auto_restart() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -5614,11 +5980,13 @@ async fn add_node_should_auto_restart() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5637,6 +6005,7 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5657,6 +6026,11 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
         .times(1)
         .returning(|| Ok(8081))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     let install_ctx = InstallNodeServiceCtxBuilder {
         alpha: false,
@@ -5671,6 +6045,7 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
             data_payments_address: RewardsAddress::from_str(
                 "0x8464135c8F25Da09e49BC8782676a84730C318bC",
             )?,
+            merkle_payments_address: None,
         }),
         relay: false,
         log_dir_path: node_logs_dir.to_path_buf().join("antnode1"),
@@ -5681,7 +6056,7 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
         network_id: None,
         name: "antnode1".to_string(),
         node_ip: None,
-        node_port: None,
+        node_port: Some(13000),
         init_peers_config: InitialPeersConfig::default(),
         rewards_address: RewardsAddress::from_str("0x03B770D9cD32077cC0bF330c13C114a87643B124")?,
         rpc_socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081),
@@ -5692,6 +6067,8 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
         service_user: Some(get_username()),
         no_upnp: true,
         write_older_cache_files: true,
+        restart_policy,
+        stop_on_upgrade: true,
     }
     .build()?;
 
@@ -5738,11 +6115,13 @@ async fn add_node_should_add_the_node_with_write_older_cache_files() -> Result<(
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: true,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,
@@ -5762,6 +6141,7 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
     let tmp_data_dir = assert_fs::TempDir::new()?;
     let node_reg_path = tmp_data_dir.child("node_reg.json");
 
+    let restart_policy = RestartPolicy::OnSuccess { delay_secs: None };
     let mut mock_service_control = MockServiceControl::new();
 
     let node_registry = NodeRegistryManager::empty(node_reg_path.to_path_buf());
@@ -5790,6 +6170,11 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
         .times(1)
         .returning(|| Ok(12001))
         .in_sequence(&mut seq);
+    mock_service_control
+        .expect_get_available_port()
+        .times(1)
+        .returning(|| Ok(13000))
+        .in_sequence(&mut seq);
 
     mock_service_control
         .expect_install()
@@ -5816,8 +6201,11 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
                             .to_string(),
                     ),
                     OsString::from("--alpha"),
+                    OsString::from("--port"),
+                    OsString::from("13000"),
                     OsString::from("--rewards-address"),
                     OsString::from("0x03B770D9cD32077cC0bF330c13C114a87643B124"),
+                    OsString::from("--stop-on-upgrade"),
                     OsString::from("evm-custom"),
                     OsString::from("--rpc-url"),
                     OsString::from("http://localhost:8545/"),
@@ -5834,9 +6222,9 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
                     .to_path_buf()
                     .join("antnode1")
                     .join(ANTNODE_FILE_NAME),
+                restart_policy,
                 username: Some(get_username()),
                 working_directory: None,
-                disable_restart_on_failure: true,
             }),
             eq(false),
         )
@@ -5879,11 +6267,13 @@ async fn add_node_should_create_service_file_with_alpha_arg() -> Result<()> {
                 data_payments_address: RewardsAddress::from_str(
                     "0x8464135c8F25Da09e49BC8782676a84730C318bC",
                 )?,
+                merkle_payments_address: None,
             }),
             rewards_address: RewardsAddress::from_str(
                 "0x03B770D9cD32077cC0bF330c13C114a87643B124",
             )?,
             write_older_cache_files: false,
+            restart_policy,
         },
         node_registry.clone(),
         &mock_service_control,

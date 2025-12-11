@@ -254,6 +254,12 @@ impl SwarmDriver {
                             );
                             return Err(NetworkError::InCorrectRecordHeader);
                         }
+                        RecordKind::DataWithMerklePayment(_) => {
+                            error!(
+                                "Record {record_key:?} with Merkle payment shall not be stored locally."
+                            );
+                            return Err(NetworkError::InCorrectRecordHeader);
+                        }
                     },
                     Err(err) => {
                         error!("For record {record_key:?}, failed to parse record_header {err:?}");
@@ -390,7 +396,9 @@ impl SwarmDriver {
                         error!("bucket is ourself ???!!!");
                     }
                 }
-                let _ = sender.send(ilog2_kbuckets);
+
+                let status = self.get_kbuckets_status();
+                let _ = sender.send((ilog2_kbuckets, status.estimated_network_size));
             }
             LocalSwarmCmd::GetPeersWithMultiaddr { sender } => {
                 cmd_string = "GetPeersWithMultiAddr";

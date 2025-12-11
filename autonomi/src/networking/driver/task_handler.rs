@@ -10,7 +10,7 @@ use crate::networking::NetworkError;
 use crate::networking::OneShotTaskResult;
 use crate::networking::interface::NetworkTask;
 use crate::networking::utils::get_quorum_amount;
-use ant_evm::PaymentQuote;
+use ant_evm::{PaymentQuote, merkle_payments::MerklePaymentCandidateNode};
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
 use libp2p::PeerId;
 use libp2p::kad::{self, PeerInfo, QueryId, Quorum, Record};
@@ -37,7 +37,7 @@ type RecordAndHolders = (Option<Record>, Vec<PeerId>);
 pub(crate) struct TaskHandler {
     closest_peers: HashMap<QueryId, OneShotTaskResult<Vec<PeerInfo>>>,
     put_record_kad: HashMap<QueryId, OneShotTaskResult<()>>,
-    put_record_req: HashMap<OutboundRequestId, OneShotTaskResult<()>>,
+    put_record_req: HashMap<OutboundRequestId, (OneShotTaskResult<()>, PeerInfo)>,
     get_cost: HashMap<
         OutboundRequestId,
         (
@@ -50,7 +50,21 @@ pub(crate) struct TaskHandler {
     get_record_accumulator: HashMap<QueryId, HashMap<PeerId, Record>>,
     get_version: HashMap<OutboundRequestId, OneShotTaskResult<String>>,
     get_record_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Option<Record>>>,
-    get_storage_proofs_from_peer: HashMap<OutboundRequestId, OneShotTaskResult<Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>>>,
+    get_storage_proofs_from_peer: HashMap<
+        OutboundRequestId,
+        OneShotTaskResult<
+            Vec<(
+                NetworkAddress,
+                Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
+            )>,
+        >,
+    >,
+    get_closest_peers_from_peer: HashMap<
+        OutboundRequestId,
+        OneShotTaskResult<Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>>,
+    >,
+    get_merkle_candidate_quote:
+        HashMap<OutboundRequestId, OneShotTaskResult<MerklePaymentCandidateNode>>,
 }
 
 impl TaskHandler {
@@ -65,6 +79,8 @@ impl TaskHandler {
             get_version: Default::default(),
             get_record_from_peer: Default::default(),
             get_storage_proofs_from_peer: Default::default(),
+            get_closest_peers_from_peer: Default::default(),
+            get_merkle_candidate_quote: Default::default(),
         }
     }
 
@@ -80,6 +96,8 @@ impl TaskHandler {
             || self.get_version.contains_key(id)
             || self.get_record_from_peer.contains_key(id)
             || self.get_storage_proofs_from_peer.contains_key(id)
+            || self.get_closest_peers_from_peer.contains_key(id)
+            || self.get_merkle_candidate_quote.contains_key(id)
     }
 
     pub fn insert_task(&mut self, id: QueryId, task: NetworkTask) {
@@ -109,8 +127,8 @@ impl TaskHandler {
             } => {
                 self.get_cost.insert(id, (resp, data_type, peer));
             }
-            NetworkTask::PutRecordReq { resp, .. } => {
-                self.put_record_req.insert(id, resp);
+            NetworkTask::PutRecordReq { resp, to, .. } => {
+                self.put_record_req.insert(id, (resp, to));
             }
             NetworkTask::GetVersion { resp, .. } => {
                 self.get_version.insert(id, resp);
@@ -120,6 +138,12 @@ impl TaskHandler {
             }
             NetworkTask::GetStorageProofsFromPeer { resp, .. } => {
                 self.get_storage_proofs_from_peer.insert(id, resp);
+            }
+            NetworkTask::GetClosestPeersFromPeer { resp, .. } => {
+                self.get_closest_peers_from_peer.insert(id, resp);
+            }
+            NetworkTask::GetMerkleCandidateQuote { resp, .. } => {
+                self.get_merkle_candidate_quote.insert(id, resp);
             }
             _ => {}
         }
@@ -324,12 +348,12 @@ impl TaskHandler {
         id: OutboundRequestId,
         result: Result<(), ant_protocol::error::Error>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self
-            .put_record_req
-            .remove(&id)
-            .ok_or(TaskHandlerError::UnknownQuery(format!(
-                "OutboundRequestId {id:?}"
-            )))?;
+        let (responder, peer_info) =
+            self.put_record_req
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
 
         match result {
             Ok(()) => {
@@ -345,6 +369,27 @@ impl TaskHandler {
                     .send(Err(NetworkError::OutdatedRecordRejected {
                         counter,
                         expected,
+                    }))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+            }
+            Err(ant_protocol::error::Error::TopologyVerificationFailed {
+                target_address,
+                valid_count,
+                total_paid,
+                closest_count,
+                node_peers,
+                paid_peers,
+            }) => {
+                trace!("OutboundRequestId({id}): put record got topology verification error");
+                responder
+                    .send(Err(NetworkError::TopologyVerificationFailed {
+                        rejecting_node: peer_info.peer_id,
+                        target_address: *target_address,
+                        valid_count,
+                        total_paid,
+                        closest_count,
+                        node_peers,
+                        paid_peers,
                     }))
                     .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
             }
@@ -455,19 +500,73 @@ impl TaskHandler {
     pub fn update_get_storage_proofs_from_peer(
         &mut self,
         id: OutboundRequestId,
-        storage_proofs: Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>,
+        storage_proofs: Vec<(
+            NetworkAddress,
+            Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
+        )>,
     ) -> Result<(), TaskHandlerError> {
-        let responder = self
-            .get_storage_proofs_from_peer
-            .remove(&id)
-            .ok_or(TaskHandlerError::UnknownQuery(format!(
-                "OutboundRequestId {id:?}"
-            )))?;
+        let responder =
+            self.get_storage_proofs_from_peer
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
 
-        trace!("OutboundRequestId({id}): got {} storage proofs", storage_proofs.len());
+        trace!(
+            "OutboundRequestId({id}): got {} storage proofs",
+            storage_proofs.len()
+        );
         responder
             .send(Ok(storage_proofs))
             .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        Ok(())
+    }
+
+    pub fn update_get_closest_peers_from_peer(
+        &mut self,
+        id: OutboundRequestId,
+        peers: Vec<(NetworkAddress, Vec<libp2p::Multiaddr>)>,
+    ) -> Result<(), TaskHandlerError> {
+        let responder =
+            self.get_closest_peers_from_peer
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
+
+        trace!("OutboundRequestId({id}): got {} closest peers", peers.len());
+        responder
+            .send(Ok(peers))
+            .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        Ok(())
+    }
+
+    pub fn update_get_merkle_candidate_quote(
+        &mut self,
+        id: OutboundRequestId,
+        result: Result<MerklePaymentCandidateNode, ant_protocol::error::Error>,
+    ) -> Result<(), TaskHandlerError> {
+        let responder =
+            self.get_merkle_candidate_quote
+                .remove(&id)
+                .ok_or(TaskHandlerError::UnknownQuery(format!(
+                    "OutboundRequestId {id:?}"
+                )))?;
+
+        match result {
+            Ok(candidate) => {
+                trace!("OutboundRequestId({id}): got Merkle candidate quote");
+                responder
+                    .send(Ok(candidate))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+            }
+            Err(e) => {
+                trace!("OutboundRequestId({id}): failed to get Merkle candidate quote: {e:?}");
+                responder
+                    .send(Err(NetworkError::GetQuoteError(e.to_string())))
+                    .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+            }
+        }
         Ok(())
     }
 
@@ -485,7 +584,7 @@ impl TaskHandler {
             resp.send(Err(NetworkError::GetQuoteError(error.to_string())))
                 .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
         // Put record case
-        } else if let Some(responder) = self.put_record_req.remove(&id) {
+        } else if let Some((responder, _peer_info)) = self.put_record_req.remove(&id) {
             trace!(
                 "OutboundRequestId({id}): put record got fatal error from peer {peer:?}: {error:?}"
             );
@@ -520,6 +619,21 @@ impl TaskHandler {
             );
             responder
                 .send(Ok(vec![]))
+                .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        } else if let Some(responder) = self.get_closest_peers_from_peer.remove(&id) {
+            trace!(
+                "OutboundRequestId({id}): get closest peers from peer got fatal error from peer {peer:?}: {error:?}"
+            );
+            responder
+                .send(Ok(vec![]))
+                .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
+        // Get Merkle candidate quote case
+        } else if let Some(responder) = self.get_merkle_candidate_quote.remove(&id) {
+            trace!(
+                "OutboundRequestId({id}): get Merkle candidate quote got fatal error from peer {peer:?}: {error:?}"
+            );
+            responder
+                .send(Err(NetworkError::GetQuoteError(error.to_string())))
                 .map_err(|_| TaskHandlerError::NetworkClientDropped(format!("{id:?}")))?;
         } else {
             trace!(

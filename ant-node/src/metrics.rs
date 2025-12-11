@@ -247,6 +247,8 @@ enum PutRecordErrorType {
     ScratchpadTooBig,
     EmptyGraphEntry,
     InvalidPointerSignature,
+    MerklePaymentVerificationFailed,
+    TopologyVerificationFailed,
     LocalSwarmError,
     InvalidRecordHeader,
     InvalidRecord,
@@ -281,6 +283,12 @@ impl From<&crate::PutValidationError> for PutRecordErrorType {
             crate::PutValidationError::ScratchpadTooBig(_) => Self::ScratchpadTooBig,
             crate::PutValidationError::EmptyGraphEntry(_) => Self::EmptyGraphEntry,
             crate::PutValidationError::InvalidPointerSignature => Self::InvalidPointerSignature,
+            crate::PutValidationError::MerklePaymentVerificationFailed { .. } => {
+                Self::MerklePaymentVerificationFailed
+            }
+            crate::PutValidationError::TopologyVerificationFailed { .. } => {
+                Self::TopologyVerificationFailed
+            }
             crate::PutValidationError::LocalSwarmError => Self::LocalSwarmError,
             crate::PutValidationError::InvalidRecordHeader => Self::InvalidRecordHeader,
             crate::PutValidationError::InvalidRecord(_) => Self::InvalidRecord,

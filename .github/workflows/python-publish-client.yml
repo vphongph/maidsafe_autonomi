@@ -1,166 +1,179 @@
+# This workflow publishes the Python client package to PyPI
+# Updated to follow maturin best practices for abi3 wheels
+# See: https://github.com/PyO3/maturin/discussions/1309
+
 name: Publish Python Client Package
 
 on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   macos:
-    runs-on: macos-latest
-    permissions:
-      id-token: write
-      contents: read
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
-        target: [x86_64, aarch64]
+        platform:
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-14
+            target: aarch64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ matrix.python-version }}
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel
+        run: |
+          pip install twine
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python -m zipfile -t "$wheel"
+          done
+          twine check ./autonomi/dist/*
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
-          name: wheels-macos-${{ matrix.target }}-py${{ matrix.python-version }}
+          name: wheels-macos-${{ matrix.platform.target }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   windows:
     runs-on: windows-latest
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
-        target: [x64]
+        platform:
+          - target: x64
+          - target: x86
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.target }}
+          python-version: '3.12'
+          architecture: ${{ matrix.platform.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          target: ${{ matrix.platform.target }}
           args: --release --out dist
           sccache: 'true'
           working-directory: ./autonomi
+      - name: Validate wheel
+        run: |
+          pip install twine
+          foreach ($wheel in Get-ChildItem ./autonomi/dist/*.whl) {
+            Write-Host "Validating $wheel..."
+            python -m zipfile -t $wheel
+          }
+          twine check ./autonomi/dist/*
+        shell: pwsh
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
-          name: wheels-windows-${{ matrix.target }}-py${{ matrix.python-version }}
+          name: wheels-windows-${{ matrix.platform.target }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   linux:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       matrix:
-        target: [x86_64]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        platform:
+          - target: x86_64
+          - target: aarch64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
+          python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
         with:
-          target: ${{ matrix.target }}
-          manylinux: auto
-          before-script-linux: |
-            rustup default stable
-            rustup component add rustfmt
-          args: --release --out dist -i python${{ matrix.python-version }}
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
           sccache: 'true'
+          manylinux: auto
           working-directory: ./autonomi
+      - name: Validate wheel
+        run: |
+          pip install twine
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python -m zipfile -t "$wheel"
+          done
+          twine check ./autonomi/dist/*
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
-          name: wheels-linux-${{ matrix.target }}-py${{ matrix.python-version }}
+          name: wheels-linux-${{ matrix.platform.target }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   musllinux:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        platform:
+          - target: x86_64
+          - target: aarch64
+          - target: armv7
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
+          python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        env:
-          PYO3_CROSS_PYTHON_VERSION: ${{ matrix.python-version }}
-          PYO3_CROSS: "1"
         with:
-          target: ${{ matrix.target }}
-          manylinux: musllinux_1_2
-          before-script-linux: |
-            rustup default stable
-            rustup component add rustfmt
-          args: --release --out dist -i python${{ matrix.python-version }}
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
           sccache: 'true'
+          manylinux: musllinux_1_2
           working-directory: ./autonomi
+      - name: Validate wheel
+        run: |
+          pip install twine
+          for wheel in ./autonomi/dist/*.whl; do
+            echo "Validating $wheel..."
+            python -m zipfile -t "$wheel"
+          done
+          twine check ./autonomi/dist/*
       - name: Upload wheels
         uses: actions/upload-artifact@v5
         with:
-          name: wheels-musllinux-${{ matrix.target }}-py${{ matrix.python-version }}
+          name: wheels-musllinux-${{ matrix.platform.target }}
           path: ./autonomi/dist/*.whl
           if-no-files-found: error
 
   sdist:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Prepare standalone package
         run: |
           # Create build directory structure
           mkdir -p build/autonomi
           cp -r autonomi/* build/autonomi/
-          
-          # First, copy all workspace members
+
+          # Copy all workspace members
           for dir in ant-* test-utils evmlib; do
             if [ -d "$dir" ]; then
               echo "Copying $dir to build directory"
               cp -r "$dir" "build/$dir"
             fi
           done
-          
+
           # Create a new workspace Cargo.toml in the build directory
-          cat > build/Cargo.toml << EOL
+          cat > build/Cargo.toml << 'EOL'
           [workspace]
           resolver = "2"
           members = [
@@ -212,15 +225,13 @@ jobs:
           [workspace.dependencies]
           backtrace = "=0.3.71"
           EOL
-          
+
           # Update all dependency paths to be relative
           find build -name "Cargo.toml" -exec sed -i "s|path = \"/home/runner/work/autonomi/autonomi/build/|path = \"|g" {} \;
-          
+
           # Display directory structure for debugging
           echo "Contents of build directory:"
           ls -la build/
-          echo "Contents of workspace Cargo.toml:"
-          cat build/Cargo.toml
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
@@ -230,7 +241,7 @@ jobs:
       - name: Upload sdist
         uses: actions/upload-artifact@v5
         with:
-          name: wheels
+          name: wheels-sdist
           path: build/autonomi/dist/*.tar.gz
           if-no-files-found: error
 
@@ -240,18 +251,36 @@ jobs:
     needs: [macos, windows, linux, musllinux, sdist]
     permissions:
       id-token: write
-      contents: read
+      contents: write
+      attestations: write
     steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v6
         with:
-          pattern: wheels-*
           path: dist
-          merge-multiple: true
-      - name: Display structure of downloaded files
-        run: ls -R dist
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Display downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find dist -type f -name "*.whl" -o -name "*.tar.gz" | sort
+      - name: Validate all wheels
+        run: |
+          pip install twine
+          echo "Validating wheel integrity..."
+          find dist -name "*.whl" -exec python -m zipfile -t {} \;
+          echo "All wheels validated successfully"
+          echo "Running twine check..."
+          find dist -name "*.whl" -o -name "*.tar.gz" | xargs twine check
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v3
         with:
-          packages-dir: dist/
-          verbose: true
-          print-hash: true
+          subject-path: 'dist/**/*.whl'
+      - name: Publish to PyPI
+        uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        with:
+          command: upload
+          args: --non-interactive --skip-existing dist/**/*

@@ -979,6 +979,7 @@ dependencies = [
  "ant-evm",
  "ant-logging",
  "ant-protocol",
+ "ant-releases",
  "ant-service-management",
  "assert_fs",
  "async-trait",
@@ -995,6 +996,7 @@ dependencies = [
  "evmlib",
  "eyre",
  "file-rotate",
+ "fs2",
  "futures",
  "hex",
  "hkdf",
@@ -1012,6 +1014,7 @@ dependencies = [
  "rayon",
  "reqwest 0.12.25",
  "rmp-serde",
+ "semver 1.0.27",
  "serde",
  "serde_json",
  "sha2",
@@ -3779,6 +3782,16 @@ name = "fragile"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "fs_extra"
@@ -6720,6 +6733,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "service-manager",
  "signal-hook",
  "strip-ansi-escapes",
  "strum 0.26.3",
@@ -9106,14 +9120,15 @@ dependencies = [
 
 [[package]]
 name = "service-manager"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cae942acfe9cecd4450998408f52e1c1ee083145226b7b803bd0d82e1c86912"
+checksum = "44843b1e23129168ae92a47dda1f8b1a86f82fbc06336b9344b4646508f28c73"
 dependencies = [
  "cfg-if",
  "dirs",
  "encoding-utils",
  "encoding_rs",
+ "log",
  "plist",
  "which 4.4.2",
  "xml-rs",

@@ -22,6 +22,7 @@ use ant_service_management::NodeRegistryManager;
 use clap::{Parser, Subcommand};
 use color_eyre::{Result, eyre::eyre};
 use libp2p::Multiaddr;
+use service_manager::RestartPolicy;
 use std::{net::Ipv4Addr, path::PathBuf};
 use tracing::Level;
 
@@ -876,6 +877,7 @@ async fn main() -> Result<()> {
                 node_registry,
                 peers,
                 relay,
+                get_restart_policy(),
                 rewards_address,
                 rpc_address,
                 rpc_port,
@@ -1072,6 +1074,17 @@ async fn main() -> Result<()> {
         }
         None => Ok(()),
     }
+}
+
+/// Get the appropriate restart policy for the current platform
+#[cfg(unix)]
+fn get_restart_policy() -> RestartPolicy {
+    RestartPolicy::OnSuccess { delay_secs: None }
+}
+
+#[cfg(windows)]
+fn get_restart_policy() -> RestartPolicy {
+    RestartPolicy::Never
 }
 
 fn get_log_builder(level: Level) -> Result<LogBuilder> {

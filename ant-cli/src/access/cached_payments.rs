@@ -69,9 +69,7 @@ fn cleanup_outdated_payments() -> Result<()> {
     let files = std::fs::read_dir(dir)?;
     let expired_files = files.into_iter().filter_map(|file| {
         let path = file.ok()?.path();
-        // Extract just the filename (basename) to pass to is_expired_file
-        let file_name = path.file_name()?.to_str()?;
-        if is_expired_file(file_name) {
+        if is_expired_file(path.to_str()?) {
             Some(path)
         } else {
             None

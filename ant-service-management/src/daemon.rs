@@ -77,9 +77,9 @@ impl ServiceStateActions for DaemonService {
             environment: None,
             label: self.service_data.read().await.service_name.parse()?,
             program: self.service_data.read().await.daemon_path.clone(),
+            restart_policy: service_manager::RestartPolicy::Always { delay_secs: None },
             username: None,
             working_directory: None,
-            disable_restart_on_failure: false,
         };
         Ok(install_ctx)
     }
@@ -109,7 +109,12 @@ impl ServiceStateActions for DaemonService {
         self.service_data.write().await.status = ServiceStatus::Removed;
     }
 
-    async fn on_start(&self, pid: Option<u32>, _full_refresh: bool) -> Result<()> {
+    async fn on_start(
+        &self,
+        pid: Option<u32>,
+        _full_refresh: bool,
+        _service_control: &dyn crate::control::ServiceControl,
+    ) -> Result<()> {
         self.service_data.write().await.pid = pid;
         self.service_data.write().await.status = ServiceStatus::Running;
         Ok(())

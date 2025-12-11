@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use rs_merkle::Hasher;
+use ant_merkle::Hasher;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -76,7 +76,7 @@ pub type Result<T> = std::result::Result<T, MerkleTreeError>;
 /// - Individual address proofs verify addresses belong to paid batch
 pub struct MerkleTree {
     /// The underlying rs_merkle tree
-    inner: rs_merkle::MerkleTree<XorNameHasher>,
+    inner: ant_merkle::MerkleTree<XorNameHasher>,
 
     /// Original leaf count (before padding)
     leaf_count: usize,
@@ -169,7 +169,7 @@ impl MerkleTree {
         }
 
         // Build rs_merkle tree from salted hashes
-        let inner = rs_merkle::MerkleTree::<XorNameHasher>::from_leaves(&salted_leaves);
+        let inner = ant_merkle::MerkleTree::<XorNameHasher>::from_leaves(&salted_leaves);
 
         let root = inner.root().ok_or(MerkleTreeError::Internal(
             "Tree must have root after construction".to_string(),
@@ -534,7 +534,7 @@ pub struct MerkleBranch {
 impl MerkleBranch {
     /// Create from rs_merkle proof
     fn from_rs_merkle_proof(
-        proof: rs_merkle::MerkleProof<XorNameHasher>,
+        proof: ant_merkle::MerkleProof<XorNameHasher>,
         leaf_index: usize,
         total_leaves_count: usize,
         unsalted_leaf_hash: XorName,
@@ -603,7 +603,7 @@ impl MerkleBranch {
 
         // Use rs_merkle's verify for both leaves and midpoints
         // For midpoints, we treat nodes at that level as "leaves" of a smaller tree
-        let proof = rs_merkle::MerkleProof::<XorNameHasher>::new(self.proof_hashes.clone());
+        let proof = ant_merkle::MerkleProof::<XorNameHasher>::new(self.proof_hashes.clone());
         proof.verify(
             expected_root,
             &[self.leaf_index],
@@ -858,7 +858,7 @@ pub fn verify_merkle_proof(
 #[derive(Clone)]
 struct XorNameHasher;
 
-impl rs_merkle::Hasher for XorNameHasher {
+impl ant_merkle::Hasher for XorNameHasher {
     type Hash = [u8; 32];
 
     fn hash(data: &[u8]) -> Self::Hash {

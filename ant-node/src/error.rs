@@ -90,7 +90,9 @@ pub enum PutValidationError {
         error: String,
     },
 
-    #[error("Topology verification failed: only {valid_count}/{total_paid} paid nodes in closest {closest_count}")]
+    #[error(
+        "Topology verification failed: only {valid_count}/{total_paid} paid nodes in closest {closest_count}"
+    )]
     TopologyVerificationFailed {
         /// Target address for distance calculations (reward pool midpoint)
         target_address: ant_protocol::NetworkAddress,

@@ -1240,13 +1240,21 @@ impl Node {
         // Use majority knowledge method for accuracy in this critical payment verification
         let midpoint_address = proof.winner_pool.midpoint_proof.address();
         let reward_pool_address = NetworkAddress::ChunkAddress(ChunkAddress::new(midpoint_address));
-        let all_closest_peers = match self.network().get_closest_peers_with_majority_knowledge(&reward_pool_address).await {
+        let all_closest_peers = match self
+            .network()
+            .get_closest_peers_with_majority_knowledge(&reward_pool_address)
+            .await
+        {
             Ok(peers) => peers,
             Err(e) => {
-                warn!("Failed to get closest peers with majority knowledge for topology verification: {e:?}");
+                warn!(
+                    "Failed to get closest peers with majority knowledge for topology verification: {e:?}"
+                );
                 return Err(PutValidationError::MerklePaymentVerificationFailed {
                     record_key: pretty_key.clone().into_owned(),
-                    error: format!("Failed to get closest peers with majority knowledge to {midpoint_address:?}: {e:?}"),
+                    error: format!(
+                        "Failed to get closest peers with majority knowledge to {midpoint_address:?}: {e:?}"
+                    ),
                 });
             }
         };

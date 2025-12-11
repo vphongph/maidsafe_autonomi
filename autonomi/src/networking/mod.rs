@@ -77,7 +77,11 @@ fn format_topology_error(
     writeln!(&mut output, "Target address: {target_address:?}").ok();
 
     // Node's view (sorted by distance)
-    writeln!(&mut output, "\nNode's closest peers (sorted by distance to target):").ok();
+    writeln!(
+        &mut output,
+        "\nNode's closest peers (sorted by distance to target):"
+    )
+    .ok();
     let mut node_with_dist: Vec<_> = node_peers
         .iter()
         .map(|peer| {
@@ -95,7 +99,8 @@ fn format_topology_error(
             peer,
             dist.ilog2(),
             if is_paid { "[PAID]" } else { "" }
-        ).ok();
+        )
+        .ok();
     }
 
     // Paid peers (sorted by distance)
@@ -116,8 +121,13 @@ fn format_topology_error(
             i + 1,
             peer,
             dist.ilog2(),
-            if in_node_closest { "[IN NODE'S CLOSEST]" } else { "" }
-        ).ok();
+            if in_node_closest {
+                "[IN NODE'S CLOSEST]"
+            } else {
+                ""
+            }
+        )
+        .ok();
     }
 
     output

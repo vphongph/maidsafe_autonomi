@@ -1,6 +1,6 @@
 {
   "name": "@withautonomi/autonomi-darwin-arm64",
-  "version": "0.7.3-rc.1",
+  "version": "0.7.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/maidsafe/autonomi.git",

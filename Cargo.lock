@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "ant-bootstrap"
-version = "0.2.13-rc.1"
+version = "0.2.13"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "ant-cli"
-version = "0.4.13-rc.1"
+version = "0.4.13"
 dependencies = [
  "ant-build-info",
  "ant-logging",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "ant-evm"
-version = "0.1.18-rc.1"
+version = "0.1.18"
 dependencies = [
  "ant-merkle",
  "custom_debug",
@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.4.10-rc.1"
+version = "0.4.10"
 dependencies = [
  "aes-gcm-siv",
  "ant-bootstrap",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "ant-node-manager"
-version = "0.14.0-rc.1"
+version = "0.14.0"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "1.0.10-rc.1"
+version = "1.0.10"
 dependencies = [
  "ant-build-info",
  "ant-evm",
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "ant-service-management"
-version = "0.5.0-rc.1"
+version = "0.5.0"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",
@@ -1681,7 +1681,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "autonomi"
-version = "0.7.2-rc.1"
+version = "0.7.2"
 dependencies = [
  "alloy",
  "ant-bootstrap",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "autonomi-nodejs"
-version = "0.3.1-rc.1"
+version = "0.3.1"
 dependencies = [
  "autonomi",
  "bytes",
@@ -3519,7 +3519,7 @@ dependencies = [
 
 [[package]]
 name = "evm-testnet"
-version = "0.1.17-rc.1"
+version = "0.1.17"
 dependencies = [
  "ant-evm",
  "clap",
@@ -3530,7 +3530,7 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.4.6-rc.1"
+version = "0.4.6"
 dependencies = [
  "alloy",
  "dirs-next",
@@ -6692,7 +6692,7 @@ dependencies = [
 
 [[package]]
 name = "node-launchpad"
-version = "0.6.0-rc.1"
+version = "0.6.0"
 dependencies = [
  "ant-bootstrap",
  "ant-build-info",

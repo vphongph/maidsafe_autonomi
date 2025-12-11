@@ -1234,16 +1234,14 @@ impl Node {
             })
             .collect();
 
-        if nearby_records.is_empty() {
+        nearby_records.shuffle(&mut thread_rng());
+        let target_record = if let Some(entry) = nearby_records.first().cloned() {
+            entry
+        } else {
             debug!("No nearby chunk records available for replica verification.");
             return;
-        }
+        };
 
-        nearby_records.shuffle(&mut thread_rng());
-        let target_record = nearby_records
-            .first()
-            .cloned()
-            .expect("nearby_records should contain at least one entry");
         let pretty_key =
             PrettyPrintRecordKey::from(&target_record.to_record_key()).into_owned();
 
@@ -1324,7 +1322,7 @@ impl Node {
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
-        let concurrency = std::cmp::max(1, peers.len());
+        let concurrency = peers.len();
         let results = stream::iter(
             peers
                 .into_iter()

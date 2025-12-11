@@ -33,7 +33,7 @@ use ant_protocol::{
     node_rpc::{NodeCtrl, StopResult},
     version,
 };
-use clap::{Parser, command};
+use clap::Parser;
 use color_eyre::{Result, eyre::eyre};
 use const_hex::traits::FromHex;
 use libp2p::PeerId;

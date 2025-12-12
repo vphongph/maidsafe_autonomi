@@ -16,8 +16,9 @@ use crate::client::{ClientEvent, UploadSummary};
 use crate::self_encryption::{EncryptionStream, MAX_CHUNK_SIZE, encrypt_directory_files};
 use ant_evm::merkle_payments::MAX_LEAVES;
 use ant_evm::{AttoTokens, EvmWallet};
-use ant_protocol::storage::DataTypes;
-use std::collections::HashMap;
+use ant_protocol::NetworkAddress;
+use ant_protocol::storage::{ChunkAddress, DataTypes};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -197,7 +198,7 @@ impl Client {
         // Encrypt files to collect ALL XorNames
         #[cfg(feature = "loud")]
         println!("Encrypting files a first time to create the Merkle Tree(s)...");
-        let (mut all_xor_names, file_chunk_counts) = self
+        let (all_xor_names, file_chunk_counts) = self
             .collect_xornames_from_dir(path.clone(), is_public)
             .await
             .map_err(|e| MerkleUploadErrorWithReceipt::encryption(receipt.clone(), e))?;
@@ -207,14 +208,22 @@ impl Client {
         let total_chunks = all_xor_names.len();
         info!("Collected {total_chunks} XorNames from {total_files} files");
 
+        // Check which chunks already exist on the network and split into existing/new
+        let (mut already_exist, mut xor_to_pay_ordered) =
+            self.split_existing_and_new_chunks(all_xor_names).await;
+        let to_pay_len = xor_to_pay_ordered.len();
+        let already_paid_count = already_exist.len();
+
         // Split into batches of MAX_LEAVES - using drain to avoid cloning
-        let num_batches = total_chunks.div_ceil(MAX_LEAVES);
+        let num_batches = to_pay_len.div_ceil(MAX_LEAVES).max(1);
         let mut batches: Vec<Vec<XorName>> = Vec::with_capacity(num_batches);
-        while !all_xor_names.is_empty() {
-            let drain_count = std::cmp::min(MAX_LEAVES, all_xor_names.len());
-            batches.push(all_xor_names.drain(..drain_count).collect());
+        while !xor_to_pay_ordered.is_empty() {
+            let drain_count = std::cmp::min(MAX_LEAVES, xor_to_pay_ordered.len());
+            batches.push(xor_to_pay_ordered.drain(..drain_count).collect());
         }
-        info!("Split into {num_batches} Merkle Tree(s) of up to {MAX_LEAVES} chunks each");
+        if to_pay_len > 0 {
+            info!("Split into {num_batches} Merkle Tree(s) of up to {MAX_LEAVES} chunks each");
+        }
 
         // Start upload streams
         #[cfg(feature = "loud")]
@@ -256,9 +265,9 @@ impl Client {
             #[cfg(feature = "loud")]
             println!("🌳 Merkle Tree {batch_num}/{num_batches}: Uploading {batch_size} chunks...");
 
-            // Upload this batch's chunks
+            // Upload this batch's chunks (skip chunks that already exist)
             let (remaining_streams, completed_files) = self
-                .upload_batch_with_merkle(streams, &receipt, batch_size)
+                .upload_batch_with_merkle(streams, &receipt, &mut already_exist, batch_size)
                 .await
                 .map_err(|err| MerkleUploadErrorWithReceipt::upload(receipt.clone(), err))?;
 
@@ -276,8 +285,9 @@ impl Client {
             let datamap = if let Some(datamap) = stream.data_map_chunk() {
                 datamap
             } else {
-                // flush the stream to force transition to StreamDone state and try again
-                let _should_be_none = stream.next_batch(1);
+                // flush the stream of remaining duplicate chunks to force transition to StreamDone state and try again
+                while stream.next_batch(16).is_some() {}
+
                 stream
                     .data_map_chunk()
                     .ok_or(MerkleUploadErrorWithReceipt::upload(
@@ -312,7 +322,8 @@ impl Client {
         println!("✓ All {total_chunks} chunks uploaded successfully!");
 
         // Send upload completion event
-        self.send_upload_complete_event(&receipt).await;
+        self.send_upload_complete_event(&receipt, already_paid_count)
+            .await;
 
         Ok((receipt.amount_paid, results))
     }
@@ -390,6 +401,55 @@ impl Client {
         Ok((all_xor_names, file_chunk_counts))
     }
 
+    /// Split chunks into existing and new, checking the network for existence.
+    ///
+    /// Performs a fast parallel existence check and splits the input into:
+    /// - set of existing chunks (already on network, no payment needed)
+    /// - vec of new chunks (need payment), in original order with duplicates removed
+    ///
+    /// Takes ownership of the input to avoid unnecessary copies.
+    async fn split_existing_and_new_chunks(
+        &self,
+        xornames: Vec<XorName>,
+    ) -> (HashSet<XorName>, Vec<XorName>) {
+        #[cfg(feature = "loud")]
+        println!("Checking for existing chunks on the network...");
+        debug!("Checking for existing chunks on the network...");
+
+        // Dedupe while preserving order (keep first occurrence only)
+        let mut seen: HashSet<XorName> = HashSet::new();
+        let unique_ordered: Vec<XorName> =
+            xornames.into_iter().filter(|xn| seen.insert(*xn)).collect();
+        let total = unique_ordered.len();
+
+        // Check existence on network
+        let addresses: Vec<NetworkAddress> = unique_ordered
+            .iter()
+            .map(|xn| NetworkAddress::from(ChunkAddress::new(*xn)))
+            .collect();
+        let batch_size = std::cmp::max(16, *CHUNK_UPLOAD_BATCH_SIZE);
+        let existing_addrs = self.check_records_exist_batch(&addresses, batch_size).await;
+
+        // Convert to XorName set
+        let existing_set: HashSet<XorName> = existing_addrs
+            .into_iter()
+            .filter_map(|addr| addr.xorname())
+            .collect();
+
+        let existing_count = existing_set.len();
+        info!("Found {existing_count}/{total} unique chunks already exist on the network");
+        #[cfg(feature = "loud")]
+        println!("Found {existing_count}/{total} unique chunks already exist on the network");
+
+        // Filter out existing, keeping original order
+        let new_chunks: Vec<XorName> = unique_ordered
+            .into_iter()
+            .filter(|xn| !existing_set.contains(xn))
+            .collect();
+
+        (existing_set, new_chunks)
+    }
+
     /// Pay for a Merkle Tree batch, returning the merged receipt
     async fn pay_for_merkle_tree_batch(
         &self,
@@ -424,12 +484,17 @@ impl Client {
     }
 
     /// Send upload completion event
-    async fn send_upload_complete_event(&self, receipt: &MerklePaymentReceipt) {
-        let total_chunks: usize = receipt.file_chunk_counts.values().sum();
+    async fn send_upload_complete_event(
+        &self,
+        receipt: &MerklePaymentReceipt,
+        records_already_paid: usize,
+    ) {
+        // Use proofs count for accurate records_paid (handles duplicates correctly)
+        let records_paid = receipt.proofs.len();
         if let Some(sender) = &self.client_event_sender {
             let summary = UploadSummary {
-                records_paid: total_chunks,
-                records_already_paid: 0,
+                records_paid,
+                records_already_paid,
                 tokens_spent: receipt.amount_paid.as_atto(),
             };
 

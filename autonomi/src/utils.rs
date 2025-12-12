@@ -97,6 +97,13 @@ mod tests {
     use super::*;
     use crate::client::ChunkBatchUploadState;
 
+    #[tokio::test]
+    async fn test_process_tasks_with_max_concurrency_empty_vec() {
+        let tasks: Vec<std::future::Ready<i32>> = vec![];
+        let results = process_tasks_with_max_concurrency(tasks, 10).await;
+        assert!(results.is_empty());
+    }
+
     #[test]
     fn test_extract_gas_values() {
         // Test successful extraction

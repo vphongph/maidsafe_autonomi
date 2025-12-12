@@ -227,7 +227,7 @@ impl Client {
 
         // Start upload streams
         #[cfg(feature = "loud")]
-        println!("🚀 Starting upload of {total_chunks} chunks in {num_batches} Merkle Tree(s)...");
+        println!("🚀 Starting upload of {to_pay_len} chunks in {num_batches} Merkle Tree(s)...");
         let mut streams: Vec<EncryptionStream> = encrypt_directory_files(path, is_public)
             .await
             .map_err(|e| MerkleUploadErrorWithReceipt::encryption(receipt.clone(), e.to_string()))?

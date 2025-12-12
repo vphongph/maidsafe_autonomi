@@ -554,7 +554,7 @@ impl Network {
         //    - These are considered more trustworthy as multiple nodes agree they exist
         //
         // 2. TIER 1 - CANDIDATES IN POPULAR (highest priority):
-        //    - Select peers that appear in BOTH the original Kad `candidates` AND `popular_peer_addrs`
+        //    - Select peers that appear in BOTH the original Kad `candidates` AND `popular_peer_ids`
         //    - These are the most reliable: both Kad and peer consensus agree
         //
         // 3. TIER 2 - CANDIDATES BEYOND POPULAR RANGE:

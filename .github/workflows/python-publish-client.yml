@@ -16,7 +16,9 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: macos-13
+          # macos-15-intel provides x86_64 builds. Retiring Fall 2027.
+          # See: https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/
+          - runner: macos-15-intel
             target: x86_64
           - runner: macos-14
             target: aarch64

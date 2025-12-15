@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/vphongph/.claude/**)",
+      "Bash(cargo run:*)",
+      "Bash(find:*)",
+      "Bash(./file-gen:*)",
+      "Bash(echo \"Exit code: $?\")",
+      "Read(//Users/vphongph/.cargo/registry/src/**)",
+      "Bash(git log:*)",
+      "Bash(MAX_CHUNK_SIZE=4194304 cargo test:*)",
+      "Bash(cargo test:*)",
+      "Bash(for port in 62120 62123 62127 62132 62138 62144)",
+      "Bash(do echo \"=== Node on port $port ===\" curl -s http://127.0.0.1:$port/info)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(timeout 10 cargo run:*)",
+      "Bash(gtimeout 15 cargo run:*)",
+      "Read(//Users/vphongph/Library/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

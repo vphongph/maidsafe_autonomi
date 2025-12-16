@@ -154,7 +154,7 @@ jobs:
           node-path: target/release/antnode
           build: true
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: bindings-${{ matrix.settings.target }}-${{ matrix.packages.app_name }}
           path: ${{ matrix.packages.dir }}/.

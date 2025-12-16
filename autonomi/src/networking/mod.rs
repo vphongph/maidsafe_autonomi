@@ -52,6 +52,9 @@ pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, 
 /// The majority size within the close group.
 pub const CLOSE_GROUP_SIZE_MAJORITY: usize = CLOSE_GROUP_SIZE / 2 + 1;
 
+/// The number of quoting candidates to be queried.
+pub(crate) const QUOTING_CANDIDATES: usize = 10;
+
 /// The number of closest peers to request from the network
 const N_CLOSEST_PEERS: NonZeroUsize =
     NonZeroUsize::new(CLOSE_GROUP_SIZE + 2).expect("N_CLOSEST_PEERS must be > 0");
@@ -896,10 +899,10 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
-        // request 10 quotes, hope that at least 5 respond
+        // request QUOTING_CANDIDATES quotes, hope that at least CLOSE_GROUP_SIZE respond
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self
-            .get_closest_peers_with_retries(addr.clone(), Some(10))
+            .get_closest_peers_with_retries(addr.clone(), Some(QUOTING_CANDIDATES))
             .await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
         debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");

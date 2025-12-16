@@ -118,7 +118,7 @@ impl Client {
         println!("Encrypting files to calculate cost...");
 
         // Collect all XorNames
-        let (all_xor_names, _file_chunk_counts) = self
+        let (all_xor_names, _file_chunk_counts, _file_results) = self
             .collect_xornames_from_dir(path, is_public)
             .await
             .map_err(MerkleUploadError::Encryption)?;
@@ -198,7 +198,7 @@ impl Client {
         // Encrypt files to collect ALL XorNames
         #[cfg(feature = "loud")]
         println!("Encrypting files a first time to create the Merkle Tree(s)...");
-        let (all_xor_names, file_chunk_counts) = self
+        let (all_xor_names, file_chunk_counts, first_pass_results) = self
             .collect_xornames_from_dir(path.clone(), is_public)
             .await
             .map_err(|e| MerkleUploadErrorWithReceipt::encryption(receipt.clone(), e))?;
@@ -214,18 +214,30 @@ impl Client {
         let to_pay_len = xor_to_pay_ordered.len();
         let already_paid_count = already_exist.len();
 
+        // Early return if all chunks already exist - no need for second encryption
+        if to_pay_len == 0 {
+            #[cfg(feature = "loud")]
+            println!("✓ All {total_chunks} chunks already exist on the network, nothing to upload");
+
+            // Send upload completion event
+            self.send_upload_complete_event(&receipt, already_paid_count)
+                .await;
+
+            return Ok((receipt.amount_paid, first_pass_results));
+        } else {
+            std::mem::drop(first_pass_results);
+        }
+
         // Split into batches of MAX_LEAVES - using drain to avoid cloning
-        let num_batches = to_pay_len.div_ceil(MAX_LEAVES).max(1);
+        let num_batches = to_pay_len.div_ceil(MAX_LEAVES);
         let mut batches: Vec<Vec<XorName>> = Vec::with_capacity(num_batches);
         while !xor_to_pay_ordered.is_empty() {
             let drain_count = std::cmp::min(MAX_LEAVES, xor_to_pay_ordered.len());
             batches.push(xor_to_pay_ordered.drain(..drain_count).collect());
         }
-        if to_pay_len > 0 {
-            info!("Split into {num_batches} Merkle Tree(s) of up to {MAX_LEAVES} chunks each");
-        }
+        info!("Split into {num_batches} Merkle Tree(s) of up to {MAX_LEAVES} chunks each");
 
-        // Start upload streams
+        // Start upload streams (second encryption pass - needed to get actual chunk data)
         #[cfg(feature = "loud")]
         println!("🚀 Starting upload of {to_pay_len} chunks in {num_batches} Merkle Tree(s)...");
         let mut streams: Vec<EncryptionStream> = encrypt_directory_files(path, is_public)
@@ -376,12 +388,20 @@ impl Client {
         }
     }
 
-    /// Collect all XorNames from a directory, returning (all_xornames, file_chunk_counts)
+    /// Collect all XorNames from a directory, returning (all_xornames, file_chunk_counts, file_results)
+    /// The file_results contain (relative_path, datamap, metadata) for each file, useful when all chunks already exist.
     async fn collect_xornames_from_dir(
         &self,
         path: PathBuf,
         is_public: bool,
-    ) -> Result<(Vec<XorName>, HashMap<String, usize>), String> {
+    ) -> Result<
+        (
+            Vec<XorName>,
+            HashMap<String, usize>,
+            Vec<(PathBuf, DataMapChunk, Metadata)>,
+        ),
+        String,
+    > {
         let streams: Vec<EncryptionStream> = encrypt_directory_files(path, is_public)
             .await
             .map_err(|e| e.to_string())?
@@ -390,15 +410,18 @@ impl Client {
 
         let mut all_xor_names = Vec::new();
         let mut file_chunk_counts = HashMap::new();
+        let mut file_results = Vec::new();
 
         for stream in streams {
             let file_path = stream.file_path.clone();
-            let xor_names = collect_xor_names_from_stream(stream);
+            let (xor_names, relative_path, datamap, metadata) =
+                collect_xor_names_from_stream(stream)?;
             file_chunk_counts.insert(file_path, xor_names.len());
             all_xor_names.extend(xor_names);
+            file_results.push((relative_path, datamap, metadata));
         }
 
-        Ok((all_xor_names, file_chunk_counts))
+        Ok((all_xor_names, file_chunk_counts, file_results))
     }
 
     /// Split chunks into existing and new, checking the network for existence.
@@ -505,13 +528,15 @@ impl Client {
     }
 }
 
-/// Collect all XorNames from a stream
-fn collect_xor_names_from_stream(mut encryption_stream: EncryptionStream) -> Vec<XorName> {
+/// Collect all XorNames from a stream, returning (xornames, relative_path, datamap, metadata)
+fn collect_xor_names_from_stream(
+    mut encryption_stream: EncryptionStream,
+) -> Result<(Vec<XorName>, PathBuf, DataMapChunk, Metadata), String> {
     let mut xor_names: Vec<XorName> = Vec::new();
     let xorname_collection_batch_size: usize = std::cmp::max(32, *CHUNK_UPLOAD_BATCH_SIZE);
     let mut total = 0;
     let estimated_total = encryption_stream.total_chunks();
-    let file_path = &encryption_stream.file_path;
+    let file_path = encryption_stream.file_path.clone();
     let start = std::time::Instant::now();
     #[cfg(feature = "loud")]
     println!("Begin encrypting ~{estimated_total} chunks from {file_path}...");
@@ -532,5 +557,16 @@ fn collect_xor_names_from_stream(mut encryption_stream: EncryptionStream) -> Vec
             start.elapsed()
         );
     }
-    xor_names
+
+    // Extract the datamap now that the stream is drained (in StreamDone or InMemory state)
+    let datamap = encryption_stream
+        .data_map_chunk()
+        .ok_or_else(|| format!("No datamap available for {file_path}"))?;
+
+    Ok((
+        xor_names,
+        encryption_stream.relative_path,
+        datamap,
+        encryption_stream.metadata,
+    ))
 }

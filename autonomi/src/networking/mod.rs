@@ -930,11 +930,12 @@ impl Network {
                 Err(e) => errors.push(e),
             }
 
-            // if we have enough quotes, return them
-            if quotes.len() >= minimum_quotes {
+            if quotes.len() >= minimum_quotes && (no_need_to_pay.is_empty() || tasks.is_empty()) {
+                // if we have enough quotes AND no sign of enough existing copies,
+                // return with collected quotes. 
                 let peer_ids = quotes.iter().map(|(p, _)| p.peer_id).collect::<Vec<_>>();
                 debug!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
-                return Ok(Some(quotes));
+                return Ok(Some(quotes.into_iter().take(minimum_quotes).collect()));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
                 debug!(

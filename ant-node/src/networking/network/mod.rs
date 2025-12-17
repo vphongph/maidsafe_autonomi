@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::collections::{BTreeMap, HashMap};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use ant_evm::{PaymentQuote, QuotingMetrics};
@@ -368,6 +369,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: None,
         });
 
         let closest_peers = receiver.await?;
@@ -398,16 +400,20 @@ impl Network {
 
     /// Returns the closest peers with multi-stage verification based on majority knowledge.
     /// This function verifies the candidates by:
-    /// 1. Getting N candidates via Kademlia
+    /// 1. Getting N candidates via Kademlia (if `n` provided, requests that many)
     /// 2. Querying each candidate for their view of closest peers
-    /// 3. N Candidates are collected from the aggregated results, preferring high witness among the close group
+    /// 3. Candidates are collected from the aggregated results, preferring high witness among the close group
     /// 4. Peers are returned in the ascending order of distance to the target
+    ///
+    /// If `n` is provided, requests that many peers from Kademlia and returns up to that many.
+    /// Otherwise uses the default Kademlia count.
     ///
     /// This is more accurate but slower than `get_closest_peers` due to the additional verification round-trips.
     /// Use this for critical operations like Merkle payment topology verification.
     pub(crate) async fn get_closest_peers_with_majority_knowledge(
         &self,
         key: &NetworkAddress,
+        n: Option<usize>,
     ) -> Result<Vec<(PeerId, Addresses)>> {
         let pretty_key = PrettyPrintKBucketKey(key.as_kbucket_key());
         debug!("Getting the all closest peers in range of {pretty_key:?}");
@@ -415,6 +421,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: n.and_then(NonZeroUsize::new),
         });
 
         let candidates = receiver.await?;

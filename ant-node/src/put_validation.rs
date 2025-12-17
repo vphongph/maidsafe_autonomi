@@ -22,6 +22,7 @@ use ant_protocol::{
         RecordKind, Scratchpad, ValidationType, try_deserialize_record, try_serialize_record,
     },
 };
+use ant_evm::merkle_payments::CANDIDATES_PER_POOL;
 use libp2p::PeerId;
 use libp2p::kad::{KBucketDistance as Distance, Record, RecordKey, U256};
 use std::collections::HashSet;
@@ -29,6 +30,9 @@ use xor_name::XorName;
 
 // We retry the payment verification once after waiting this many seconds to rule out the possibility of an EVM node state desync
 const RETRY_PAYMENT_VERIFICATION_WAIT_TIME_SECS: u64 = 5;
+
+// Number of peers to query for topology verification in Merkle payments
+const PEERS_TO_QUERY: usize = CANDIDATES_PER_POOL + (CANDIDATES_PER_POOL / 4);
 
 impl Node {
     /// Validate a record and its payment, and store the record to the RecordStore
@@ -1139,7 +1143,7 @@ impl Node {
     /// 0. Verify proof address matches target address
     /// 1. Query smart contract to get payment info
     /// 2. Verify Merkle proof structure and signatures
-    /// 3. Verify network topology (paid nodes among closest 20)
+    /// 3. Verify network topology (paid nodes among closest 20 peers with majority knowledge)
     async fn verify_merkle_payment(
         &self,
         proof: &MerklePaymentProof,
@@ -1235,33 +1239,27 @@ impl Node {
 
         debug!("Merkle proof structure verified successfully for {pretty_key:?}");
 
-        // Verify network topology (>50% of paid nodes in closest)
-        // Get closest peers to the midpoint address (same address the client used to collect candidates)
-        // Use majority knowledge method for accuracy in this critical payment verification
+        // Verify network topology: get the N closest peers with majority knowledge
         let midpoint_address = proof.winner_pool.midpoint_proof.address();
         let reward_pool_address = NetworkAddress::ChunkAddress(ChunkAddress::new(midpoint_address));
-        let all_closest_peers = match self
+
+        // Get closest peers using weighted majority knowledge with the same count as client
+        let closest_peers = match self
             .network()
-            .get_closest_peers_with_majority_knowledge(&reward_pool_address)
+            .get_closest_peers_with_majority_knowledge(&reward_pool_address, Some(PEERS_TO_QUERY))
             .await
         {
             Ok(peers) => peers,
             Err(e) => {
-                warn!(
-                    "Failed to get closest peers with majority knowledge for topology verification: {e:?}"
-                );
+                warn!("Failed to get closest peers for topology verification: {e:?}");
                 return Err(PutValidationError::MerklePaymentVerificationFailed {
                     record_key: pretty_key.clone().into_owned(),
-                    error: format!(
-                        "Failed to get closest peers with majority knowledge to {midpoint_address:?}: {e:?}"
-                    ),
+                    error: format!("Failed to get closest peers for {midpoint_address:?}: {e:?}"),
                 });
             }
         };
 
-        // Take all the closest nodes
-        let closest_peers: Vec<_> = all_closest_peers.into_iter().collect();
-        let closest_peer_ids: HashSet<_> =
+        let candidate_peer_ids_set: HashSet<_> =
             closest_peers.iter().map(|(peer_id, _)| *peer_id).collect();
 
         // Get the peer ids of the PAID nodes using their indices from the smart contract.
@@ -1288,33 +1286,33 @@ impl Node {
                 }
             })?;
 
-        // Compare the two sets of peer ids: how many PAID nodes are in the closest?
+        // Compare the two sets of peer ids: how many PAID nodes are in the candidate set?
         let legitimate_paid_nodes = paid_peer_ids
             .iter()
-            .filter(|peer_id| closest_peer_ids.contains(peer_id))
+            .filter(|peer_id| candidate_peer_ids_set.contains(peer_id))
             .count();
-        let closest_len = closest_peer_ids.len();
+        let candidates_len = candidate_peer_ids_set.len();
         let paid_nodes_count = payment_info.paid_node_addresses.len();
         let validity_threshold = paid_nodes_count / 2;
         let reached_validity_threshold = legitimate_paid_nodes > validity_threshold;
 
         if !reached_validity_threshold {
             warn!(
-                "Network topology verification failed for {pretty_key:?}: only {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in closest {closest_len} (need >{validity_threshold})"
+                "Network topology verification failed for {pretty_key:?}: only {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in candidates {candidates_len} (need >{validity_threshold})"
             );
 
             return Err(PutValidationError::TopologyVerificationFailed {
                 target_address: reward_pool_address.clone(),
                 valid_count: legitimate_paid_nodes,
                 total_paid: paid_nodes_count,
-                closest_count: closest_len,
-                node_peers: closest_peer_ids.into_iter().collect(),
+                closest_count: candidates_len,
+                node_peers: candidate_peer_ids_set.into_iter().collect(),
                 paid_peers: paid_peer_ids.to_vec(),
             });
         }
 
         debug!(
-            "Network topology verified: {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in closest {closest_len} for {pretty_key:?}",
+            "Network topology verified: {legitimate_paid_nodes}/{paid_nodes_count} paid nodes in candidates {candidates_len} for {pretty_key:?}",
         );
 
         info!("Merkle payment verified successfully for {pretty_key:?}");

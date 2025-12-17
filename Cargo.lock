@@ -994,6 +994,7 @@ dependencies = [
  "custom_debug",
  "dirs-next",
  "evmlib",
+ "exponential-backoff",
  "eyre",
  "file-rotate",
  "fs2",

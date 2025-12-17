@@ -7,19 +7,23 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::collections::{BTreeMap, HashMap};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::messages::{ConnectionInfo, Request, Response};
 use ant_protocol::storage::ValidationType;
 use ant_protocol::{NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey};
+use exponential_backoff::Backoff;
 use futures::StreamExt;
 use futures::future::select_all;
 use futures::stream::FuturesUnordered;
-use libp2p::kad::{K_VALUE, KBucketDistance, Record, RecordKey};
+use libp2p::kad::{KBucketDistance, Record, RecordKey};
 use libp2p::swarm::ConnectionId;
 use libp2p::{Multiaddr, PeerId, identity::Keypair};
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::sleep;
 
 use super::driver::event::MsgResponder;
 use super::error::{NetworkError, Result};
@@ -27,6 +31,13 @@ use super::interface::{LocalSwarmCmd, NetworkSwarmCmd};
 use super::{Addresses, NetworkEvent, NodeIssue, SwarmLocalState};
 
 mod init;
+
+/// Number of retry attempts for get_n_closest_peers_with_retries (initial + retries)
+const CLOSEST_PEERS_RETRY_ATTEMPTS: u32 = 2;
+/// Minimum backoff wait time in seconds between retry attempts
+const CLOSEST_PEERS_RETRY_MIN_WAIT_SECS: u64 = 2;
+/// Maximum backoff wait time in seconds between retry attempts
+const CLOSEST_PEERS_RETRY_MAX_WAIT_SECS: u64 = 8;
 
 pub(crate) use init::NetworkConfig;
 
@@ -368,6 +379,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: None,
         });
 
         let closest_peers = receiver.await?;
@@ -398,16 +410,20 @@ impl Network {
 
     /// Returns the closest peers with multi-stage verification based on majority knowledge.
     /// This function verifies the candidates by:
-    /// 1. Getting N candidates via Kademlia
+    /// 1. Getting N candidates via Kademlia (if `n` provided, requests that many)
     /// 2. Querying each candidate for their view of closest peers
-    /// 3. N Candidates are collected from the aggregated results, preferring high witness among the close group
+    /// 3. Candidates are collected from the aggregated results, preferring high witness among the close group
     /// 4. Peers are returned in the ascending order of distance to the target
+    ///
+    /// If `n` is provided, requests that many peers from Kademlia and returns up to that many.
+    /// Otherwise uses the default Kademlia count.
     ///
     /// This is more accurate but slower than `get_closest_peers` due to the additional verification round-trips.
     /// Use this for critical operations like Merkle payment topology verification.
     pub(crate) async fn get_closest_peers_with_majority_knowledge(
         &self,
         key: &NetworkAddress,
+        n: Option<usize>,
     ) -> Result<Vec<(PeerId, Addresses)>> {
         let pretty_key = PrettyPrintKBucketKey(key.as_kbucket_key());
         debug!("Getting the all closest peers in range of {pretty_key:?}");
@@ -415,6 +431,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: n.and_then(NonZeroUsize::new),
         });
 
         let candidates = receiver.await?;
@@ -528,13 +545,11 @@ impl Network {
         };
 
         // Find the farthest popular peer distance (if any popular peers exist)
-        let farthest_popular_distance = popular_peer_ids
-            .iter()
-            .map(get_distance)
-            .max();
+        let farthest_popular_distance = popular_peer_ids.iter().map(get_distance).max();
 
         let mut verified_candidates: Vec<(PeerId, Addresses)> = Vec::with_capacity(n);
-        let mut selected_peer_ids: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
+        let mut selected_peer_ids: std::collections::HashSet<PeerId> =
+            std::collections::HashSet::new();
 
         // Step 2: Tier 1 - Pick peers in BOTH candidates AND popular_peer_ids
         let mut tier1_peers: Vec<_> = candidates
@@ -570,8 +585,7 @@ impl Network {
             let mut tier2_peers: Vec<_> = candidates
                 .iter()
                 .filter(|(peer_id, _)| {
-                    !selected_peer_ids.contains(peer_id)
-                        && get_distance(peer_id) > farthest_popular
+                    !selected_peer_ids.contains(peer_id) && get_distance(peer_id) > farthest_popular
                 })
                 .collect();
             // Sort by distance (closest first among those beyond popular range)
@@ -640,29 +654,45 @@ impl Network {
         Ok(verified_candidates)
     }
 
-    /// Returns the `n` closest peers to the given `XorName`, sorted by their distance to the xor_name.
-    #[allow(dead_code)]
-    pub(crate) async fn get_n_closest_peers(
+    /// Get closest peers with majority knowledge verification and retries.
+    ///
+    /// This function wraps `get_closest_peers_with_majority_knowledge` with retry logic,
+    /// attempting up to 2 times (initial attempt + 1 retry) with exponential backoff.
+    ///
+    /// Uses the same backoff strategy as the client-side retry functions:
+    /// - First attempt is immediate
+    /// - Second attempt waits 2 seconds after the first failure
+    ///
+    /// This is the recommended function for Merkle payment topology verification
+    /// to handle transient network failures.
+    pub(crate) async fn get_closest_peers_with_retries(
         &self,
         key: &NetworkAddress,
-        n: usize,
+        n: Option<usize>,
     ) -> Result<Vec<(PeerId, Addresses)>> {
-        assert!(n <= K_VALUE.get());
+        let min_wait = Duration::from_secs(CLOSEST_PEERS_RETRY_MIN_WAIT_SECS);
+        let max_wait = Some(Duration::from_secs(CLOSEST_PEERS_RETRY_MAX_WAIT_SECS));
+        let backoff = Backoff::new(CLOSEST_PEERS_RETRY_ATTEMPTS, min_wait, max_wait);
 
-        let mut closest_peers = self.get_closest_peers(key).await?;
-
-        // Check if we have enough results
-        if closest_peers.len() < n {
-            return Err(NetworkError::NotEnoughPeers {
-                found: closest_peers.len(),
-                required: n,
-            });
+        for duration in backoff {
+            match self.get_closest_peers_with_majority_knowledge(key, n).await {
+                Ok(peers) => return Ok(peers),
+                Err(err) => {
+                    warn!(
+                        "Get closest peers with majority knowledge failed for {key:?}: {err:?}, \
+                         retrying in {duration:?}"
+                    );
+                    match duration {
+                        Some(retry_delay) => sleep(retry_delay).await,
+                        None => return Err(err),
+                    }
+                }
+            }
         }
 
-        // Only need the `n` closest peers
-        closest_peers.truncate(n);
-
-        Ok(closest_peers)
+        // This should not be reached given the backoff configuration,
+        // but handle it gracefully by returning the timeout error
+        Err(NetworkError::GetClosestTimedOut)
     }
 
     /// Send a `Request` to the provided set of peers and wait for their responses concurrently.

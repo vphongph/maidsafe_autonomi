@@ -44,13 +44,19 @@ impl SwarmDriver {
         let start = Instant::now();
         let cmd_string;
         match cmd {
-            NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender } => {
+            NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender, n } => {
                 cmd_string = "GetClosestPeersToAddressFromNetwork";
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_closest_peers(key.as_bytes());
+                let query_id = if let Some(n) = n {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .get_n_closest_peers(key.as_bytes().to_vec(), n)
+                } else {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .get_closest_peers(key.as_bytes())
+                };
                 let _ = self.pending_get_closest_peers.insert(
                     query_id,
                     (

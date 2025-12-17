@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::fmt::Debug;
+use std::num::NonZeroUsize;
 
 use ant_protocol::messages::{ConnectionInfo, Request, Response};
 use libp2p::PeerId;
@@ -18,9 +19,11 @@ use crate::networking::{Addresses, NetworkAddress, driver::event::MsgResponder};
 /// Commands to send to the Swarm
 pub(crate) enum NetworkSwarmCmd {
     // Get closest peers from the network
+    // If n is provided, uses get_n_closest_peers to request that many peers
     GetClosestPeersToAddressFromNetwork {
         key: NetworkAddress,
         sender: oneshot::Sender<Vec<(PeerId, Addresses)>>,
+        n: Option<NonZeroUsize>,
     },
 
     // Send Request to the PeerId.

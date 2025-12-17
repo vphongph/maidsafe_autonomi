@@ -18,6 +18,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tiny_keccak::{Hasher, Sha3};
 use xor_name::XorName;
 
 pub use evmlib::merkle_batch_payment::CANDIDATES_PER_POOL;
@@ -190,13 +191,22 @@ pub struct MerklePaymentCandidatePool {
     pub candidate_nodes: [MerklePaymentCandidateNode; CANDIDATES_PER_POOL],
 }
 
+/// Compute SHA3-256 hash of input bytes
+fn sha3_256(input: &[u8]) -> [u8; 32] {
+    let mut sha3 = Sha3::v256();
+    let mut output = [0u8; 32];
+    sha3.update(input);
+    sha3.finalize(&mut output);
+    output
+}
+
 impl MerklePaymentCandidatePool {
     /// Compute deterministic hash for on-chain storage key
     pub fn hash(&self) -> PoolHash {
         let mut bytes = Vec::new();
 
         // Hash of the intersection proof
-        bytes.extend_from_slice(self.midpoint_proof.hash().as_ref());
+        bytes.extend_from_slice(&self.midpoint_proof.hash());
 
         // Number of candidate nodes
         bytes.extend_from_slice(&(self.candidate_nodes.len() as u32).to_le_bytes());
@@ -206,7 +216,7 @@ impl MerklePaymentCandidatePool {
             bytes.extend_from_slice(&node.to_bytes());
         }
 
-        XorName::from_content(&bytes).0
+        sha3_256(&bytes)
     }
 
     /// Convert to minimal commitment for smart contract submission

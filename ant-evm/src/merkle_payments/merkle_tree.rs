@@ -10,7 +10,17 @@ use ant_merkle::Hasher;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tiny_keccak::{Hasher as TinyKeccakHasher, Sha3};
 use xor_name::XorName;
+
+/// Compute SHA3-256 hash of input bytes
+fn sha3_256(input: &[u8]) -> [u8; 32] {
+    let mut sha3 = Sha3::v256();
+    let mut output = [0u8; 32];
+    sha3.update(input);
+    sha3.finalize(&mut output);
+    output
+}
 
 /// Maximum tree depth
 pub use evmlib::merkle_batch_payment::MAX_MERKLE_DEPTH;
@@ -76,7 +86,7 @@ pub type Result<T> = std::result::Result<T, MerkleTreeError>;
 /// - Individual address proofs verify addresses belong to paid batch
 pub struct MerkleTree {
     /// The underlying rs_merkle tree
-    inner: ant_merkle::MerkleTree<XorNameHasher>,
+    inner: ant_merkle::MerkleTree<Sha3Hasher>,
 
     /// Original leaf count (before padding)
     leaf_count: usize,
@@ -155,7 +165,7 @@ impl MerkleTree {
                 let mut data = Vec::with_capacity(64);
                 data.extend_from_slice(address.as_ref());
                 data.extend_from_slice(salt);
-                XorNameHasher::hash(&data)
+                Sha3Hasher::hash(&data)
             })
             .collect();
 
@@ -169,7 +179,7 @@ impl MerkleTree {
         }
 
         // Build rs_merkle tree from salted hashes
-        let inner = ant_merkle::MerkleTree::<XorNameHasher>::from_leaves(&salted_leaves);
+        let inner = ant_merkle::MerkleTree::<Sha3Hasher>::from_leaves(&salted_leaves);
 
         let root = inner.root().ok_or(MerkleTreeError::Internal(
             "Tree must have root after construction".to_string(),
@@ -462,7 +472,7 @@ impl MidpointProof {
     ///
     /// Uses fixed-width encoding (u64) for numeric fields to ensure
     /// architecture-independent hashing across 32-bit and 64-bit platforms.
-    pub fn hash(&self) -> XorName {
+    pub fn hash(&self) -> [u8; 32] {
         let mut bytes = Vec::new();
 
         // Serialize MerkleBranch fields
@@ -486,7 +496,7 @@ impl MidpointProof {
         // Add timestamp (u64 - native width)
         bytes.extend_from_slice(&self.merkle_payment_timestamp.to_le_bytes());
 
-        XorName::from_content(&bytes)
+        sha3_256(&bytes)
     }
 }
 
@@ -534,7 +544,7 @@ pub struct MerkleBranch {
 impl MerkleBranch {
     /// Create from rs_merkle proof
     fn from_rs_merkle_proof(
-        proof: ant_merkle::MerkleProof<XorNameHasher>,
+        proof: ant_merkle::MerkleProof<Sha3Hasher>,
         leaf_index: usize,
         total_leaves_count: usize,
         unsalted_leaf_hash: XorName,
@@ -588,7 +598,7 @@ impl MerkleBranch {
             let mut data = Vec::with_capacity(64);
             data.extend_from_slice(self.unsalted_leaf_hash.as_ref());
             data.extend_from_slice(salt);
-            XorNameHasher::hash(&data)
+            Sha3Hasher::hash(&data)
         } else {
             // For midpoint proofs: use unsalted_leaf_hash directly
             let leaf_bytes = self.unsalted_leaf_hash.as_ref();
@@ -603,7 +613,7 @@ impl MerkleBranch {
 
         // Use rs_merkle's verify for both leaves and midpoints
         // For midpoints, we treat nodes at that level as "leaves" of a smaller tree
-        let proof = ant_merkle::MerkleProof::<XorNameHasher>::new(self.proof_hashes.clone());
+        let proof = ant_merkle::MerkleProof::<Sha3Hasher>::new(self.proof_hashes.clone());
         proof.verify(
             expected_root,
             &[self.leaf_index],
@@ -852,24 +862,28 @@ pub fn verify_merkle_proof(
     Ok(())
 }
 
-/// XorName hasher for rs_merkle
+/// SHA3-256 hasher for Merkle tree
 ///
-/// Uses XorNameHasher (32-byte output) for hashing, consistent with Autonomi network
+/// Uses SHA3-256 (32-byte output) for tree node hashing.
 #[derive(Clone)]
-struct XorNameHasher;
+struct Sha3Hasher;
 
-impl ant_merkle::Hasher for XorNameHasher {
+impl ant_merkle::Hasher for Sha3Hasher {
     type Hash = [u8; 32];
 
     fn hash(data: &[u8]) -> Self::Hash {
-        XorName::from_content(data).0
+        sha3_256(data)
     }
 
     fn concat_and_hash(left: &Self::Hash, right: Option<&Self::Hash>) -> Self::Hash {
-        if let Some(right) = right {
-            XorName::from_content_parts(&[left, right]).0
-        } else {
-            XorName::from_content(left).0
+        match right {
+            Some(r) => {
+                let mut combined = Vec::with_capacity(64);
+                combined.extend_from_slice(left);
+                combined.extend_from_slice(r);
+                sha3_256(&combined)
+            }
+            None => sha3_256(left),
         }
     }
 
@@ -917,11 +931,11 @@ mod tests {
         }
         bytes.extend_from_slice(&pool.merkle_payment_timestamp.to_le_bytes());
 
-        let hash2 = XorName::from_content(&bytes);
+        let hash2 = sha3_256(&bytes);
 
         assert_eq!(
             hash1, hash2,
-            "RewardCandidatePool::hash should match manual u64-encoded hash"
+            "MidpointProof::hash should match manual u64-encoded hash"
         );
     }
 
@@ -983,8 +997,8 @@ mod tests {
     #[test]
     fn test_blake2b_output_size() {
         // Verify that Blake2b::<U32> produces 32-byte (256-bit) hashes
-        let hash1 = XorNameHasher::hash(b"test data");
-        let hash2 = XorNameHasher::concat_and_hash(&hash1, Some(&hash1));
+        let hash1 = Sha3Hasher::hash(b"test data");
+        let hash2 = Sha3Hasher::concat_and_hash(&hash1, Some(&hash1));
 
         // These should compile - proving the type is [u8; 32]
         assert_eq!(hash1.len(), 32, "Hash should be 32 bytes (256 bits)");
@@ -995,7 +1009,7 @@ mod tests {
         );
 
         // Verify hashes are different for different inputs
-        let hash3 = XorNameHasher::hash(b"different data");
+        let hash3 = Sha3Hasher::hash(b"different data");
         assert_ne!(
             hash1, hash3,
             "Different inputs should produce different hashes"

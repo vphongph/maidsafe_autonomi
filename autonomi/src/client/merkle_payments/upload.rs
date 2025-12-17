@@ -18,6 +18,7 @@ use ant_evm::merkle_payments::MerklePaymentProof;
 use ant_protocol::NetworkAddress;
 use ant_protocol::storage::{Chunk, ChunkAddress, DataTypes, RecordKind, try_serialize_record};
 use libp2p::kad::Record;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use thiserror::Error;
 use tracing::debug;
@@ -52,7 +53,8 @@ impl Client {
     /// # Arguments
     /// * `streams` - Vector of encryption streams to process
     /// * `receipt` - Merkle payment receipt containing proofs for chunks
-    /// * `limit` - Maximum number of chunks to upload in this batch
+    /// * `dont_reupload` - Set of XorNames to skip (already exist on network), to which chunks are added as they are uploaded
+    /// * `limit` - Maximum number of chunks to upload in this batch (not including skipped chunks)
     ///
     /// # Returns
     /// * Tuple of (remaining_streams, completed_file_results)
@@ -60,6 +62,7 @@ impl Client {
         &self,
         mut streams: Vec<EncryptionStream>,
         receipt: &MerklePaymentReceipt,
+        dont_reupload: &mut HashSet<XorName>,
         limit: usize,
     ) -> Result<
         (
@@ -88,6 +91,10 @@ impl Client {
                     let mut tasks = Vec::with_capacity(chunks.len());
                     for chunk in chunks {
                         let xor_name = *chunk.name();
+                        if dont_reupload.contains(&xor_name) {
+                            continue;
+                        }
+
                         let proof = receipt
                             .proofs
                             .get(&xor_name)
@@ -104,6 +111,7 @@ impl Client {
                     // Check each result for errors - propagate first error encountered
                     for result in results {
                         let addr = result?;
+                        dont_reupload.insert(*addr.xorname());
                         chunks_uploaded += 1;
                         debug!("Uploaded chunk {chunks_uploaded}/{limit}: {addr:?}");
                         #[cfg(feature = "loud")]

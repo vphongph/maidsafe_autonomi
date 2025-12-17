@@ -12,6 +12,7 @@ use crate::error::PutValidationError;
 use crate::{Marker, Result, node::Node};
 use ant_evm::ProofOfPayment;
 use ant_evm::merkle_payment_vault::get_merkle_payment_info;
+use ant_evm::merkle_payments::CANDIDATES_PER_POOL;
 use ant_evm::merkle_payments::MerklePaymentProof;
 use ant_evm::payment_vault::verify_data_payment;
 use ant_protocol::storage::GraphEntry;
@@ -22,7 +23,6 @@ use ant_protocol::{
         RecordKind, Scratchpad, ValidationType, try_deserialize_record, try_serialize_record,
     },
 };
-use ant_evm::merkle_payments::CANDIDATES_PER_POOL;
 use libp2p::PeerId;
 use libp2p::kad::{KBucketDistance as Distance, Record, RecordKey, U256};
 use std::collections::HashSet;
@@ -1246,7 +1246,7 @@ impl Node {
         // Get closest peers using weighted majority knowledge with the same count as client
         let closest_peers = match self
             .network()
-            .get_closest_peers_with_majority_knowledge(&reward_pool_address, Some(PEERS_TO_QUERY))
+            .get_closest_peers_with_retries(&reward_pool_address, Some(PEERS_TO_QUERY))
             .await
         {
             Ok(peers) => peers,

@@ -55,6 +55,9 @@ pub const CLOSE_GROUP_SIZE_MAJORITY: usize = CLOSE_GROUP_SIZE / 2 + 1;
 /// The number of quoting candidates to be queried.
 pub(crate) const QUOTING_CANDIDATES: usize = 10;
 
+/// Peer quoting result with storage proofs attached.
+pub type PeerQuoteWithStorageProof = (Option<PaymentQuote>, Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>);
+
 /// The number of closest peers to request from the network
 const N_CLOSEST_PEERS: NonZeroUsize =
     NonZeroUsize::new(CLOSE_GROUP_SIZE + 2).expect("N_CLOSEST_PEERS must be > 0");
@@ -759,26 +762,24 @@ impl Network {
     }
 
     /// Get storage proofs directly from a specific peer on the Network
-    /// Returns a vector of (NetworkAddress, ChunkProof) tuples
+    /// Returns an optional PaymentQuote and a vector of (NetworkAddress, ChunkProof) tuples
     pub async fn get_storage_proofs_from_peer(
         &self,
         addr: NetworkAddress,
         peer: PeerInfo,
         nonce: u64,
         difficulty: usize,
-    ) -> Result<
-        Vec<(
-            NetworkAddress,
-            Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
-        )>,
-        NetworkError,
-    > {
+        data_type: ant_protocol::storage::DataTypes,
+        data_size: usize,
+    ) -> Result<PeerQuoteWithStorageProof, NetworkError> {
         let (tx, rx) = oneshot::channel();
         let task = NetworkTask::GetStorageProofsFromPeer {
             addr,
             peer,
             nonce,
             difficulty,
+            data_type,
+            data_size,
             resp: tx,
         };
         self.task_sender

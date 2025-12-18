@@ -1564,8 +1564,12 @@ impl Component for Status<'_> {
         if let Some(error_popup) = &mut self.error_popup
             && error_popup.is_visible()
         {
-            error_popup.handle_input(key);
-            return Ok(vec![Action::SwitchInputMode(InputMode::Navigation)]);
+            if error_popup.handle_input(key) {
+                // Popup was dismissed, switch back to navigation mode
+                return Ok(vec![Action::SwitchInputMode(InputMode::Navigation)]);
+            }
+            // Popup is still visible, stay in entry mode
+            return Ok(vec![]);
         }
         Ok(vec![])
     }

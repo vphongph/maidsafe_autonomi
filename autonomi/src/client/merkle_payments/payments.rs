@@ -220,7 +220,33 @@ impl Client {
         Ok(candidates_array)
     }
 
-    /// Build candidate pools for all midpoint proofs
+    /// Build a single candidate pool for one midpoint proof
+    async fn build_single_candidate_pool(
+        &self,
+        midpoint_proof: MidpointProof,
+        data_type: DataTypes,
+        data_size: usize,
+    ) -> Result<MerklePaymentCandidatePool, MerklePaymentError> {
+        let target = midpoint_proof.address();
+        let timestamp = midpoint_proof.merkle_payment_timestamp;
+
+        // Get candidates for this pool (returns exact-sized array)
+        let candidate_nodes = self
+            .get_merkle_candidate_pool(target, data_type, data_size, timestamp)
+            .await?;
+
+        let pool = MerklePaymentCandidatePool {
+            midpoint_proof,
+            candidate_nodes,
+        };
+
+        // Validate signatures before accepting the pool
+        pool.verify_signatures(timestamp)?;
+
+        Ok(pool)
+    }
+
+    /// Build candidate pools for all midpoint proofs (in parallel)
     ///
     /// # Arguments
     /// * `midpoint_proofs` - The midpoint proofs from the Merkle tree
@@ -235,27 +261,16 @@ impl Client {
         data_type: DataTypes,
         data_size: usize,
     ) -> Result<Vec<MerklePaymentCandidatePool>, MerklePaymentError> {
-        let mut pools = Vec::new();
-
-        for midpoint_proof in midpoint_proofs {
-            let target = midpoint_proof.address();
-            let timestamp = midpoint_proof.merkle_payment_timestamp;
-
-            // Get candidates for this pool (returns exact-sized array)
-            let candidate_nodes = self
-                .get_merkle_candidate_pool(target, data_type, data_size, timestamp)
-                .await?;
-
-            let pool = MerklePaymentCandidatePool {
-                midpoint_proof,
-                candidate_nodes,
-            };
-
-            // Validate signatures before accepting the pool
-            pool.verify_signatures(timestamp)?;
-
-            pools.push(pool);
-        }
+        // Build all pools in parallel
+        let pool_futures = midpoint_proofs.into_iter().map(|proof| {
+            let client = self.clone();
+            async move {
+                client
+                    .build_single_candidate_pool(proof, data_type, data_size)
+                    .await
+            }
+        });
+        let pools = futures::future::try_join_all(pool_futures).await?;
 
         Ok(pools)
     }

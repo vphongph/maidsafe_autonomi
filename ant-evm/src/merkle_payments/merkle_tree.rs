@@ -10,17 +10,10 @@ use ant_merkle::Hasher;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tiny_keccak::{Hasher as TinyKeccakHasher, Sha3};
 use xor_name::XorName;
 
 /// Compute SHA3-256 hash of input bytes
-fn sha3_256(input: &[u8]) -> [u8; 32] {
-    let mut sha3 = Sha3::v256();
-    let mut output = [0u8; 32];
-    sha3.update(input);
-    sha3.finalize(&mut output);
-    output
-}
+use super::merkle_payment::sha3_256;
 
 /// Maximum tree depth
 pub use evmlib::merkle_batch_payment::MAX_MERKLE_DEPTH;

@@ -192,7 +192,7 @@ pub struct MerklePaymentCandidatePool {
 }
 
 /// Compute SHA3-256 hash of input bytes
-fn sha3_256(input: &[u8]) -> [u8; 32] {
+pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
     let mut sha3 = Sha3::v256();
     let mut output = [0u8; 32];
     sha3.update(input);

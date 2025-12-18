@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-12-18
+
+### API
+
+#### Changed
+
+- `Client::get_storage_proofs_from_peer` method signature now requires two additional parameters:
+  `data_type: DataTypes` and `data_size: usize`. The return type has also changed from
+  `Vec<(NetworkAddress, Result<ChunkProof, Error>)>` to `PeerQuoteWithStorageProof`, which includes
+  an optional `PaymentQuote` alongside the storage proofs. [BREAKING]
+
+### Network
+
+#### Added
+
+- Retry logic with exponential backoff to closest peers lookup operations, improving robustness when
+  querying the network.
+- Support for querying a specific number of closest peers, providing more control over network
+  queries.
+- Bad peer detection system that verifies fetched record copies match expected values and blocks
+  peers that fail validation checks.
+- Metrics tracking for bad peers to monitor network health.
+
+#### Changed
+
+- Node and client now use the same network `get_closest` scheme for consistent peer resolution
+  across the network.
+- Blocklist behaviour is limited to prevent unlimited growth by using a circular buffer mechanism.
+- Record store indexing cache is now pruned to remove out-of-sync entries and improve accuracy.
+- Replication is skipped when a close-up peer restart pattern is detected to reduce unnecessary
+  network traffic.
+- Increased `KAD_QUERY_TIMEOUT` to 120 seconds from 10 seconds. Improves node-side KAD query
+  reliability and should prevent `GetClosestTimeout` errors when doing get_closest_peers lookups.
+
+#### Fixed
+
+- Record copy verification now ensures fetched records match the expected content before accepting
+  them.
+- Peers that have been dropped from the routing table are no longer blocked during recheck
+  operations, preventing false positives in bad peer detection.
+- Client `get_closest` check now returns more consistent results across multiple queries.
+- Client operations no longer miss existing copies when verifying data storage.
+- Mutable data re-uploads now use the same quoting range consistently.
+
+### Antctl
+
+#### Fixed
+
+- Services now stop correctly on macOS when using the `antctl stop` command. The underlying service
+  manager crate was incorrectly specifying an 'on success' restart policy that prevented proper
+  service termination.
+- Services no longer start automatically when added with the `antctl add` command on macOS, restoring
+  expected behaviour consistent with other service managers.
+- Node registry manager is now properly cleared during reset operations, preventing phantom nodes
+  from appearing after reset.
+
+### Launchpad
+
+#### Fixed
+
+- Input mode now only switches when error popup is dismissed, preventing unintended mode changes.
+- Node registry is properly synchronized between local storage and in-memory representation after
+  reset operations.
+
 ## 2025-12-11
 
 ### API

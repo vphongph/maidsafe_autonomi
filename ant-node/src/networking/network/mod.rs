@@ -7,19 +7,23 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::collections::{BTreeMap, HashMap};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ant_evm::{PaymentQuote, QuotingMetrics};
 use ant_protocol::messages::{ConnectionInfo, Request, Response};
 use ant_protocol::storage::ValidationType;
 use ant_protocol::{NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey};
+use exponential_backoff::Backoff;
 use futures::StreamExt;
 use futures::future::select_all;
 use futures::stream::FuturesUnordered;
-use libp2p::kad::{K_VALUE, KBucketDistance, Record, RecordKey};
+use libp2p::kad::{KBucketDistance, Record, RecordKey};
 use libp2p::swarm::ConnectionId;
 use libp2p::{Multiaddr, PeerId, identity::Keypair};
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::sleep;
 
 use super::driver::event::MsgResponder;
 use super::error::{NetworkError, Result};
@@ -27,6 +31,13 @@ use super::interface::{LocalSwarmCmd, NetworkSwarmCmd};
 use super::{Addresses, NetworkEvent, NodeIssue, SwarmLocalState};
 
 mod init;
+
+/// Number of retry attempts for get_n_closest_peers_with_retries (initial + retries)
+const CLOSEST_PEERS_RETRY_ATTEMPTS: u32 = 2;
+/// Minimum backoff wait time in seconds between retry attempts
+const CLOSEST_PEERS_RETRY_MIN_WAIT_SECS: u64 = 2;
+/// Maximum backoff wait time in seconds between retry attempts
+const CLOSEST_PEERS_RETRY_MAX_WAIT_SECS: u64 = 8;
 
 pub(crate) use init::NetworkConfig;
 
@@ -287,6 +298,11 @@ impl Network {
         self.send_local_swarm_cmd(LocalSwarmCmd::TriggerIntervalReplication)
     }
 
+    /// Add a peer to the networking blocklist.
+    pub(crate) fn add_peer_to_blocklist(&self, peer: PeerId) {
+        self.send_local_swarm_cmd(LocalSwarmCmd::AddPeerToBlockList { peer_id: peer })
+    }
+
     /// To be called when got a fresh record from client uploading.
     pub(crate) fn add_fresh_records_to_the_replication_fetcher(
         &self,
@@ -363,6 +379,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: None,
         });
 
         let closest_peers = receiver.await?;
@@ -393,17 +410,20 @@ impl Network {
 
     /// Returns the closest peers with multi-stage verification based on majority knowledge.
     /// This function verifies the candidates by:
-    /// 1. Getting N candidates via Kademlia
+    /// 1. Getting N candidates via Kademlia (if `n` provided, requests that many)
     /// 2. Querying each candidate for their view of closest peers
-    /// 3. N Candidates are collected from the aggregated results, preferring high witness among the close group
+    /// 3. Candidates are collected from the aggregated results, preferring high witness among the close group
     /// 4. Peers are returned in the ascending order of distance to the target
+    ///
+    /// If `n` is provided, requests that many peers from Kademlia and returns up to that many.
+    /// Otherwise uses the default Kademlia count.
     ///
     /// This is more accurate but slower than `get_closest_peers` due to the additional verification round-trips.
     /// Use this for critical operations like Merkle payment topology verification.
-    #[allow(dead_code)]
     pub(crate) async fn get_closest_peers_with_majority_knowledge(
         &self,
         key: &NetworkAddress,
+        n: Option<usize>,
     ) -> Result<Vec<(PeerId, Addresses)>> {
         let pretty_key = PrettyPrintKBucketKey(key.as_kbucket_key());
         debug!("Getting the all closest peers in range of {pretty_key:?}");
@@ -411,6 +431,7 @@ impl Network {
         self.send_network_swarm_cmd(NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork {
             key: key.clone(),
             sender,
+            n: n.and_then(NonZeroUsize::new),
         });
 
         let candidates = receiver.await?;
@@ -455,39 +476,21 @@ impl Network {
         let mut tasks: FuturesUnordered<_> = query_tasks.into_iter().collect();
 
         let mut peer_counts: HashMap<PeerId, usize> = HashMap::new();
-        let mut peer_addrs: HashMap<PeerId, std::collections::HashSet<Multiaddr>> = HashMap::new();
 
         while let Some((responder_peer_id, result)) = tasks.next().await {
             if let Ok(peers_list) = result {
                 // Log the responder and their returned peer list
                 trace!("Closegroup to {pretty_key:?} responded from peer {responder_peer_id:?}:");
 
-                // Add the responder itself with higher weight since it successfully responded
-                *peer_counts.entry(responder_peer_id).or_insert(0) += 2;
+                *peer_counts.entry(responder_peer_id).or_insert(0) += 1;
 
-                // Add the responder's addresses from candidates
-                if let Some(responder_info) =
-                    candidates.iter().find(|(p, _)| *p == responder_peer_id)
-                {
-                    let addr_set = peer_addrs.entry(responder_peer_id).or_default();
-                    for addr in &responder_info.1.0 {
-                        let _ = addr_set.insert(addr.clone());
-                    }
-                }
-
-                // Count appearances in the response and collect addresses
-                for (peer_addr, addrs) in peers_list {
+                // Count appearances in the response
+                for (peer_addr, _addrs) in peers_list {
                     if let Some(peer_id) = peer_addr.as_peer_id() {
                         let distance = key.distance(&peer_addr);
                         trace!("  Reported peer: {peer_id:?}, distance: {distance:?}");
 
                         *peer_counts.entry(peer_id).or_insert(0) += 1;
-
-                        // Aggregate unique addresses for this peer
-                        let addr_set = peer_addrs.entry(peer_id).or_default();
-                        for addr in addrs {
-                            let _ = addr_set.insert(addr.clone());
-                        }
                     }
                 }
             } else {
@@ -495,58 +498,149 @@ impl Network {
             }
         }
 
-        // Build all candidates from peer_counts with their counts and distances
-        let mut candidate_with_metrics: Vec<_> = peer_counts
-            .iter()
-            .map(|(peer_id, &count)| {
-                let peer_addr = NetworkAddress::from(*peer_id);
-                let distance = key.distance(&peer_addr);
-                (*peer_id, count, distance)
-            })
-            .collect();
+        // =============================================================================
+        // PEER SELECTION ALGORITHM
+        // =============================================================================
+        // This algorithm selects the N closest verified peers using a multi-tier approach:
+        //
+        // 1. BUILD POPULAR PEERS LIST:
+        //    - Identify "popular" peers: those seen more than n/2 times in peer responses
+        //    - These are considered more trustworthy as multiple nodes agree they exist
+        //
+        // 2. TIER 1 - CANDIDATES IN POPULAR (highest priority):
+        //    - Select peers that appear in BOTH the original Kad `candidates` AND `popular_peer_ids`
+        //    - These are the most reliable: both Kad and peer consensus agree
+        //
+        // 3. TIER 2 - CANDIDATES BEYOND POPULAR RANGE:
+        //    - If Tier 1 doesn't fill N slots, add peers from `candidates` that are farther than the farthest popular peer
+        //    - These extend coverage beyond the popular consensus zone
+        //
+        // 4. TIER 3 - REMAINING CANDIDATES:
+        //    - If still not enough, fill remaining slots with unselected `candidates`
+        //    - Pick closest first (sorted by distance to target)
+        //
+        // Final result is sorted by distance to target address.
+        // =============================================================================
 
-        // Sort by count (high to low), then by distance (low to high)
-        candidate_with_metrics.sort_by(|a, b| {
-            // First compare by count (descending)
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => {
-                    // If counts are equal, compare by distance (ascending)
-                    a.2.cmp(&b.2)
-                }
-                other => other,
-            }
-        });
+        let n = candidates.len();
+        let popularity_threshold = n / 2;
+
+        // Step 1: Build popular_peer_ids - peers seen more than n/2 times
+        let popular_peer_ids: std::collections::HashSet<PeerId> = peer_counts
+            .iter()
+            .filter(|&(_, &count)| count > popularity_threshold)
+            .map(|(peer_id, _)| *peer_id)
+            .collect();
 
         debug!(
-            "Sorted {} candidates by count and distance to target {pretty_key:?}",
-            candidate_with_metrics.len()
+            "Found {} popular peers (seen > {} times) for {pretty_key:?}",
+            popular_peer_ids.len(),
+            popularity_threshold
         );
 
-        // Take the first N candidates (at least as many as we initially got)
-        let n = candidates.len();
-        let mut verified_candidates: Vec<(PeerId, Addresses)> = candidate_with_metrics
-            .into_iter()
-            .take(n)
-            .map(|(peer_id, count, distance)| {
-                trace!("Selected candidate: {peer_id:?}, count: {count}, distance: {distance:?}");
+        // Helper to compute distance
+        let get_distance = |peer_id: &PeerId| -> KBucketDistance {
+            let peer_addr = NetworkAddress::from(*peer_id);
+            key.distance(&peer_addr)
+        };
 
-                // Use addresses from peer responses if available, otherwise use original
-                let addrs = if let Some(addrs_set) = peer_addrs.get(&peer_id) {
-                    Addresses(addrs_set.iter().cloned().collect())
-                } else {
-                    // Fallback to original candidate addresses if available
-                    candidates
-                        .iter()
-                        .find(|(p, _)| *p == peer_id)
-                        .map(|(_, addrs)| addrs.clone())
-                        .unwrap_or(Addresses(Vec::new()))
-                };
+        // Find the farthest popular peer distance (if any popular peers exist)
+        let farthest_popular_distance = popular_peer_ids.iter().map(get_distance).max();
 
-                (peer_id, addrs)
-            })
+        let mut verified_candidates: Vec<(PeerId, Addresses)> = Vec::with_capacity(n);
+        let mut selected_peer_ids: std::collections::HashSet<PeerId> =
+            std::collections::HashSet::new();
+
+        // Step 2: Tier 1 - Pick peers in BOTH candidates AND popular_peer_ids
+        let mut tier1_peers: Vec<_> = candidates
+            .iter()
+            .filter(|(peer_id, _)| popular_peer_ids.contains(peer_id))
             .collect();
+        // Sort by distance (closest first)
+        tier1_peers.sort_by_key(|(peer_id, _)| get_distance(peer_id));
 
-        // Sort final candidates by distance to target (low to high)
+        for (peer_id, addrs) in tier1_peers {
+            if verified_candidates.len() >= n {
+                break;
+            }
+            trace!(
+                "Tier1 selected: {:?}, distance: {:?}",
+                peer_id,
+                get_distance(peer_id)
+            );
+            verified_candidates.push((*peer_id, addrs.clone()));
+            let _ = selected_peer_ids.insert(*peer_id);
+        }
+
+        debug!(
+            "Tier1 (candidates in popular): selected {}/{} peers for {pretty_key:?}",
+            verified_candidates.len(),
+            n
+        );
+
+        // Step 3: Tier 2 - Pick candidates farther than the farthest popular peer
+        if verified_candidates.len() < n
+            && let Some(farthest_popular) = farthest_popular_distance
+        {
+            let mut tier2_peers: Vec<_> = candidates
+                .iter()
+                .filter(|(peer_id, _)| {
+                    !selected_peer_ids.contains(peer_id) && get_distance(peer_id) > farthest_popular
+                })
+                .collect();
+            // Sort by distance (closest first among those beyond popular range)
+            tier2_peers.sort_by_key(|(peer_id, _)| get_distance(peer_id));
+
+            for (peer_id, addrs) in tier2_peers {
+                if verified_candidates.len() >= n {
+                    break;
+                }
+                trace!(
+                    "Tier2 selected: {:?}, distance: {:?}",
+                    peer_id,
+                    get_distance(peer_id)
+                );
+                verified_candidates.push((*peer_id, addrs.clone()));
+                let _ = selected_peer_ids.insert(*peer_id);
+            }
+
+            debug!(
+                "Tier2 (candidates beyond popular): selected {}/{} peers total for {pretty_key:?}",
+                verified_candidates.len(),
+                n
+            );
+        }
+
+        // Step 4: Tier 3 - Fill remaining slots with unselected candidates (closest first)
+        if verified_candidates.len() < n {
+            let mut tier3_peers: Vec<_> = candidates
+                .iter()
+                .filter(|(peer_id, _)| !selected_peer_ids.contains(peer_id))
+                .collect();
+            // Sort by distance (closest first)
+            tier3_peers.sort_by_key(|(peer_id, _)| get_distance(peer_id));
+
+            for (peer_id, addrs) in tier3_peers {
+                if verified_candidates.len() >= n {
+                    break;
+                }
+                trace!(
+                    "Tier3 selected: {:?}, distance: {:?}",
+                    peer_id,
+                    get_distance(peer_id)
+                );
+                verified_candidates.push((*peer_id, addrs.clone()));
+                let _ = selected_peer_ids.insert(*peer_id);
+            }
+
+            debug!(
+                "Tier3 (remaining candidates): selected {}/{} peers total for {pretty_key:?}",
+                verified_candidates.len(),
+                n
+            );
+        }
+
+        // Sort final candidates by distance to target (closest first)
         verified_candidates.sort_by_key(|(peer_id, _)| {
             let peer_addr = NetworkAddress::from(*peer_id);
             key.distance(&peer_addr)
@@ -560,29 +654,45 @@ impl Network {
         Ok(verified_candidates)
     }
 
-    /// Returns the `n` closest peers to the given `XorName`, sorted by their distance to the xor_name.
-    #[allow(dead_code)]
-    pub(crate) async fn get_n_closest_peers(
+    /// Get closest peers with majority knowledge verification and retries.
+    ///
+    /// This function wraps `get_closest_peers_with_majority_knowledge` with retry logic,
+    /// attempting up to 2 times (initial attempt + 1 retry) with exponential backoff.
+    ///
+    /// Uses the same backoff strategy as the client-side retry functions:
+    /// - First attempt is immediate
+    /// - Second attempt waits 2 seconds after the first failure
+    ///
+    /// This is the recommended function for Merkle payment topology verification
+    /// to handle transient network failures.
+    pub(crate) async fn get_closest_peers_with_retries(
         &self,
         key: &NetworkAddress,
-        n: usize,
+        n: Option<usize>,
     ) -> Result<Vec<(PeerId, Addresses)>> {
-        assert!(n <= K_VALUE.get());
+        let min_wait = Duration::from_secs(CLOSEST_PEERS_RETRY_MIN_WAIT_SECS);
+        let max_wait = Some(Duration::from_secs(CLOSEST_PEERS_RETRY_MAX_WAIT_SECS));
+        let backoff = Backoff::new(CLOSEST_PEERS_RETRY_ATTEMPTS, min_wait, max_wait);
 
-        let mut closest_peers = self.get_closest_peers(key).await?;
-
-        // Check if we have enough results
-        if closest_peers.len() < n {
-            return Err(NetworkError::NotEnoughPeers {
-                found: closest_peers.len(),
-                required: n,
-            });
+        for duration in backoff {
+            match self.get_closest_peers_with_majority_knowledge(key, n).await {
+                Ok(peers) => return Ok(peers),
+                Err(err) => {
+                    warn!(
+                        "Get closest peers with majority knowledge failed for {key:?}: {err:?}, \
+                         retrying in {duration:?}"
+                    );
+                    match duration {
+                        Some(retry_delay) => sleep(retry_delay).await,
+                        None => return Err(err),
+                    }
+                }
+            }
         }
 
-        // Only need the `n` closest peers
-        closest_peers.truncate(n);
-
-        Ok(closest_peers)
+        // This should not be reached given the backoff configuration,
+        // but handle it gracefully by returning the timeout error
+        Err(NetworkError::GetClosestTimedOut)
     }
 
     /// Send a `Request` to the provided set of peers and wait for their responses concurrently.

@@ -44,13 +44,19 @@ impl SwarmDriver {
         let start = Instant::now();
         let cmd_string;
         match cmd {
-            NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender } => {
+            NetworkSwarmCmd::GetClosestPeersToAddressFromNetwork { key, sender, n } => {
                 cmd_string = "GetClosestPeersToAddressFromNetwork";
-                let query_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .get_closest_peers(key.as_bytes());
+                let query_id = if let Some(n) = n {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .get_n_closest_peers(key.as_bytes().to_vec(), n)
+                } else {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .get_closest_peers(key.as_bytes())
+                };
                 let _ = self.pending_get_closest_peers.insert(
                     query_id,
                     (
@@ -359,6 +365,11 @@ impl SwarmDriver {
                     });
                 }
             }
+            LocalSwarmCmd::RemoveOutOfSyncEntry { key } => {
+                info!("Pruning out-of-sync Record {key:?}");
+                cmd_string = "RemoveOutOfSyncEntry";
+                self.swarm.behaviour_mut().kademlia.store_mut().pruning_indexing_cache(&key);
+            }
             LocalSwarmCmd::RecordStoreHasKey { key, sender } => {
                 cmd_string = "RecordStoreHasKey";
                 let has_key = self
@@ -438,7 +449,24 @@ impl SwarmDriver {
             }
             LocalSwarmCmd::AddPeerToBlockList { peer_id } => {
                 cmd_string = "AddPeerToBlockList";
-                let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
+
+                self.record_metrics(Marker::PeerConsideredAsBad { bad_peer: &peer_id });
+
+                // Only add to cache if not already present (avoid duplicates)
+                if !self.blocklist_cache.contains(&peer_id) {
+                    // Track blocked peer in FIFO cache; if cache is full, unblock the oldest peer first
+                    if let Some(evicted_peer) = self.blocklist_cache.push_with_eviction(peer_id) {
+                        let _ = self
+                            .swarm
+                            .behaviour_mut()
+                            .blocklist
+                            .unblock_peer(evicted_peer);
+                        trace!(
+                            "Blocklist full, unblocked oldest peer {evicted_peer:?} to make room for {peer_id:?}"
+                        );
+                    }
+                    let _ = self.swarm.behaviour_mut().blocklist.block_peer(peer_id);
+                }
             }
             LocalSwarmCmd::RecordNodeIssue { peer_id, issue } => {
                 cmd_string = "RecordNodeIssues";

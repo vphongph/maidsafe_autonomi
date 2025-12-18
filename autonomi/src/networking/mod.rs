@@ -36,6 +36,7 @@ use ant_protocol::{CLOSE_GROUP_SIZE, PrettyPrintRecordKey};
 use driver::NetworkDriver;
 use futures::stream::{FuturesUnordered, StreamExt};
 use interface::NetworkTask;
+use libp2p::kad::KBucketDistance as Distance;
 use libp2p::kad::NoKnownPeers;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -50,6 +51,12 @@ pub(in crate::networking) type OneShotTaskResult<T> = oneshot::Sender<Result<T, 
 
 /// The majority size within the close group.
 pub const CLOSE_GROUP_SIZE_MAJORITY: usize = CLOSE_GROUP_SIZE / 2 + 1;
+
+/// The number of quoting candidates to be queried.
+pub(crate) const QUOTING_CANDIDATES: usize = 10;
+
+/// Peer quoting result with storage proofs attached.
+pub type PeerQuoteWithStorageProof = (Option<PaymentQuote>, Vec<(NetworkAddress, Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>)>);
 
 /// The number of closest peers to request from the network
 const N_CLOSEST_PEERS: NonZeroUsize =
@@ -511,18 +518,17 @@ impl Network {
                 // Log the responder and their returned peer list
                 trace!("Closegroup to {addr:?} responded from peer {responder_peer_id:?}:");
 
-                // Add the responder itself with higher weight to peer_counts since it successfully responded
-                *peer_counts.entry(*responder_peer_id).or_insert(0) += 2;
+                *peer_counts.entry(*responder_peer_id).or_insert(0) += 1;
 
-                // Add the responder's addresses from candidates
-                if let Some(responder_info) =
-                    candidates.iter().find(|p| p.peer_id == *responder_peer_id)
-                {
-                    let addr_set = peer_addrs.entry(*responder_peer_id).or_default();
-                    for addr in &responder_info.addrs {
-                        addr_set.insert(addr.clone());
-                    }
-                }
+                // // Add the responder's addresses from candidates
+                // if let Some(responder_info) =
+                //     candidates.iter().find(|p| p.peer_id == *responder_peer_id)
+                // {
+                //     let addr_set = peer_addrs.entry(*responder_peer_id).or_default();
+                //     for addr in &responder_info.addrs {
+                //         addr_set.insert(addr.clone());
+                //     }
+                // }
 
                 // Count appearances in the response and collect addresses
                 for (peer_addr, addrs) in peers_list {
@@ -544,55 +550,150 @@ impl Network {
             }
         }
 
-        // Build all candidates from peer_counts with their counts and distances
-        let mut candidate_with_metrics: Vec<_> = peer_counts
-            .iter()
-            .map(|(peer_id, &count)| {
-                let peer_addr = NetworkAddress::from(*peer_id);
-                let distance = addr.distance(&peer_addr);
-                (*peer_id, count, distance)
-            })
-            .collect();
+        // =============================================================================
+        // PEER SELECTION ALGORITHM
+        // =============================================================================
+        // This algorithm selects the N closest verified peers using a multi-tier approach:
+        //
+        // 1. BUILD POPULAR PEERS LIST:
+        //    - Identify "popular" peers: those seen more than n/2 times in peer responses
+        //    - These are considered more trustworthy as multiple nodes agree they exist
+        //
+        // 2. TIER 1 - CANDIDATES IN POPULAR (highest priority):
+        //    - Select peers that appear in BOTH the original Kad `candidates` AND `popular_peer_ids`
+        //    - These are the most reliable: both Kad and peer consensus agree
+        //
+        // 3. TIER 2 - CANDIDATES BEYOND POPULAR RANGE:
+        //    - If Tier 1 doesn't fill N slots, add peers from `candidates` that are farther than the farthest popular peer
+        //    - These extend coverage beyond the popular consensus zone
+        //
+        // 4. TIER 3 - REMAINING CANDIDATES:
+        //    - If still not enough, fill remaining slots with unselected `candidates`
+        //    - Pick closest first (sorted by distance to target)
+        //
+        // Final result is sorted by distance to target address.
+        // =============================================================================
 
-        // Sort by count (high to low), then by distance (low to high)
-        candidate_with_metrics.sort_by(|a, b| {
-            // First compare by count (descending)
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => {
-                    // If counts are equal, compare by distance (ascending)
-                    a.2.cmp(&b.2)
-                }
-                other => other,
-            }
-        });
+        let popularity_threshold = n.get() / 2;
+
+        // Step 1: Build popular_peer_addrs - peers seen more than n/2 times
+        let popular_peer_ids: HashSet<PeerId> = peer_counts
+            .iter()
+            .filter(|&(_, &count)| count > popularity_threshold)
+            .map(|(peer_id, _)| *peer_id)
+            .collect();
 
         debug!(
-            "Sorted {} candidates by count and distance to target",
-            candidate_with_metrics.len()
+            "Found {} popular peers (seen > {} times)",
+            popular_peer_ids.len(),
+            popularity_threshold
         );
 
-        // Take the first N candidates and build PeerInfo
-        let mut verified_candidates: Vec<PeerInfo> = candidate_with_metrics
-            .into_iter()
-            .take(n.get())
-            .map(|(peer_id, count, distance)| {
-                trace!("Selected candidate: {peer_id:?}, count: {count}, distance: {distance:?}");
+        // Helper to compute distance
+        let get_distance = |peer_id: &PeerId| -> Distance {
+            let peer_addr = NetworkAddress::from(*peer_id);
+            addr.distance(&peer_addr)
+        };
 
-                // Use addresses from peer responses if available, otherwise use original
-                let addrs = if let Some(addrs_set) = peer_addrs.get(&peer_id) {
-                    addrs_set.iter().cloned().collect()
-                } else {
-                    // Fallback to original candidate addresses if available
-                    candidates
-                        .iter()
-                        .find(|c| c.peer_id == peer_id)
-                        .map(|c| c.addrs.clone())
-                        .unwrap_or_default()
-                };
+        // Find the farthest popular peer distance (if any popular peers exist)
+        let farthest_popular_distance = popular_peer_ids
+            .iter()
+            .map(get_distance)
+            .max();
 
-                PeerInfo { peer_id, addrs }
-            })
+        let mut verified_candidates: Vec<PeerInfo> = Vec::with_capacity(n.get());
+        let mut selected_peer_ids: HashSet<PeerId> = HashSet::new();
+
+        // Step 2: Tier 1 - Pick peers in BOTH candidates AND popular_peer_addrs
+        // Use addresses from candidates
+        let mut tier1_peers: Vec<_> = candidates
+            .iter()
+            .filter(|c| popular_peer_ids.contains(&c.peer_id))
             .collect();
+        // Sort by distance (closest first)
+        tier1_peers.sort_by_key(|c| get_distance(&c.peer_id));
+
+        for candidate in tier1_peers {
+            if verified_candidates.len() >= n.get() {
+                break;
+            }
+            trace!(
+                "Tier1 selected: {:?}, distance: {:?}",
+                candidate.peer_id,
+                get_distance(&candidate.peer_id)
+            );
+            verified_candidates.push(candidate.clone());
+            selected_peer_ids.insert(candidate.peer_id);
+        }
+
+        debug!(
+            "Tier1 (candidates in popular): selected {}/{} peers",
+            verified_candidates.len(),
+            n.get()
+        );
+
+        // Step 3: Tier 2 - Pick candidates farther than the farthest popular peer
+        // Use addresses from candidates
+        if verified_candidates.len() < n.get()
+            && let Some(farthest_popular) = farthest_popular_distance {
+            let mut tier2_peers: Vec<_> = candidates
+                .iter()
+                .filter(|c| {
+                    !selected_peer_ids.contains(&c.peer_id)
+                        && get_distance(&c.peer_id) > farthest_popular
+                })
+                .collect();
+            // Sort by distance (closest first among those beyond popular range)
+            tier2_peers.sort_by_key(|c| get_distance(&c.peer_id));
+
+            for candidate in tier2_peers {
+                if verified_candidates.len() >= n.get() {
+                    break;
+                }
+                trace!(
+                    "Tier2 selected: {:?}, distance: {:?}",
+                    candidate.peer_id,
+                    get_distance(&candidate.peer_id)
+                );
+                verified_candidates.push(candidate.clone());
+                selected_peer_ids.insert(candidate.peer_id);
+            }
+
+            debug!(
+                "Tier2 (candidates beyond popular): selected {}/{} peers total",
+                verified_candidates.len(),
+                n.get()
+            );
+        }
+
+        // Step 4: Tier 3 - Fill remaining slots with unselected candidates (closest first)
+        if verified_candidates.len() < n.get() {
+            let mut tier3_peers: Vec<_> = candidates
+                .iter()
+                .filter(|c| !selected_peer_ids.contains(&c.peer_id))
+                .collect();
+            // Sort by distance (closest first)
+            tier3_peers.sort_by_key(|c| get_distance(&c.peer_id));
+
+            for candidate in tier3_peers {
+                if verified_candidates.len() >= n.get() {
+                    break;
+                }
+                trace!(
+                    "Tier3 selected: {:?}, distance: {:?}",
+                    candidate.peer_id,
+                    get_distance(&candidate.peer_id)
+                );
+                verified_candidates.push(candidate.clone());
+                selected_peer_ids.insert(candidate.peer_id);
+            }
+
+            debug!(
+                "Tier3 (remaining candidates): selected {}/{} peers total",
+                verified_candidates.len(),
+                n.get()
+            );
+        }
 
         if verified_candidates.len() < n.get() {
             return Err(NetworkError::InsufficientPeers {
@@ -602,7 +703,7 @@ impl Network {
             });
         }
 
-        // Sort final candidates by distance to target (low to high)
+        // Sort final candidates by distance to target (closest first)
         verified_candidates.sort_by_key(|peer| {
             let peer_addr = NetworkAddress::from(peer.peer_id);
             addr.distance(&peer_addr)
@@ -661,26 +762,24 @@ impl Network {
     }
 
     /// Get storage proofs directly from a specific peer on the Network
-    /// Returns a vector of (NetworkAddress, ChunkProof) tuples
+    /// Returns an optional PaymentQuote and a vector of (NetworkAddress, ChunkProof) tuples
     pub async fn get_storage_proofs_from_peer(
         &self,
         addr: NetworkAddress,
         peer: PeerInfo,
         nonce: u64,
         difficulty: usize,
-    ) -> Result<
-        Vec<(
-            NetworkAddress,
-            Result<ant_protocol::messages::ChunkProof, ant_protocol::error::Error>,
-        )>,
-        NetworkError,
-    > {
+        data_type: ant_protocol::storage::DataTypes,
+        data_size: usize,
+    ) -> Result<PeerQuoteWithStorageProof, NetworkError> {
         let (tx, rx) = oneshot::channel();
         let task = NetworkTask::GetStorageProofsFromPeer {
             addr,
             peer,
             nonce,
             difficulty,
+            data_type,
+            data_size,
             resp: tx,
         };
         self.task_sender
@@ -801,10 +900,10 @@ impl Network {
         data_type: u32,
         data_size: usize,
     ) -> Result<Option<Vec<(PeerInfo, PaymentQuote)>>, NetworkError> {
-        // request 10 quotes, hope that at least 5 respond
+        // request QUOTING_CANDIDATES quotes, hope that at least CLOSE_GROUP_SIZE respond
         let minimum_quotes = CLOSE_GROUP_SIZE;
         let closest_peers = self
-            .get_closest_peers_with_retries(addr.clone(), Some(10))
+            .get_closest_peers_with_retries(addr.clone(), Some(QUOTING_CANDIDATES))
             .await?;
         let closest_peers_id = closest_peers.iter().map(|p| p.peer_id).collect::<Vec<_>>();
         debug!("Get quotes for {addr}: got closest peers: {closest_peers_id:?}");
@@ -832,11 +931,12 @@ impl Network {
                 Err(e) => errors.push(e),
             }
 
-            // if we have enough quotes, return them
-            if quotes.len() >= minimum_quotes {
+            if quotes.len() >= minimum_quotes && (no_need_to_pay.is_empty() || tasks.is_empty()) {
+                // if we have enough quotes AND no sign of enough existing copies,
+                // return with collected quotes. 
                 let peer_ids = quotes.iter().map(|(p, _)| p.peer_id).collect::<Vec<_>>();
                 debug!("Get quotes for {addr}: got enough quotes from peers: {peer_ids:?}");
-                return Ok(Some(quotes));
+                return Ok(Some(quotes.into_iter().take(minimum_quotes).collect()));
             } else if no_need_to_pay.len() >= CLOSE_GROUP_SIZE_MAJORITY {
                 let peer_ids = no_need_to_pay.iter().map(|p| p.peer_id).collect::<Vec<_>>();
                 debug!(

@@ -14,7 +14,7 @@ use crate::{
         payment::{PayError, PaymentOption},
         quote::CostError,
     },
-    networking::{NetworkError, PeerInfo, Record},
+    networking::{NetworkError, PeerInfo, QUOTING_CANDIDATES, Record},
 };
 
 use ant_evm::{Amount, AttoTokens, EvmWalletError};
@@ -198,7 +198,7 @@ impl Client {
             };
             let target_nodes = self
                 .network
-                .get_closest_peers_with_retries(net_addr.clone(), None)
+                .get_closest_peers_with_retries(net_addr.clone(), Some(QUOTING_CANDIDATES))
                 .await
                 .map_err(|e| PutError::Network {
                     address: Box::new(net_addr),
@@ -315,7 +315,7 @@ impl Client {
         // store the pointer on the network
         let target_nodes = self
             .network
-            .get_closest_peers_with_retries(net_addr.clone(), None)
+            .get_closest_peers_with_retries(net_addr.clone(), Some(QUOTING_CANDIDATES))
             .await
             .map_err(|e| PutError::Network {
                 address: Box::new(net_addr),

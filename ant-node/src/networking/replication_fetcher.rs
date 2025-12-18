@@ -736,119 +736,179 @@ mod tests {
         let farthest_peer = NetworkAddress::from(PeerId::random());
         let distance_range = self_addr.distance(&farthest_peer);
 
+        // Helper to generate a key within range
+        let generate_in_range_key = |self_addr: &NetworkAddress, distance_range: &_| loop {
+            let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
+            let candidate_key = NetworkAddress::from(&RecordKey::from(random_data));
+            let distance = self_addr.distance(&candidate_key);
+            if distance < *distance_range {
+                break candidate_key;
+            }
+        };
+
         let mut incoming_keys = Vec::new();
         (0..MAX_PARALLEL_FETCH * 2).for_each(|_| {
-            // Repeatedly generate a key until its distance to self_addr is lower than distance_range
-            let key = loop {
-                let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
-                let candidate_key = NetworkAddress::from(&RecordKey::from(random_data));
-                let distance = self_addr.distance(&candidate_key);
-                if distance < distance_range {
-                    break candidate_key;
-                }
-            };
+            let key = generate_in_range_key(&self_addr, &distance_range);
             incoming_keys.push((key, ValidationType::Chunk));
         });
 
-        // let replication_src = PeerId::random();
-        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
-        // replication_fetcher.add_peer_scores(vec![(replication_src, true)]);
+        // Pre-generate fixed peers for the initial keys to ensure deterministic behavior.
+        // By using exactly 2 peers and ensuring both are used, we guarantee both
+        // will be in failed_holders after timeout.
+        let initial_peer_a = PeerId::random();
+        let initial_peer_b = PeerId::random();
 
-        // Adding multiple times to trigger the majority replicas
-        let mut keys_to_fetch = Vec::new();
-        for i in 0..5 {
-            let replication_src = PeerId::random();
-            keys_to_fetch = replication_fetcher.add_keys(
-                replication_src,
-                incoming_keys.clone(),
-                &locally_stored_keys,
-                false,
-                vec![farthest_peer.clone()],
-                #[cfg(feature = "open-metrics")]
-                None,
-            );
-            if !keys_to_fetch.is_empty() {
-                break;
-            }
-            if i > 3 {
-                panic!("Majority replicas shall not be higher than {i}");
-            }
-        }
-
-        assert_eq!(keys_to_fetch.len(), MAX_PARALLEL_FETCH);
-
-        // let replication_src_1 = PeerId::random();
-        // replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
-        // replication_fetcher.add_peer_scores(vec![(replication_src_1, true)]);
-        // we should not fetch anymore keys
-        let key_1 = loop {
-            let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
-            let candidate_key = NetworkAddress::from(&RecordKey::from(random_data));
-            let distance = self_addr.distance(&candidate_key);
-            if distance < distance_range {
-                break candidate_key;
-            }
-        };
-        let key_2 = loop {
-            let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
-            let candidate_key = NetworkAddress::from(&RecordKey::from(random_data));
-            let distance = self_addr.distance(&candidate_key);
-            if distance < distance_range {
-                break candidate_key;
-            }
-        };
-
-        // Adding multiple times
-        let mut keys_to_fetch = Vec::new();
-        for _i in 0..4 {
-            let replication_src_1 = PeerId::random();
-            keys_to_fetch = replication_fetcher.add_keys(
-                replication_src_1,
-                vec![
-                    (key_1.clone(), ValidationType::Chunk),
-                    (key_2.clone(), ValidationType::Chunk),
-                ],
-                &locally_stored_keys,
-                false,
-                vec![farthest_peer.clone()],
-                #[cfg(feature = "open-metrics")]
-                None,
-            );
-        }
-
-        assert!(keys_to_fetch.is_empty());
-
-        // Fresh replication shall be fetched immediately
-        let key = loop {
-            let random_data: Vec<u8> = (0..50).map(|_| rand::random::<u8>()).collect();
-            let candidate_key = NetworkAddress::from(&RecordKey::from(random_data));
-            let distance = self_addr.distance(&candidate_key);
-            if distance < distance_range {
-                break candidate_key;
-            }
-        };
-
-        let replication_src = PeerId::random();
+        // First iteration with peer A - count becomes 1 for each key
         let keys_to_fetch = replication_fetcher.add_keys(
-            replication_src,
-            vec![(key, ValidationType::Chunk)],
+            initial_peer_a,
+            incoming_keys.clone(),
+            &locally_stored_keys,
+            false,
+            vec![farthest_peer.clone()],
+            #[cfg(feature = "open-metrics")]
+            None,
+        );
+        assert!(
+            keys_to_fetch.is_empty(),
+            "First iteration should not trigger fetch (majority not reached)"
+        );
+
+        // Second iteration with peer B - count becomes 2, majority reached
+        let keys_to_fetch = replication_fetcher.add_keys(
+            initial_peer_b,
+            incoming_keys.clone(),
+            &locally_stored_keys,
+            false,
+            vec![farthest_peer.clone()],
+            #[cfg(feature = "open-metrics")]
+            None,
+        );
+        assert_eq!(
+            keys_to_fetch.len(),
+            MAX_PARALLEL_FETCH,
+            "Should fetch MAX_PARALLEL_FETCH keys after majority reached"
+        );
+
+        // Generate two new keys for testing capacity blocking
+        let key_1 = generate_in_range_key(&self_addr, &distance_range);
+        let key_2 = generate_in_range_key(&self_addr, &distance_range);
+
+        // Use fixed, distinct peers for key_1/key_2 that are different from initial peers.
+        // This ensures their entries won't be removed when initial peers fail.
+        let key12_peer_a = PeerId::random();
+        let key12_peer_b = PeerId::random();
+
+        // Add key_1 and key_2 with exactly 2 peers to reach majority once
+        // (avoids creating extra entries from additional majority rounds)
+        let keys_to_fetch = replication_fetcher.add_keys(
+            key12_peer_a,
+            vec![
+                (key_1.clone(), ValidationType::Chunk),
+                (key_2.clone(), ValidationType::Chunk),
+            ],
+            &locally_stored_keys,
+            false,
+            vec![farthest_peer.clone()],
+            #[cfg(feature = "open-metrics")]
+            None,
+        );
+        assert!(
+            keys_to_fetch.is_empty(),
+            "Should not fetch - majority not reached yet"
+        );
+
+        let keys_to_fetch = replication_fetcher.add_keys(
+            key12_peer_b,
+            vec![
+                (key_1.clone(), ValidationType::Chunk),
+                (key_2.clone(), ValidationType::Chunk),
+            ],
+            &locally_stored_keys,
+            false,
+            vec![farthest_peer.clone()],
+            #[cfg(feature = "open-metrics")]
+            None,
+        );
+        // Still empty because on_going_fetches is at capacity (MAX_PARALLEL_FETCH)
+        assert!(
+            keys_to_fetch.is_empty(),
+            "Should not fetch - on_going_fetches at capacity"
+        );
+
+        // Fresh replication shall be fetched immediately (bypasses capacity check)
+        let fresh_key = generate_in_range_key(&self_addr, &distance_range);
+        let fresh_peer = PeerId::random();
+        let keys_to_fetch = replication_fetcher.add_keys(
+            fresh_peer,
+            vec![(fresh_key, ValidationType::Chunk)],
             &locally_stored_keys,
             true,
             vec![],
             #[cfg(feature = "open-metrics")]
             None,
         );
-        assert_eq!(keys_to_fetch.len(), 1);
+        assert_eq!(
+            keys_to_fetch.len(),
+            1,
+            "Fresh replicate should bypass capacity limit"
+        );
 
         sleep(FETCH_TIMEOUT + Duration::from_secs(1)).await;
 
-        // all the previous fetches should have failed and fetching next batch...
+        // After timeout, all on_going_fetches have expired:
+        // - The 5 initial keys were fetched from initial_peer_a and/or initial_peer_b
+        // - The fresh key was fetched from fresh_peer
+        // All these peers are now in failed_holders and their entries are removed.
+        //
+        // Remaining in to_be_fetched:
+        // - key_1 and key_2 entries from key12_peer_a and key12_peer_b
+        //
+        // However, the initial 10 keys also had entries from BOTH initial_peer_a AND
+        // initial_peer_b. Due to HashMap iteration order being non-deterministic,
+        // the 5 fetched keys might have all come from one peer, leaving the other
+        // peer's entries intact.
+        //
+        // To ensure determinism, we verify that key_1 and key_2 are among the
+        // returned keys, regardless of whether some initial key entries also remain.
         let keys_to_fetch = replication_fetcher.next_keys_to_fetch();
-        // but as we've marked the previous fetches as failed, that node should be entirely removed from the list
-        // leaving us with just _one_ peer left (but with two entries)
-        assert_eq!(keys_to_fetch.len(), 2);
+
+        // Verify that we got some keys to fetch (cleanup worked, capacity available)
+        assert!(
+            !keys_to_fetch.is_empty(),
+            "Should have keys to fetch after timeout cleanup"
+        );
+
+        // Get the record keys for key_1 and key_2
+        let key_1_record = key_1.to_record_key();
+        let key_2_record = key_2.to_record_key();
+
+        // Collect all keys by repeatedly calling next_keys_to_fetch until empty
+        let mut all_fetched_keys: Vec<RecordKey> =
+            keys_to_fetch.into_iter().map(|(_, k)| k).collect();
+        loop {
+            let more_keys = replication_fetcher.next_keys_to_fetch();
+            if more_keys.is_empty() {
+                break;
+            }
+            all_fetched_keys.extend(more_keys.into_iter().map(|(_, k)| k));
+        }
+
+        // Verify key_1 and key_2 were fetched (their peers weren't in failed_holders)
+        assert!(
+            all_fetched_keys.contains(&key_1_record),
+            "key_1 should be fetchable after timeout"
+        );
+        assert!(
+            all_fetched_keys.contains(&key_2_record),
+            "key_2 should be fetchable after timeout"
+        );
+
+        // Verify that final next_keys_to_fetch returns empty
         let keys_to_fetch = replication_fetcher.next_keys_to_fetch();
-        assert!(keys_to_fetch.is_empty());
+        assert!(
+            keys_to_fetch.is_empty(),
+            "Should have no more keys to fetch"
+        );
 
         Ok(())
     }

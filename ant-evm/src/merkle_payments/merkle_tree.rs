@@ -1068,13 +1068,13 @@ mod tests {
 
     #[test]
     fn test_midpoints() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let midpoints = tree.midpoints().unwrap();
 
-        // Depth = 10, (depth+1)/2 = 5 (rounded up), so 2^5 = 32 midpoints
-        assert_eq!(midpoints.len(), 32);
+        // Depth = 8, ceil(8/2) = 4, so 2^4 = 16 midpoints
+        assert_eq!(midpoints.len(), 16);
 
         // Check all midpoints have valid indices
         for (i, midpoint) in midpoints.iter().enumerate() {
@@ -1084,14 +1084,14 @@ mod tests {
 
     #[test]
     fn test_reward_candidates() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let merkle_payment_timestamp = 1234567890u64;
         let candidates = tree.reward_candidates(merkle_payment_timestamp).unwrap();
 
-        // Should have same number as midpoints
-        assert_eq!(candidates.len(), 32);
+        // Should have same number as midpoints (2^4 = 16 for depth 8)
+        assert_eq!(candidates.len(), 16);
 
         // Each candidate should have unique address
         let mut addresses = std::collections::HashSet::new();
@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn test_midpoint_proof_generation_and_verification() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let midpoints = tree.midpoints().unwrap();
@@ -1195,9 +1195,9 @@ mod tests {
         let proof = tree.generate_midpoint_proof(0, midpoints[0].hash).unwrap();
         assert!(proof.verify());
 
-        // Test proof for last midpoint
+        // Test proof for last midpoint (16 midpoints for depth 8, so index 15)
         let proof = tree
-            .generate_midpoint_proof(31, midpoints[31].hash)
+            .generate_midpoint_proof(15, midpoints[15].hash)
             .unwrap();
         assert!(proof.verify());
     }
@@ -1723,19 +1723,19 @@ mod tests {
         // From midpoint (level 2) to root (level 4) = 2 hashing steps = 2 siblings
         assert_eq!(midpoint_proof.depth(), 2);
 
-        // 1024 leaves = 2^10, depth = 10
-        let leaves = make_test_leaves(1024);
+        // 256 leaves = 2^8, depth = 8
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves.clone()).unwrap();
-        assert_eq!(tree.depth(), 10);
+        assert_eq!(tree.depth(), 8);
 
         let address_proof = tree.generate_address_proof(0, leaves[0]).unwrap();
-        // From leaf (level 0) to root (level 10) = 10 hashing steps = 10 siblings
-        assert_eq!(address_proof.depth(), 10);
+        // From leaf (level 0) to root (level 8) = 8 hashing steps = 8 siblings
+        assert_eq!(address_proof.depth(), 8);
 
         let midpoints = tree.midpoints().unwrap();
         let midpoint_proof = tree.generate_midpoint_proof(0, midpoints[0].hash).unwrap();
-        // From midpoint (level 5) to root (level 10) = 5 hashing steps = 5 siblings
-        assert_eq!(midpoint_proof.depth(), 5);
+        // From midpoint (level 4) to root (level 8) = 4 hashing steps = 4 siblings
+        assert_eq!(midpoint_proof.depth(), 4);
 
         // 100 leaves = padded to 128 = 2^7, depth = 7
         let leaves = make_test_leaves(100);
@@ -1913,16 +1913,16 @@ mod tests {
     fn test_calculate_depth_edge_cases() {
         // Test the calculate_depth function via tree construction
         let test_cases = vec![
-            (2, 1),     // 2 leaves = depth 1
-            (3, 2),     // 3 leaves = depth 2 (padded to 4)
-            (4, 2),     // 4 leaves = depth 2
-            (5, 3),     // 5 leaves = depth 3 (padded to 8)
-            (8, 3),     // 8 leaves = depth 3
-            (9, 4),     // 9 leaves = depth 4 (padded to 16)
-            (16, 4),    // 16 leaves = depth 4
-            (17, 5),    // 17 leaves = depth 5 (padded to 32)
-            (100, 7),   // 100 leaves = depth 7 (padded to 128)
-            (1024, 10), // 1024 leaves = depth 10
+            (2, 1),   // 2 leaves = depth 1
+            (3, 2),   // 3 leaves = depth 2 (padded to 4)
+            (4, 2),   // 4 leaves = depth 2
+            (5, 3),   // 5 leaves = depth 3 (padded to 8)
+            (8, 3),   // 8 leaves = depth 3
+            (9, 4),   // 9 leaves = depth 4 (padded to 16)
+            (16, 4),  // 16 leaves = depth 4
+            (17, 5),  // 17 leaves = depth 5 (padded to 32)
+            (100, 7), // 100 leaves = depth 7 (padded to 128)
+            (256, 8), // 256 leaves = depth 8 (max allowed by MAX_MERKLE_DEPTH)
         ];
 
         for (leaf_count, expected_depth) in test_cases {

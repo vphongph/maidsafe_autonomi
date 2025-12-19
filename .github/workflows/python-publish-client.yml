@@ -99,6 +99,10 @@ jobs:
           python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        # Fix for ring crate cross-compilation on aarch64
+        # See: https://github.com/briansmith/ring/issues/1789
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: ${{ matrix.platform.target == 'aarch64' && '-D__ARM_ARCH=8' || '' }}
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
@@ -135,6 +139,11 @@ jobs:
           python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        # Fix for ring crate cross-compilation on ARM targets
+        # See: https://github.com/briansmith/ring/issues/1789
+        env:
+          CFLAGS_aarch64_unknown_linux_musl: ${{ matrix.platform.target == 'aarch64' && '-D__ARM_ARCH=8' || '' }}
+          CFLAGS_armv7_unknown_linux_musleabihf: ${{ matrix.platform.target == 'armv7' && '-D__ARM_ARCH=7' || '' }}
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist

@@ -341,6 +341,15 @@ impl Client {
             addresses.len()
         );
 
+        // Pad to minimum 2 leaves if only 1 address (rare edge case when N-1 of N chunks already exist)
+        // The duplicate leaf gets a different random salt, so the tree is valid.
+        // Only the proof at index 0 is used (in pay_for_single_merkle_batch the original addresses
+        // vector is used for proof generation, which has only 1 element).
+        let addresses = match addresses[..] {
+            [only_one] => vec![only_one, only_one],
+            _ => addresses,
+        };
+
         // Build Merkle tree
         let tree = MerkleTree::from_xornames(addresses)?;
         let depth = tree.depth();

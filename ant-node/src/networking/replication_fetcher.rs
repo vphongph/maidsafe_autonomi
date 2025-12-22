@@ -752,9 +752,10 @@ mod tests {
             incoming_keys.push((key, ValidationType::Chunk));
         });
 
-        // Pre-generate fixed peers for the initial keys to ensure deterministic behavior.
-        // By using exactly 2 peers and ensuring both are used, we guarantee both
-        // will be in failed_holders after timeout.
+        // Pre-generate fixed peers for the initial keys.
+        // When majority is reached, entries are created for BOTH peers (A and B).
+        // The 5 keys selected for fetching will randomly pick either A or B for each key
+        // (based on HashMap iteration order).
         let initial_peer_a = PeerId::random();
         let initial_peer_b = PeerId::random();
 
@@ -773,8 +774,9 @@ mod tests {
             "First iteration should not trigger fetch (majority not reached)"
         );
 
-        // Second iteration with peer B - count becomes 2, majority reached
-        let keys_to_fetch = replication_fetcher.add_keys(
+        // Second iteration with peer B - count becomes 2, majority reached.
+        // The returned keys_to_fetch tells us which peers were selected for the 5 fetched keys.
+        let initial_keys_to_fetch = replication_fetcher.add_keys(
             initial_peer_b,
             incoming_keys.clone(),
             &locally_stored_keys,
@@ -784,10 +786,20 @@ mod tests {
             None,
         );
         assert_eq!(
-            keys_to_fetch.len(),
+            initial_keys_to_fetch.len(),
             MAX_PARALLEL_FETCH,
             "Should fetch MAX_PARALLEL_FETCH keys after majority reached"
         );
+
+        // Analyze which peers were selected for the 5 initial keys.
+        // This determines what we expect after timeout cleanup.
+        let has_peer_a = initial_keys_to_fetch
+            .iter()
+            .any(|(peer, _)| *peer == initial_peer_a);
+        let has_peer_b = initial_keys_to_fetch
+            .iter()
+            .any(|(peer, _)| *peer == initial_peer_b);
+        let both_initial_peers_selected = has_peer_a && has_peer_b;
 
         // Generate two new keys for testing capacity blocking
         let key_1 = generate_in_range_key(&self_addr, &distance_range);
@@ -855,59 +867,40 @@ mod tests {
 
         sleep(FETCH_TIMEOUT + Duration::from_secs(1)).await;
 
-        // After timeout, all on_going_fetches have expired:
-        // - The 5 initial keys were fetched from initial_peer_a and/or initial_peer_b
-        // - The fresh key was fetched from fresh_peer
-        // All these peers are now in failed_holders and their entries are removed.
+        // After timeout, all on_going_fetches have expired and their peers become failed_holders.
+        // The cleanup removes ALL entries from failed_holders in to_be_fetched.
         //
-        // Remaining in to_be_fetched:
-        // - key_1 and key_2 entries from key12_peer_a and key12_peer_b
-        //
-        // However, the initial 10 keys also had entries from BOTH initial_peer_a AND
-        // initial_peer_b. Due to HashMap iteration order being non-deterministic,
-        // the 5 fetched keys might have all come from one peer, leaving the other
-        // peer's entries intact.
-        //
-        // To ensure determinism, we verify that key_1 and key_2 are among the
-        // returned keys, regardless of whether some initial key entries also remain.
+        // Expected results based on which initial peers were selected:
+        // - If BOTH initial_peer_a AND initial_peer_b were selected (both are now failed_holders):
+        //   All initial key entries are removed, only key_1/key_2 entries remain → expect 2 keys
+        // - If only ONE initial peer was selected (only one is failed_holder):
+        //   The other peer's entries for all 10 initial keys remain, plus key_1/key_2 → expect 5 keys
+        //   (5 remaining initial keys from the non-failed peer, sorted by distance, up to MAX_PARALLEL_FETCH)
         let keys_to_fetch = replication_fetcher.next_keys_to_fetch();
 
-        // Verify that we got some keys to fetch (cleanup worked, capacity available)
-        assert!(
-            !keys_to_fetch.is_empty(),
-            "Should have keys to fetch after timeout cleanup"
-        );
-
-        // Get the record keys for key_1 and key_2
-        let key_1_record = key_1.to_record_key();
-        let key_2_record = key_2.to_record_key();
-
-        // Collect all keys by repeatedly calling next_keys_to_fetch until empty
-        let mut all_fetched_keys: Vec<RecordKey> =
-            keys_to_fetch.into_iter().map(|(_, k)| k).collect();
-        loop {
-            let more_keys = replication_fetcher.next_keys_to_fetch();
-            if more_keys.is_empty() {
-                break;
-            }
-            all_fetched_keys.extend(more_keys.into_iter().map(|(_, k)| k));
+        if both_initial_peers_selected {
+            // Both initial peers failed, only key_1/key_2 entries remain
+            assert_eq!(
+                keys_to_fetch.len(),
+                2,
+                "Expected 2 keys (key_1 and key_2) when both initial peers are in failed_holders"
+            );
+        } else {
+            // Only one initial peer failed, the other peer's entries remain
+            // next_keys_to_fetch returns up to MAX_PARALLEL_FETCH keys
+            assert_eq!(
+                keys_to_fetch.len(),
+                MAX_PARALLEL_FETCH,
+                "Expected MAX_PARALLEL_FETCH keys when only one initial peer is in failed_holders"
+            );
         }
 
-        // Verify key_1 and key_2 were fetched (their peers weren't in failed_holders)
+        // Verify no more keys to fetch after this batch
+        // (the entries are now in on_going_fetches, so next call returns empty)
+        let more_keys = replication_fetcher.next_keys_to_fetch();
         assert!(
-            all_fetched_keys.contains(&key_1_record),
-            "key_1 should be fetchable after timeout"
-        );
-        assert!(
-            all_fetched_keys.contains(&key_2_record),
-            "key_2 should be fetchable after timeout"
-        );
-
-        // Verify that final next_keys_to_fetch returns empty
-        let keys_to_fetch = replication_fetcher.next_keys_to_fetch();
-        assert!(
-            keys_to_fetch.is_empty(),
-            "Should have no more keys to fetch"
+            more_keys.is_empty(),
+            "Should have no more keys to fetch (all moved to on_going_fetches)"
         );
 
         Ok(())

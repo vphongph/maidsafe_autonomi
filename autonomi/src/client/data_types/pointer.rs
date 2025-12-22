@@ -6,7 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::resolve_split_records;
+use super::{
+    resolve_records_from_peers, resolve_split_records, FALLBACK_PEERS_COUNT,
+    MIN_CRDT_CONSISTENT_COPIES,
+};
 
 use crate::{
     client::{
@@ -23,7 +26,7 @@ use ant_protocol::{
     storage::{DataTypes, RecordHeader, RecordKind, try_deserialize_record, try_serialize_record},
 };
 use std::collections::HashSet;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub use ant_protocol::storage::{Pointer, PointerAddress, PointerTarget};
 pub use bls::{PublicKey, SecretKey};
@@ -57,10 +60,28 @@ pub enum PointerError {
     CannotUpdateNewPointer,
     #[error("Got multiple conflicting pointers with the latest version")]
     Fork(Vec<Pointer>),
+    #[error("Insufficient consistent copies: got {0}, need at least {1}")]
+    InsufficientCopies(usize, usize),
 }
 
 impl Client {
-    /// Get a pointer from the network
+    /// Fetches a Pointer from the network with fallback to direct peer queries.
+    ///
+    /// This function first attempts a standard DHT fetch with retries. If that fails
+    /// or returns a SplitRecord error, it resolves the split. If the initial fetch
+    /// completely fails, it falls back to querying the closest peers directly.
+    ///
+    /// For Pointer (CRDT type with counter), at least `MIN_CRDT_CONSISTENT_COPIES` (3)
+    /// consistent copies are required for validity when using the fallback mechanism.
+    /// The record with the highest counter is selected, and conflicts are resolved
+    /// through the standard split resolution process.
+    ///
+    /// # Arguments
+    /// * `address` - The pointer address to fetch
+    ///
+    /// # Returns
+    /// * `Ok(Pointer)` - The successfully retrieved and validated pointer
+    /// * `Err(PointerError)` - If the pointer cannot be found, is invalid, forked, or has insufficient copies
     pub async fn pointer_get(&self, address: &PointerAddress) -> Result<Pointer, PointerError> {
         let key = NetworkAddress::from(*address);
         debug!("Fetching pointer from network at: {key:?}");
@@ -71,7 +92,11 @@ impl Client {
             .await
         {
             Ok(Some(r)) => pointer_from_record(r)?,
-            Ok(None) => Err(GetError::RecordNotFound)?,
+            Ok(None) => {
+                // Fallback: Try fetching from closest peers directly
+                debug!("Normal fetch returned None, trying fallback for pointer at {key:?}");
+                return self.pointer_get_fallback(key.clone()).await;
+            }
             Err(NetworkError::SplitRecord(result_map)) => {
                 warn!("Pointer at {key:?} is split, trying resolution");
                 resolve_split_records(
@@ -91,12 +116,50 @@ impl Client {
                 )?
             }
             Err(err) => {
-                error!("Error fetching pointer: {err:?}");
-                return Err(PointerError::GetError(err.into()));
+                // Fallback: Try fetching from closest peers directly
+                debug!("Normal fetch failed with error, trying fallback for pointer at {key:?}: {err:?}");
+                return self.pointer_get_fallback(key.clone()).await;
             }
         };
 
         info!("Got pointer at address {address:?}: {pointer:?}");
+        Self::pointer_verify(&pointer)?;
+        Ok(pointer)
+    }
+
+    /// Fallback method to fetch Pointer from closest peers directly.
+    ///
+    /// This method queries the closest peers and requires at least `MIN_CRDT_CONSISTENT_COPIES`
+    /// (3) consistent copies to consider the data valid. It resolves splits by selecting
+    /// the record with the highest counter.
+    async fn pointer_get_fallback(&self, key: NetworkAddress) -> Result<Pointer, PointerError> {
+        let records = self
+            .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
+            .await
+            .ok_or(PointerError::GetError(GetError::RecordNotFound))?;
+
+        debug!(
+            "Fallback: resolving {} records for pointer at {key:?}",
+            records.len()
+        );
+
+        let pointer = resolve_records_from_peers(
+            records,
+            key.clone(),
+            pointer_from_record,
+            |p: &Pointer| p.counter(),
+            |a: &Pointer, b: &Pointer| a == b,
+            MIN_CRDT_CONSISTENT_COPIES,
+            |multiples: HashSet<Pointer>| PointerError::Fork(multiples.into_iter().collect()),
+            || {
+                PointerError::Corrupt(format!(
+                    "Found multiple conflicting invalid pointers at {key:?}"
+                ))
+            },
+            PointerError::InsufficientCopies,
+        )?;
+
+        info!("Fallback: got pointer at {key:?}: {pointer:?}");
         Self::pointer_verify(&pointer)?;
         Ok(pointer)
     }

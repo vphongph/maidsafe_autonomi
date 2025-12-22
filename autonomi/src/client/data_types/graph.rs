@@ -6,6 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use super::{FALLBACK_PEERS_COUNT, MIN_CRDT_CONSISTENT_COPIES};
+
 use crate::client::ClientEvent;
 use crate::client::PutError;
 use crate::client::UploadSummary;
@@ -53,32 +55,129 @@ pub enum GraphError {
     AlreadyExists(GraphEntryAddress),
     #[error("Graph forked! Multiple entries found: {0:?}")]
     Fork(Vec<GraphEntry>),
+    #[error("Insufficient consistent copies: got {0}, need at least {1}")]
+    InsufficientCopies(usize, usize),
 }
 
 impl Client {
-    /// Fetches a GraphEntry from the network.
+    /// Fetches a GraphEntry from the network with fallback to direct peer queries.
+    ///
+    /// This function first attempts a standard DHT fetch with retries. If that fails,
+    /// it falls back to querying the closest peers directly. For GraphEntry (CRDT type),
+    /// at least `MIN_CRDT_CONSISTENT_COPIES` (3) consistent copies are required for validity.
+    ///
+    /// # Arguments
+    /// * `address` - The graph entry address to fetch
+    ///
+    /// # Returns
+    /// * `Ok(GraphEntry)` - The successfully retrieved and validated graph entry
+    /// * `Err(GraphError)` - If the entry cannot be found, is invalid, forked, or has insufficient copies
     pub async fn graph_entry_get(
         &self,
         address: &GraphEntryAddress,
     ) -> Result<GraphEntry, GraphError> {
         let key = NetworkAddress::from(*address);
 
-        let record = self
+        // Try normal fetch first
+        let record_result = self
             .network
             .get_record_with_retries(key.clone(), &self.config.graph_entry)
-            .await
-            .map_err(|err| GraphError::GetError(GetError::Network(err)))?
-            .ok_or(GetError::RecordNotFound)?;
+            .await;
 
-        debug!(
-            "Got record from the network, {:?}",
-            PrettyPrintRecordKey::from(&record.key)
-        );
+        let graph_entries = match record_result {
+            Ok(Some(record)) => {
+                debug!(
+                    "Got record from the network, {:?}",
+                    PrettyPrintRecordKey::from(&record.key)
+                );
+                get_graph_entry_from_record(&record)?
+            }
+            Ok(None) | Err(_) => {
+                // Fallback: Try fetching from closest peers directly
+                debug!("Normal fetch failed, trying fallback for graph entry at {key:?}");
+                return self.graph_entry_get_fallback(key.clone()).await;
+            }
+        };
 
-        let graph_entries = get_graph_entry_from_record(&record)?;
         match &graph_entries[..] {
             [entry] => Ok(entry.clone()),
             multiple => Err(GraphError::Fork(multiple.to_vec())),
+        }
+    }
+
+    /// Fallback method to fetch GraphEntry from closest peers directly.
+    ///
+    /// This method queries the closest peers and requires at least `MIN_CRDT_CONSISTENT_COPIES`
+    /// (3) consistent copies to consider the data valid.
+    async fn graph_entry_get_fallback(&self, key: NetworkAddress) -> Result<GraphEntry, GraphError> {
+        let records = self
+            .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
+            .await
+            .ok_or(GraphError::GetError(GetError::RecordNotFound))?;
+
+        debug!(
+            "Fallback: resolving {} records for graph entry at {key:?}",
+            records.len()
+        );
+
+        // GraphEntry uses a Vec<GraphEntry> inside the record, we need special handling
+        // First, extract all graph entries from all records
+        let mut all_entries: Vec<GraphEntry> = Vec::new();
+        for record in records {
+            if let Ok(entries) = get_graph_entry_from_record(&record) {
+                all_entries.extend(entries);
+            }
+        }
+
+        if all_entries.is_empty() {
+            return Err(GraphError::GetError(GetError::RecordNotFound));
+        }
+
+        // Count occurrences of each unique entry
+        let mut entry_counts: Vec<(GraphEntry, usize)> = Vec::new();
+        for entry in all_entries.iter() {
+            if let Some((_, count)) = entry_counts.iter_mut().find(|(e, _)| e == entry) {
+                *count += 1;
+            } else {
+                entry_counts.push((entry.clone(), 1));
+            }
+        }
+
+        // Find the maximum copy count
+        let max_copies = entry_counts
+            .iter()
+            .map(|(_, count)| *count)
+            .max()
+            .ok_or(GraphError::GetError(GetError::RecordNotFound))?;
+
+        // Check if we have enough consistent copies
+        if max_copies < MIN_CRDT_CONSISTENT_COPIES {
+            warn!(
+                "Insufficient consistent copies for graph entry at {key:?}: got {max_copies}, need {MIN_CRDT_CONSISTENT_COPIES}"
+            );
+            return Err(GraphError::InsufficientCopies(max_copies, MIN_CRDT_CONSISTENT_COPIES));
+        }
+
+        // Check for forks (multiple entries with the same max count)
+        let entries_with_max: Vec<GraphEntry> = entry_counts
+            .into_iter()
+            .filter(|(_, count)| *count == max_copies)
+            .map(|(entry, _)| entry)
+            .collect();
+
+        match entries_with_max.len() {
+            1 => {
+                let best_entry = entries_with_max.into_iter().next()
+                    .expect("Vec with len() == 1 must contain exactly one item");
+                debug!(
+                    "Successfully resolved graph entry at {key:?} with {max_copies} consistent copies"
+                );
+                Ok(best_entry)
+            }
+            _ => {
+                warn!("Fork detected for graph entry at {key:?}");
+                Err(GraphError::Fork(entries_with_max))
+            }
         }
     }
 

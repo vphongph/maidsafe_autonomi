@@ -18,10 +18,6 @@ use ant_protocol::NetworkAddress;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, error, warn};
 
-/// Minimum number of consistent copies required to consider CRDT data valid.
-/// This applies to Pointer, Scratchpad, and GraphEntry datatypes.
-pub(crate) const MIN_CRDT_CONSISTENT_COPIES: usize = 3;
-
 /// Default number of closest peers to query in fallback fetch operations.
 pub(crate) const FALLBACK_PEERS_COUNT: usize = 20;
 
@@ -46,8 +42,7 @@ impl Client {
     /// # Note
     /// The caller is responsible for:
     /// - For Chunk type: using the first valid record
-    /// - For CRDT types (Pointer, Scratchpad, GraphEntry): resolving splits and ensuring
-    ///   at least `MIN_CRDT_CONSISTENT_COPIES` (3) consistent copies exist for validity
+    /// - For CRDT types (Pointer, Scratchpad, GraphEntry): returning the multiple copies for the further resolving
     pub(crate) async fn fetch_records_from_closest_peers(
         &self,
         key: NetworkAddress,
@@ -195,25 +190,21 @@ where
 /// * `deserialize` - Function to deserialize a record into type T
 /// * `counter_of` - Function to extract the counter value from type T
 /// * `same_content` - Function to compare if two items have the same content
-/// * `min_copies` - Minimum number of consistent copies required for validity
 /// * `fork_error` - Function to construct a fork error
 /// * `corrupt_error` - Function to construct a corrupt error
-/// * `insufficient_copies_error` - Function to construct an insufficient copies error
 ///
 /// # Returns
 /// * `Ok(T)` - The resolved item with the highest counter and sufficient consistent copies
 /// * `Err(E)` - If deserialization fails, data is corrupt, forked, or insufficient copies exist
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_records_from_peers<T, E, FDeser, FCounter, FEqual, FFork, FCorrupt, FInsuff>(
+pub(crate) fn resolve_records_from_peers<T, E, FDeser, FCounter, FEqual, FFork, FCorrupt>(
     records: Vec<Record>,
     key: NetworkAddress,
     deserialize: FDeser,
     counter_of: FCounter,
     same_content: FEqual,
-    min_copies: usize,
     fork_error: FFork,
     corrupt_error: FCorrupt,
-    insufficient_copies_error: FInsuff,
 ) -> Result<T, E>
 where
     T: Clone + std::hash::Hash + Eq,
@@ -222,9 +213,8 @@ where
     FEqual: Fn(&T, &T) -> bool,
     FFork: Fn(HashSet<T>) -> E,
     FCorrupt: Fn() -> E,
-    FInsuff: Fn(usize, usize) -> E,
 {
-    debug!("Resolving {} records from peers for {key:?}, requiring {min_copies} consistent copies", records.len());
+    debug!("Resolving {} records from peers for {key:?}", records.len());
 
     // Deserialize all records
     let mut items: Vec<T> = Vec::new();
@@ -274,14 +264,6 @@ where
 
     // Find the group(s) with the most copies
     let max_copies = content_groups.iter().map(|(_, c)| *c).max().unwrap_or(0);
-
-    // Check if we have enough consistent copies
-    if max_copies < min_copies {
-        warn!(
-            "Insufficient consistent copies for {key:?}: got {max_copies}, need {min_copies}"
-        );
-        return Err(insufficient_copies_error(max_copies, min_copies));
-    }
 
     // Get all items with the max number of copies
     let best_items: HashSet<T> = content_groups

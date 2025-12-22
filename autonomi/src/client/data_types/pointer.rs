@@ -6,10 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::{
-    resolve_records_from_peers, resolve_split_records, FALLBACK_PEERS_COUNT,
-    MIN_CRDT_CONSISTENT_COPIES,
-};
+use super::{resolve_records_from_peers, resolve_split_records, FALLBACK_PEERS_COUNT};
 
 use crate::{
     client::{
@@ -71,10 +68,8 @@ impl Client {
     /// or returns a SplitRecord error, it resolves the split. If the initial fetch
     /// completely fails, it falls back to querying the closest peers directly.
     ///
-    /// For Pointer (CRDT type with counter), at least `MIN_CRDT_CONSISTENT_COPIES` (3)
-    /// consistent copies are required for validity when using the fallback mechanism.
-    /// The record with the highest counter is selected, and conflicts are resolved
-    /// through the standard split resolution process.
+    /// For Pointer (CRDT type with counter), the record with the highest counter is selected,
+    /// and conflicts are resolved through the standard split resolution process.
     ///
     /// # Arguments
     /// * `address` - The pointer address to fetch
@@ -129,9 +124,8 @@ impl Client {
 
     /// Fallback method to fetch Pointer from closest peers directly.
     ///
-    /// This method queries the closest peers and requires at least `MIN_CRDT_CONSISTENT_COPIES`
-    /// (3) consistent copies to consider the data valid. It resolves splits by selecting
-    /// the record with the highest counter.
+    /// This method queries the closest peers.
+    /// It resolves splits by selecting the record with the highest counter.
     async fn pointer_get_fallback(&self, key: NetworkAddress) -> Result<Pointer, PointerError> {
         let records = self
             .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
@@ -149,14 +143,12 @@ impl Client {
             pointer_from_record,
             |p: &Pointer| p.counter(),
             |a: &Pointer, b: &Pointer| a == b,
-            MIN_CRDT_CONSISTENT_COPIES,
             |multiples: HashSet<Pointer>| PointerError::Fork(multiples.into_iter().collect()),
             || {
                 PointerError::Corrupt(format!(
                     "Found multiple conflicting invalid pointers at {key:?}"
                 ))
             },
-            PointerError::InsufficientCopies,
         )?;
 
         info!("Fallback: got pointer at {key:?}: {pointer:?}");

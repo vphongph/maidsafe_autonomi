@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::{FALLBACK_PEERS_COUNT, MIN_CRDT_CONSISTENT_COPIES};
+use super::FALLBACK_PEERS_COUNT;
 
 use crate::client::ClientEvent;
 use crate::client::PutError;
@@ -63,8 +63,7 @@ impl Client {
     /// Fetches a GraphEntry from the network with fallback to direct peer queries.
     ///
     /// This function first attempts a standard DHT fetch with retries. If that fails,
-    /// it falls back to querying the closest peers directly. For GraphEntry (CRDT type),
-    /// at least `MIN_CRDT_CONSISTENT_COPIES` (3) consistent copies are required for validity.
+    /// it falls back to querying the closest peers directly.
     ///
     /// # Arguments
     /// * `address` - The graph entry address to fetch
@@ -107,8 +106,7 @@ impl Client {
 
     /// Fallback method to fetch GraphEntry from closest peers directly.
     ///
-    /// This method queries the closest peers and requires at least `MIN_CRDT_CONSISTENT_COPIES`
-    /// (3) consistent copies to consider the data valid.
+    /// This method queries the closest peers.
     async fn graph_entry_get_fallback(&self, key: NetworkAddress) -> Result<GraphEntry, GraphError> {
         let records = self
             .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
@@ -149,14 +147,6 @@ impl Client {
             .map(|(_, count)| *count)
             .max()
             .ok_or(GraphError::GetError(GetError::RecordNotFound))?;
-
-        // Check if we have enough consistent copies
-        if max_copies < MIN_CRDT_CONSISTENT_COPIES {
-            warn!(
-                "Insufficient consistent copies for graph entry at {key:?}: got {max_copies}, need {MIN_CRDT_CONSISTENT_COPIES}"
-            );
-            return Err(GraphError::InsufficientCopies(max_copies, MIN_CRDT_CONSISTENT_COPIES));
-        }
 
         // Check for forks (multiple entries with the same max count)
         let entries_with_max: Vec<GraphEntry> = entry_counts

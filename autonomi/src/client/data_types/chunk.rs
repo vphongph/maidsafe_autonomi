@@ -6,8 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::FALLBACK_PEERS_COUNT;
-
 use crate::client::chunk_cache::{
     default_cache_dir, delete_chunks, is_chunk_cached, load_chunk, store_chunk,
 };
@@ -140,11 +138,11 @@ impl Client {
         }
     }
 
-    /// Fetches a chunk from the network with fallback to direct peer queries.
+    /// Fetches a chunk from the network.
     ///
-    /// This function first attempts a standard DHT fetch with retries. If that fails,
-    /// it falls back to querying the closest peers directly. For Chunk type (non-CRDT),
-    /// the first valid record is sufficient.
+    /// This function uses the standard DHT fetch with retries and automatic fallback
+    /// to direct peer queries (handled by get_record_with_retries). For Chunk type
+    /// (non-CRDT), the first valid record is sufficient.
     ///
     /// # Arguments
     /// * `addr` - The chunk address to fetch
@@ -156,27 +154,15 @@ impl Client {
         let key = NetworkAddress::from(*addr);
         debug!("Fetching chunk from network at: {key:?}");
 
-        // Try normal fetch first
-        let record_result = self
+        let records = self
             .network
             .get_record_with_retries(key.clone(), &self.config.chunks)
             .await
-            .inspect_err(|err| error!("Error fetching chunk: {err:?}"));
+            .inspect_err(|err| error!("Error fetching chunk: {err:?}"))?
+            .ok_or(GetError::RecordNotFound)?;
 
-        let record = match record_result {
-            Ok(Some(record)) => record,
-            Ok(None) | Err(_) => {
-                // Fallback: Try fetching from closest peers directly
-                debug!("Normal fetch failed, trying fallback for {key:?}");
-                let records = self
-                    .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
-                    .await
-                    .ok_or(GetError::RecordNotFound)?;
-
-                // For Chunk (non-CRDT type), first valid record is sufficient
-                records.into_iter().next().ok_or(GetError::RecordNotFound)?
-            }
-        };
+        // For Chunk (non-CRDT type), first valid record is sufficient
+        let record = records.into_iter().next().ok_or(GetError::RecordNotFound)?;
 
         let header = RecordHeader::from_record(&record)?;
 

@@ -6,8 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::FALLBACK_PEERS_COUNT;
-
 use crate::client::ClientEvent;
 use crate::client::PutError;
 use crate::client::UploadSummary;
@@ -55,71 +53,39 @@ pub enum GraphError {
     AlreadyExists(GraphEntryAddress),
     #[error("Graph forked! Multiple entries found: {0:?}")]
     Fork(Vec<GraphEntry>),
-    #[error("Insufficient consistent copies: got {0}, need at least {1}")]
-    InsufficientCopies(usize, usize),
 }
 
 impl Client {
-    /// Fetches a GraphEntry from the network with fallback to direct peer queries.
+    /// Fetches a GraphEntry from the network.
     ///
-    /// This function first attempts a standard DHT fetch with retries. If that fails,
-    /// it falls back to querying the closest peers directly.
+    /// This function uses the standard DHT fetch with retries and automatic fallback
+    /// to direct peer queries (handled by get_record_with_retries).
     ///
     /// # Arguments
     /// * `address` - The graph entry address to fetch
     ///
     /// # Returns
     /// * `Ok(GraphEntry)` - The successfully retrieved and validated graph entry
-    /// * `Err(GraphError)` - If the entry cannot be found, is invalid, forked, or has insufficient copies
+    /// * `Err(GraphError)` - If the entry cannot be found, is invalid, or forked
     pub async fn graph_entry_get(
         &self,
         address: &GraphEntryAddress,
     ) -> Result<GraphEntry, GraphError> {
         let key = NetworkAddress::from(*address);
 
-        // Try normal fetch first
-        let record_result = self
+        let records = self
             .network
             .get_record_with_retries(key.clone(), &self.config.graph_entry)
-            .await;
-
-        let graph_entries = match record_result {
-            Ok(Some(record)) => {
-                debug!(
-                    "Got record from the network, {:?}",
-                    PrettyPrintRecordKey::from(&record.key)
-                );
-                get_graph_entry_from_record(&record)?
-            }
-            Ok(None) | Err(_) => {
-                // Fallback: Try fetching from closest peers directly
-                debug!("Normal fetch failed, trying fallback for graph entry at {key:?}");
-                return self.graph_entry_get_fallback(key.clone()).await;
-            }
-        };
-
-        match &graph_entries[..] {
-            [entry] => Ok(entry.clone()),
-            multiple => Err(GraphError::Fork(multiple.to_vec())),
-        }
-    }
-
-    /// Fallback method to fetch GraphEntry from closest peers directly.
-    ///
-    /// This method queries the closest peers.
-    async fn graph_entry_get_fallback(&self, key: NetworkAddress) -> Result<GraphEntry, GraphError> {
-        let records = self
-            .fetch_records_from_closest_peers(key.clone(), FALLBACK_PEERS_COUNT)
             .await
-            .ok_or(GraphError::GetError(GetError::RecordNotFound))?;
+            .map_err(|err| GraphError::GetError(GetError::Network(err)))?
+            .ok_or(GetError::RecordNotFound)?;
 
         debug!(
-            "Fallback: resolving {} records for graph entry at {key:?}",
+            "Got {} record(s) from the network for graph entry at {key:?}",
             records.len()
         );
 
-        // GraphEntry uses a Vec<GraphEntry> inside the record, we need special handling
-        // First, extract all graph entries from all records
+        // GraphEntry uses a Vec<GraphEntry> inside the record, extract all entries
         let mut all_entries: Vec<GraphEntry> = Vec::new();
         for record in records {
             if let Ok(entries) = get_graph_entry_from_record(&record) {
@@ -148,7 +114,7 @@ impl Client {
             .max()
             .ok_or(GraphError::GetError(GetError::RecordNotFound))?;
 
-        // Check for forks (multiple entries with the same max count)
+        // Get entries with max copies
         let entries_with_max: Vec<GraphEntry> = entry_counts
             .into_iter()
             .filter(|(_, count)| *count == max_copies)
@@ -157,7 +123,9 @@ impl Client {
 
         match entries_with_max.len() {
             1 => {
-                let best_entry = entries_with_max.into_iter().next()
+                let best_entry = entries_with_max
+                    .into_iter()
+                    .next()
                     .expect("Vec with len() == 1 must contain exactly one item");
                 debug!(
                     "Successfully resolved graph entry at {key:?} with {max_copies} consistent copies"

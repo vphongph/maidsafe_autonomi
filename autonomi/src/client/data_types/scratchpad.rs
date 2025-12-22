@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use super::{resolve_records_from_peers, resolve_split_records, FALLBACK_PEERS_COUNT};
+use super::resolve_records_from_peers;
 
 use crate::{
     Amount, AttoTokens, Client,
@@ -61,8 +61,6 @@ pub enum ScratchpadError {
         "Got multiple conflicting scratchpads with the latest version, the fork can be resolved by putting a new scratchpad with a higher counter"
     )]
     Fork(Vec<Scratchpad>),
-    #[error("Insufficient consistent copies: got {0}, need at least {1}")]
-    InsufficientCopies(usize, usize),
 }
 
 /// Print detailed fork analysis for conflicting scratchpads
@@ -126,11 +124,11 @@ impl Client {
         self.scratchpad_get(&address).await
     }
 
-    /// Fetches a Scratchpad from the network with fallback to direct peer queries.
+    /// Fetches a Scratchpad from the network.
     ///
-    /// This function first attempts a standard DHT fetch with retries. If that fails
-    /// or returns a SplitRecord error, it resolves the split. If the initial fetch
-    /// completely fails, it falls back to querying the closest peers directly.
+    /// This function uses the standard DHT fetch with retries and automatic fallback
+    /// to direct peer queries (handled by get_record_with_retries). If a SplitRecord
+    /// error is returned, it resolves the split using counter-based resolution.
     ///
     /// For Scratchpad (CRDT type with counter), the record with the highest counter is selected,
     /// and conflicts are resolved through the standard split resolution process.
@@ -140,37 +138,50 @@ impl Client {
     ///
     /// # Returns
     /// * `Ok(Scratchpad)` - The successfully retrieved and validated scratchpad
-    /// * `Err(ScratchpadError)` - If the scratchpad cannot be found, is invalid, forked, or has insufficient copies
+    /// * `Err(ScratchpadError)` - If the scratchpad cannot be found, is invalid, or forked
     pub async fn scratchpad_get(
         &self,
         address: &ScratchpadAddress,
     ) -> Result<Scratchpad, ScratchpadError> {
         let network_address = NetworkAddress::from(*address);
         info!("Fetching scratchpad from network at {network_address:?}",);
-        let scratch_key = network_address.to_record_key();
 
         let pad = match self
             .network
             .get_record_with_retries(network_address.clone(), &self.config.scratchpad)
             .await
         {
-            Ok(maybe_record) => {
-                let record = match maybe_record {
-                    Some(r) => r,
-                    None => {
-                        // Fallback: Try fetching from closest peers directly
-                        debug!("Normal fetch returned None, trying fallback for scratchpad at {network_address:?}");
-                        return self.scratchpad_get_fallback(address).await;
-                    }
-                };
-                debug!("Got scratchpad for {scratch_key:?}");
-                return try_deserialize_record::<Scratchpad>(&record)
-                    .map_err(|_| ScratchpadError::Corrupt(*address));
+            Ok(Some(records)) => {
+                debug!(
+                    "Got {} record(s) for scratchpad at {network_address:?}",
+                    records.len()
+                );
+                // Resolve multiple records using counter-based resolution
+                resolve_records_from_peers(
+                    records,
+                    network_address.clone(),
+                    |r| {
+                        try_deserialize_record::<Scratchpad>(&r)
+                            .map_err(|_| ScratchpadError::Corrupt(*address))
+                    },
+                    |s: &Scratchpad| s.counter(),
+                    |a: &Scratchpad, b: &Scratchpad| {
+                        a.data_encoding() == b.data_encoding()
+                            && a.encrypted_data() == b.encrypted_data()
+                    },
+                    |latest: HashSet<Scratchpad>| {
+                        ScratchpadError::Fork(latest.into_iter().collect())
+                    },
+                    || ScratchpadError::Corrupt(*address),
+                )?
+            }
+            Ok(None) => {
+                return Err(ScratchpadError::NotFound(*address));
             }
             Err(NetworkError::SplitRecord(result_map)) => {
-                debug!("Got multiple scratchpads for {scratch_key:?}");
-                resolve_split_records(
-                    result_map,
+                debug!("Got split record for scratchpad at {network_address:?}");
+                resolve_records_from_peers(
+                    result_map.into_values().collect(),
                     network_address.clone(),
                     |r| {
                         try_deserialize_record::<Scratchpad>(&r)
@@ -188,52 +199,11 @@ impl Client {
                 )?
             }
             Err(e) => {
-                // Fallback: Try fetching from closest peers directly
-                debug!("Normal fetch failed with error, trying fallback for scratchpad at {network_address:?}: {e}");
-                return self.scratchpad_get_fallback(address).await;
+                warn!("Failed to fetch scratchpad {network_address:?} from network: {e}");
+                return Err(ScratchpadError::GetError(e.to_string()));
             }
         };
 
-        Self::scratchpad_verify(&pad)?;
-        Ok(pad)
-    }
-
-    /// Fallback method to fetch Scratchpad from closest peers directly.
-    ///
-    /// This method queries the closest peers.
-    /// It resolves splits by selecting the record with the highest counter.
-    async fn scratchpad_get_fallback(
-        &self,
-        address: &ScratchpadAddress,
-    ) -> Result<Scratchpad, ScratchpadError> {
-        let network_address = NetworkAddress::from(*address);
-        let records = self
-            .fetch_records_from_closest_peers(network_address.clone(), FALLBACK_PEERS_COUNT)
-            .await
-            .ok_or(ScratchpadError::NotFound(*address))?;
-
-        debug!(
-            "Fallback: resolving {} records for scratchpad at {network_address:?}",
-            records.len()
-        );
-
-        let pad = resolve_records_from_peers(
-            records,
-            network_address.clone(),
-            |r| {
-                try_deserialize_record::<Scratchpad>(&r)
-                    .map_err(|_| ScratchpadError::Corrupt(*address))
-            },
-            |s: &Scratchpad| s.counter(),
-            |a: &Scratchpad, b: &Scratchpad| {
-                a.data_encoding() == b.data_encoding()
-                    && a.encrypted_data() == b.encrypted_data()
-            },
-            |latest: HashSet<Scratchpad>| ScratchpadError::Fork(latest.into_iter().collect()),
-            || ScratchpadError::Corrupt(*address),
-        )?;
-
-        info!("Fallback: got scratchpad at {network_address:?}");
         Self::scratchpad_verify(&pad)?;
         Ok(pad)
     }

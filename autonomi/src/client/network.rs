@@ -105,26 +105,37 @@ impl Client {
             return HashSet::new();
         }
 
-        let tasks: Vec<_> = addresses
-            .iter()
-            .map(|addr| {
-                let network = self.network.clone();
-                async move {
-                    // Use Quorum::One for fast existence check
-                    match network.get_record(addr.clone(), Quorum::One).await {
-                        Ok(Some(_)) => Some(addr),
-                        Ok(None) => None,
-                        // SplitRecord means record exists (just has conflicts)
-                        Err(NetworkError::SplitRecord { .. }) => Some(addr),
-                        Err(_) => None,
+        let total = addresses.len();
+        let mut existing: HashSet<NetworkAddress> = HashSet::new();
+        let mut checked = 0;
+
+        // Process in batches to provide progress feedback
+        for batch in addresses.chunks(batch_size) {
+            let tasks: Vec<_> = batch
+                .iter()
+                .map(|addr| {
+                    let network = self.network.clone();
+                    async move {
+                        // Use Quorum::One for fast existence check
+                        match network.get_record(addr.clone(), Quorum::One).await {
+                            Ok(Some(_)) => Some(addr),
+                            Ok(None) => None,
+                            // SplitRecord means record exists (just has conflicts)
+                            Err(NetworkError::SplitRecord { .. }) => Some(addr),
+                            Err(_) => None,
+                        }
                     }
-                }
-            })
-            .collect();
+                })
+                .collect();
 
-        let results = process_tasks_with_max_concurrency(tasks, batch_size).await;
+            let results = process_tasks_with_max_concurrency(tasks, batch_size).await;
+            existing.extend(results.into_iter().flatten().cloned());
 
-        let existing: HashSet<NetworkAddress> = results.into_iter().flatten().cloned().collect();
+            checked += batch.len();
+            #[cfg(feature = "loud")]
+            println!("Checked {checked}/{total} chunks for existence...");
+        }
+
         existing
     }
 }

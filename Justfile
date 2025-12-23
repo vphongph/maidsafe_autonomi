@@ -447,3 +447,66 @@ build-artifact-hashes:
       fi
     done
   done
+
+build-binary-versions:
+  #!/usr/bin/env bash
+  set -e
+
+  binaries=(
+    "antnode"
+    "antctl"
+    "antctld"
+    "ant"
+    "evm-testnet"
+    "nat-detection"
+    "node-launchpad"
+  )
+
+  echo "## Binary Versions"
+  echo ""
+
+  for binary in "${binaries[@]}"; do
+    # Map binary name to crate directory name
+    case "$binary" in
+      nat-detection)
+        crate_dir_name="nat-detection"
+        ;;
+      node-launchpad)
+        crate_dir_name="node-launchpad"
+        ;;
+      ant)
+        crate_dir_name="ant-cli"
+        ;;
+      antnode)
+        crate_dir_name="ant-node"
+        ;;
+      antctl)
+        crate_dir_name="ant-node-manager"
+        ;;
+      antctld)
+        crate_dir_name="ant-node-manager"
+        ;;
+      antnode_rpc_client)
+        crate_dir_name="ant-node-rpc-client"
+        ;;
+      evm-testnet)
+        crate_dir_name="evm-testnet"
+        ;;
+      *)
+        echo "Error: Unknown binary $binary" >&2
+        exit 1
+        ;;
+    esac
+
+    version=$(grep "^version" < $crate_dir_name/Cargo.toml | \
+        head -n 1 | awk '{ print $3 }' | sed 's/\"//g')
+    if [[ -z "$version" ]]; then
+      echo "Error: Could not extract version for $binary from $crate_dir_name/Cargo.toml" >&2
+      exit 1
+    fi
+
+    # Ensure version has 'v' prefix
+    [[ ! "$version" =~ ^v ]] && version="v$version"
+    echo "* \`$binary\`: $version"
+  done
+  echo ""

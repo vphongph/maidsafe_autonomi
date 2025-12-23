@@ -627,6 +627,14 @@ jobs:
         shell: bash
         run: just package-all-architectures
 
+      - name: generate release description
+        shell: bash
+        run: |
+          {
+            just build-binary-versions
+            just build-artifact-hashes
+          } > release-description.md
+
       # For the next two steps, it seems to be necessary to set `GITHUB_TOKEN` on the step rather
       # than the job level.
       - name: create release
@@ -638,6 +646,7 @@ jobs:
           release_name: ${{ env.PACKAGE_VERSION }}
           draft: false
           prerelease: ${{ startsWith(github.ref, 'refs/heads/rc') && true || false }}
+          body_path: release-description.md
 
       - name: upload artifacts as assets
         env:

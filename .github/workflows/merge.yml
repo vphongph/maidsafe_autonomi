@@ -162,6 +162,10 @@ jobs:
         timeout-minutes: 25
         run: cargo test --release --package ant-logging
 
+      - name: Run evm tests
+        timeout-minutes: 25
+        run: cargo test --release --package ant-evm --lib
+
       - name: Upload logs
         if: always()
         uses: ./.github/actions/upload-logs

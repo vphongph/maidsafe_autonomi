@@ -12,6 +12,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use xor_name::XorName;
 
+/// Compute SHA3-256 hash of input bytes
+use super::merkle_payment::sha3_256;
+
 /// Maximum tree depth
 pub use evmlib::merkle_batch_payment::MAX_MERKLE_DEPTH;
 
@@ -76,7 +79,7 @@ pub type Result<T> = std::result::Result<T, MerkleTreeError>;
 /// - Individual address proofs verify addresses belong to paid batch
 pub struct MerkleTree {
     /// The underlying rs_merkle tree
-    inner: ant_merkle::MerkleTree<XorNameHasher>,
+    inner: ant_merkle::MerkleTree<Sha3Hasher>,
 
     /// Original leaf count (before padding)
     leaf_count: usize,
@@ -155,7 +158,7 @@ impl MerkleTree {
                 let mut data = Vec::with_capacity(64);
                 data.extend_from_slice(address.as_ref());
                 data.extend_from_slice(salt);
-                XorNameHasher::hash(&data)
+                Sha3Hasher::hash(&data)
             })
             .collect();
 
@@ -169,7 +172,7 @@ impl MerkleTree {
         }
 
         // Build rs_merkle tree from salted hashes
-        let inner = ant_merkle::MerkleTree::<XorNameHasher>::from_leaves(&salted_leaves);
+        let inner = ant_merkle::MerkleTree::<Sha3Hasher>::from_leaves(&salted_leaves);
 
         let root = inner.root().ok_or(MerkleTreeError::Internal(
             "Tree must have root after construction".to_string(),
@@ -462,7 +465,7 @@ impl MidpointProof {
     ///
     /// Uses fixed-width encoding (u64) for numeric fields to ensure
     /// architecture-independent hashing across 32-bit and 64-bit platforms.
-    pub fn hash(&self) -> XorName {
+    pub fn hash(&self) -> [u8; 32] {
         let mut bytes = Vec::new();
 
         // Serialize MerkleBranch fields
@@ -486,7 +489,7 @@ impl MidpointProof {
         // Add timestamp (u64 - native width)
         bytes.extend_from_slice(&self.merkle_payment_timestamp.to_le_bytes());
 
-        XorName::from_content(&bytes)
+        sha3_256(&bytes)
     }
 }
 
@@ -534,7 +537,7 @@ pub struct MerkleBranch {
 impl MerkleBranch {
     /// Create from rs_merkle proof
     fn from_rs_merkle_proof(
-        proof: ant_merkle::MerkleProof<XorNameHasher>,
+        proof: ant_merkle::MerkleProof<Sha3Hasher>,
         leaf_index: usize,
         total_leaves_count: usize,
         unsalted_leaf_hash: XorName,
@@ -588,7 +591,7 @@ impl MerkleBranch {
             let mut data = Vec::with_capacity(64);
             data.extend_from_slice(self.unsalted_leaf_hash.as_ref());
             data.extend_from_slice(salt);
-            XorNameHasher::hash(&data)
+            Sha3Hasher::hash(&data)
         } else {
             // For midpoint proofs: use unsalted_leaf_hash directly
             let leaf_bytes = self.unsalted_leaf_hash.as_ref();
@@ -603,7 +606,7 @@ impl MerkleBranch {
 
         // Use rs_merkle's verify for both leaves and midpoints
         // For midpoints, we treat nodes at that level as "leaves" of a smaller tree
-        let proof = ant_merkle::MerkleProof::<XorNameHasher>::new(self.proof_hashes.clone());
+        let proof = ant_merkle::MerkleProof::<Sha3Hasher>::new(self.proof_hashes.clone());
         proof.verify(
             expected_root,
             &[self.leaf_index],
@@ -852,24 +855,28 @@ pub fn verify_merkle_proof(
     Ok(())
 }
 
-/// XorName hasher for rs_merkle
+/// SHA3-256 hasher for Merkle tree
 ///
-/// Uses XorNameHasher (32-byte output) for hashing, consistent with Autonomi network
+/// Uses SHA3-256 (32-byte output) for tree node hashing.
 #[derive(Clone)]
-struct XorNameHasher;
+struct Sha3Hasher;
 
-impl ant_merkle::Hasher for XorNameHasher {
+impl ant_merkle::Hasher for Sha3Hasher {
     type Hash = [u8; 32];
 
     fn hash(data: &[u8]) -> Self::Hash {
-        XorName::from_content(data).0
+        sha3_256(data)
     }
 
     fn concat_and_hash(left: &Self::Hash, right: Option<&Self::Hash>) -> Self::Hash {
-        if let Some(right) = right {
-            XorName::from_content_parts(&[left, right]).0
-        } else {
-            XorName::from_content(left).0
+        match right {
+            Some(r) => {
+                let mut combined = Vec::with_capacity(64);
+                combined.extend_from_slice(left);
+                combined.extend_from_slice(r);
+                sha3_256(&combined)
+            }
+            None => sha3_256(left),
         }
     }
 
@@ -917,11 +924,11 @@ mod tests {
         }
         bytes.extend_from_slice(&pool.merkle_payment_timestamp.to_le_bytes());
 
-        let hash2 = XorName::from_content(&bytes);
+        let hash2 = sha3_256(&bytes);
 
         assert_eq!(
             hash1, hash2,
-            "RewardCandidatePool::hash should match manual u64-encoded hash"
+            "MidpointProof::hash should match manual u64-encoded hash"
         );
     }
 
@@ -983,8 +990,8 @@ mod tests {
     #[test]
     fn test_blake2b_output_size() {
         // Verify that Blake2b::<U32> produces 32-byte (256-bit) hashes
-        let hash1 = XorNameHasher::hash(b"test data");
-        let hash2 = XorNameHasher::concat_and_hash(&hash1, Some(&hash1));
+        let hash1 = Sha3Hasher::hash(b"test data");
+        let hash2 = Sha3Hasher::concat_and_hash(&hash1, Some(&hash1));
 
         // These should compile - proving the type is [u8; 32]
         assert_eq!(hash1.len(), 32, "Hash should be 32 bytes (256 bits)");
@@ -995,7 +1002,7 @@ mod tests {
         );
 
         // Verify hashes are different for different inputs
-        let hash3 = XorNameHasher::hash(b"different data");
+        let hash3 = Sha3Hasher::hash(b"different data");
         assert_ne!(
             hash1, hash3,
             "Different inputs should produce different hashes"
@@ -1068,13 +1075,13 @@ mod tests {
 
     #[test]
     fn test_midpoints() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let midpoints = tree.midpoints().unwrap();
 
-        // Depth = 10, (depth+1)/2 = 5 (rounded up), so 2^5 = 32 midpoints
-        assert_eq!(midpoints.len(), 32);
+        // Depth = 8, ceil(8/2) = 4, so 2^4 = 16 midpoints
+        assert_eq!(midpoints.len(), 16);
 
         // Check all midpoints have valid indices
         for (i, midpoint) in midpoints.iter().enumerate() {
@@ -1084,14 +1091,14 @@ mod tests {
 
     #[test]
     fn test_reward_candidates() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let merkle_payment_timestamp = 1234567890u64;
         let candidates = tree.reward_candidates(merkle_payment_timestamp).unwrap();
 
-        // Should have same number as midpoints
-        assert_eq!(candidates.len(), 32);
+        // Should have same number as midpoints (2^4 = 16 for depth 8)
+        assert_eq!(candidates.len(), 16);
 
         // Each candidate should have unique address
         let mut addresses = std::collections::HashSet::new();
@@ -1186,7 +1193,7 @@ mod tests {
 
     #[test]
     fn test_midpoint_proof_generation_and_verification() {
-        let leaves = make_test_leaves(1024);
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves).unwrap();
 
         let midpoints = tree.midpoints().unwrap();
@@ -1195,9 +1202,9 @@ mod tests {
         let proof = tree.generate_midpoint_proof(0, midpoints[0].hash).unwrap();
         assert!(proof.verify());
 
-        // Test proof for last midpoint
+        // Test proof for last midpoint (16 midpoints for depth 8, so index 15)
         let proof = tree
-            .generate_midpoint_proof(31, midpoints[31].hash)
+            .generate_midpoint_proof(15, midpoints[15].hash)
             .unwrap();
         assert!(proof.verify());
     }
@@ -1723,19 +1730,19 @@ mod tests {
         // From midpoint (level 2) to root (level 4) = 2 hashing steps = 2 siblings
         assert_eq!(midpoint_proof.depth(), 2);
 
-        // 1024 leaves = 2^10, depth = 10
-        let leaves = make_test_leaves(1024);
+        // 256 leaves = 2^8, depth = 8
+        let leaves = make_test_leaves(256);
         let tree = MerkleTree::from_xornames(leaves.clone()).unwrap();
-        assert_eq!(tree.depth(), 10);
+        assert_eq!(tree.depth(), 8);
 
         let address_proof = tree.generate_address_proof(0, leaves[0]).unwrap();
-        // From leaf (level 0) to root (level 10) = 10 hashing steps = 10 siblings
-        assert_eq!(address_proof.depth(), 10);
+        // From leaf (level 0) to root (level 8) = 8 hashing steps = 8 siblings
+        assert_eq!(address_proof.depth(), 8);
 
         let midpoints = tree.midpoints().unwrap();
         let midpoint_proof = tree.generate_midpoint_proof(0, midpoints[0].hash).unwrap();
-        // From midpoint (level 5) to root (level 10) = 5 hashing steps = 5 siblings
-        assert_eq!(midpoint_proof.depth(), 5);
+        // From midpoint (level 4) to root (level 8) = 4 hashing steps = 4 siblings
+        assert_eq!(midpoint_proof.depth(), 4);
 
         // 100 leaves = padded to 128 = 2^7, depth = 7
         let leaves = make_test_leaves(100);
@@ -1913,16 +1920,16 @@ mod tests {
     fn test_calculate_depth_edge_cases() {
         // Test the calculate_depth function via tree construction
         let test_cases = vec![
-            (2, 1),     // 2 leaves = depth 1
-            (3, 2),     // 3 leaves = depth 2 (padded to 4)
-            (4, 2),     // 4 leaves = depth 2
-            (5, 3),     // 5 leaves = depth 3 (padded to 8)
-            (8, 3),     // 8 leaves = depth 3
-            (9, 4),     // 9 leaves = depth 4 (padded to 16)
-            (16, 4),    // 16 leaves = depth 4
-            (17, 5),    // 17 leaves = depth 5 (padded to 32)
-            (100, 7),   // 100 leaves = depth 7 (padded to 128)
-            (1024, 10), // 1024 leaves = depth 10
+            (2, 1),   // 2 leaves = depth 1
+            (3, 2),   // 3 leaves = depth 2 (padded to 4)
+            (4, 2),   // 4 leaves = depth 2
+            (5, 3),   // 5 leaves = depth 3 (padded to 8)
+            (8, 3),   // 8 leaves = depth 3
+            (9, 4),   // 9 leaves = depth 4 (padded to 16)
+            (16, 4),  // 16 leaves = depth 4
+            (17, 5),  // 17 leaves = depth 5 (padded to 32)
+            (100, 7), // 100 leaves = depth 7 (padded to 128)
+            (256, 8), // 256 leaves = depth 8 (max allowed by MAX_MERKLE_DEPTH)
         ];
 
         for (leaf_count, expected_depth) in test_cases {

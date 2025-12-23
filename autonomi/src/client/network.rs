@@ -9,10 +9,12 @@
 use crate::Client;
 use crate::networking::{NetworkError, PeerQuoteWithStorageProof};
 use crate::networking::version::PackageVersion;
+use crate::utils::process_tasks_with_max_concurrency;
 use ant_protocol::NetworkAddress;
 use ant_protocol::storage::DataTypes;
 use libp2p::PeerId;
 use libp2p::kad::{PeerInfo, Quorum, Record};
+use std::collections::HashSet;
 
 impl Client {
     /// Retrieve the closest peers to the given network address.
@@ -77,5 +79,60 @@ impl Client {
 
     pub async fn get_node_version(&self, peer: PeerInfo) -> Result<PackageVersion, String> {
         self.network.get_node_version(peer).await
+    }
+
+    /// Check which records already exist on the network (in parallel).
+    ///
+    /// This performs a fast existence check by querying a single node per address.
+    /// For more reliable results, use a quorum-based check, but this is optimized
+    /// for speed when checking many addresses (e.g., before batch uploads).
+    ///
+    /// # Arguments
+    /// * `addresses` - Iterator of network addresses to check
+    /// * `batch_size` - Maximum number of concurrent checks
+    ///
+    /// # Returns
+    /// * `HashSet<NetworkAddress>` - Set of addresses that already exist on the network
+    pub async fn check_records_exist_batch(
+        &self,
+        addresses: &[NetworkAddress],
+        batch_size: usize,
+    ) -> HashSet<NetworkAddress> {
+        if addresses.is_empty() {
+            return HashSet::new();
+        }
+
+        let total = addresses.len();
+        let mut existing: HashSet<NetworkAddress> = HashSet::new();
+        let mut checked = 0;
+
+        // Process in batches to provide progress feedback
+        for batch in addresses.chunks(batch_size) {
+            let tasks: Vec<_> = batch
+                .iter()
+                .map(|addr| {
+                    let network = self.network.clone();
+                    async move {
+                        // Use Quorum::One for fast existence check
+                        match network.get_record(addr.clone(), Quorum::One).await {
+                            Ok(Some(_)) => Some(addr),
+                            Ok(None) => None,
+                            // SplitRecord means record exists (just has conflicts)
+                            Err(NetworkError::SplitRecord { .. }) => Some(addr),
+                            Err(_) => None,
+                        }
+                    }
+                })
+                .collect();
+
+            let results = process_tasks_with_max_concurrency(tasks, batch_size).await;
+            existing.extend(results.into_iter().flatten().cloned());
+
+            checked += batch.len();
+            #[cfg(feature = "loud")]
+            println!("Checked {checked}/{total} chunks for existence...");
+        }
+
+        existing
     }
 }

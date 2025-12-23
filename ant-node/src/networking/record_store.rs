@@ -26,7 +26,7 @@ use libp2p::{
     identity::PeerId,
     kad::{
         KBucketDistance as Distance, ProviderRecord, Record, RecordKey as Key,
-        store::{Error, RecordStore, Result},
+        store::{Error, RecordStore, Result}, U256
     },
 };
 #[cfg(feature = "open-metrics")]
@@ -559,12 +559,22 @@ impl NodeRecordStore {
         Ok(())
     }
 
-    // When the accumulated record copies exceeds the `expotional pricing point` (max_records * 0.1)
-    // those `out of range` records shall be cleaned up.
-    // This is to avoid :
-    //   * holding too many irrelevant record, which occupies disk space
-    //   * `over-quoting` during restart, when RT is not fully populated,
-    //     result in mis-calculation of relevant records.
+    /// Cleans up irrelevant records using a conservative pruning scheme.
+    ///
+    /// This function is triggered when accumulated records exceed the exponential pricing point
+    /// (max_records * 0.1). The pruning scheme is designed to avoid CPU/disk/network spikes by:
+    ///
+    /// ## Pruning Scheme:
+    /// 1. **Target 10% of farthest records**: Instead of removing all out-of-range records at once,
+    ///    we only consider the farthest 10% of records for potential removal.
+    /// 2. **Respect 10 * responsible_distance_range**: Among the 10% farthest records, only remove
+    ///    those that are BEYOND the `10 * responsible_distance_range`. Records within the responsible
+    ///    range are retained even if they fall in the farthest 10%.
+    ///
+    /// This conservative approach prevents:
+    /// - Large spikes in CPU/disk usage from removing too many entries at once
+    /// - Unnecessary refetching of records that are still within acceptable range
+    ///   (other parts of the codebase use an expanded range check, e.g., 10x responsible_distance_range)
     pub(crate) fn cleanup_irrelevant_records(&mut self) {
         let accumulated_records = self.records.len();
         if accumulated_records < MAX_RECORDS_COUNT / 10 {
@@ -577,10 +587,23 @@ impl NodeRecordStore {
             return;
         };
 
-        // Collect keys to remove from buckets beyond our range
+        // Increase distance by 10 times to match the allowance margin in other range check places. 
+        let increased_distance = Distance(responsible_distance.0.saturating_mul(U256::from(10)));
+
+        // Calculate 10% of total records as candidates for removal
+        let target_cleanup_count = accumulated_records / 10;
+        if target_cleanup_count == 0 {
+            return;
+        }
+
+        // Collect the farthest 10% of records (iterating from farthest to closest)
+        // Among these, only select records that are BEYOND the increased_distance
         let keys_to_remove: Vec<Key> = self
             .records_by_distance
-            .range(responsible_distance..)
+            .iter()
+            .rev() // Start from farthest records
+            .take(target_cleanup_count) // Only consider farthest 10%
+            .filter(|(distance, _key)| **distance >= increased_distance) // Only beyond responsible range
             .map(|(_distance, key)| key.clone())
             .collect();
 
@@ -591,10 +614,12 @@ impl NodeRecordStore {
             self.remove(&key);
         }
 
-        info!(
-            "Cleaned up {} unrelevant records, among the original {accumulated_records} accumulated_records",
-            keys_to_remove_len
-        );
+        if keys_to_remove_len > 0 {
+            info!(
+                "Cleaned up {keys_to_remove_len} irrelevant records (from farthest 10% beyond responsible range), \
+                 among {accumulated_records} total records"
+            );
+        }
     }
 }
 

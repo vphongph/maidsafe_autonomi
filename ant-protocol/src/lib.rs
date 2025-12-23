@@ -109,6 +109,22 @@ impl NetworkAddress {
         }
     }
 
+    /// Return the XorName represented by this `NetworkAddress`.
+    pub fn xorname(&self) -> Option<XorName> {
+        match self {
+            NetworkAddress::ChunkAddress(chunk_address) => Some(*chunk_address.xorname()),
+            NetworkAddress::GraphEntryAddress(graph_entry_address) => {
+                Some(graph_entry_address.xorname())
+            }
+            NetworkAddress::ScratchpadAddress(scratchpad_address) => {
+                Some(scratchpad_address.xorname())
+            }
+            NetworkAddress::PointerAddress(pointer_address) => Some(pointer_address.xorname()),
+            NetworkAddress::PeerId(_) => None,
+            NetworkAddress::RecordKey(_) => None,
+        }
+    }
+
     /// Try to return the represented `PeerId`.
     pub fn as_peer_id(&self) -> Option<PeerId> {
         if let NetworkAddress::PeerId(bytes) = self

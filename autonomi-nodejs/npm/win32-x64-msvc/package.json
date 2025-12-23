@@ -1,6 +1,6 @@
 {
   "name": "@withautonomi/autonomi-win32-x64-msvc",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/maidsafe/autonomi.git",

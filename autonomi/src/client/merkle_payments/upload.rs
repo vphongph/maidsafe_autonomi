@@ -19,9 +19,10 @@ use ant_protocol::NetworkAddress;
 use ant_protocol::storage::{Chunk, ChunkAddress, DataTypes, RecordKind, try_serialize_record};
 use libp2p::kad::Record;
 use std::collections::HashSet;
+use std::fmt;
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::debug;
+use tokio::time::{Duration, sleep};
 use xor_name::XorName;
 
 #[derive(Debug, Error)]
@@ -30,6 +31,8 @@ pub enum MerklePutError {
     Network(#[from] NetworkError),
     #[error("Serialization error: {0}")]
     Serialization(String),
+    #[error("{0}")]
+    Batch(MerkleBatchUploadState),
 
     // Errors that should not happen unless there is a bug:
     #[error(
@@ -42,10 +45,44 @@ pub enum MerklePutError {
     StreamShouldHaveDatamap,
 }
 
+/// Tracks failed chunks from a merkle batch upload.
+/// Failed chunks include the chunk data so they can be retried without re-encryption.
+#[derive(Debug, Clone, Default)]
+pub struct MerkleBatchUploadState {
+    pub failed: Vec<(Chunk, String)>,
+}
+
+impl fmt::Display for MerkleBatchUploadState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let failures = self.failed.len();
+        writeln!(f, "{failures} uploads failed")?;
+
+        // Print first 3 errors
+        for (chunk, err) in self.failed.iter().take(3) {
+            writeln!(f, "{:?}: {err}", chunk.address())?;
+        }
+        if failures > 3 {
+            writeln!(f, "and {} more...", failures - 3)?;
+        }
+        Ok(())
+    }
+}
+
+/// Result from a merkle batch upload containing streams, completed files, and any failed chunks
+pub struct MerkleBatchUploadResult {
+    /// Remaining streams that haven't been fully processed yet
+    pub streams: Vec<EncryptionStream>,
+    /// Files that have been completed (all chunks uploaded)
+    pub completed_files: Vec<(PathBuf, DataMapChunk, Metadata)>,
+    /// Chunks that failed to upload with their error messages
+    pub failed_chunks: Vec<(Chunk, String)>,
+}
+
 impl Client {
     /// Upload streams of chunks with Merkle batch payments
     ///
-    /// Upload up to `limit` chunks from streams, returning remaining streams and completed file results
+    /// Upload up to `limit` chunks from streams, returning remaining streams and completed file results.
+    /// Any failed chunks are returned for potential retry.
     ///
     /// This processes streams in order, uploading chunks until `limit` is reached or all streams exhausted.
     /// When a stream is exhausted, its datamap is harvested and added to the results.
@@ -57,37 +94,33 @@ impl Client {
     /// * `limit` - Maximum number of chunks to upload in this batch (not including skipped chunks)
     ///
     /// # Returns
-    /// * Tuple of (remaining_streams, completed_file_results)
+    /// * `MerkleBatchUploadResult` containing remaining streams, completed files, and any failed chunks
     pub async fn upload_batch_with_merkle(
         &self,
         mut streams: Vec<EncryptionStream>,
         receipt: &MerklePaymentReceipt,
         dont_reupload: &mut HashSet<XorName>,
         limit: usize,
-    ) -> Result<
-        (
-            Vec<EncryptionStream>,
-            Vec<(PathBuf, DataMapChunk, Metadata)>,
-        ),
-        MerklePutError,
-    > {
+    ) -> Result<MerkleBatchUploadResult, MerklePutError> {
         let mut completed_files: Vec<(PathBuf, DataMapChunk, Metadata)> = Vec::new();
+        let mut all_failed_chunks: Vec<(Chunk, String)> = Vec::new();
         let mut chunks_uploaded = 0;
+        let mut chunks_attempted = 0;
         let total_files = receipt.file_chunk_counts.len();
         let upload_batch_size = std::cmp::max(1, *CHUNK_UPLOAD_BATCH_SIZE);
 
-        while chunks_uploaded < limit {
+        while chunks_attempted < limit {
             let Some(stream) = streams.first_mut() else {
                 break;
             };
 
             // Try to get next batch of chunks from current stream
-            let remaining_in_batch = limit - chunks_uploaded;
+            let remaining_in_batch = limit - chunks_attempted;
             let batch_size = std::cmp::min(upload_batch_size, remaining_in_batch);
 
             match stream.next_batch(batch_size) {
                 Some(chunks) if !chunks.is_empty() => {
-                    // Upload this batch of chunks
+                    // Upload this batch of chunks, keeping chunk data for potential retry
                     let mut tasks = Vec::with_capacity(chunks.len());
                     for chunk in chunks {
                         let xor_name = *chunk.name();
@@ -101,21 +134,40 @@ impl Client {
                             .ok_or(MerklePutError::MissingPaymentProofFor(xor_name))?
                             .clone();
                         let client = self.clone();
+                        // Keep chunk for potential retry on failure
                         tasks.push(async move {
-                            client.upload_chunk_with_merkle_proof(&chunk, &proof).await
+                            let result =
+                                client.upload_chunk_with_merkle_proof(&chunk, &proof).await;
+                            (chunk, result)
                         });
                     }
 
+                    let task_count = tasks.len();
                     let results = process_tasks_with_max_concurrency(tasks, batch_size).await;
 
-                    // Check each result for errors - propagate first error encountered
-                    for result in results {
-                        let addr = result?;
-                        dont_reupload.insert(*addr.xorname());
-                        chunks_uploaded += 1;
-                        debug!("Uploaded chunk {chunks_uploaded}/{limit}: {addr:?}");
-                        #[cfg(feature = "loud")]
-                        println!("({chunks_uploaded}/{limit}) Chunk stored at: {addr:?}");
+                    // Count all attempted chunks (success or failure)
+                    chunks_attempted += task_count;
+
+                    // Collect successes and failures
+                    for (chunk, result) in results {
+                        match result {
+                            Ok(addr) => {
+                                dont_reupload.insert(*addr.xorname());
+                                chunks_uploaded += 1;
+                                debug!("Uploaded chunk {chunks_uploaded}/{limit}: {addr:?}");
+                                #[cfg(feature = "loud")]
+                                println!("({chunks_uploaded}/{limit}) Chunk stored at: {addr:?}");
+                            }
+                            Err(err) => {
+                                error!("Failed to upload chunk {:?}: {err}", chunk.address());
+                                #[cfg(feature = "loud")]
+                                println!(
+                                    "Chunk failed to be stored at: {:?} ({err})",
+                                    chunk.address()
+                                );
+                                all_failed_chunks.push((chunk, err.to_string()));
+                            }
+                        }
                     }
                 }
                 _ => {
@@ -139,7 +191,11 @@ impl Client {
             }
         }
 
-        Ok((streams, completed_files))
+        Ok(MerkleBatchUploadResult {
+            streams,
+            completed_files,
+            failed_chunks: all_failed_chunks,
+        })
     }
 
     /// Upload a single chunk with its Merkle payment proof
@@ -194,5 +250,86 @@ impl Client {
             .await?;
 
         Ok(())
+    }
+
+    /// Retry uploading failed chunks with pause between attempts.
+    ///
+    /// Returns remaining failed chunks after all retry attempts (empty if all succeeded).
+    pub async fn retry_failed_merkle_chunks(
+        &self,
+        mut failed_chunks: Vec<(Chunk, String)>,
+        receipt: &MerklePaymentReceipt,
+        already_exist: &mut HashSet<XorName>,
+        max_retries: usize,
+        retry_pause_secs: u64,
+    ) -> Result<Vec<(Chunk, String)>, MerklePutError> {
+        let mut retry_attempt = 0;
+        let upload_batch_size = std::cmp::max(1, *CHUNK_UPLOAD_BATCH_SIZE);
+
+        while !failed_chunks.is_empty() && retry_attempt < max_retries {
+            retry_attempt += 1;
+            let failed_count = failed_chunks.len();
+
+            #[cfg(feature = "loud")]
+            println!("⚠️ Upload batch failed: {failed_count} chunks failed. Retrying scheduled");
+            #[cfg(feature = "loud")]
+            println!(
+                "⚠️ Encountered upload failure, take {retry_pause_secs} second pause before continue..."
+            );
+            info!(
+                "Retry attempt {retry_attempt}/{max_retries}: {failed_count} chunks remaining. Pausing for {retry_pause_secs} seconds..."
+            );
+
+            sleep(Duration::from_secs(retry_pause_secs)).await;
+
+            #[cfg(feature = "loud")]
+            println!("🔄 continue with upload...");
+            info!("🔄 continue with upload...");
+
+            // Build upload tasks
+            let chunks_to_retry: Vec<Chunk> =
+                failed_chunks.into_iter().map(|(chunk, _)| chunk).collect();
+            let mut tasks = Vec::with_capacity(chunks_to_retry.len());
+
+            for chunk in chunks_to_retry {
+                let xor_name = *chunk.name();
+                if already_exist.contains(&xor_name) {
+                    continue;
+                }
+
+                let Some(proof) = receipt.proofs.get(&xor_name).cloned() else {
+                    return Err(MerklePutError::MissingPaymentProofFor(xor_name));
+                };
+
+                let client = self.clone();
+                tasks.push(async move {
+                    let result = client.upload_chunk_with_merkle_proof(&chunk, &proof).await;
+                    (chunk, result)
+                });
+            }
+
+            let results = process_tasks_with_max_concurrency(tasks, upload_batch_size).await;
+
+            // Collect new failures
+            failed_chunks = Vec::new();
+            for (chunk, result) in results {
+                match result {
+                    Ok(addr) => {
+                        already_exist.insert(*addr.xorname());
+                        debug!("Retry succeeded for chunk: {addr:?}");
+                        #[cfg(feature = "loud")]
+                        println!("✓ Retry succeeded for chunk: {addr:?}");
+                    }
+                    Err(err) => {
+                        error!("Retry failed for chunk {:?}: {err}", chunk.address());
+                        #[cfg(feature = "loud")]
+                        println!("✗ Retry failed for chunk {:?}: {err}", chunk.address());
+                        failed_chunks.push((chunk, err.to_string()));
+                    }
+                }
+            }
+        }
+
+        Ok(failed_chunks)
     }
 }

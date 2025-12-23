@@ -21,7 +21,6 @@ use ant_protocol::storage::{ChunkAddress, DataTypes};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{debug, info};
 use xor_name::XorName;
 
 /// Payment option for Merkle batch uploads
@@ -278,13 +277,41 @@ impl Client {
             println!("🌳 Merkle Tree {batch_num}/{num_batches}: Uploading {batch_size} chunks...");
 
             // Upload this batch's chunks (skip chunks that already exist)
-            let (remaining_streams, completed_files) = self
+            let upload_result = self
                 .upload_batch_with_merkle(streams, &receipt, &mut already_exist, batch_size)
                 .await
                 .map_err(|err| MerkleUploadErrorWithReceipt::upload(receipt.clone(), err))?;
 
-            streams = remaining_streams;
-            results.extend(completed_files);
+            streams = upload_result.streams;
+            results.extend(upload_result.completed_files);
+
+            // Retry failed chunks if any
+            if !upload_result.failed_chunks.is_empty() {
+                const MAX_RETRIES: usize = 3;
+                const RETRY_PAUSE_SECS: u64 = 60;
+
+                let remaining_failures = self
+                    .retry_failed_merkle_chunks(
+                        upload_result.failed_chunks,
+                        &receipt,
+                        &mut already_exist,
+                        MAX_RETRIES,
+                        RETRY_PAUSE_SECS,
+                    )
+                    .await
+                    .map_err(|err| MerkleUploadErrorWithReceipt::upload(receipt.clone(), err))?;
+
+                if !remaining_failures.is_empty() {
+                    let failed_count = remaining_failures.len();
+                    error!("{failed_count} chunks failed after {MAX_RETRIES} retries");
+                    return Err(MerkleUploadErrorWithReceipt::upload(
+                        receipt,
+                        MerklePutError::Batch(super::upload::MerkleBatchUploadState {
+                            failed: remaining_failures,
+                        }),
+                    ));
+                }
+            }
 
             info!(
                 "Batch {batch_num}/{num_batches} complete, {} files finished so far",

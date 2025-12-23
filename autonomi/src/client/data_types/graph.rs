@@ -121,16 +121,12 @@ impl Client {
             .map(|(entry, _)| entry)
             .collect();
 
-        match entries_with_max.len() {
-            1 => {
-                let best_entry = entries_with_max
-                    .into_iter()
-                    .next()
-                    .expect("Vec with len() == 1 must contain exactly one item");
+        match &entries_with_max[..] {
+            [best_entry] => {
                 debug!(
                     "Successfully resolved graph entry at {key:?} with {max_copies} consistent copies"
                 );
-                Ok(best_entry)
+                Ok(best_entry.clone())
             }
             _ => {
                 warn!("Fork detected for graph entry at {key:?}");

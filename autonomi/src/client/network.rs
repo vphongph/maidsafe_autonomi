@@ -73,7 +73,14 @@ impl Client {
         data_size: usize,
     ) -> Result<PeerQuoteWithStorageProof, NetworkError> {
         self.network
-            .get_storage_proofs_from_peer(network_address.into(), peer, nonce, difficulty, data_type, data_size)
+            .get_storage_proofs_from_peer(
+                network_address.into(),
+                peer,
+                nonce,
+                difficulty,
+                data_type,
+                data_size,
+            )
             .await
     }
 

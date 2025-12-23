@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *When editing this file, please respect a line length of 100.*
 
+## 2025-12-23
+
+### API
+
+#### Added
+
+- `Client::check_records_exist_batch` async method for checking the existence of multiple records
+  in batch operations, improving efficiency when verifying data presence on the network.
+- `Client::retry_failed_merkle_chunks` async method for retrying failed chunk uploads with
+  configurable retry attempts and pause duration between attempts.
+- `NetworkAddress::xorname` method to extract the XorName from a NetworkAddress, returning `None`
+  for PeerId and RecordKey variants.
+- `MerkleBatchUploadState` struct to track failed chunks from a merkle batch upload, including
+  chunk data for retry operations.
+- `MerkleBatchUploadResult` struct returned from merkle batch uploads containing remaining streams,
+  completed files, and any failed chunks.
+- `MerklePutError::Batch` variant for tracking batch upload state with failed chunks.
+
+#### Changed
+
+- `Client::upload_batch_with_merkle` method signature now requires an additional `dont_reupload:
+  &mut HashSet<XorName>` parameter to track and skip chunks that already exist on the network. The
+  return type has changed from `Result<(Vec<EncryptionStream>, Vec<(PathBuf, DataMapChunk,
+  Metadata)>), MerklePutError>` to `Result<MerkleBatchUploadResult, MerklePutError>`. [BREAKING]
+- Merkle payment uploads now skip redundant encryption when all chunks already exist on the
+  network, significantly improving performance for re-uploads of existing data.
+- Upload operations no longer pay for chunks that already exist on the network, reducing
+  unnecessary costs when re-uploading or syncing existing data.
+- Chunk existence checking now reports progress during Merkle payment operations, providing better
+  visibility into upload status.
+- File upload operations with merkle payments now provide high-level retry logic with exponential
+  backoff, improving reliability for large file uploads.
+
+#### Fixed
+
+- Issue where one-chunk files would fail to create merkle trees correctly, preventing successful
+  uploads of very small files using merkle payments.
+- Incorrect chunk upload count display during merkle payment operations.
+- Excessive use of XorName in merkle hashing flows, improving efficiency and correctness of merkle
+  tree operations.
+
+### Payments
+
+#### Changed
+
+- Gas limit buffer increased to 50% to provide more headroom for transaction execution and reduce
+  the risk of out-of-gas errors.
+- Transaction receipts are now validated after mining to ensure successful execution before
+  considering the transaction complete.
+- Pool creation for merkle payments is now processed in parallel, significantly reducing the time
+  required to prepare batch payments.
+
+#### Fixed
+
+- Merkle tree maximum depth validation corrected to prevent tree construction errors with large
+  datasets.
+- Duplicate hash function removed from merkle payment implementation, simplifying the codebase.
+
+### Ant Client
+
+#### Added
+
+- The `file cost` command now supports a `--merkle` flag to estimate costs using Merkle batch
+  payment mode instead of traditional per-chunk payments.
+- The `file upload` command now supports a `--merkle` flag to upload files using Merkle batch
+  payment mode, enabling more efficient bulk uploads.
+- Merkle payment upload operations now cache successful payments and support retry of failed chunks
+  through `cached_merkle_payments` module.
+
+#### Changed
+
+- Upload operations display clearer progress information when checking for existing chunks on the
+  network.
+
+### General
+
+#### Fixed
+
+- Python bindings for ARM architectures now compile correctly by setting appropriate CFLAGS to
+  define ARM architecture version for cross-compilation targets. This resolves the ring crate
+  compilation failures on older GCC toolchains.
+
 ## 2025-12-18
 
 ### API

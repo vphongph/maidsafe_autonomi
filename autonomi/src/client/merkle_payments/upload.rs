@@ -68,13 +68,6 @@ impl fmt::Display for MerkleBatchUploadState {
     }
 }
 
-impl MerkleBatchUploadState {
-    /// Get the failed chunks for retry
-    pub fn failed_chunks(&self) -> Vec<Chunk> {
-        self.failed.iter().map(|(chunk, _)| chunk.clone()).collect()
-    }
-}
-
 /// Result from a merkle batch upload containing streams, completed files, and any failed chunks
 pub struct MerkleBatchUploadResult {
     /// Remaining streams that haven't been fully processed yet

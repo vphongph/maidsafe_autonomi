@@ -13,7 +13,7 @@ use super::{
 use crate::metrics::NodeMetricsRecorder;
 #[cfg(feature = "open-metrics")]
 use crate::networking::MetricsRegistries;
-use crate::networking::{Addresses, Network, NetworkConfig, NetworkError, NetworkEvent, NodeIssue};
+use crate::networking::{Addresses, Network, NetworkConfig, NetworkEvent, NodeIssue};
 use crate::{PutValidationError, RunningNode};
 use ant_bootstrap::bootstrap::Bootstrap;
 use ant_evm::EvmNetwork;
@@ -32,7 +32,6 @@ use libp2p::{
     Multiaddr, PeerId,
     identity::Keypair,
     kad::{KBucketDistance as Distance, Record, U256},
-    request_response::OutboundFailure,
 };
 use num_traits::cast::ToPrimitive;
 use rand::{
@@ -1539,13 +1538,10 @@ impl Node {
             Err(err) => {
                 info!("Failed to fetch peer version {peer:?} with error {err:?}");
                 // Failed version fetch (which contains dial then re-attempt by itself)
-                // with error of `DialFailure` indicates the peer could be dead with high chance.
+                // indicates the peer could be dead with high chance.
                 // In that case, the peer shall be removed from the routing table.
-                if let NetworkError::OutboundError(OutboundFailure::DialFailure) = err {
-                    network.remove_peer(peer);
-                    return;
-                }
-                "old".to_string()
+                network.remove_peer(peer);
+                return;
             }
         };
         network.notify_node_version(peer, version);

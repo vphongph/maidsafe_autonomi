@@ -40,6 +40,8 @@ async fn main() -> Result<()> {
     color_eyre::install().expect("Failed to initialise error handler");
     let mut opt = Opt::parse();
 
+    println!("New banner for ant");
+
     // The clone is necessary to resolve a clippy warning related to a mutex.
     let identify_protocol_str = version::IDENTIFY_PROTOCOL_STR
         .read()

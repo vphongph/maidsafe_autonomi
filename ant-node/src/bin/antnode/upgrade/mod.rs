@@ -321,13 +321,36 @@ pub async fn perform_upgrade() -> Result<()> {
         }
     };
 
-    if release_info
-        .commit_hash
-        .starts_with(ant_build_info::git_sha())
-    {
+    // Check if the antnode binary has changed by comparing SHA256 hashes.
+    let platform = ant_releases::get_running_platform()?;
+    let platform_binaries = release_info
+        .platform_binaries
+        .iter()
+        .find(|pb| pb.platform == platform)
+        .ok_or_else(|| UpgradeError::PlatformBinariesNotFound(format!("{platform:?}")))?;
+
+    let antnode_binary = platform_binaries
+        .binaries
+        .iter()
+        .find(|b| b.name == "antnode")
+        .ok_or_else(|| {
+            UpgradeError::PlatformBinariesNotFound(format!(
+                "antnode binary not found in release for platform: {platform:?}"
+            ))
+        })?;
+
+    let current_exe_path = std::env::current_exe()?;
+    let current_hash = calculate_sha256(&current_exe_path)?;
+    if current_hash.eq_ignore_ascii_case(&antnode_binary.sha256) {
+        info!("Current antnode binary hash matches latest release. No upgrade needed.");
         return Err(UpgradeError::AlreadyLatest);
     }
-    info!("New version detected: {}", release_info.commit_hash);
+
+    info!(
+        "New antnode binary available (current: {}; latest: {}). Proceeding with upgrade...",
+        &current_hash[..8],
+        &antnode_binary.sha256[..8]
+    );
 
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
     let (new_binary_path, expected_hash) =

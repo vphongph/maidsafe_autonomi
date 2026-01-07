@@ -34,13 +34,13 @@ const DEFAULT_NETWORK_SIZE: usize = 100_000;
 /// These URLs redirect to the actual binary download location.
 fn get_autonomi_download_url(platform: &Platform) -> &'static str {
     match platform {
-        Platform::LinuxMusl => "https://autonomi.com/download/node/linux-x64",
-        Platform::LinuxMuslAarch64 => "https://autonomi.com/download/node/linux-arm64",
-        Platform::LinuxMuslArm => "https://autonomi.com/download/node/linux-arm",
-        Platform::LinuxMuslArmV7 => "https://autonomi.com/download/node/linux-armv7",
-        Platform::MacOs => "https://autonomi.com/download/node/mac-intel",
-        Platform::MacOsAarch64 => "https://autonomi.com/download/node/mac-apple-silicon",
-        Platform::Windows => "https://autonomi.com/download/node/windows",
+        Platform::LinuxMusl => "https://downloads.autonomi.com/node/linux-x64",
+        Platform::LinuxMuslAarch64 => "https://downloads.autonomi.com/node/linux-arm64",
+        Platform::LinuxMuslArm => "https://downloads.autonomi.com/node/linux-arm",
+        Platform::LinuxMuslArmV7 => "https://downloads.autonomi.com/node/linux-armv7",
+        Platform::MacOs => "https://downloads.autonomi.com/node/mac-intel",
+        Platform::MacOsAarch64 => "https://downloads.autonomi.com/node/mac-apple-silicon",
+        Platform::Windows => "https://downloads.autonomi.com/node/windows",
     }
 }
 

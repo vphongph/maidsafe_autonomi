@@ -18,6 +18,7 @@ use ant_releases::{
 use fs2::FileExt;
 use semver::Version;
 use sha2::{Digest, Sha256};
+use once_cell::sync::OnceCell;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,39 @@ use tracing::{debug, info, warn};
 const LOCK_TIMEOUT_SECS: u64 = 300; // 5 minutes
 const LOCK_RETRY_INTERVAL_MS: u64 = 100;
 const DEFAULT_NETWORK_SIZE: usize = 100_000;
+
+/// Cached SHA256 hash of the running binary.
+///
+/// The running binary's hash is constant for the process lifetime (it's loaded in memory),
+/// so we calculate it once and cache it. This also avoids issues with the " (deleted)" suffix
+/// that Linux appends to `/proc/self/exe` when the on-disk binary is replaced by another process.
+static RUNNING_BINARY_HASH: OnceCell<String> = OnceCell::new();
+
+/// Get the SHA256 hash of the currently running binary.
+///
+/// The hash is calculated once on first call and cached for subsequent calls.
+/// Handles the " (deleted)" suffix that Linux appends when the binary has been replaced.
+///
+/// This function should be called early in the process lifetime (at startup) to ensure
+/// the hash reflects the actual running binary, not a replacement that another process
+/// may have installed.
+pub fn get_running_binary_hash() -> Result<&'static str> {
+    RUNNING_BINARY_HASH
+        .get_or_try_init(|| {
+            let mut current_exe_path = std::env::current_exe()?;
+            let current_exe_str = current_exe_path.to_string_lossy();
+            if current_exe_str.ends_with(" (deleted)") {
+                let cleaned = current_exe_str.trim_end_matches(" (deleted)");
+                current_exe_path = PathBuf::from(cleaned);
+            }
+            debug!(
+                "Calculating and caching hash for running binary: {}",
+                current_exe_path.display()
+            );
+            calculate_sha256(&current_exe_path)
+        })
+        .map(|s| s.as_str())
+}
 
 /// Get the autonomi.com download URL for a given platform.
 ///
@@ -447,8 +481,7 @@ pub async fn perform_upgrade() -> Result<()> {
             ))
         })?;
 
-    let current_exe_path = std::env::current_exe()?;
-    let current_hash = calculate_sha256(&current_exe_path)?;
+    let current_hash = get_running_binary_hash()?;
     if current_hash.eq_ignore_ascii_case(&antnode_binary.sha256) {
         info!("Current antnode binary hash matches latest release. No upgrade needed.");
         return Err(UpgradeError::AlreadyLatest);

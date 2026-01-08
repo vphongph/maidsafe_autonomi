@@ -71,6 +71,7 @@ libp2p = { version = "0.56.0", features = [
     "autonat",
 ] }
 num-traits = "0.2"
+once_cell = "1.19"
 prometheus-client = { version = "0.23.1", optional = true }
 # watch out updating this, protoc compiler needs to be installed on all build systems
 # arm builds + musl are very problematic

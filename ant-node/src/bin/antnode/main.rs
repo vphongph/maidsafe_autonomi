@@ -238,6 +238,14 @@ struct Opt {
 
 fn main() -> Result<()> {
     color_eyre::install()?;
+
+    // Cache the running binary's hash early, before any other node could replace the shared binary.
+    // This ensures the hash reflects the actual binary we're running, not a newer version.
+    #[cfg(unix)]
+    if let Err(e) = upgrade::get_running_binary_hash() {
+        eprintln!("Warning: Failed to cache running binary hash: {e}");
+    }
+
     let opt = Opt::parse();
 
     let network_id = if let Some(network_id) = opt.network_id {

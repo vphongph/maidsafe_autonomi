@@ -7,42 +7,42 @@ on:
         description: Release nat-detection binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-node-launchpad:
         description: Release node-launchpad binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-ant:
         description: Release ant binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-antnode:
         description: Release antnode binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-antctl:
         description: Release antctl binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-antctld:
         description: Release antctld binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-antnode-rpc-client:
         description: Release antnode_rpc_client binary
         type: boolean
         required: false
-        default: true
+        default: false
       release-evm-testnet:
         description: Release evm-testnet binary
         type: boolean
         required: false
-        default: true
+        default: false
 
 env:
   WORKFLOW_URL: https://github.com/maidsafe/autonomi/actions/runs

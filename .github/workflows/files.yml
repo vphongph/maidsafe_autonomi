@@ -18,6 +18,28 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Free up disk space on Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Check initial disk space
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo "=== Initial disk space ==="
+          df -h
+          echo "=== Home directory ==="
+          du -sh /home/runner/ || true
+          echo "=== PWD ==="
+          du -sh . || true
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -25,6 +47,12 @@ jobs:
       - name: Build binaries
         run: cargo build --release --bin antnode --bin ant --bin antctl
         timeout-minutes: 30
+
+      - name: Check disk space after build
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo "=== Disk space after build ==="
+          df -h
 
       - name: Start a local network
         uses: maidsafe/ant-local-testnet-action@main
@@ -237,6 +265,12 @@ jobs:
             fi
             
             echo "---"
+            
+            # Clean up test data after each test iteration to save disk space
+            echo "🧹 Cleaning up test data to free disk space..."
+            rm -rf test_upload/* test_download/* 2>/dev/null || true
+            echo "Disk space after cleanup:"
+            df -h / 2>/dev/null || df -h . 2>/dev/null || true
           done
           
           echo ""

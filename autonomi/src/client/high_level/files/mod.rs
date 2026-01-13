@@ -136,11 +136,14 @@ pub enum FileCostError {
 /// which is important for cross-platform compatibility.
 pub(crate) fn normalize_path(path: PathBuf) -> PathBuf {
     // Convert backslashes to forward slashes (Windows..)
+    // Also collapse any double slashes that result from joining components
     let normalized = path
         .components()
         .map(|c| c.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
-        .join("/");
+        .join("/")
+        .replace('\\', "/")
+        .replace("//", "/");
 
     PathBuf::from(normalized)
 }
@@ -350,9 +353,7 @@ pub(crate) fn get_relative_file_path_from_abs_file_and_folder_path(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use super::normalize_path;
-    #[cfg(windows)]
     use std::path::PathBuf;
 
     #[cfg(windows)]
@@ -361,5 +362,18 @@ mod tests {
         let windows_path = PathBuf::from(r"folder\test\file.txt");
         let normalized = normalize_path(windows_path);
         assert_eq!(normalized, PathBuf::from("folder/test/file.txt"));
+    }
+
+    #[test]
+    fn test_normalize_path_preserves_leading_slash() {
+        // Test that paths with leading slashes don't get double slashes (issue #3260)
+        // Use string comparison because PathBuf::eq normalizes paths (so "//x" == "/x")
+        let path = PathBuf::from("/folder/test/file.txt");
+        let normalized = normalize_path(path);
+        assert_eq!(
+            normalized.to_string_lossy(),
+            "/folder/test/file.txt",
+            "Leading slash should not produce double slash"
+        );
     }
 }

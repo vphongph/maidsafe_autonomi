@@ -219,7 +219,10 @@ impl Client {
     }
 
     /// Upload a record with a Merkle payment proof
-    pub async fn upload_record_with_merkle_proof<T: serde::Serialize>(
+    ///
+    /// This method first attempts upload using verified closest peers.
+    /// If that fails, it falls back to using direct Kad query peers for retry.
+    pub async fn upload_record_with_merkle_proof<T: serde::Serialize + Clone>(
         &self,
         network_addr: NetworkAddress,
         data_type: DataTypes,
@@ -240,16 +243,51 @@ impl Client {
             expires: None,
         };
 
-        let storing_nodes = self
+        // First attempt: use verified closest peers
+        let storing_nodes = match self
             .network
             .get_closest_peers_with_retries(network_addr.clone(), None)
-            .await?;
+            .await
+        {
+            Ok(peers) => peers,
+            Err(e) => {
+                warn!("Failed to get verified closest peers for {network_addr:?}: {e:?}, trying Kad-only fallback");
+                // Fallback to Kad-only query if verification fails
+                self.network
+                    .get_closest_peers_kad_only(network_addr.clone(), None)
+                    .await?
+            }
+        };
 
-        self.network
-            .put_record_with_retries(record, storing_nodes.clone(), &self.config.chunks)
-            .await?;
+        match self
+            .network
+            .put_record_with_retries(record.clone(), storing_nodes.clone(), &self.config.chunks)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Fallback: use direct Kad query to get a different set of peers and retry
+                warn!(
+                    "Merkle upload failed for {network_addr:?}: {e:?}, attempting Kad-only fallback"
+                );
 
-        Ok(())
+                let fallback_nodes = self
+                    .network
+                    .get_closest_peers_kad_only(network_addr.clone(), None)
+                    .await?;
+
+                debug!(
+                    "Retrying merkle upload to {} Kad-only peers for {network_addr:?}",
+                    fallback_nodes.len()
+                );
+
+                self.network
+                    .put_record_with_retries(record, fallback_nodes, &self.config.chunks)
+                    .await?;
+
+                Ok(())
+            }
+        }
     }
 
     /// Retry uploading failed chunks with pause between attempts.

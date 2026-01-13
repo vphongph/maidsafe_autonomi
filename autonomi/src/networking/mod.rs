@@ -443,6 +443,55 @@ impl Network {
         self.get_closest_n_peers(addr, count).await
     }
 
+    /// Get the closest peers to an address using direct Kademlia query only.
+    /// This method skips the peer verification step and returns candidates directly from the DHT.
+    /// Useful as a fallback when the verified approach fails.
+    pub async fn get_closest_peers_kad_only(
+        &self,
+        addr: NetworkAddress,
+        count: Option<usize>,
+    ) -> Result<Vec<PeerInfo>, NetworkError> {
+        let n = if let Some(c) = count {
+            NonZeroUsize::new(c).ok_or(NetworkError::InvalidNonZeroUsize(c.to_string()))?
+        } else {
+            N_CLOSEST_PEERS
+        };
+
+        let (tx, rx) = oneshot::channel();
+        let task = NetworkTask::GetClosestPeers {
+            addr: addr.clone(),
+            resp: tx,
+            n,
+        };
+        self.task_sender
+            .send(task)
+            .await
+            .map_err(|_| NetworkError::NetworkDriverOffline)?;
+
+        match rx.await? {
+            Ok(peers) => {
+                if peers.len() < n.get() {
+                    info!(
+                        "Kad-only get_closest query giving less candidates ({}/{})",
+                        peers.len(),
+                        n.get()
+                    );
+                    return Err(NetworkError::InsufficientPeers {
+                        got_peers: peers.len(),
+                        expected_peers: n.get(),
+                        peers,
+                    });
+                }
+                debug!(
+                    "Kad-only query returned {} peers for {addr:?}",
+                    peers.len()
+                );
+                Ok(peers)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Get the N closest peers to an address on the Network
     /// This function verifies the candidates by:
     /// 1. Getting N candidates via Kademlia

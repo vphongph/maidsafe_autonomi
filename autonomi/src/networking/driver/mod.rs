@@ -44,7 +44,10 @@ use ant_protocol::constants::{
 };
 
 /// Libp2p defaults to 10s which is quite fast, we are more patient
-pub const REQ_TIMEOUT: Duration = Duration::from_secs(30);
+/// To allow node have enough time to verify the merkle uploads,
+/// which involves a KAD network get_closest query could last for long time,
+/// this timeout need to be further extended.
+pub const REQ_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 60s for kad queries, we are more patient
 pub const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Libp2p defaults to 3, we are more aggressive

@@ -17,12 +17,14 @@ use tracing::info;
 
 use crate::client::data_types::chunk::ChunkAddress;
 use crate::client::{GetError, PutError, quote::CostError};
+use crate::self_encryption::EncryptionStream;
 use crate::utils::process_tasks_with_max_concurrency;
 use crate::{
     Client,
     chunk::DataMapChunk,
     client::payment::{PaymentOption, Receipt},
 };
+use ant_evm::AttoTokens;
 use bytes::Bytes;
 use self_encryption::streaming_decrypt_from_storage;
 use xor_name::XorName;
@@ -105,6 +107,8 @@ pub enum UploadError {
     PutError(#[from] PutError),
     #[error("Encryption error")]
     Encryption(String),
+    #[error("Cost error: {0}")]
+    Cost(#[from] CostError),
 }
 
 /// Errors that can occur during the download operation.
@@ -270,6 +274,44 @@ impl Client {
         .collect::<Result<Vec<(usize, Bytes)>, self_encryption::Error>>()?;
 
         Ok(chunks)
+    }
+
+    /// Internal helper for uploading directory contents.
+    /// Used by both `dir_content_upload` (private) and `dir_content_upload_public`.
+    pub(crate) async fn dir_content_upload_internal(
+        &self,
+        dir_path: PathBuf,
+        payment_option: PaymentOption,
+        is_public: bool,
+    ) -> Result<(AttoTokens, Vec<EncryptionStream>), UploadError> {
+        info!("Uploading directory: {dir_path:?}, public: {is_public}");
+
+        let encryption_results =
+            crate::self_encryption::encrypt_directory_files(dir_path, is_public).await?;
+        let mut chunk_iterators = vec![];
+
+        for encryption_result in encryption_results {
+            match encryption_result {
+                Ok(stream) => {
+                    info!("Successfully encrypted file: {:?}", stream.file_path);
+                    #[cfg(feature = "loud")]
+                    println!("Successfully encrypted file: {:?}", stream.file_path);
+                    chunk_iterators.push(stream);
+                }
+                Err(err_msg) => {
+                    error!("Error during file encryption: {err_msg}");
+                    #[cfg(feature = "loud")]
+                    println!("Error during file encryption: {err_msg}");
+                    return Err(UploadError::Encryption(err_msg));
+                }
+            }
+        }
+
+        let total_cost = self
+            .pay_and_upload(payment_option, &mut chunk_iterators)
+            .await?;
+
+        Ok((total_cost, chunk_iterators))
     }
 
     async fn stream_upload_file(

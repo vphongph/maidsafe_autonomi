@@ -13,6 +13,7 @@ use crate::client::Client;
 use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
+use crate::client::quote::add_costs;
 use bytes::Bytes;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -65,49 +66,19 @@ impl Client {
         dir_path: PathBuf,
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, PublicArchive), UploadError> {
-        info!("Uploading directory: {dir_path:?}");
-
-        // encrypt
-        let encryption_results =
-            crate::self_encryption::encrypt_directory_files(dir_path, true).await?;
-        let mut chunk_iterators = vec![];
-        for encryption_result in encryption_results {
-            match encryption_result {
-                Ok(file_chunk_iterator) => {
-                    let file_path = file_chunk_iterator.file_path.clone();
-                    info!("Successfully encrypted file: {file_path:?}");
-                    #[cfg(feature = "loud")]
-                    println!("Successfully encrypted file: {file_path:?}");
-
-                    chunk_iterators.push(file_chunk_iterator);
-                }
-                Err(err_msg) => {
-                    error!("Error during file encryption: {err_msg}");
-                    #[cfg(feature = "loud")]
-                    println!("Error during file encryption: {err_msg}");
-                }
-            }
-        }
-
-        // pay and upload
-        let total_cost = self
-            .pay_and_upload(payment_option, &mut chunk_iterators)
+        let (total_cost, streams) = self
+            .dir_content_upload_internal(dir_path, payment_option, true)
             .await?;
 
-        // create an archive
         let mut public_archive = PublicArchive::new();
-        for file_chunk_iterator in chunk_iterators {
-            let file_path = file_chunk_iterator.file_path.clone();
-            let relative_path = file_chunk_iterator.relative_path.clone();
-            let file_metadata = file_chunk_iterator.metadata.clone();
-            let data_address = match file_chunk_iterator.data_map_chunk() {
-                Some(datamap) => DataAddress::new(*datamap.0.name()),
-                None => {
-                    error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
-                    continue;
-                }
-            };
-            public_archive.add_file(relative_path, data_address, file_metadata);
+        for stream in streams {
+            let file_path = stream.file_path.clone();
+            if let Some(datamap) = stream.data_map_chunk() {
+                let data_address = DataAddress::new(*datamap.0.name());
+                public_archive.add_file(stream.relative_path, data_address, stream.metadata);
+            } else {
+                error!("Datamap chunk not found for file: {file_path:?}, this is a BUG");
+            }
         }
 
         for (file_path, data_addr, _meta) in public_archive.iter() {
@@ -131,10 +102,7 @@ impl Client {
             .dir_content_upload_public(dir_path, payment_option.clone())
             .await?;
         let (cost2, archive_addr) = self.archive_put_public(&archive, payment_option).await?;
-        let total_cost = cost1.checked_add(cost2).unwrap_or_else(|| {
-            error!("Total cost overflowed: {cost1:?} + {cost2:?}");
-            cost1
-        });
+        let total_cost = add_costs(cost1, cost2)?;
         Ok((total_cost, archive_addr))
     }
 

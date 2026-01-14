@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::Client;
+use crate::chunk::DataMapChunk;
 use crate::client::config::UPLOAD_FLOW_BATCH_SIZE;
 use crate::client::payment::PayError::EvmWalletError;
 use crate::client::payment::PaymentOption;
@@ -16,6 +17,7 @@ use crate::self_encryption::EncryptionStream;
 use crate::utils::format_upload_error;
 use ant_evm::{Amount, AttoTokens};
 use ant_protocol::storage::{Chunk, DataTypes};
+use bytes::Bytes;
 use evmlib::wallet::Error::InsufficientTokensForQuotes;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -307,5 +309,21 @@ impl Client {
         }
 
         (retry_chunks, vec![receipt], free_chunks, put_error)
+    }
+
+    /// Internal helper for uploading in-memory data.
+    /// Used by both `data_put` (private) and `data_put_public`.
+    pub(crate) async fn data_put_internal(
+        &self,
+        data: Bytes,
+        payment_option: PaymentOption,
+        is_public: bool,
+    ) -> Result<(AttoTokens, DataMapChunk), PutError> {
+        let (chunk_stream, data_map_chunk) = EncryptionStream::new_in_memory(data, is_public)?;
+        let mut chunk_streams = vec![chunk_stream];
+        let total_cost = self
+            .pay_and_upload(payment_option, &mut chunk_streams)
+            .await?;
+        Ok((total_cost, data_map_chunk))
     }
 }

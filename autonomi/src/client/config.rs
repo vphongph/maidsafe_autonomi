@@ -120,10 +120,9 @@ pub(crate) const UPLOAD_RETRY_PAUSE_SECS: u64 = 60;
 /// Pause before retrying failed uploads with consistent logging.
 pub(crate) async fn upload_retry_pause() {
     crate::loud_info!(
-        "⚠️ Encountered upload failure, take {UPLOAD_RETRY_PAUSE_SECS} second pause before continue..."
+        "⚠️ Encountered upload failure, pausing {UPLOAD_RETRY_PAUSE_SECS} seconds before retry..."
     );
     sleep(Duration::from_secs(UPLOAD_RETRY_PAUSE_SECS)).await;
-    crate::loud_info!("🔄 continue with upload...");
 }
 
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].

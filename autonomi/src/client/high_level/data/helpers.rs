@@ -190,6 +190,7 @@ impl Client {
                 }
 
                 upload_retry_pause().await;
+                crate::loud_info!("🔄 Retrying {} chunks...", retry_chunks.len());
             }
 
             current_batch = retry_chunks;

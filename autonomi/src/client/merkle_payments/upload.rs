@@ -277,7 +277,7 @@ impl Client {
 
             sleep(Duration::from_secs(retry_pause_secs)).await;
 
-            crate::loud_info!("🔄 continue with upload...");
+            crate::loud_info!("🔄 Retrying {failed_count} chunks...");
 
             // Build upload tasks
             let chunks_to_retry: Vec<Chunk> =

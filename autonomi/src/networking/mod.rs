@@ -24,13 +24,13 @@ pub(crate) use utils::multiaddr_is_global;
 pub use ant_evm::PaymentQuote;
 pub use ant_protocol::NetworkAddress;
 pub use config::{RetryStrategy, Strategy};
+#[cfg(feature = "developer")]
+pub use interface::DevGetClosestPeersFromNetworkResponse;
 pub use libp2p::kad::PeerInfo;
 pub use libp2p::{
     Multiaddr, PeerId,
     kad::{Quorum, Record},
 };
-#[cfg(feature = "developer")]
-pub use interface::DevGetClosestPeersFromNetworkResponse;
 
 // internal needs
 use crate::networking::version::PackageVersion;

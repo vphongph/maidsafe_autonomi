@@ -154,14 +154,12 @@ impl Client {
                             Ok(addr) => {
                                 dont_reupload.insert(*addr.xorname());
                                 chunks_uploaded += 1;
-                                debug!("Uploaded chunk {chunks_uploaded}/{limit}: {addr:?}");
-                                #[cfg(feature = "loud")]
-                                println!("({chunks_uploaded}/{limit}) Chunk stored at: {addr:?}");
+                                crate::loud_debug!(
+                                    "({chunks_uploaded}/{limit}) Chunk stored at: {addr:?}"
+                                );
                             }
                             Err(err) => {
-                                error!("Failed to upload chunk {:?}: {err}", chunk.address());
-                                #[cfg(feature = "loud")]
-                                println!(
+                                crate::loud_error!(
                                     "Chunk failed to be stored at: {:?} ({err})",
                                     chunk.address()
                                 );
@@ -183,9 +181,9 @@ impl Client {
                     // report progress
                     let f = total_files - streams.len();
                     if let Some(a) = exhausted_stream.data_address() {
-                        debug!("[File {f}/{total_files}] ({path:?}) is now available at: {a:?}");
-                        #[cfg(feature = "loud")]
-                        println!("[File {f}/{total_files}] ({path:?}) is now available at: {a:?}");
+                        crate::loud_info!(
+                            "[File {f}/{total_files}] ({path:?}) is now available at: {a:?}"
+                        );
                     }
                 }
             }
@@ -270,21 +268,16 @@ impl Client {
             retry_attempt += 1;
             let failed_count = failed_chunks.len();
 
-            #[cfg(feature = "loud")]
-            println!("⚠️ Upload batch failed: {failed_count} chunks failed. Retrying scheduled");
-            #[cfg(feature = "loud")]
-            println!(
-                "⚠️ Encountered upload failure, take {retry_pause_secs} second pause before continue..."
+            crate::loud_info!(
+                "⚠️ Upload batch failed: {failed_count} chunks failed. Retrying scheduled"
             );
-            info!(
+            crate::loud_info!(
                 "Retry attempt {retry_attempt}/{max_retries}: {failed_count} chunks remaining. Pausing for {retry_pause_secs} seconds..."
             );
 
             sleep(Duration::from_secs(retry_pause_secs)).await;
 
-            #[cfg(feature = "loud")]
-            println!("🔄 continue with upload...");
-            info!("🔄 continue with upload...");
+            crate::loud_info!("🔄 Retrying {failed_count} chunks...");
 
             // Build upload tasks
             let chunks_to_retry: Vec<Chunk> =
@@ -316,14 +309,10 @@ impl Client {
                 match result {
                     Ok(addr) => {
                         already_exist.insert(*addr.xorname());
-                        debug!("Retry succeeded for chunk: {addr:?}");
-                        #[cfg(feature = "loud")]
-                        println!("✓ Retry succeeded for chunk: {addr:?}");
+                        crate::loud_debug!("✓ Retry succeeded for chunk: {addr:?}");
                     }
                     Err(err) => {
-                        error!("Retry failed for chunk {:?}: {err}", chunk.address());
-                        #[cfg(feature = "loud")]
-                        println!("✗ Retry failed for chunk {:?}: {err}", chunk.address());
+                        crate::loud_error!("✗ Retry failed for chunk {:?}: {err}", chunk.address());
                         failed_chunks.push((chunk, err.to_string()));
                     }
                 }

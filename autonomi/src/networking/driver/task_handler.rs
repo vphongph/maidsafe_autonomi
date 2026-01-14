@@ -9,9 +9,9 @@
 use crate::networking::NetworkError;
 use crate::networking::OneShotTaskResult;
 use crate::networking::PeerQuoteWithStorageProof;
-use crate::networking::interface::NetworkTask;
 #[cfg(feature = "developer")]
 use crate::networking::interface::DevGetClosestPeersFromNetworkResponse;
+use crate::networking::interface::NetworkTask;
 use crate::networking::utils::get_quorum_amount;
 use ant_evm::{PaymentQuote, merkle_payments::MerklePaymentCandidateNode};
 use ant_protocol::{NetworkAddress, PrettyPrintRecordKey};
@@ -587,12 +587,9 @@ impl TaskHandler {
         id: OutboundRequestId,
         response: DevGetClosestPeersFromNetworkResponse,
     ) -> Result<(), TaskHandlerError> {
-        let responder =
-            self.dev_get_closest_peers_from_network
-                .remove(&id)
-                .ok_or(TaskHandlerError::UnknownQuery(format!(
-                    "OutboundRequestId {id:?}"
-                )))?;
+        let responder = self.dev_get_closest_peers_from_network.remove(&id).ok_or(
+            TaskHandlerError::UnknownQuery(format!("OutboundRequestId {id:?}")),
+        )?;
 
         trace!(
             "OutboundRequestId({id}): got {} closest peers from network query",

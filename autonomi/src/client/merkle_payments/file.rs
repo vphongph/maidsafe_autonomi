@@ -9,10 +9,9 @@
 use super::payments::{MerklePaymentError, MerklePaymentReceipt};
 use super::upload::MerklePutError;
 use crate::Client;
-use crate::client::config::CHUNK_UPLOAD_BATCH_SIZE;
+use crate::client::config::{CHUNK_UPLOAD_BATCH_SIZE, UPLOAD_MAX_RETRIES, UPLOAD_RETRY_PAUSE_SECS};
 use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::files::Metadata;
-use crate::client::{ClientEvent, UploadSummary};
 use crate::self_encryption::{EncryptionStream, MAX_CHUNK_SIZE, encrypt_directory_files};
 use ant_evm::merkle_payments::MAX_LEAVES;
 use ant_evm::{AttoTokens, EvmWallet};
@@ -113,8 +112,7 @@ impl Client {
             ));
         }
 
-        #[cfg(feature = "loud")]
-        println!("Encrypting files to calculate cost...");
+        crate::loud_info!("Encrypting files to calculate cost...");
 
         // Collect all XorNames
         let (all_xor_names, _file_chunk_counts, _file_results) = self
@@ -123,10 +121,7 @@ impl Client {
             .map_err(MerkleUploadError::Encryption)?;
 
         let total_chunks = all_xor_names.len();
-        debug!("merkle payment: file_cost_merkle total chunks: {total_chunks}");
-
-        #[cfg(feature = "loud")]
-        println!("Encrypted into {total_chunks} chunks");
+        crate::loud_info!("Encrypted into {total_chunks} chunks");
 
         // Split into batches of MAX_LEAVES
         let batches: Vec<Vec<XorName>> = all_xor_names
@@ -135,8 +130,7 @@ impl Client {
             .collect();
         let num_batches = batches.len();
 
-        #[cfg(feature = "loud")]
-        println!("Estimating cost for {num_batches} batch(es)...");
+        crate::loud_info!("Estimating cost for {num_batches} batch(es)...");
 
         // Estimate cost for each batch and sum
         let mut total_cost = ant_evm::U256::ZERO;
@@ -165,10 +159,7 @@ impl Client {
         }
 
         let estimated_cost = AttoTokens::from_atto(total_cost);
-        debug!("merkle payment: file_cost_merkle estimated total cost: {estimated_cost}");
-
-        #[cfg(feature = "loud")]
-        println!("Total estimated cost: {estimated_cost}");
+        crate::loud_info!("Total estimated cost: {estimated_cost}");
 
         Ok(estimated_cost)
     }
@@ -195,8 +186,7 @@ impl Client {
         }
 
         // Encrypt files to collect ALL XorNames
-        #[cfg(feature = "loud")]
-        println!("Encrypting files a first time to create the Merkle Tree(s)...");
+        crate::loud_info!("Encrypting files a first time to create the Merkle Tree(s)...");
         let (all_xor_names, file_chunk_counts, first_pass_results) = self
             .collect_xornames_from_dir(path.clone(), is_public)
             .await
@@ -215,12 +205,17 @@ impl Client {
 
         // Early return if all chunks already exist - no need for second encryption
         if to_pay_len == 0 {
-            #[cfg(feature = "loud")]
-            println!("✓ All {total_chunks} chunks already exist on the network, nothing to upload");
+            crate::loud_info!(
+                "✓ All {total_chunks} chunks already exist on the network, nothing to upload"
+            );
 
             // Send upload completion event
-            self.send_upload_complete_event(&receipt, already_paid_count)
-                .await;
+            self.send_upload_complete(
+                receipt.proofs.len(),
+                already_paid_count,
+                receipt.amount_paid.as_atto(),
+            )
+            .await;
 
             return Ok((receipt.amount_paid, first_pass_results));
         } else {
@@ -237,8 +232,9 @@ impl Client {
         info!("Split into {num_batches} Merkle Tree(s) of up to {MAX_LEAVES} chunks each");
 
         // Start upload streams (second encryption pass - needed to get actual chunk data)
-        #[cfg(feature = "loud")]
-        println!("🚀 Starting upload of {to_pay_len} chunks in {num_batches} Merkle Tree(s)...");
+        crate::loud_info!(
+            "🚀 Starting upload of {to_pay_len} chunks in {num_batches} Merkle Tree(s)..."
+        );
         let mut streams: Vec<EncryptionStream> = encrypt_directory_files(path, is_public)
             .await
             .map_err(|e| MerkleUploadErrorWithReceipt::encryption(receipt.clone(), e.to_string()))?
@@ -273,8 +269,9 @@ impl Client {
                     .map_err(|kind| MerkleUploadErrorWithReceipt::new(receipt.clone(), kind))?;
             }
 
-            #[cfg(feature = "loud")]
-            println!("🌳 Merkle Tree {batch_num}/{num_batches}: Uploading {batch_size} chunks...");
+            crate::loud_info!(
+                "🌳 Merkle Tree {batch_num}/{num_batches}: Uploading {batch_size} chunks..."
+            );
 
             // Upload this batch's chunks (skip chunks that already exist)
             let upload_result = self
@@ -287,23 +284,20 @@ impl Client {
 
             // Retry failed chunks if any
             if !upload_result.failed_chunks.is_empty() {
-                const MAX_RETRIES: usize = 3;
-                const RETRY_PAUSE_SECS: u64 = 60;
-
                 let remaining_failures = self
                     .retry_failed_merkle_chunks(
                         upload_result.failed_chunks,
                         &receipt,
                         &mut already_exist,
-                        MAX_RETRIES,
-                        RETRY_PAUSE_SECS,
+                        UPLOAD_MAX_RETRIES,
+                        UPLOAD_RETRY_PAUSE_SECS,
                     )
                     .await
                     .map_err(|err| MerkleUploadErrorWithReceipt::upload(receipt.clone(), err))?;
 
                 if !remaining_failures.is_empty() {
                     let failed_count = remaining_failures.len();
-                    error!("{failed_count} chunks failed after {MAX_RETRIES} retries");
+                    error!("{failed_count} chunks failed after {UPLOAD_MAX_RETRIES} retries");
                     return Err(MerkleUploadErrorWithReceipt::upload(
                         receipt,
                         MerklePutError::Batch(super::upload::MerkleBatchUploadState {
@@ -346,23 +340,21 @@ impl Client {
             if let Some(public_addr) = stream.data_address() {
                 let path = &stream.relative_path;
                 let f = results.len();
-                debug!("[File {f}/{total_files}] ({path:?}) is now available at: {public_addr:?}");
-                #[cfg(feature = "loud")]
-                println!(
+                crate::loud_info!(
                     "[File {f}/{total_files}] ({path:?}) is now available at: {public_addr:?}"
                 );
             }
         }
 
-        debug!(
-            "merkle payment: {total_chunks} chunks uploaded for {total_files} files successfully"
-        );
-        #[cfg(feature = "loud")]
-        println!("✓ All {total_chunks} chunks uploaded successfully!");
+        crate::loud_info!("✓ All {total_chunks} chunks uploaded successfully!");
 
         // Send upload completion event
-        self.send_upload_complete_event(&receipt, already_paid_count)
-            .await;
+        self.send_upload_complete(
+            receipt.proofs.len(),
+            already_paid_count,
+            receipt.amount_paid.as_atto(),
+        )
+        .await;
 
         Ok((receipt.amount_paid, results))
     }
@@ -462,9 +454,7 @@ impl Client {
         &self,
         xornames: Vec<XorName>,
     ) -> (HashSet<XorName>, Vec<XorName>) {
-        #[cfg(feature = "loud")]
-        println!("Checking for existing chunks on the network...");
-        debug!("Checking for existing chunks on the network...");
+        crate::loud_info!("Checking for existing chunks on the network...");
 
         // Dedupe while preserving order (keep first occurrence only)
         let mut seen: HashSet<XorName> = HashSet::new();
@@ -487,9 +477,9 @@ impl Client {
             .collect();
 
         let existing_count = existing_set.len();
-        info!("Found {existing_count}/{total} unique chunks already exist on the network");
-        #[cfg(feature = "loud")]
-        println!("Found {existing_count}/{total} unique chunks already exist on the network");
+        crate::loud_info!(
+            "Found {existing_count}/{total} unique chunks already exist on the network"
+        );
 
         // Filter out existing, keeping original order
         let new_chunks: Vec<XorName> = unique_ordered
@@ -520,9 +510,9 @@ impl Client {
         })?;
 
         let batch_size = batch_xornames.len();
-        debug!("Merkle Tree {batch_num}/{num_batches}: Paying for {batch_size} chunks...");
-        #[cfg(feature = "loud")]
-        println!("💸 Merkle Tree {batch_num}/{num_batches}: Paying for {batch_size} chunks...");
+        crate::loud_info!(
+            "💸 Merkle Tree {batch_num}/{num_batches}: Paying for {batch_size} chunks..."
+        );
 
         let batch_receipt = self
             .pay_for_single_merkle_batch(DataTypes::Chunk, batch_xornames, MAX_CHUNK_SIZE, w)
@@ -531,27 +521,6 @@ impl Client {
 
         receipt.merge(batch_receipt);
         Ok(receipt)
-    }
-
-    /// Send upload completion event
-    async fn send_upload_complete_event(
-        &self,
-        receipt: &MerklePaymentReceipt,
-        records_already_paid: usize,
-    ) {
-        // Use proofs count for accurate records_paid (handles duplicates correctly)
-        let records_paid = receipt.proofs.len();
-        if let Some(sender) = &self.client_event_sender {
-            let summary = UploadSummary {
-                records_paid,
-                records_already_paid,
-                tokens_spent: receipt.amount_paid.as_atto(),
-            };
-
-            if let Err(err) = sender.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send upload completion event: {err:?}");
-            }
-        }
     }
 }
 
@@ -565,21 +534,14 @@ fn collect_xor_names_from_stream(
     let estimated_total = encryption_stream.total_chunks();
     let file_path = encryption_stream.file_path.clone();
     let start = std::time::Instant::now();
-    #[cfg(feature = "loud")]
-    println!("Begin encrypting ~{estimated_total} chunks from {file_path}...");
-    debug!("Begin encrypting ~{estimated_total} chunks from {file_path}...");
+    crate::loud_debug!("Begin encrypting ~{estimated_total} chunks from {file_path}...");
     while let Some(batch) = encryption_stream.next_batch(xorname_collection_batch_size) {
         let batch_len = batch.len();
         total += batch_len;
         for chunk in batch {
             xor_names.push(*chunk.name());
         }
-        #[cfg(feature = "loud")]
-        println!(
-            "Encrypted {total}/{estimated_total} chunks in {:?}",
-            start.elapsed()
-        );
-        debug!(
+        crate::loud_debug!(
             "Encrypted {total}/{estimated_total} chunks in {:?}",
             start.elapsed()
         );

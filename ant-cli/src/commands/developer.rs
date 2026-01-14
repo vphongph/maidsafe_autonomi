@@ -15,9 +15,9 @@
 use crate::actions::{NetworkContext, connect_to_network};
 use ant_protocol::NetworkAddress;
 use autonomi::Client;
+use autonomi::PublicKey;
 use autonomi::client::data_types::chunk::ChunkAddress;
 use autonomi::client::data_types::graph::GraphEntryAddress;
-use autonomi::PublicKey;
 use autonomi::networking::{Multiaddr, PeerId, PeerInfo};
 use color_eyre::{Result, eyre::eyre};
 
@@ -174,9 +174,18 @@ fn display_comparison(
 
     let client_peer_ids: HashSet<PeerId> = client_peers.iter().map(|p| p.peer_id).collect();
 
-    let common: HashSet<PeerId> = node_peer_ids.intersection(&client_peer_ids).copied().collect();
-    let node_only: HashSet<PeerId> = node_peer_ids.difference(&client_peer_ids).copied().collect();
-    let client_only: HashSet<PeerId> = client_peer_ids.difference(&node_peer_ids).copied().collect();
+    let common: HashSet<PeerId> = node_peer_ids
+        .intersection(&client_peer_ids)
+        .copied()
+        .collect();
+    let node_only: HashSet<PeerId> = node_peer_ids
+        .difference(&client_peer_ids)
+        .copied()
+        .collect();
+    let client_only: HashSet<PeerId> = client_peer_ids
+        .difference(&node_peer_ids)
+        .copied()
+        .collect();
 
     println!("Comparison of closest peers to {target}");
     println!("{}", "=".repeat(100));
@@ -195,14 +204,8 @@ fn display_comparison(
     println!();
 
     // Node's perspective
-    println!(
-        "NODE'S PERSPECTIVE (from {}):",
-        node_response.queried_node
-    );
-    println!(
-        "  {:<4} {:<54} {:<10} Status",
-        "#", "PeerId", "Distance"
-    );
+    println!("NODE'S PERSPECTIVE (from {}):", node_response.queried_node);
+    println!("  {:<4} {:<54} {:<10} Status", "#", "PeerId", "Distance");
     println!("  {}", "-".repeat(80));
 
     for (i, (peer_addr, _)) in node_response.peers.iter().enumerate() {
@@ -238,10 +241,7 @@ fn display_comparison(
 
     // Client's perspective
     println!("CLIENT'S PERSPECTIVE:");
-    println!(
-        "  {:<4} {:<54} {:<10} Status",
-        "#", "PeerId", "Distance"
-    );
+    println!("  {:<4} {:<54} {:<10} Status", "#", "PeerId", "Distance");
     println!("  {}", "-".repeat(85));
 
     // Sort client peers by distance

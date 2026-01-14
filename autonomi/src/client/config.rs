@@ -12,7 +12,9 @@ pub use ant_bootstrap::{
 };
 use ant_evm::EvmNetwork;
 use evmlib::contract::payment_vault::MAX_TRANSFERS_PER_TRANSACTION;
+use std::time::Duration;
 use std::{num::NonZero, sync::LazyLock};
+use tokio::time::sleep;
 
 /// Number of chunks to upload in parallel.
 ///
@@ -108,6 +110,20 @@ pub(crate) static UPLOAD_FLOW_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
     info!("Upload flow batch size: {}", batch_size);
     batch_size
 });
+
+/// Maximum number of retry attempts for failed chunk uploads.
+pub(crate) const UPLOAD_MAX_RETRIES: usize = 3;
+
+/// Pause duration in seconds between retry attempts for failed uploads.
+pub(crate) const UPLOAD_RETRY_PAUSE_SECS: u64 = 60;
+
+/// Pause before retrying failed uploads with consistent logging.
+pub(crate) async fn upload_retry_pause() {
+    crate::loud_info!(
+        "⚠️ Encountered upload failure, pausing {UPLOAD_RETRY_PAUSE_SECS} seconds before retry..."
+    );
+    sleep(Duration::from_secs(UPLOAD_RETRY_PAUSE_SECS)).await;
+}
 
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
 #[derive(Debug, Clone, Default)]

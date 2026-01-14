@@ -121,9 +121,7 @@ impl Client {
         let number_of_content_addrs = content_addrs.clone().count();
         let quotes = self.get_store_quotes(data_type, content_addrs).await?;
 
-        info!("Paying for {} addresses..", quotes.len());
-        #[cfg(feature = "loud")]
-        println!("Paying for {} addresses..", quotes.len());
+        crate::loud_info!("Paying for {} addresses..", quotes.len());
 
         if !quotes.is_empty() {
             // Make sure nobody else can use the wallet while we are paying
@@ -145,13 +143,7 @@ impl Client {
         }
 
         let skipped_chunks = number_of_content_addrs - quotes.len();
-        info!(
-            "Payments of {} address completed. {} address were free / already paid for",
-            quotes.len(),
-            skipped_chunks
-        );
-        #[cfg(feature = "loud")]
-        println!(
+        crate::loud_info!(
             "Payments of {} address completed. {} address were free / already paid for",
             quotes.len(),
             skipped_chunks

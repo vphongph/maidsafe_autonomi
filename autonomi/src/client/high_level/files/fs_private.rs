@@ -99,11 +99,7 @@ impl Client {
         path: PathBuf,
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataMapChunk), UploadError> {
-        let (data_map_chunk, processed_chunks, free_chunks, receipts) =
-            self.stream_upload_file(path, payment_option, false).await?;
-        let total_cost = self
-            .calculate_total_cost(processed_chunks, receipts, free_chunks)
-            .await;
-        Ok((total_cost, data_map_chunk))
+        self.file_content_upload_internal(path, payment_option, false)
+            .await
     }
 }

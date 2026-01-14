@@ -158,27 +158,18 @@ impl Client {
     ) -> Result<(), DownloadError> {
         // Verify that the destination path can be used to create a file.
         if let Err(e) = std::fs::File::create(to_dest) {
-            #[cfg(feature = "loud")]
-            println!(
+            crate::loud_info!(
                 "Input destination path {to_dest:?} cannot be used for streaming disk flushing: {e}"
             );
-            #[cfg(feature = "loud")]
-            println!(
+            crate::loud_info!(
                 "This file may have been uploaded without a metadata archive. A file name must be provided to download and save it."
-            );
-            info!(
-                "Input destination path {to_dest:?} cannot be used for streaming disk flushing: {e}"
             );
             return Err(DownloadError::IoError(e));
         }
 
         // Clean up the temporary verification file
         if let Err(cleanup_err) = std::fs::remove_file(to_dest) {
-            #[cfg(feature = "loud")]
-            println!(
-                "Warning: Failed to clean up temporary verification file {to_dest:?}: {cleanup_err}"
-            );
-            info!(
+            crate::loud_info!(
                 "Warning: Failed to clean up temporary verification file {to_dest:?}: {cleanup_err}"
             );
             return Err(DownloadError::IoError(cleanup_err));
@@ -186,9 +177,7 @@ impl Client {
 
         let total_chunks = data_map.infos().len();
 
-        #[cfg(feature = "loud")]
-        println!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
-        info!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
+        crate::loud_info!("Streaming fetching {total_chunks} chunks to {to_dest:?} ...");
 
         // Create parallel chunk fetcher for streaming decryption
         let client_clone = self.clone();
@@ -244,9 +233,7 @@ impl Client {
             let addr_clone = *chunk_addr;
 
             download_tasks.push(async move {
-                #[cfg(feature = "loud")]
-                println!("Fetching chunk {i}/{total_chunks} ...");
-                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?})");
+                crate::loud_debug!("Fetching chunk {i}/{total_chunks}({addr_clone:?})");
                 let result = client_clone
                     .chunk_get(&addr_clone)
                     .await
@@ -256,9 +243,7 @@ impl Client {
                             "Failed to fetch chunk {addr_clone:?}: {e:?}"
                         ))
                     });
-                #[cfg(feature = "loud")]
-                println!("Fetching chunk {i}/{total_chunks} [DONE]");
-                info!("Fetching chunk {i}/{total_chunks}({addr_clone:?}) [DONE]");
+                crate::loud_debug!("Fetching chunk {i}/{total_chunks}({addr_clone:?}) [DONE]");
                 result
             });
         }
@@ -291,15 +276,11 @@ impl Client {
         for encryption_result in encryption_results {
             match encryption_result {
                 Ok(stream) => {
-                    info!("Successfully encrypted file: {:?}", stream.file_path);
-                    #[cfg(feature = "loud")]
-                    println!("Successfully encrypted file: {:?}", stream.file_path);
+                    crate::loud_info!("Successfully encrypted file: {:?}", stream.file_path);
                     chunk_iterators.push(stream);
                 }
                 Err(err_msg) => {
-                    error!("Error during file encryption: {err_msg}");
-                    #[cfg(feature = "loud")]
-                    println!("Error during file encryption: {err_msg}");
+                    crate::loud_error!("Error during file encryption: {err_msg}");
                     return Err(UploadError::Encryption(err_msg));
                 }
             }
@@ -312,15 +293,30 @@ impl Client {
         Ok((total_cost, chunk_iterators))
     }
 
+    /// Internal helper for uploading a single file.
+    /// Used by both `file_content_upload` (private) and `file_content_upload_public`.
+    pub(crate) async fn file_content_upload_internal(
+        &self,
+        path: PathBuf,
+        payment_option: PaymentOption,
+        is_public: bool,
+    ) -> Result<(AttoTokens, DataMapChunk), UploadError> {
+        let (data_map_chunk, processed_chunks, free_chunks, receipts) = self
+            .stream_upload_file(path, payment_option, is_public)
+            .await?;
+        let total_cost = self
+            .calculate_total_cost(processed_chunks, receipts, free_chunks)
+            .await;
+        Ok((total_cost, data_map_chunk))
+    }
+
     async fn stream_upload_file(
         &self,
         path: PathBuf,
         payment_option: PaymentOption,
         is_public: bool,
     ) -> Result<(DataMapChunk, usize, usize, Vec<Receipt>), UploadError> {
-        info!("Uploading file: {path:?}");
-        #[cfg(feature = "loud")]
-        println!("Uploading file: {path:?}");
+        crate::loud_info!("Uploading file: {path:?}");
 
         // encrypt
         let file_size = std::fs::metadata(&path)?.len() as usize;
@@ -336,9 +332,7 @@ impl Client {
         let mut encryption_stream = match encryption_result {
             Ok(s) => s,
             Err(err) => {
-                error!("Error during file encryption: {err}");
-                #[cfg(feature = "loud")]
-                println!("Error during file encryption: {err}");
+                crate::loud_error!("Error during file encryption: {err}");
                 return Err(UploadError::Encryption(err.to_string()));
             }
         };
@@ -364,30 +358,31 @@ impl Client {
 }
 
 pub(crate) fn get_relative_file_path_from_abs_file_and_folder_path(
-    abs_file_pah: &Path,
+    abs_file_path: &Path,
     abs_folder_path: &Path,
-) -> PathBuf {
+) -> Result<PathBuf, String> {
     // check if the dir is a file
     let is_file = abs_folder_path.is_file();
 
     // could also be the file name
-    let dir_name = PathBuf::from(
-        abs_folder_path
-            .file_name()
-            .expect("Failed to get file/dir name"),
-    );
+    let dir_name = abs_folder_path
+        .file_name()
+        .ok_or_else(|| format!("Failed to get file/dir name from path: {abs_folder_path:?}"))
+        .map(PathBuf::from)?;
 
     if is_file {
-        dir_name
+        Ok(dir_name)
     } else {
         let folder_prefix = abs_folder_path
             .parent()
             .unwrap_or(Path::new(""))
             .to_path_buf();
-        abs_file_pah
-            .strip_prefix(folder_prefix)
-            .expect("Could not strip prefix path")
-            .to_path_buf()
+        abs_file_path
+            .strip_prefix(&folder_prefix)
+            .map_err(|e| {
+                format!("Could not strip prefix {folder_prefix:?} from path {abs_file_path:?}: {e}")
+            })
+            .map(|p| p.to_path_buf())
     }
 }
 

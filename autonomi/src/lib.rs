@@ -60,6 +60,36 @@
 #[macro_use]
 extern crate tracing;
 
+/// Log at info level and print to stdout when the `loud` feature is enabled.
+#[macro_export]
+macro_rules! loud_info {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "loud")]
+        println!($($arg)*);
+        tracing::info!($($arg)*);
+    }};
+}
+
+/// Log at debug level and print to stdout when the `loud` feature is enabled.
+#[macro_export]
+macro_rules! loud_debug {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "loud")]
+        println!($($arg)*);
+        tracing::debug!($($arg)*);
+    }};
+}
+
+/// Log at error level and print to stdout when the `loud` feature is enabled.
+#[macro_export]
+macro_rules! loud_error {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "loud")]
+        println!($($arg)*);
+        tracing::error!($($arg)*);
+    }};
+}
+
 pub mod client;
 pub mod networking;
 pub mod self_encryption;

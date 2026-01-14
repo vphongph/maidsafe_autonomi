@@ -82,9 +82,7 @@ impl Client {
         }
 
         for (file_path, data_addr, _meta) in public_archive.iter() {
-            info!("Uploaded file: {file_path:?} to: {data_addr}");
-            #[cfg(feature = "loud")]
-            println!("Uploaded file: {file_path:?} to: {data_addr}");
+            crate::loud_info!("Uploaded file: {file_path:?} to: {data_addr}");
         }
 
         Ok((total_cost, public_archive))
@@ -113,14 +111,10 @@ impl Client {
         path: PathBuf,
         payment_option: PaymentOption,
     ) -> Result<(AttoTokens, DataAddress), UploadError> {
-        let (data_map_chunk, processed_chunks, free_chunks, receipts) = self
-            .stream_upload_file(path.clone(), payment_option, true)
+        let (total_cost, data_map_chunk) = self
+            .file_content_upload_internal(path.clone(), payment_option, true)
             .await?;
         let addr = DataAddress::new(*data_map_chunk.0.name());
-        let total_cost = self
-            .calculate_total_cost(processed_chunks, receipts, free_chunks)
-            .await;
-
         debug!("File {path:?} uploaded to the network at {addr:?}");
         Ok((total_cost, addr))
     }

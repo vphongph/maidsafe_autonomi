@@ -12,19 +12,143 @@ mod release_cache;
 pub use error::{Result, UpgradeError};
 
 use ant_node::RunningNode;
-use ant_releases::{AntReleaseRepoActions, AutonomiReleaseInfo};
+use ant_releases::{
+    AntReleaseRepoActions, ArchiveType, AutonomiReleaseInfo, Platform, ReleaseType,
+};
 use fs2::FileExt;
 use semver::Version;
 use sha2::{Digest, Sha256};
+use once_cell::sync::OnceCell;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
 const LOCK_TIMEOUT_SECS: u64 = 300; // 5 minutes
 const LOCK_RETRY_INTERVAL_MS: u64 = 100;
 const DEFAULT_NETWORK_SIZE: usize = 100_000;
+
+/// Cached SHA256 hash of the running binary.
+///
+/// The running binary's hash is constant for the process lifetime (it's loaded in memory),
+/// so we calculate it once and cache it. This also avoids issues with the " (deleted)" suffix
+/// that Linux appends to `/proc/self/exe` when the on-disk binary is replaced by another process.
+static RUNNING_BINARY_HASH: OnceCell<String> = OnceCell::new();
+
+/// Get the SHA256 hash of the currently running binary.
+///
+/// The hash is calculated once on first call and cached for subsequent calls.
+/// Handles the " (deleted)" suffix that Linux appends when the binary has been replaced.
+///
+/// This function should be called early in the process lifetime (at startup) to ensure
+/// the hash reflects the actual running binary, not a replacement that another process
+/// may have installed.
+pub fn get_running_binary_hash() -> Result<&'static str> {
+    RUNNING_BINARY_HASH
+        .get_or_try_init(|| {
+            let mut current_exe_path = std::env::current_exe()?;
+            let current_exe_str = current_exe_path.to_string_lossy();
+            if current_exe_str.ends_with(" (deleted)") {
+                let cleaned = current_exe_str.trim_end_matches(" (deleted)");
+                current_exe_path = PathBuf::from(cleaned);
+            }
+            debug!(
+                "Calculating and caching hash for running binary: {}",
+                current_exe_path.display()
+            );
+            calculate_sha256(&current_exe_path)
+        })
+        .map(|s| s.as_str())
+}
+
+/// Get the autonomi.com download URL for a given platform.
+///
+/// These URLs redirect to the actual binary download location.
+fn get_autonomi_download_url(platform: &Platform) -> &'static str {
+    match platform {
+        Platform::LinuxMusl => "https://downloads.autonomi.com/node/linux-x64",
+        Platform::LinuxMuslAarch64 => "https://downloads.autonomi.com/node/linux-arm64",
+        Platform::LinuxMuslArm => "https://downloads.autonomi.com/node/linux-arm",
+        Platform::LinuxMuslArmV7 => "https://downloads.autonomi.com/node/linux-armv7",
+        Platform::MacOs => "https://downloads.autonomi.com/node/mac-intel",
+        Platform::MacOsAarch64 => "https://downloads.autonomi.com/node/mac-apple-silicon",
+        Platform::Windows => "https://downloads.autonomi.com/node/windows",
+    }
+}
+
+/// Download a file from a URL that may redirect to the actual binary.
+///
+/// Returns the path to the downloaded archive file.
+async fn download_from_autonomi_url(
+    platform: &Platform,
+    dest_dir: &Path,
+    callback: &(dyn Fn(u64, u64) + Send + Sync),
+) -> Result<PathBuf> {
+    let url = get_autonomi_download_url(platform);
+    info!("Downloading from autonomi.com URL: {}", url);
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| UpgradeError::DownloadFailed(format!("Failed to create HTTP client: {e}")))?;
+
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| UpgradeError::DownloadFailed(format!("HTTP request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        return Err(UpgradeError::DownloadFailed(format!(
+            "HTTP request failed with status: {}",
+            response.status()
+        )));
+    }
+
+    // Get the final URL after redirects to extract the filename
+    let final_url = response.url().to_string();
+    debug!("Final download URL after redirects: {}", final_url);
+
+    // Extract filename from the final URL
+    let filename = final_url
+        .split('/')
+        .next_back()
+        .ok_or_else(|| {
+            UpgradeError::DownloadFailed("Could not extract filename from URL".to_string())
+        })?
+        .to_string();
+
+    let total_size = response
+        .headers()
+        .get("content-length")
+        .and_then(|ct_len| ct_len.to_str().ok())
+        .and_then(|ct_len| ct_len.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let dest_path = dest_dir.join(&filename);
+    let mut out_file = tokio::fs::File::create(&dest_path)
+        .await
+        .map_err(UpgradeError::Io)?;
+
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    use futures::StreamExt;
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result
+            .map_err(|e| UpgradeError::DownloadFailed(format!("Failed to read chunk: {e}")))?;
+        downloaded += chunk.len() as u64;
+        out_file.write_all(&chunk).await.map_err(UpgradeError::Io)?;
+        callback(downloaded, total_size);
+    }
+
+    out_file.flush().await.map_err(UpgradeError::Io)?;
+    info!("Downloaded {} bytes to {}", downloaded, dest_path.display());
+
+    Ok(dest_path)
+}
 
 /// Calculate SHA256 hash of a file.
 pub fn calculate_sha256(path: &Path) -> Result<String> {
@@ -141,6 +265,7 @@ fn acquire_upgrade_lock(upgrade_dir: &Path) -> Result<File> {
 
 /// Download and extract the upgrade binary to the shared location.
 ///
+/// Downloads from autonomi.com URLs which redirect to the actual binary location.
 /// If the binary already exists with the correct hash, returns immediately.
 pub async fn download_and_extract_upgrade_binary(
     release_info: &AutonomiReleaseInfo,
@@ -211,24 +336,41 @@ pub async fn download_and_extract_upgrade_binary(
     let temp_download_dir_path = upgrade_dir_path.join("tmp");
     fs::create_dir_all(&temp_download_dir_path)?;
 
-    let version = Version::parse(&antnode_binary.version)?;
-    let archive_type = ant_releases::ArchiveType::TarGz;
     let callback: Box<dyn Fn(u64, u64) + Send + Sync> = Box::new(|downloaded, total| {
         if total > 0 && downloaded % (total / 10).max(1) == 0 {
             debug!("Download progress: {}/{} bytes", downloaded, total);
         }
     });
 
-    let archive_path = release_repo
-        .download_release_from_s3(
-            &ant_releases::ReleaseType::AntNode,
-            &version,
-            &platform,
-            &archive_type,
-            &temp_download_dir_path,
-            &callback,
-        )
-        .await?;
+    // Try downloading from autonomi.com first, fall back to S3 if it fails
+    let archive_path =
+        match download_from_autonomi_url(&platform, &temp_download_dir_path, &callback).await {
+            Ok(path) => {
+                info!("Successfully downloaded from autonomi.com");
+                path
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to download from autonomi.com: {}. Falling back to S3...",
+                    e
+                );
+                let version = Version::parse(&antnode_binary.version)?;
+                let archive_type = ArchiveType::TarGz;
+                release_repo
+                    .download_release_from_s3(
+                        &ReleaseType::AntNode,
+                        &version,
+                        &platform,
+                        &archive_type,
+                        &temp_download_dir_path,
+                        &callback,
+                    )
+                    .await
+                    .map_err(|e| {
+                        UpgradeError::DownloadFailed(format!("S3 fallback download failed: {e}"))
+                    })?
+            }
+        };
     info!("Download complete. Extracting archive...");
 
     let extracted_path =
@@ -321,13 +463,35 @@ pub async fn perform_upgrade() -> Result<()> {
         }
     };
 
-    if release_info
-        .commit_hash
-        .starts_with(ant_build_info::git_sha())
-    {
+    // Check if the antnode binary has changed by comparing SHA256 hashes.
+    let platform = ant_releases::get_running_platform()?;
+    let platform_binaries = release_info
+        .platform_binaries
+        .iter()
+        .find(|pb| pb.platform == platform)
+        .ok_or_else(|| UpgradeError::PlatformBinariesNotFound(format!("{platform:?}")))?;
+
+    let antnode_binary = platform_binaries
+        .binaries
+        .iter()
+        .find(|b| b.name == "antnode")
+        .ok_or_else(|| {
+            UpgradeError::PlatformBinariesNotFound(format!(
+                "antnode binary not found in release for platform: {platform:?}"
+            ))
+        })?;
+
+    let current_hash = get_running_binary_hash()?;
+    if current_hash.eq_ignore_ascii_case(&antnode_binary.sha256) {
+        info!("Current antnode binary hash matches latest release. No upgrade needed.");
         return Err(UpgradeError::AlreadyLatest);
     }
-    info!("New version detected: {}", release_info.commit_hash);
+
+    info!(
+        "New antnode binary available (current: {}; latest: {}). Proceeding with upgrade...",
+        &current_hash[..8],
+        &antnode_binary.sha256[..8]
+    );
 
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
     let (new_binary_path, expected_hash) =
@@ -399,4 +563,109 @@ pub async fn calculate_restart_delay(running_node: &RunningNode) -> Duration {
     let upgrade_time_seconds = (hash_value as usize) % time_range_seconds;
 
     Duration::from_secs(upgrade_time_seconds as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ant_releases::AntReleaseRepoActions;
+    use tempfile::TempDir;
+
+    /// Test downloading and extracting binaries from all platform URLs
+    #[tokio::test]
+    async fn test_download_and_extract_all_platforms() {
+        let platforms = [
+            Platform::LinuxMusl,
+            Platform::LinuxMuslAarch64,
+            Platform::LinuxMuslArm,
+            Platform::LinuxMuslArmV7,
+            Platform::MacOs,
+            Platform::MacOsAarch64,
+            Platform::Windows,
+        ];
+
+        for platform in platforms {
+            println!("\n=== Testing platform: {platform:?} ===");
+
+            let temp_dir = TempDir::new().expect("Failed to create temp dir");
+            let dest_dir = temp_dir.path();
+
+            // Use a no-op callback for tests
+            let callback: Box<dyn Fn(u64, u64) + Send + Sync> = Box::new(|_, _| {});
+
+            // Use our download function directly
+            let archive_path = download_from_autonomi_url(&platform, dest_dir, &callback)
+                .await
+                .unwrap_or_else(|_| panic!("Failed to download for platform {platform:?}"));
+
+            // Verify the archive file exists
+            assert!(
+                archive_path.exists(),
+                "Archive file does not exist: {}",
+                archive_path.display()
+            );
+
+            // Verify filename has valid archive extension
+            let filename = archive_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("Could not get filename");
+            assert!(
+                filename.ends_with(".zip") || filename.ends_with(".tar.gz"),
+                "Invalid archive extension for {platform:?}: {filename}"
+            );
+
+            // Verify file was downloaded and has reasonable size (at least 1MB for a binary)
+            let metadata = std::fs::metadata(&archive_path).expect("Failed to get file metadata");
+            let file_len = metadata.len();
+            assert!(
+                file_len > 1_000_000,
+                "Downloaded file for {platform:?} is too small: {file_len} bytes"
+            );
+
+            println!(
+                "Platform: {platform:?} - Downloaded {file_len} bytes to {}",
+                archive_path.display()
+            );
+
+            // Test extraction using release_repo
+            let release_repo = <dyn AntReleaseRepoActions>::default_config();
+            let extracted_path = release_repo
+                .extract_release_archive(&archive_path, dest_dir)
+                .unwrap_or_else(|_| panic!("Failed to extract archive for {platform:?}"));
+
+            // Verify extracted file exists
+            assert!(
+                extracted_path.exists(),
+                "Extracted file does not exist for {platform:?}: {}",
+                extracted_path.display()
+            );
+
+            // Verify extracted file has reasonable size
+            let extracted_metadata =
+                std::fs::metadata(&extracted_path).expect("Failed to get extracted file metadata");
+            let extracted_len = extracted_metadata.len();
+            assert!(
+                extracted_len > 1_000_000,
+                "Extracted file for {platform:?} is too small: {extracted_len} bytes"
+            );
+
+            println!(
+                "Platform: {platform:?} - Extracted to {} ({extracted_len} bytes)",
+                extracted_path.display()
+            );
+
+            // On Unix, verify the file is executable or can be made executable
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = extracted_metadata.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&extracted_path, perms)
+                    .expect("Failed to set executable permissions");
+            }
+
+            println!("Platform: {platform:?} - SUCCESS");
+        }
+    }
 }

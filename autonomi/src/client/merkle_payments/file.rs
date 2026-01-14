@@ -9,10 +9,9 @@
 use super::payments::{MerklePaymentError, MerklePaymentReceipt};
 use super::upload::MerklePutError;
 use crate::Client;
-use crate::client::config::CHUNK_UPLOAD_BATCH_SIZE;
+use crate::client::config::{CHUNK_UPLOAD_BATCH_SIZE, UPLOAD_MAX_RETRIES, UPLOAD_RETRY_PAUSE_SECS};
 use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::files::Metadata;
-use crate::client::{ClientEvent, UploadSummary};
 use crate::self_encryption::{EncryptionStream, MAX_CHUNK_SIZE, encrypt_directory_files};
 use ant_evm::merkle_payments::MAX_LEAVES;
 use ant_evm::{AttoTokens, EvmWallet};
@@ -219,8 +218,12 @@ impl Client {
             println!("✓ All {total_chunks} chunks already exist on the network, nothing to upload");
 
             // Send upload completion event
-            self.send_upload_complete_event(&receipt, already_paid_count)
-                .await;
+            self.send_upload_complete(
+                receipt.proofs.len(),
+                already_paid_count,
+                receipt.amount_paid.as_atto(),
+            )
+            .await;
 
             return Ok((receipt.amount_paid, first_pass_results));
         } else {
@@ -287,23 +290,20 @@ impl Client {
 
             // Retry failed chunks if any
             if !upload_result.failed_chunks.is_empty() {
-                const MAX_RETRIES: usize = 3;
-                const RETRY_PAUSE_SECS: u64 = 60;
-
                 let remaining_failures = self
                     .retry_failed_merkle_chunks(
                         upload_result.failed_chunks,
                         &receipt,
                         &mut already_exist,
-                        MAX_RETRIES,
-                        RETRY_PAUSE_SECS,
+                        UPLOAD_MAX_RETRIES,
+                        UPLOAD_RETRY_PAUSE_SECS,
                     )
                     .await
                     .map_err(|err| MerkleUploadErrorWithReceipt::upload(receipt.clone(), err))?;
 
                 if !remaining_failures.is_empty() {
                     let failed_count = remaining_failures.len();
-                    error!("{failed_count} chunks failed after {MAX_RETRIES} retries");
+                    error!("{failed_count} chunks failed after {UPLOAD_MAX_RETRIES} retries");
                     return Err(MerkleUploadErrorWithReceipt::upload(
                         receipt,
                         MerklePutError::Batch(super::upload::MerkleBatchUploadState {
@@ -361,8 +361,12 @@ impl Client {
         println!("✓ All {total_chunks} chunks uploaded successfully!");
 
         // Send upload completion event
-        self.send_upload_complete_event(&receipt, already_paid_count)
-            .await;
+        self.send_upload_complete(
+            receipt.proofs.len(),
+            already_paid_count,
+            receipt.amount_paid.as_atto(),
+        )
+        .await;
 
         Ok((receipt.amount_paid, results))
     }
@@ -531,27 +535,6 @@ impl Client {
 
         receipt.merge(batch_receipt);
         Ok(receipt)
-    }
-
-    /// Send upload completion event
-    async fn send_upload_complete_event(
-        &self,
-        receipt: &MerklePaymentReceipt,
-        records_already_paid: usize,
-    ) {
-        // Use proofs count for accurate records_paid (handles duplicates correctly)
-        let records_paid = receipt.proofs.len();
-        if let Some(sender) = &self.client_event_sender {
-            let summary = UploadSummary {
-                records_paid,
-                records_already_paid,
-                tokens_spent: receipt.amount_paid.as_atto(),
-            };
-
-            if let Err(err) = sender.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send upload completion event: {err:?}");
-            }
-        }
     }
 }
 

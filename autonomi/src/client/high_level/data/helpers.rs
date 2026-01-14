@@ -25,6 +25,26 @@ use tokio::time::sleep;
 type AggregatedChunks = Vec<((String, usize, usize), Chunk)>;
 
 impl Client {
+    /// Send an upload completion event to the client event channel.
+    pub(crate) async fn send_upload_complete(
+        &self,
+        records_paid: usize,
+        records_already_paid: usize,
+        tokens_spent: Amount,
+    ) {
+        if let Some(sender) = &self.client_event_sender {
+            let summary = UploadSummary {
+                records_paid,
+                records_already_paid,
+                tokens_spent,
+            };
+
+            if let Err(err) = sender.send(ClientEvent::UploadComplete(summary)).await {
+                error!("Failed to send upload completion event: {err:?}");
+            }
+        }
+    }
+
     /// Returns total tokens spent or the first encountered upload error
     pub(crate) async fn calculate_total_cost(
         &self,
@@ -38,18 +58,12 @@ impl Client {
             .flat_map(|receipt| receipt.into_values().map(|(_, cost)| cost.as_atto()))
             .sum();
 
-        // Send completion event if channel exists
-        if let Some(sender) = &self.client_event_sender {
-            let summary = UploadSummary {
-                records_paid: total_chunks.saturating_sub(total_free_chunks),
-                records_already_paid: total_free_chunks,
-                tokens_spent: total_tokens,
-            };
-
-            if let Err(err) = sender.send(ClientEvent::UploadComplete(summary)).await {
-                error!("Failed to send upload completion event: {err:?}");
-            }
-        }
+        self.send_upload_complete(
+            total_chunks.saturating_sub(total_free_chunks),
+            total_free_chunks,
+            total_tokens,
+        )
+        .await;
 
         AttoTokens::from_atto(total_tokens)
     }

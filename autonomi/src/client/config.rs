@@ -109,6 +109,12 @@ pub(crate) static UPLOAD_FLOW_BATCH_SIZE: LazyLock<usize> = LazyLock::new(|| {
     batch_size
 });
 
+/// Maximum number of retry attempts for failed chunk uploads.
+pub(crate) const UPLOAD_MAX_RETRIES: usize = 3;
+
+/// Pause duration in seconds between retry attempts for failed uploads.
+pub(crate) const UPLOAD_RETRY_PAUSE_SECS: u64 = 60;
+
 /// Configuration for the [`crate::Client`] which can be provided through: [`crate::Client::init_with_config`].
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {

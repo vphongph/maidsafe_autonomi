@@ -136,8 +136,7 @@ impl Client {
             existing.extend(results.into_iter().flatten().cloned());
 
             checked += batch.len();
-            #[cfg(feature = "loud")]
-            println!("Checked {checked}/{total} chunks for existence...");
+            crate::loud_info!("Checked {checked}/{total} chunks for existence...");
         }
 
         existing

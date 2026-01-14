@@ -8,7 +8,7 @@
 
 use crate::Client;
 use crate::chunk::DataMapChunk;
-use crate::client::config::UPLOAD_FLOW_BATCH_SIZE;
+use crate::client::config::{UPLOAD_FLOW_BATCH_SIZE, upload_retry_pause};
 use crate::client::payment::PayError::EvmWalletError;
 use crate::client::payment::PaymentOption;
 use crate::client::payment::Receipt;
@@ -19,8 +19,6 @@ use ant_evm::{Amount, AttoTokens};
 use ant_protocol::storage::{Chunk, DataTypes};
 use bytes::Bytes;
 use evmlib::wallet::Error::InsufficientTokensForQuotes;
-use std::time::Duration;
-use tokio::time::sleep;
 
 type AggregatedChunks = Vec<((String, usize, usize), Chunk)>;
 
@@ -191,15 +189,7 @@ impl Client {
                     retry_on_failure = false;
                 }
 
-                // there was upload failure happens, in that case, carry out a short sleep
-                // to allow the glitch calm down.
-                crate::loud_info!(
-                    "⚠️ Encountered upload failure, take 1 minute pause before continue..."
-                );
-
-                // Wait 1 minute before retry
-                sleep(Duration::from_secs(60)).await;
-                crate::loud_info!("🔄 continue with upload...");
+                upload_retry_pause().await;
             }
 
             current_batch = retry_chunks;

@@ -338,23 +338,16 @@ impl Client {
         receipt: &Receipt,
     ) -> Result<(), PutError> {
         let mut upload_tasks = vec![];
-        #[cfg(feature = "loud")]
         let total_chunks = chunks.len();
         for (i, &chunk) in chunks.iter().enumerate() {
             let self_clone = self.clone();
             let address = *chunk.address();
 
             let Some((proof, price)) = receipt.get(chunk.name()) else {
-                debug!(
-                    "({}/{}) Chunk at {address:?} was already paid for so skipping",
-                    i + 1,
-                    chunks.len()
-                );
-                #[cfg(feature = "loud")]
-                println!(
+                crate::loud_debug!(
                     "({}/{}) Chunk stored at: {} (skipping, already exists)",
                     i + 1,
-                    chunks.len(),
+                    total_chunks,
                     chunk.address().to_hex()
                 );
                 continue;
@@ -366,21 +359,18 @@ impl Client {
                     .await
                     .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))
                     .map_err(|e| (chunk, e));
-                #[cfg(feature = "loud")]
                 match &res {
                     Ok(_addr) => {
-                        println!(
-                            "({}/{}) Chunk stored at: {}",
+                        crate::loud_debug!(
+                            "({}/{total_chunks}) Chunk stored at: {}",
                             i + 1,
-                            total_chunks,
                             chunk.address().to_hex()
                         );
                     }
                     Err((_, err)) => {
-                        println!(
-                            "({}/{}) Chunk failed to be stored at: {} ({err})",
+                        crate::loud_error!(
+                            "({}/{total_chunks}) Chunk failed to be stored at: {} ({err})",
                             i + 1,
-                            total_chunks,
                             chunk.address().to_hex()
                         );
                     }
@@ -462,9 +452,7 @@ impl Client {
     /// Fetch and decrypt all chunks in the datamap.
     pub(crate) async fn fetch_from_data_map(&self, data_map: &DataMap) -> Result<Bytes, GetError> {
         let total_chunks = data_map.infos().len();
-        #[cfg(feature = "loud")]
-        println!("Fetching {total_chunks} encrypted data chunks from network.");
-        debug!("Fetching {total_chunks} encrypted data chunks from datamap {data_map:?}");
+        crate::loud_debug!("Fetching {total_chunks} encrypted data chunks from network.");
 
         let mut download_tasks = vec![];
         let chunk_addrs: Vec<ChunkAddress> = data_map
@@ -478,23 +466,19 @@ impl Client {
                 let idx = i + 1;
                 let chunk_addr = ChunkAddress::new(info.dst_hash);
 
-                #[cfg(feature = "loud")]
-                println!("Fetching chunk {idx}/{total_chunks} ...");
-                info!("Fetching chunk {idx}/{total_chunks}({chunk_addr:?})");
+                crate::loud_debug!("Fetching chunk {idx}/{total_chunks}({chunk_addr:?})");
 
                 match self.chunk_get(&chunk_addr).await {
                     Ok(chunk) => {
-                        #[cfg(feature = "loud")]
-                        println!("Fetching chunk {idx}/{total_chunks} [DONE]");
-                        info!("Successfully fetched chunk {idx}/{total_chunks}({chunk_addr:?})");
+                        crate::loud_debug!(
+                            "Fetching chunk {idx}/{total_chunks}({chunk_addr:?}) [DONE]"
+                        );
                         Ok(EncryptedChunk {
                             content: chunk.value,
                         })
                     }
                     Err(err) => {
-                        #[cfg(feature = "loud")]
-                        println!("Error fetching chunk {idx}/{total_chunks}: {err:?}");
-                        error!(
+                        crate::loud_error!(
                             "Error fetching chunk {idx}/{total_chunks}({chunk_addr:?}): {err:?}"
                         );
                         Err(err)
@@ -507,17 +491,13 @@ impl Client {
                 .await
                 .into_iter()
                 .collect::<Result<Vec<EncryptedChunk>, GetError>>()?;
-        #[cfg(feature = "loud")]
-        println!("Successfully fetched all {total_chunks} encrypted chunks");
-        debug!("Successfully fetched all {total_chunks} encrypted chunks");
+        crate::loud_debug!("Successfully fetched all {total_chunks} encrypted chunks");
 
         let data = decrypt(data_map, &encrypted_chunks).map_err(|e| {
             error!("Error decrypting encrypted_chunks: {e:?}");
             GetError::Decryption(crate::self_encryption::Error::SelfEncryption(e))
         })?;
-        #[cfg(feature = "loud")]
-        println!("Successfully decrypted all {total_chunks} chunks");
-        debug!("Successfully decrypted all {total_chunks} chunks");
+        crate::loud_debug!("Successfully decrypted all {total_chunks} chunks");
 
         self.cleanup_cached_chunks(&chunk_addrs);
 

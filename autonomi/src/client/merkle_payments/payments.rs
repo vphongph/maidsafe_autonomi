@@ -302,15 +302,11 @@ impl Client {
         let batches: Vec<Vec<XorName>> = addresses.chunks(MAX_LEAVES).map(|c| c.to_vec()).collect();
         let batches_len = batches.len();
         let addresses_len = addresses.len();
-        #[cfg(feature = "loud")]
-        println!("Paying for {addresses_len} addresses in {batches_len} batch(es)");
-        info!("Paying for {addresses_len} addresses in {batches_len} batch(es)");
+        crate::loud_info!("Paying for {addresses_len} addresses in {batches_len} batch(es)");
 
         let mut merged_receipt = MerklePaymentReceipt::default();
         for (i, batch) in batches.into_iter().enumerate() {
-            #[cfg(feature = "loud")]
-            println!("Processing batch {}/{batches_len}", i + 1);
-            info!("Processing batch {}/{batches_len}", i + 1);
+            crate::loud_info!("Processing batch {}/{batches_len}", i + 1);
             let receipt = self
                 .pay_for_single_merkle_batch(data_type, batch, data_size, wallet)
                 .await?;

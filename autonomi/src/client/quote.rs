@@ -125,9 +125,7 @@ impl Client {
         let futures: Vec<_> = content_addrs
             .into_iter()
             .map(|(content_addr, data_size)| {
-                info!("Quoting for {content_addr:?} ..");
-                #[cfg(feature = "loud")]
-                println!("Quoting for {content_addr:?} ..");
+                crate::loud_info!("Quoting for {content_addr:?} ..");
                 fetch_store_quote(
                     &self.network,
                     content_addr,

@@ -107,8 +107,6 @@ pub enum UploadError {
     PutError(#[from] PutError),
     #[error("Encryption error")]
     Encryption(String),
-    #[error("Cost error: {0}")]
-    Cost(#[from] CostError),
 }
 
 /// Errors that can occur during the download operation.

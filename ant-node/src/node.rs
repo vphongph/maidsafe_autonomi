@@ -930,9 +930,7 @@ impl Node {
             Ok(peers) => {
                 let mut converted: Vec<(NetworkAddress, Vec<Multiaddr>)> = peers
                     .into_iter()
-                    .map(|(peer_id, addrs)| {
-                        (NetworkAddress::from(peer_id), addrs.0)
-                    })
+                    .map(|(peer_id, addrs)| (NetworkAddress::from(peer_id), addrs.0))
                     .collect();
 
                 // If num_of_peers is specified, limit the results

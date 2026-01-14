@@ -1263,12 +1263,13 @@ impl Node {
         // A normal node shall get K_VALUE (20) entries from the kad get_closet network query.
         // PEERS_TO_QUERY is currently at the same value as to K_VALUE.
         if closest_peers.len() < PEERS_TO_QUERY {
-            info!("Only got {} closest peers of {midpoint_address:?}, \
+            info!(
+                "Only got {} closest peers of {midpoint_address:?}, \
                    validates the merkle upload request as seems lacking of network knowledge",
-                   closest_peers.len());
+                closest_peers.len()
+            );
             return Ok(());
         }
-
 
         let candidate_peer_ids_set: HashSet<_> =
             closest_peers.iter().map(|(peer_id, _)| *peer_id).collect();

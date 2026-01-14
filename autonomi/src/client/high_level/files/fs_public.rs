@@ -9,11 +9,11 @@
 use super::archive_public::{ArchiveAddress, PublicArchive};
 use super::{DownloadError, FileCostError, Metadata, UploadError};
 use crate::AttoTokens;
-use crate::client::Client;
 use crate::client::data_types::chunk::{ChunkAddress, DataMapChunk};
 use crate::client::high_level::data::DataAddress;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::add_costs;
+use crate::client::{Client, PutError};
 use bytes::Bytes;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -102,7 +102,7 @@ impl Client {
             .dir_content_upload_public(dir_path, payment_option.clone())
             .await?;
         let (cost2, archive_addr) = self.archive_put_public(&archive, payment_option).await?;
-        let total_cost = add_costs(cost1, cost2)?;
+        let total_cost = add_costs(cost1, cost2).map_err(PutError::from)?;
         Ok((total_cost, archive_addr))
     }
 

@@ -8,6 +8,7 @@
 
 use super::archive_private::{PrivateArchive, PrivateArchiveDataMap};
 use super::{DownloadError, UploadError};
+use crate::client::PutError;
 use crate::client::data_types::chunk::DataMapChunk;
 use crate::client::payment::PaymentOption;
 use crate::client::quote::add_costs;
@@ -87,7 +88,7 @@ impl Client {
             .dir_content_upload(dir_path, payment_option.clone())
             .await?;
         let (cost2, archive_addr) = self.archive_put(&archive, payment_option).await?;
-        let total_cost = add_costs(cost1, cost2)?;
+        let total_cost = add_costs(cost1, cost2).map_err(PutError::from)?;
         Ok((total_cost, archive_addr))
     }
 

@@ -104,16 +104,20 @@ pub async fn closest_peers(
 /// This command queries a specific node to get a quote for storing data.
 pub async fn get_quote(
     peer_addr: &str,
-    address: &str,
+    address: Option<&str>,
     data_type: u32,
     data_size: usize,
     network_context: NetworkContext,
 ) -> Result<()> {
-    // Parse the target address to XorName
-    let target_addr = parse_network_address(address)?;
-    let xorname = target_addr
-        .xorname()
-        .ok_or_else(|| eyre!("Could not extract XorName from address: {address}"))?;
+    // Parse the target address to XorName, or generate a random one
+    let xorname = if let Some(addr) = address {
+        let target_addr = parse_network_address(addr)?;
+        target_addr
+            .xorname()
+            .ok_or_else(|| eyre!("Could not extract XorName from address: {addr}"))?
+    } else {
+        xor_name::XorName::random(&mut rand::thread_rng())
+    };
 
     // Convert data_type index to DataTypes enum
     let data_type_enum = DataTypes::from_index(data_type).ok_or_else(|| {

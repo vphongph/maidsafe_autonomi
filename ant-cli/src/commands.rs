@@ -534,8 +534,9 @@ pub enum DeveloperCmd {
         #[arg(name = "peer")]
         peer_addr: String,
         /// Target address for the quote (hex string, ChunkAddress, or XorName).
+        /// If not provided, a random address will be generated.
         #[arg(name = "address")]
-        address: String,
+        address: Option<String>,
         /// Data type index (default: 0 for Chunk).
         #[arg(short = 't', long, default_value = "0")]
         data_type: u32,
@@ -807,8 +808,14 @@ pub async fn handle_subcommand(opt: Opt) -> Result<()> {
                 data_type,
                 data_size,
             } => {
-                developer::get_quote(&peer_addr, &address, data_type, data_size, network_context)
-                    .await
+                developer::get_quote(
+                    &peer_addr,
+                    address.as_deref(),
+                    data_type,
+                    data_size,
+                    network_context,
+                )
+                .await
             }
         },
         None => {

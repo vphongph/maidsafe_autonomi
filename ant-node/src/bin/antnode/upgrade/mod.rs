@@ -337,35 +337,20 @@ pub async fn download_and_extract_upgrade_binary(
         }
     });
 
-    // Try downloading from autonomi.com first, fall back to S3 if it fails
-    let archive_path =
-        match download_from_autonomi_url(&platform, &temp_download_dir_path, &callback).await {
-            Ok(path) => {
-                info!("Successfully downloaded from autonomi.com");
-                path
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to download from autonomi.com: {}. Falling back to S3...",
-                    e
-                );
-                let version = Version::parse(&antnode_binary.version)?;
-                let archive_type = ArchiveType::TarGz;
-                release_repo
-                    .download_release_from_s3(
-                        &ReleaseType::AntNode,
-                        &version,
-                        &platform,
-                        &archive_type,
-                        &temp_download_dir_path,
-                        &callback,
-                    )
-                    .await
-                    .map_err(|e| {
-                        UpgradeError::DownloadFailed(format!("S3 fallback download failed: {e}"))
-                    })?
-            }
-        };
+    // Download directly from S3 (temporary change for auto-upgrade testing)
+    let version = Version::parse(&antnode_binary.version)?;
+    let archive_type = ArchiveType::TarGz;
+    let archive_path = release_repo
+        .download_release_from_s3(
+            &ReleaseType::AntNode,
+            &version,
+            &platform,
+            &archive_type,
+            &temp_download_dir_path,
+            &callback,
+        )
+        .await
+        .map_err(|e| UpgradeError::DownloadFailed(format!("S3 download failed: {e}")))?;
     info!("Download complete. Extracting archive...");
 
     let extracted_path =
@@ -566,7 +551,9 @@ pub async fn perform_upgrade() -> Result<()> {
 /// Fetch release info from API and cache it
 async fn fetch_and_cache_release_info() -> Result<AutonomiReleaseInfo> {
     let release_repo = <dyn AntReleaseRepoActions>::default_config();
-    let release_info = release_repo.get_latest_autonomi_release_info().await?;
+    let release_info = release_repo
+        .get_autonomi_release_info("rc-2026.2.2.1")
+        .await?;
 
     if let Err(e) = release_cache::write_cached_release_info(&release_info, None) {
         warn!("Failed to cache release info: {}", e);

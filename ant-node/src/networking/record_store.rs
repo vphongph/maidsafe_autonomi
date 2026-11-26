@@ -2192,11 +2192,7 @@ mod tests {
         let xor_name2 = XorName::random(&mut rand::thread_rng());
         let xor_name_unknown = XorName::random(&mut rand::thread_rng());
 
-        store.add_paid_for_entry(
-            Key::new(&xor_name1),
-            DataTypes::Chunk,
-            mock_proof.clone(),
-        );
+        store.add_paid_for_entry(Key::new(&xor_name1), DataTypes::Chunk, mock_proof.clone());
         store.add_paid_for_entry(
             Key::new(&xor_name2),
             DataTypes::GraphEntry,
